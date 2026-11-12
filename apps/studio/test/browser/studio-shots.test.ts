@@ -749,10 +749,47 @@ describe("the Studio's screenshot set", () => {
       await sizeWindow(context, page, 1440, 900);
       await openPage(page, studio, "editor", editorTake, thumbs);
       const zoomLane = '[data-track="zoom"]';
-      const first = await page
-        .locator(`${zoomLane} [data-segment]`)
-        .boundingBox();
-      if (first === null) throw new Error("the take's zoom is not drawn");
+      // Waited for, not read once (DEM-152): every render replaces
+      // `#timeline` whole, so a render landing between the locator's match
+      // and its box read answers null for a node just detached. A slow
+      // runner moved the editor's late renders past `#preview`'s paint.
+      // And the same box twice running, so a late render that rescales
+      // the lane cannot move it between this read and the click (review).
+      type Box = { x: number; y: number; width: number; height: number };
+      let first: Box;
+      let seen: Box | null = null;
+      try {
+        first = await vi.waitFor(
+          async () => {
+            const box = await page
+              .locator(`${zoomLane} [data-segment]`)
+              .boundingBox({ timeout: 1_000 });
+            const before = seen;
+            seen = box;
+            if (box === null || box.width === 0) {
+              throw new Error(`the segment's box is ${JSON.stringify(box)}`);
+            }
+            if (JSON.stringify(box) !== JSON.stringify(before)) {
+              throw new Error(
+                `the segment's box moved: ${JSON.stringify(before)} then ${JSON.stringify(box)}`,
+              );
+            }
+            return box;
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+      } catch (error) {
+        const missing = join(SHOTS, "editor-zoom-missing-1440x900-dark.png");
+        await page.screenshot({ path: missing });
+        const lane = await page.evaluate(
+          (sel) =>
+            document.querySelector(sel)?.outerHTML.slice(0, 600) ?? "no lane",
+          zoomLane,
+        );
+        throw new Error(
+          `the take's zoom is not drawn within ${PAINT_MS / 1000} s: ${String(error)}; lane: ${lane}; page: ${await pageEvidence(page)}; shot: ${missing}`,
+        );
+      }
       await page.mouse.click(
         first.x + first.width + 4,
         first.y + first.height / 2,

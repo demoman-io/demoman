@@ -32,6 +32,9 @@ const CAMERA_CHANGE = 2;
  *  can fall under CAMERA_CHANGE. */
 const PUSH_IN_MIN_MS = 900;
 
+/** What the take types; the page holds back the paint of its last key. */
+const TYPED = "48004800";
+
 const PAGE = `<!doctype html><meta charset=utf-8><title>Unhurried</title>
 <style>
   body { margin: 0; background: #fff; font: 16px sans-serif; }
@@ -44,7 +47,18 @@ const PAGE = `<!doctype html><meta charset=utf-8><title>Unhurried</title>
 </style>
 <input id="amount" aria-label="Amount">
 <div class="grid"></div>
-<button id="create">Create invoice</button>`;
+<button id="create">Create invoice</button>
+<script>
+  // The last key's paint held back one frame, 300 ms, after the key was
+  // handled: what CI's macOS runner did on its own (DEM-173), on any machine.
+  document.getElementById("amount").addEventListener("input", (e) => {
+    if (e.target.value !== ${JSON.stringify(TYPED)}) return;
+    requestAnimationFrame(() => {
+      const t = performance.now();
+      while (performance.now() - t < 300) {}
+    });
+  });
+</script>`;
 
 let server: Server;
 let url: string;
@@ -84,7 +98,7 @@ beforeAll(async () => {
       },
       steps: [
         { do: "waitForLoad" },
-        { do: "type", into: { stableId: "amount" }, text: "48004800" },
+        { do: "type", into: { stableId: "amount" }, text: TYPED },
         { do: "click", on: { text: "Create invoice" } },
         { do: "pause", ms: 800 },
       ],

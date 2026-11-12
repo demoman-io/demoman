@@ -12,6 +12,11 @@
   <!-- A code box: once it holds a character, focus moves to the next box. -->
   <input id="code1" type="text" maxlength="1">
   <input id="code2" type="text" maxlength="1">
+  <!-- Draws no animation frame for 1.5 s after a key: past the 1 s the type
+       verb waits for its last key's paint (DEM-173). -->
+  <input id="frozen" type="text">
+  <!-- Navigates on its first key: the document the key went into is gone. -->
+  <input id="leave" type="text">
   <script>
     document.getElementById("fmt").addEventListener("input", (e) => {
       const digits = e.target.value.replace(/\D/g, "");
@@ -19,6 +24,20 @@
     });
     document.getElementById("wipe").addEventListener("input", (e) => {
       e.target.value = "";
+    });
+    // The page's own requestAnimationFrame, saved once: saved per key, the
+    // second key would save the no-op and the last restore put it back.
+    const raf = window.requestAnimationFrame;
+    let frozenUntil = 0;
+    document.getElementById("frozen").addEventListener("input", () => {
+      window.requestAnimationFrame = () => 0;
+      frozenUntil = performance.now() + 1500;
+      setTimeout(() => {
+        if (performance.now() >= frozenUntil) window.requestAnimationFrame = raf;
+      }, 1500);
+    });
+    document.getElementById("leave").addEventListener("input", () => {
+      location.replace(location.href.split("?")[0] + "?left=1");
     });
     document.getElementById("code1").addEventListener("input", (e) => {
       if (e.target.value.length >= 1) document.getElementById("code2").focus();

@@ -25,6 +25,22 @@ function host(): HTMLElement {
   return box;
 }
 
+/** The knob, with every animation under `root` beside it: polled for
+ *  rather than read once after `finished` (DEM-169: CI's macOS runner read
+ *  16 after the awaited animations had finished), so a red run says which
+ *  animation was still where. */
+function knobAndAnimations(root: HTMLElement) {
+  return {
+    x: knobX(root),
+    animations: root
+      .getAnimations({ subtree: true })
+      .map(
+        (a) =>
+          `${(a as CSSAnimation).animationName ?? a.id} ${a.playState} @${String(a.currentTime)}`,
+      ),
+  };
+}
+
 afterAll(() => {
   document.body.replaceChildren();
   delete document.documentElement.dataset.theme;
@@ -55,10 +71,9 @@ describe("the shell's switch", () => {
     expect(x).toBeLessThan(16);
     // And it comes to rest on, at the full travel — the position "part-way"
     // was measured against — with nothing left to override the next click.
-    await Promise.all(
-      root.getAnimations({ subtree: true }).map((a) => a.finished),
-    );
-    expect(knobX(root)).toBe(16);
+    await expect
+      .poll(() => knobAndAnimations(root))
+      .toEqual({ x: 16, animations: [] });
     await expect
       .poll(() => root.querySelector(".switch")?.hasAttribute("data-flip"))
       .toBe(false);
@@ -78,10 +93,10 @@ describe("the shell's switch", () => {
     expect(input.checked).toBe(false);
     // Still where the click put it, about to slide home — not snapped there.
     expect(knobX(root), "the refused switch snapped back").toBe(16);
-    await Promise.all(
-      root.getAnimations({ subtree: true }).map((a) => a.finished),
-    );
-    expect(knobX(root)).toBe(0);
+    // Home, with nothing left running to override the next click.
+    await expect
+      .poll(() => knobAndAnimations(root))
+      .toEqual({ x: 0, animations: [] });
   });
 
   it("leaves a switch nobody clicked at rest", () => {

@@ -228,13 +228,20 @@ export async function serveLoginApp(
       // A client-side sign-in (DEM-60): the button posts with fetch, then the
       // form goes and the address is pushed, with no document load. `hold`
       // keeps the form, password field and all, that long after the post.
+      // `sync` posts with a synchronous XHR and moves inside the click
+      // handler, so the page is on /app before the click step returns
+      // (DEM-151: a fast page did this on CI's macOS runner).
       case "/login-spa": {
         const hold = Number(url.searchParams.get("hold") ?? "0");
+        const move = `f.remove();history.pushState(null,'','/app');document.body.insertAdjacentHTML('beforeend','<p>Welcome</p>')`;
+        const onClick = url.searchParams.has("sync")
+          ? `{const f=document.getElementById('signin');const x=new XMLHttpRequest();x.open('POST','/login',false);x.send(new URLSearchParams(new FormData(f)));${move}}`
+          : `{const f=document.getElementById('signin');fetch('/login',{method:'POST',body:new URLSearchParams(new FormData(f)),redirect:'manual'}).then(()=>setTimeout(()=>{${move}},${hold}))}`;
         html(
           page(
             "Sign in",
             `${form("/login", '<button type="button" id="go">Sign in</button>')}` +
-              `<script>document.getElementById('go').addEventListener('click',()=>{const f=document.getElementById('signin');fetch('/login',{method:'POST',body:new URLSearchParams(new FormData(f)),redirect:'manual'}).then(()=>setTimeout(()=>{f.remove();history.pushState(null,'','/app');document.body.insertAdjacentHTML('beforeend','<p>Welcome</p>')},${hold}))})</script>`,
+              `<script>document.getElementById('go').addEventListener('click',()=>${onClick})</script>`,
             "#ff00ff",
           ),
         );

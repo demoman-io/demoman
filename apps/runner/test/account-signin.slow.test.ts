@@ -280,6 +280,18 @@ describe("signInAccount", () => {
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
+  // DEM-151: the path compared against is the one the last step started on.
+  // Read after the steps, it was already /app when the page moved before
+  // the click returned, and the 10 s wait ran out (CI's macOS runner).
+  it("a client-side sign-in that moves before its click returns does not wait 10 s", async () => {
+    const { deps: d, logs } = deps();
+    const t0 = Date.now();
+    const r = await signInAccount(chosen(steps("/login-spa?sync=1")), d);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(Date.now() - t0, logs.join("\n")).toBeLessThan(6000);
+    expect(logs.join("\n")).not.toContain("no page navigation followed");
+  }, 30_000);
+
   // Review, finding 1. Red when a hidden password field alone ends the wait:
   // the form's own navigation comes a second later and checkUrl's visit would
   // cancel its post.

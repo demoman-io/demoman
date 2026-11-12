@@ -97,11 +97,12 @@ jobs:
   # Five macOS jobs, the free plan's macOS concurrency. The refresh lane
   # stays on Linux: five more macOS jobs would queue behind these.
   #
-  # Not blocking yet: their first run (2026-11-11) failed two tests that pass
-  # on Linux and on the author's Mac, DEM-151 (account-signin's 10 s wait)
-  # and DEM-152 (studio-shots' zoom block). A red macOS job still shows red
-  # on the run; it does not fail it. Drop `continue-on-error` once both are
-  # fixed.
+  # Not blocking yet: their first runs (2026-11-11/12) failed tests that pass
+  # on Linux and on the author's Mac — DEM-151, 152, 169, 171, 172 and 173,
+  # all fixed since. Two of those fixes (152, 171) wait and say more rather
+  # than prove a cause, so the flag stays until the macOS jobs have run green
+  # a few times. A red macOS job still shows red on the run; it does not
+  # fail it.
   packages:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
@@ -129,12 +130,15 @@ jobs:
         run: pnpm --filter @demoman/studio test
       # The pages' browser lane writes a screenshot for each failed case;
       # without this they die with the runner and a red run arrives
-      # without them.
+      # without them. The shots lane's folder too: a failed case there
+      # names the shot it took in its error (DEM-152).
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: studio-pages-failure-screenshots-${{ matrix.os }}
-          path: apps/studio/test/pages/browser/__screenshots__/
+          path: |
+            apps/studio/test/pages/browser/__screenshots__/
+            apps/studio/test/browser/__screenshots__/studio/
           if-no-files-found: ignore
 
   # vitest's --shard splits the lane's files across these jobs, each file in

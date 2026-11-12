@@ -10,6 +10,16 @@ import type { LibraryActions } from "./view";
 /** How long a pause ends a type-ahead search. */
 export const TYPE_AHEAD_MS = 500;
 
+let typeAheadMs = TYPE_AHEAD_MS;
+
+/** Tests only: sets the pause that ends a search (null restores
+ *  `TYPE_AHEAD_MS`), so a case that proves a click ends one does not
+ *  depend on a real click landing within 500 ms (DEM-172: 669 ms on CI's
+ *  macOS runner). */
+export function setTypeAheadMsForTests(ms: number | null): void {
+  typeAheadMs = ms ?? TYPE_AHEAD_MS;
+}
+
 /** Where focus last was in each grid: a row's key (`HEAD_KEY` for the
  *  column headings), and the column of the cell in it (null on the row
  *  itself). Read to put focus back after a redraw. */
@@ -216,7 +226,7 @@ export function attachListKeys(
 
     // A pause, or focus moved since (a click), ends a search.
     const searching =
-      event.timeStamp - typedAt <= TYPE_AHEAD_MS &&
+      event.timeStamp - typedAt <= typeAheadMs &&
       document.activeElement === left;
     // A Space inside a search is part of the name ("Export a…"); else it
     // selects, below.

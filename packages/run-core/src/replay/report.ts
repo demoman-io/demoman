@@ -107,6 +107,9 @@ export interface StepReport {
   fieldHolds?: { value: string; holds: boolean };
   /** A `type` whose field could not be read back: why. Not a divergence. */
   fieldRead?: { unavailable: string };
+  /** A `type` whose last key the page was not seen to paint: why. The step
+   *  ended at the bound, so the camera may leave before the value shows. */
+  lastKeyPaint?: { unconfirmed: string };
   /** A `waitForLoad` that was met: false when no load started since the
    *  previous step began — a note, not a divergence. */
   loadSeen?: boolean;
@@ -462,6 +465,9 @@ function toStepReport(step: AuthoredStep): StepReport {
     ...(step.waitSaw === undefined ? {} : { waitSaw: step.waitSaw }),
     ...(step.fieldHolds === undefined ? {} : { fieldHolds: step.fieldHolds }),
     ...(step.fieldRead === undefined ? {} : { fieldRead: step.fieldRead }),
+    ...(step.lastKeyPaint === undefined
+      ? {}
+      : { lastKeyPaint: step.lastKeyPaint }),
     ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }

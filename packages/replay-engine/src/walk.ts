@@ -213,6 +213,12 @@ export interface WalkStep {
     read: { value: string; holds: boolean } | { unavailable: string },
   ): void;
   /**
+   * Called for a `type` whose last key the page was not seen to paint
+   * (`lastKeyPainted`), with why. The step's end is then the bound, not the
+   * paint, and the camera may leave before the value shows (DEM-173).
+   */
+  onLastKeyUnpainted?(why: string): void;
+  /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
    * uses for a recorded pace. In continuous recording the walk waits it out
@@ -3101,6 +3107,7 @@ export async function runWalk(
                 sightings,
                 clock.sleep,
                 step.onFieldRead,
+                step.onLastKeyUnpainted,
               ),
         );
         // The page may now look different however little it painted: the
@@ -3145,6 +3152,7 @@ export async function runWalk(
                 sightings,
                 clock.sleep,
                 step.onFieldRead,
+                step.onLastKeyUnpainted,
               ),
         );
         const spansBefore = motionSpans.length;
@@ -3432,6 +3440,7 @@ async function performVerb(
   sightings: ClickSightings,
   sleep: (ms: number) => Promise<void>,
   onFieldRead?: WalkStep["onFieldRead"],
+  onLastKeyUnpainted?: WalkStep["onLastKeyUnpainted"],
 ): Promise<ClickVerdict | null> {
   // Every click is checked: the page is asked where the press and the
   // release arrived, against the point both were sent to (`click-probe.ts`).
@@ -3515,6 +3524,8 @@ async function performVerb(
       }
       const typed = typeof text === "string" ? text : "";
       await typeKeys(typed, cdp, sleep);
+      const unpainted = await lastKeyPainted(cdp, objectId);
+      if (unpainted !== null) onLastKeyUnpainted?.(unpainted);
       if (onFieldRead !== undefined) {
         // The read is a courtesy to the verdict: a refused one does not end
         // the take, but the step says it could not be read and why.
@@ -3608,6 +3619,49 @@ async function typeKeys(
     await cdp.send("Input.insertText", { text: key });
   }
 }
+
+/**
+ * Waits for the page to draw the last key: two animation frames, so the
+ * frame the key went into has been produced. `Input.insertText` resolves
+ * once the renderer handled the key, not once it painted it, and the act's
+ * end is stamped when the verb returns: on CI's macOS runner the last glyph
+ * reached the film 367 ms after that, and the camera left before the value
+ * showed (DEM-173). Bounded by `ACT_CEILING_MS`, since a page that draws no
+ * frames would otherwise hold the walk. Asked of the field itself, so the
+ * frame timed is the field's own (an iframe's, for a field in one). Null
+ * once drawn, or when the key took the document away (an OTP box that
+ * submits on its last digit): there is no paint of it left to wait for, and
+ * the load is what the film shows next. Otherwise why not.
+ */
+async function lastKeyPainted(
+  cdp: CdpSession,
+  objectId: string,
+): Promise<string | null> {
+  try {
+    const drawn = evaluatedValue(
+      await cdp.send("Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: `function () { const w = this.ownerDocument.defaultView; return new Promise((r) => { const t = w.setTimeout(() => r(false), ${ACT_CEILING_MS}); w.requestAnimationFrame(() => w.requestAnimationFrame(() => { w.clearTimeout(t); r(true); })); }); }`,
+        awaitPromise: true,
+        returnByValue: true,
+      }),
+    );
+    if (drawn === true) return null;
+    if (drawn === false) {
+      return `the page drew no frame within ${ACT_CEILING_MS} ms of the last key`;
+    }
+    return "the paint check answered with nothing readable";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (DOCUMENT_GONE.test(message)) return null;
+    return `the paint check failed (${message})`;
+  }
+}
+
+/** What CDP says when the field's document went away under a call: a
+ *  navigation, which `lastKeyPainted` does not count as a missed paint. */
+const DOCUMENT_GONE =
+  /Execution context was destroyed|Cannot find context with specified id|Could not find object with given id|Inspected target navigated or closed/;
 
 function blankCounters(
   viewport: { width: number; height: number },
