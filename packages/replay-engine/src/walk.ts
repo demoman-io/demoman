@@ -17,6 +17,7 @@ import {
   coversViewport,
   type Degradation,
   type FrameBundle,
+  heldThroughEndMs,
   type KeyframeEntry,
   type MadeFromStep,
   type PageScreen,
@@ -362,14 +363,17 @@ const RANGE_READ = `function () {
  * and its span closed, `zoomOutMs` when the camera is back at full frame
  * after the latest zoom at or before the step (`RoomPolicy.settledAfterMs`,
  * the number the tail itself asks), null before any zoom or with no room.
- * Under a tail trimmed `after: "action"` that zoom is held through the cut
- * the trim would make at this step, as the tail films it.
+ * `heldEndMs`, only under a tail trimmed `after: "action"`: where that zoom
+ * lands when it is held through the cut the trim would make at this step
+ * (`heldThroughEndMs`), absent when its own pull-out starts at or after the
+ * cut. The take films through it, and the run writes it as the zoom's `end`.
  */
 export interface StepTiming {
   markerMs: number;
   startMs: number;
   finishMs: number;
   zoomOutMs: number | null;
+  heldEndMs?: number;
 }
 
 export interface WalkSource {
@@ -449,11 +453,8 @@ export interface RoomPolicy {
    * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
    * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
    * on until then, so the decision is recorded in its frames.
-   * `holdThroughMs`: the pull-out starts no earlier (`pullOutLandsAt`), for
-   * a tail trimmed `after: "action"`. The result is the landing plus
-   * `SETTLE_MS`.
    */
-  settledAfterMs(heldUntilMs: number, holdThroughMs?: number): number;
+  settledAfterMs(heldUntilMs: number): number;
 }
 
 export interface EngineDeps {
@@ -798,11 +799,9 @@ export async function runWalk(
   /** The last counted step's finish, for `config.tail`. Cast so the
    *  checker does not narrow it to `null`: `stepFinished` sets it. */
   let lastFinishAt = null as number | null;
-  /** Where a tail trimmed `after: "action"` at a step finished at `finishAt`
-   *  cuts: the zoom holds through it, so the video ends on the close-up
-   *  (DEM-178). Undefined for any other tail. */
-  const holdThrough = (finishAt: number): number | undefined =>
-    config.tail?.after === "action" ? finishAt + config.tail.ms : undefined;
+  /** The last counted step's `heldEndMs`, on the walk's clock, for the
+   *  tail: what the trim's held zoom needs filmed. */
+  let lastHeldEndAt = null as number | null;
   /**
    * The one place a step's finish is measured: where the walk counts it,
    * after its verb returned and (sampled) its span closed. It moves with the
@@ -818,14 +817,23 @@ export async function runWalk(
     const atMs = at();
     const zoomOutAtMs =
       room !== undefined && lastHeldUntil !== null
-        ? room.settledAfterMs(lastHeldUntil, holdThrough(atMs))
+        ? room.settledAfterMs(lastHeldUntil)
         : null;
     lastFinishAt = atMs;
+    lastHeldEndAt =
+      room !== undefined &&
+      lastHeldUntil !== null &&
+      config.tail?.after === "action"
+        ? heldThroughEndMs(lastHeldUntil, atMs + config.tail.ms)
+        : null;
     source.onFinished?.(actionId, {
       markerMs,
       startMs: startedAt - markerMs,
       finishMs: atMs - markerMs,
       zoomOutMs: zoomOutAtMs === null ? null : zoomOutAtMs - markerMs,
+      ...(lastHeldEndAt === null
+        ? {}
+        : { heldEndMs: lastHeldEndAt - markerMs }),
     });
   };
 
@@ -3215,10 +3223,7 @@ export async function runWalk(
       if (reason === null && lastMarkerAt !== undefined) {
         const settledAt =
           room !== undefined && lastHeldUntil !== null
-            ? room.settledAfterMs(
-                lastHeldUntil,
-                lastFinishAt === null ? undefined : holdThrough(lastFinishAt),
-              )
+            ? room.settledAfterMs(lastHeldUntil)
             : Number.NEGATIVE_INFINITY;
         // The script's end trim, which needs at least its own `ms` filmed
         // after the last step's finish (or its zoom-out) to have it to keep.
@@ -3228,8 +3233,14 @@ export async function runWalk(
             : (config.tail.after === "zoomOut"
                 ? Math.max(lastFinishAt, settledAt)
                 : lastFinishAt) + config.tail.ms;
+        // A zoom held through the cut (`heldEndMs`) is filmed to its end
+        // and a settle, or the camera's end clamp would cut its return.
+        const held =
+          lastHeldEndAt === null
+            ? Number.NEGATIVE_INFINITY
+            : lastHeldEndAt + SETTLE_MS;
         const tail =
-          Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked) - at();
+          Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held) - at();
         if (tail > 0) await clock.sleep(tail);
       }
       await clock.sleep(SPAN_QUIET_MS);

@@ -640,21 +640,30 @@ export function returnsBetween(
  * pull-out. Exported because the replay asks it too (spec 2026-10-30 F): a
  * take runs on until this has landed, so the walk and the camera must
  * answer alike.
- *
- * `holdThroughMs`: an instant the pull-out may not start before. A script
- * that ends `after: "action"` asks for the close-up at its cut, and a step
- * that finishes later than the hold would otherwise end on the pull-out
- * (DEM-178); the run records the landing as the zoom's `end`.
  */
 export function pullOutLandsAt(
   heldUntilMs: number,
   timings: Pick<MotionTimings, "zoomOutMs">,
-  holdThroughMs = Number.NEGATIVE_INFINITY,
 ): number {
-  return (
-    Math.max(heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs, holdThroughMs) +
-    timings.zoomOutMs
-  );
+  return heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs + timings.zoomOutMs;
+}
+
+/**
+ * Where a zoom held until `heldUntilMs` lands when a video that ends at
+ * `cutMs` must end on its close-up (a script's `trim.end.after: "action"`,
+ * DEM-178), or null when its own pull-out starts no earlier than the cut and
+ * nothing needs holding. The landing allows the slowest pull-out any
+ * smoothness gives, so a smoothness changed after the run still starts the
+ * pull-out at or after the cut. The walk asks it once per step and records
+ * it; the run writes it as that zoom's `end`, and the take films through it.
+ */
+export function heldThroughEndMs(
+  heldUntilMs: number,
+  cutMs: number,
+): number | null {
+  return cutMs > heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs
+    ? cutMs + motionTimings(1).zoomOutMs
+    : null;
 }
 
 function insertNeutralKeys(

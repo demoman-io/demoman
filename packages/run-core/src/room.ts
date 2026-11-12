@@ -54,8 +54,8 @@ export function createRoomPolicy(
         ? 0
         : pushIn,
     // The camera's own landing, plus a settle so the film ends still.
-    settledAfterMs: (heldUntilMs, holdThroughMs) =>
-      pullOutLandsAt(heldUntilMs, timings, holdThroughMs) + SETTLE_MS,
+    settledAfterMs: (heldUntilMs) =>
+      pullOutLandsAt(heldUntilMs, timings) + SETTLE_MS,
     zooms({ actionId, anchorId, rect, unwaitedMs, scale }) {
       const id = `click-${++clicks}`;
       const decided = decideZoom(

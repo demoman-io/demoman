@@ -170,14 +170,4 @@ describe("createRoomPolicy", () => {
     ).toBe(1000 + 1200 + 1150 + 300);
     expect(CAMERA_DEFAULTS.neutral.zoomHoldMs).toBe(1200);
   });
-
-  // DEM-178: a tail trimmed `after: "action"` holds the zoom through its cut.
-  it("starts the pull-out no earlier than an instant it is held through", () => {
-    const room = createRoomPolicy(viewport, MOTION_DEFAULTS);
-    // A cut after the hold would have started out: the pull-out waits for it.
-    expect(room.settledAfterMs(1000, 4000)).toBe(4000 + 925 + 300);
-    // A cut inside the hold changes nothing.
-    expect(room.settledAfterMs(1000, 1500)).toBe(room.settledAfterMs(1000));
-    expect(room.settledAfterMs(1000)).toBe(1000 + 1200 + 925 + 300);
-  });
 });
