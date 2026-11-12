@@ -143,13 +143,6 @@ export interface FrameEncoder {
  * What the last replay of a scene did, in the four numbers a surface needs
  * to say something true about it.
  *
- * Stored beside that scene's frames rather than derived from telemetry.
- * Telemetry's event carries the same four values, but that store is a
- * byte-capped ring buffer that evicts oldest-first on its way to an upload
- * envelope: a scene whose replay failed would silently start reading as
- * "never ran" once enough later scenes pushed its event out. Same numbers,
- * different lifetimes, and the duplication is deliberate.
- *
  * The absence of a status is itself the fact a caller needs: **no status
  * means no replay has been run for this scene**, which is a different thing
  * from a replay that ran and stopped, and the two must not present alike.
@@ -386,7 +379,7 @@ export type ReplayStopReason =
    * which is the adapter reporting it could not attach in the first place —
    * this one means the run had started and something under it gave way. The
    * message is not carried here: it can hold page content, so it goes to the
-   * progress channel as a `failed` note and never into telemetry.
+   * progress channel as a `failed` note.
    */
   | "portFailure"
   /**
@@ -404,9 +397,7 @@ export type ReplayStopReason =
    */
   | "noActions";
 
-/** Everything one run learned, in numbers. Turning these into a telemetry
- *  event is Task 15's job: the engine has no clock for `at` and no source of
- *  ids, and both belong to the adapter that owns them. */
+/** Everything one run learned, in numbers. */
 export interface ReplayCounters {
   actions: number;
   completed: number;

@@ -1,6 +1,6 @@
 import type { ReplayResult, ReplayStatus } from "@demoman/replay-engine";
 
-/** Unique for the life of a run: anchor ids, action ids, telemetry ids and
+/** Unique for the life of a run: anchor ids, action ids and
  *  bridge request ids all need one, and every one of them is required to be
  *  unique inside the thing it names. */
 export const newId = (prefix: string): string =>

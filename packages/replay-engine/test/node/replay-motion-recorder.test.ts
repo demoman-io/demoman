@@ -211,7 +211,7 @@ describe("motion recorder intake", () => {
         note: "3 of 6 motion frames skipped (inFlight)",
       },
     ]);
-    // The counters still count frames: telemetry's numbers do not change.
+    // The counters still count frames.
     expect(h.counters.budgetBreaches).toBe(3);
     expect(h.counters.droppedMotionFrames).toBe(3);
   });

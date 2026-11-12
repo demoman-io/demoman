@@ -101,7 +101,6 @@ const base = {
     blocking: [],
     advisory: [],
     posterFailed: false,
-    telemetryDropped: false,
     error: null,
     ref: null,
   },

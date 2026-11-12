@@ -19,7 +19,6 @@ export * from "./refilm/edited.js";
 export * from "./refilm/merge.js";
 export * from "./refilm/skeleton.js";
 export * from "./refresh-list.js";
-export * from "./replay/event.js";
 export * from "./replay/fidelity.js";
 export * from "./replay/film.js";
 export * from "./replay/recording.js";
@@ -42,7 +41,6 @@ export type {
   SnapshotTarget,
   SnapshotWalk,
 } from "./snapshot-walk.js";
-export type { TelemetryEvent } from "./telemetry-event.js";
 export * from "./url.js";
 export * from "./video-name.js";
 export { webpSize } from "./webp-size.js";

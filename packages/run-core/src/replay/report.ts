@@ -207,8 +207,8 @@ export interface RunReport {
   refused?: { reason: ReplayRefusal; routes: NoticeRoute[] };
   /**
    * What the run owed the library and did not put there, in the order it tried:
-   * the take itself, the run status the editor reads a rebuild's outcome from,
-   * and the telemetry event. Each carries what went wrong — a store that
+   * the take itself and the run status the editor reads a rebuild's outcome
+   * from. Each carries what went wrong — a store that
    * refused the write, or (for the take) a document the schema refused, which
    * is the only other way a run that measured its steps ends with nothing in
    * the library.
@@ -224,14 +224,7 @@ export interface RunReport {
    * or the event.
    */
   notStored?: {
-    what:
-      | "take"
-      | "status"
-      | "script"
-      | "telemetry"
-      | "renderMode"
-      | "session"
-      | "video";
+    what: "take" | "status" | "script" | "renderMode" | "session" | "video";
     error: string;
   }[];
   /** The video the take joined, and its version number there (local video

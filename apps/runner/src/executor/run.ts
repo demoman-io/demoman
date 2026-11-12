@@ -501,8 +501,6 @@ export async function runScript(
   //
   // In this order, and every failure named: the document first, because
   // nothing — not the status, not the frames — can be found without it.
-  // Differs from the extension: no telemetry event (the CLI has no uploader;
-  // global constraints, "No telemetry store in the CLI").
   const notStored: NonNullable<RunReport["notStored"]> = [];
   let takeId: string | null = null;
   // No take for a signed-out run: before filming there is nothing to keep,

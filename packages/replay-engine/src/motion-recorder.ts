@@ -32,7 +32,7 @@ export interface MotionRecorderDeps {
    *  scale of. See `coversViewport`. */
   viewport: { width: number; height: number };
   /** Shared with the engine and mutated in place: every count below is the
-   *  engine's own counter, persisted and turned into telemetry. */
+   *  engine's own counter. */
   counters: ReplayCounters;
   /** Shared with the engine and pushed to, for the same reason. */
   degradations: Degradation[];
