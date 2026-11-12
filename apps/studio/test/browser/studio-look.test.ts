@@ -294,33 +294,43 @@ describe("controls", () => {
       expect(focused, "Tab reached a Pull requests segment").toBe(true);
       // Settings scrolls smoothly; bring the segment to the middle at once,
       // so the rect is the one the screenshot paints.
-      const ring = await page.evaluate(() => {
+      await page.evaluate(() =>
         (document.activeElement as HTMLElement).scrollIntoView({
           block: "center",
           behavior: "instant",
-        });
-        const r = (
-          document.activeElement as HTMLElement
-        ).getBoundingClientRect();
-        const el = document.activeElement as HTMLElement;
-        const cs = getComputedStyle(el);
-        return {
-          x: r.left + r.width / 2,
-          y: r.top - 3,
-          evidence: {
-            visible: el.matches(":focus-visible"),
-            outline: cs.outline,
-            offset: cs.outlineOffset,
-            top: r.top,
-            text: el.textContent,
-          },
-        };
-      });
-      const [outline] = await pixelsAt(page, [[ring.x, ring.y]]);
-      expect(
-        distance(outline as Rgb, [244, 244, 245]),
-        `the focus ring paints ${JSON.stringify(outline)}; ${JSON.stringify(ring)}`,
-      ).toBeLessThanOrEqual(16);
+        }),
+      );
+      // Rect and pixel read together until the ring paints, not once
+      // (DEM-171: CI's macOS runner sampled the ground 3px above a focused,
+      // outlined segment — a scroll still moving it is the likely gap).
+      await vi.waitFor(
+        async () => {
+          const ring = await page.evaluate(() => {
+            const el = document.activeElement as HTMLElement;
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            return {
+              x: r.left + r.width / 2,
+              y: r.top - 3,
+              evidence: {
+                visible: el.matches(":focus-visible"),
+                outline: cs.outline,
+                offset: cs.outlineOffset,
+                top: r.top,
+                text: el.textContent,
+                scrollY,
+                innerHeight,
+              },
+            };
+          });
+          const [outline] = await pixelsAt(page, [[ring.x, ring.y]]);
+          expect(
+            distance(outline as Rgb, [244, 244, 245]),
+            `the focus ring paints ${JSON.stringify(outline)}; ${JSON.stringify(ring)}`,
+          ).toBeLessThanOrEqual(16);
+        },
+        { timeout: 5_000, interval: 100 },
+      );
     },
     LANE_MS,
   );
