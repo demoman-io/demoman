@@ -32,15 +32,6 @@ import {
   spotIn,
 } from "@demoman/scene-schema";
 import { actEndOf } from "./act-end.js";
-
-// biome-ignore lint/suspicious/noExplicitAny: temporary debug
-const __proc = (globalThis as any).process;
-const __dbg = (o: unknown): void => {
-  const f = __proc?.env?.DEMOMAN_STILL_LOG;
-  if (f)
-    __proc.getBuiltinModule("fs").appendFileSync(f, `${JSON.stringify(o)}\n`);
-};
-
 import { withAnswerDeadline } from "./answer-deadline.js";
 import {
   CLICK_DRIFT_PX,
@@ -751,7 +742,6 @@ export async function runWalk(
   if (!deps.mayReplay) return empty("mutating");
 
   const started = clock.now();
-  __dbg({ ev: "walkStart" });
   const at = (): number => clock.now() - started;
   const continuous = deps.recording === "continuous";
   /** Continuous only: whether the opening still has been taken, and so
@@ -980,7 +970,6 @@ export async function runWalk(
       }),
     );
     captureEndedMs = at();
-    __dbg({ ev: "takeShotEnd", actionId, atMs: captureEndedMs });
     if (sealed) return;
     await fileStill(decodeBase64(String(reply.data ?? "")), actionId, at());
   };
@@ -1081,14 +1070,6 @@ export async function runWalk(
    */
   const stepStill = (actionId: string): Promise<void> => {
     const run = shooting.then(async () => {
-      __dbg({
-        ev: "stepStillDecide",
-        actionId,
-        nowMs: at(),
-        captureEndedMs,
-        newest: newestFrame?.atMs,
-        prior: priorFrame?.atMs,
-      });
       const frame = await standInFrame(
         {
           newest: newestFrame,
@@ -1101,12 +1082,6 @@ export async function runWalk(
       );
       if (sealed) return;
       const bytes = frame === null ? null : frameBytes(frame.data);
-      __dbg({
-        ev: "stepStillDecided",
-        actionId,
-        nowMs: at(),
-        standIn: frame?.atMs ?? null,
-      });
       if (frame === null || bytes === null) return takeShot(actionId);
       await fileStill(bytes, actionId, frame.atMs);
     });
@@ -1413,7 +1388,6 @@ export async function runWalk(
         } | null = null;
         let failure: unknown = null;
         pageFrames.hold();
-        __dbg({ ev: "hold", atMs: at() });
         try {
           const g = evaluatedValue(
             await cdp.send("Runtime.evaluate", {
@@ -1441,7 +1415,6 @@ export async function runWalk(
             clip: { x, y, width, height, scale: 1 / dpr },
           });
           captureEndedMs = at();
-          __dbg({ ev: "pageCaptureEnd", atMs: captureEndedMs });
           taken = {
             bytes: decodeBase64(String(shot.data ?? "")),
             held,
@@ -1464,7 +1437,6 @@ export async function runWalk(
           releaseFailed = describeSettleError(error);
         }
         pageFrames.release();
-        __dbg({ ev: "release", atMs: at() });
         return { taken, failure, releaseFailed };
       }),
     );
@@ -1632,7 +1604,6 @@ export async function runWalk(
     onSettled: (settledAt, frames) => {
       if (frames < SPAN_MIN_FRAMES && !stillOwed) return;
       stillOwed = false;
-      __dbg({ ev: "settledStillAsk", settledAt, frames, nowMs: at() });
       void settledStill(settledAt);
     },
   });
@@ -1658,35 +1629,7 @@ export async function runWalk(
     const stamp = (params.metadata as { timestamp?: unknown } | undefined)
       ?.timestamp;
     const painted = typeof stamp === "number" ? stamp * 1000 : arrived;
-    if (pageFrames.dropping(data, painted)) {
-      __dbg({
-        ev: "frameDropped",
-        atMs: arrived - started,
-        paintedMs: painted - started,
-        size: (() => {
-          try {
-            const z = jpegSize(decodeBase64(data));
-            return z.width;
-          } catch {
-            return null;
-          }
-        })(),
-      });
-      return;
-    }
-    __dbg({
-      ev: "frame",
-      atMs: arrived - started,
-      paintedMs: painted - started,
-      size: (() => {
-        try {
-          const z = jpegSize(decodeBase64(data));
-          return z.width;
-        } catch {
-          return null;
-        }
-      })(),
-    });
+    if (pageFrames.dropping(data, painted)) return;
     pageFrames.seen(data);
     const seen = { data: String(params.data ?? ""), atMs: arrived - started };
     priorFrame = newestFrame;

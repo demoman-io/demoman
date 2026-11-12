@@ -21,7 +21,6 @@ import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { ownVideo, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
-import { stillLog } from "./still-log.js";
 
 // Measured as executor-export.slow.test.ts measures its own (x5 for CI): a run
 // of the fixture app with two clicks, and a 16:9 export capped at 1080p.
@@ -302,7 +301,6 @@ describe("a script's trim, on the decoded video", () => {
         action: cropped.last,
         zoomOut: full.last,
         trims: [toAction.scene.edits.trim, toZoomOut.scene.edits.trim],
-        stillLog: stillLog(),
       });
       expect(greenEdges(full.last), evidence).toBe(4);
       expect(greenEdges(cropped.last), evidence).toBeLessThanOrEqual(2);
@@ -370,7 +368,6 @@ describe("a click's zoom, on the decoded video", () => {
         zoomedCamera: zoomed.scene.camera,
         zoomedDetail: zoomedPicture.detail,
         zoomedStills: await stillsOf(zoomed),
-        stillLog: stillLog(),
       });
       expect(withZoom.length, evidence).toBeGreaterThanOrEqual(6);
       expect(without.length, evidence).toBeGreaterThanOrEqual(6);
