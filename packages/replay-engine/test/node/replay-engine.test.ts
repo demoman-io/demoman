@@ -1803,8 +1803,8 @@ describe("runReplay", () => {
     expect(result.completed).toBe(1);
     expect(result.bundle?.markers.map((m) => m.actionId)).toEqual(["act-1"]);
     // Both facts survive: the reason is the stop, the note has the write —
-    // and `storageRefused` is what carries the write into telemetry, which
-    // the note deliberately never reaches.
+    // and `storageRefused` is what carries the write into the run report
+    // (`frames.storageRefused`).
     expect(result.storageRefused).toBe(true);
     expect(notes).toEqual(["bundle not persisted: QuotaExceededError"]);
   });
@@ -1911,7 +1911,7 @@ describe("runReplay", () => {
    * The test below mocks the guard entirely, so the pause accounting on the
    * timeout path — `pauses` and the `pausedMs` charged before it gives up —
    * is never executed by anything. Those two numbers are the whole of what
-   * telemetry knows about occlusion, and nothing would notice them going to
+   * the counters say about occlusion, and nothing would notice them going to
    * zero.
    */
   it("charges the pause and its duration when the window never comes back", async () => {

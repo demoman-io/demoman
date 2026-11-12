@@ -115,10 +115,9 @@ export interface StepReport {
   loadSeen?: boolean;
 }
 
-/** Which executor ran the script: the CLI's own Chromium (spec 2026-10-12),
- *  or the retired browser extension on an older report. Every report says
- *  so. */
-export type Executor = "extension" | "cli";
+/** Which executor ran the script: the CLI's own Chromium (spec 2026-10-12).
+ *  Every report says so. */
+export type Executor = "cli";
 
 /** The code a run filmed: the tree on disk when it started (every file git
  *  would commit, tracked or untracked but not ignored), the commit it sat on
@@ -206,12 +205,12 @@ export interface RunReport {
   };
   refused?: { reason: ReplayRefusal; routes: NoticeRoute[] };
   /**
-   * What the run owed the library and did not put there, in the order it tried:
+   * What the run owed the library and did not put there, in the order it tries:
    * the take itself, the run status the editor reads a rebuild's outcome from,
-   * and the telemetry event. Each carries what went wrong — a store that
-   * refused the write, or (for the take) a document the schema refused, which
-   * is the only other way a run that measured its steps ends with nothing in
-   * the library.
+   * the video the take joins, its script, and the site's session written back.
+   * Each carries what went wrong — a store that refused the write, or (for
+   * the take) a document the schema refused, which is the only other way a
+   * run that measured its steps ends with nothing in the library.
    *
    * Absent when every one landed. Present, and `verdictLine` leads with it —
    * whatever else the run has to say, the library does not hold what the
@@ -220,18 +219,11 @@ export interface RunReport {
    * `provenance.takeId` is null whenever `"take"` is in here: an id nothing
    * can open reads exactly like one that can, and a caller handed one would
    * try to open it. It is non-null when only a later write failed, because the
-   * take IS in the library and can be opened — what is missing is the status
-   * or the event.
+   * take IS in the library and can be opened — what is missing is part of
+   * its record.
    */
   notStored?: {
-    what:
-      | "take"
-      | "status"
-      | "script"
-      | "telemetry"
-      | "renderMode"
-      | "session"
-      | "video";
+    what: "take" | "status" | "script" | "renderMode" | "session" | "video";
     error: string;
   }[];
   /** The video the take joined, and its version number there (local video

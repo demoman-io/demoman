@@ -3268,7 +3268,7 @@ export async function runWalk(
   } catch (error) {
     // The message can carry page content — a URL, a form value echoed back in
     // an error — so it goes to the live progress channel and not into the
-    // bundle or the counters, which are persisted and become telemetry. What
+    // bundle or the counters, which outlive the run. What
     // travels is the structured reason.
     reason =
       error instanceof DeviceEmulationError ? "deviceFailed" : "portFailure";

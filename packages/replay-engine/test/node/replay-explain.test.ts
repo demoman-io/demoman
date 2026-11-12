@@ -122,8 +122,8 @@ describe("reasonSentence", () => {
 describe("failedStep", () => {
   /**
    * The whole point. `completed: 4` means four actions replayed, so the
-   * FIFTH is the one that failed — and working that out by hand from
-   * telemetry is what this exists to stop.
+   * FIFTH is the one that failed — and working that out by hand is what
+   * this exists to stop.
    */
   it("names the action after the last one that completed", () => {
     const step = failedStep(scene(), status());
