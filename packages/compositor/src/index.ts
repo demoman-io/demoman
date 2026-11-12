@@ -31,6 +31,7 @@ export {
   clampCameraCenter,
   fitScaleFor,
   frameCamera,
+  heldThroughEndMs,
   MIN_PAN_MS,
   type MotionTimings,
   motionTimings,

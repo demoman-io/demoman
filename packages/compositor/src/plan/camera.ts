@@ -648,6 +648,24 @@ export function pullOutLandsAt(
   return heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs + timings.zoomOutMs;
 }
 
+/**
+ * Where a zoom held until `heldUntilMs` lands when a video that ends at
+ * `cutMs` must end on its close-up (a script's `trim.end.after: "action"`,
+ * DEM-178), or null when its own pull-out starts no earlier than the cut and
+ * nothing needs holding. The landing allows the slowest pull-out any
+ * smoothness gives, so a smoothness changed after the run still starts the
+ * pull-out at or after the cut. The walk asks it once per step and records
+ * it; the run writes it as that zoom's `end`, and the take films through it.
+ */
+export function heldThroughEndMs(
+  heldUntilMs: number,
+  cutMs: number,
+): number | null {
+  return cutMs > heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs
+    ? cutMs + motionTimings(1).zoomOutMs
+    : null;
+}
+
 function insertNeutralKeys(
   seeds: Seed[],
   outputDurationMs: number,

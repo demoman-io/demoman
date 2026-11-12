@@ -1257,7 +1257,7 @@ export function assembleAuthored(
     // The caller's (`AuthoredDeps.cameraFor`): a zoom on every click, as a
     // recorded take opens with. Spec 2026-10-01 §1.2. The clicks it left out
     // ride beside it, as `finalize` writes them: only when there is one.
-    camera: args.camera.camera,
+    camera: holdZoomThroughCut(args.camera.camera, args.actions, trim.held),
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
@@ -1334,6 +1334,12 @@ export function assembleAuthored(
  * tail lands past the last thing filmed, as on a run the walk stopped
  * before its tail sleep. Written there, the compositor would clamp it to
  * the take's end and say nothing (`resolveRange`).
+ *
+ * An end `after: "action"` whose step the walk held a zoom through
+ * (`StepTiming.heldEndMs`) also returns `held`, that zoom's landing as a
+ * marker on the step, for `holdZoomThroughCut` (DEM-178). Not when the film
+ * stops short of it: the compositor would clamp the end and say the zoom
+ * could not reach it, which is not why.
  */
 function trimFromScript(
   script: DemoScript,
@@ -1342,9 +1348,11 @@ function trimFromScript(
 ): {
   trim?: { head?: SceneMarker; tail?: SceneMarker };
   clamped?: NonNullable<AuthoredResult["trimClamped"]>;
+  held?: SceneMarker;
   unplaced: ("start" | "end")[];
 } {
   const unplaced: ("start" | "end")[] = [];
+  let held: SceneMarker | undefined;
   const asked = script.trim;
   if (asked === undefined) return { unplaced };
   const performed = (index: number | null) => {
@@ -1384,14 +1392,48 @@ function trimFromScript(
           : finishMs;
       const offsetMs = base + asked.end.ms;
       if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
-      else trim.tail = { actionId: at.actionId, offsetMs };
+      else {
+        trim.tail = { actionId: at.actionId, offsetMs };
+        const { heldEndMs } = at.timing;
+        if (
+          asked.end.after === "action" &&
+          heldEndMs !== undefined &&
+          markerMs + heldEndMs <= filmedThrough
+        )
+          held = { actionId: at.actionId, offsetMs: heldEndMs };
+      }
     }
   }
   return {
     ...(trim.head === undefined && trim.tail === undefined ? {} : { trim }),
     ...(clamped === undefined ? {} : { clamped }),
+    ...(held === undefined ? {} : { held }),
     unplaced,
   };
+}
+
+/**
+ * `camera` with `held` as the end of the zoom the walk held through the
+ * trim's cut: the latest zoom at or before `held`'s step, as the walk counts
+ * it (`lastHeldUntil`). Only when it is the take's last zoom; a zoom after
+ * the step is cut with it, and the end would be bounded by its push-in.
+ */
+function holdZoomThroughCut(
+  camera: SceneDocument["camera"],
+  actions: SceneAction[],
+  held: SceneMarker | undefined,
+): SceneDocument["camera"] {
+  if (held === undefined) return camera;
+  const order = new Map(actions.map((a, i) => [a.id, i]));
+  const step = order.get(held.actionId);
+  let last = -1;
+  camera.forEach((c, i) => {
+    if (c.kind === "zoom") last = i;
+  });
+  const zoom = camera[last];
+  const at = zoom === undefined ? undefined : order.get(zoom.marker.actionId);
+  if (at === undefined || step === undefined || at > step) return camera;
+  return camera.map((c, i) => (i === last ? { ...c, end: held } : c));
 }
 
 /**
