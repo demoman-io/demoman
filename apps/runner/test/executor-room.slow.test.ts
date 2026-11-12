@@ -38,6 +38,7 @@ body{margin:0;font:16px sans-serif;background:#fff;min-height:2400px}
 #spinner.on{animation:r 400ms linear infinite}
 @keyframes r{to{transform:rotate(360deg)}}
 #create{position:absolute;left:1060px;top:720px;width:160px;height:40px}
+#save{position:absolute;left:260px;top:40px;width:120px;height:32px}
 #below{position:absolute;left:1060px;top:1900px;width:160px;height:40px}
 #r1{position:absolute;left:300px;top:400px;width:120px;height:40px}
 #r2{position:absolute;left:650px;top:430px;width:120px;height:40px}
@@ -49,6 +50,7 @@ body{margin:0;font:16px sans-serif;background:#fff;min-height:2400px}
 <button id="spin" onclick="document.getElementById('spinner').classList.add('on')">Spin</button>
 <div id="spinner"></div>
 <button id="create">Create invoice</button>
+<button id="save">Save amount</button>
 <button id="below">Below the fold</button>
 <button id="r1">Run one</button>
 <button id="r2">Run two</button>
@@ -78,6 +80,27 @@ const session = createBrowserSession({
   onLaunched: async ({ context }) => {
     await installResolver(context);
     await installExecutorEntry(context);
+    // DEMOMAN_ROOM_LAG_MS=n holds every CDP command n ms: a slow CI runner
+    // on this machine, whose stills and lookups between the typing and the
+    // click take longer (DEM-183). Page-CPU throttling does not reach them.
+    // From about 80 the screencast stalls too, and the report counts long
+    // stills.
+    const lag = Number(process.env.DEMOMAN_ROOM_LAG_MS ?? 0);
+    if (lag > 0) {
+      const proto = Object.getPrototypeOf(
+        await context.newCDPSession(
+          context.pages()[0] ?? (await context.newPage()),
+        ),
+      );
+      if (proto.send.lagged !== true) {
+        const send = proto.send;
+        proto.send = async function (this: unknown, ...args: unknown[]) {
+          await new Promise((r) => setTimeout(r, lag));
+          return send.apply(this, args);
+        };
+        proto.send.lagged = true;
+      }
+    }
   },
 });
 const kits: BrandKitsRead = {
@@ -147,15 +170,28 @@ async function run(steps: Step[]) {
 }
 
 describe("unhurried beats through the executor", () => {
+  // The click goes back to the field it typed into, so the cursor has no
+  // walk to make and the gap without the wait is the machine's own time
+  // plus the settle. A click on "Create invoice" walked 1200 ms across the
+  // page, and on a slow runner that walk alone left room (DEM-183).
+  // DEMOMAN_ROOM_LAG_MS=50 turned that fixture red here (no wait at all);
+  // this one holds its premise past 80.
   it("waits before a zoomed click until the camera has room, and says how long", async () => {
-    const { report, scene, markerOf, said } = await run([
+    const { report, scene, bundle, markerOf, said } = await run([
       { do: "type", into: { stableId: "amount" }, text: "48004800" },
-      CREATE,
+      { do: "click", on: { stableId: "amount" } },
     ]);
     const typed = markerOf(0);
     const click = markerOf(1);
     const actEnd = typed.actEndSourceTimeMs as number;
     expect(actEnd, said()).toBeGreaterThanOrEqual(typed.sourceTimeMs);
+    // Premise: both steps act on the same box, so the cursor already rests
+    // where the click lands.
+    const rectOf = (actionId: string) =>
+      bundle.anchorRects.find((r) => r.actionId === actionId)?.rect;
+    const rects = `${JSON.stringify(bundle.anchorRects)} ${said()}`;
+    expect(rectOf(click.actionId), rects).toBeDefined();
+    expect(rectOf(click.actionId), rects).toEqual(rectOf(typed.actionId));
     // Premise: the click is zoomed, and without the wait there was no room.
     expect(
       scene.camera.map((c) => c.marker.actionId),
