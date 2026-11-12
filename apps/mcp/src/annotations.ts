@@ -61,3 +61,12 @@ export const TOOL_ANNOTATIONS: {
    *  setting and opens a pull request under the user's account. */
   ci: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
 };
+
+/** Every tool the server can register, in one list. */
+export const TOOL_NAMES = Object.keys(TOOL_ANNOTATIONS) as ToolName[];
+
+/** The tools that act beyond this machine under the user's own account.
+ *  Setup pre-approves every other tool and leaves these to ask each time, so
+ *  the pull-request setting and ci's confirmation are the person's answer,
+ *  not only the agent's reading of them. */
+export const ASKS_EACH_TIME: readonly ToolName[] = ["attach", "ci"];

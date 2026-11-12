@@ -8,6 +8,11 @@
 // exit 1. Each agent says its own result, and no failure reads as success.
 import { parseArgs } from "node:util";
 import {
+  ASKS_EACH_TIME,
+  TOOL_NAMES,
+  type ToolName,
+} from "@demoman/mcp/annotations";
+import {
   EXPORT_QUALITY_LABELS,
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
@@ -22,15 +27,23 @@ import { recorderPlatform } from "@demoman/runner/package";
 import type { UserSettings } from "@demoman/runner/studio";
 import type { SettingKey } from "@demoman/studio";
 import {
-  addAllowRules,
-  CODEX_APPROVAL_TABLE,
+  addPermissionRules,
+  type Connected,
+  claudeConnected,
   codexApproval,
+  codexApprovalTable,
+  codexConnected,
+  cursorConnected,
   cursorEntry,
+  cursorRule,
   cursorServer,
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
   NPX_PREFIX,
+  opencodeAskRule,
+  opencodeAsks,
+  opencodeConnected,
   opencodeDir,
   opencodeEntry,
   opencodeServer,
@@ -246,7 +259,8 @@ export interface AgentResult {
   agent: AgentName;
   state: AgentState;
 }
-type Wire = (d: SetupDeps) => AgentResult;
+/** `asks`: the tools that ask each time (asksFor). */
+type Wire = (d: SetupDeps, asks: readonly ToolName[]) => AgentResult;
 
 /** Each agent's word on the command line, in the order setup wires them. */
 export const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
@@ -270,6 +284,10 @@ export interface SetupFlags {
   agents?: AgentName[];
   quality?: ExportQuality;
   pullRequests?: PullRequestsValue;
+  /** `--no-ask attach`: the person's own yes to attach running unasked,
+   *  for runs with no one to answer. Recorded only in the agents' configs,
+   *  so a later run without it puts the prompt back. */
+  noAsk?: "attach";
 }
 
 /** setup's arguments, or why they cannot be used, before anything runs. */
@@ -282,6 +300,7 @@ export function parseSetupArgs(
     agents?: string;
     quality?: string;
     "pull-requests"?: string;
+    "no-ask"?: string;
   };
   try {
     ({ values } = parseArgs({
@@ -292,6 +311,7 @@ export function parseSetupArgs(
         agents: { type: "string" },
         quality: { type: "string" },
         "pull-requests": { type: "string" },
+        "no-ask": { type: "string" },
       },
       strict: true,
       allowPositionals: false,
@@ -324,6 +344,14 @@ export function parseSetupArgs(
     }
     flags.quality = quality;
   }
+  const noAsk = values["no-ask"];
+  if (noAsk !== undefined) {
+    // ci sets secrets and repo settings: it asks every time, flag or not.
+    if (noAsk !== "attach") {
+      return { refused: `--no-ask accepts attach only; got "${noAsk}"` };
+    }
+    flags.noAsk = "attach";
+  }
   const pr = values["pull-requests"];
   if (pr !== undefined) {
     if (!isPullRequestsValue(pr)) {
@@ -339,6 +367,21 @@ export function parseSetupArgs(
 /** Every tool of the plugin's server (code.claude.com/docs/en/permissions:
  *  a plugin's server takes the plugin-scoped name). */
 export const CLAUDE_ALLOW_RULE = "mcp__plugin_demoman_demoman__*";
+/** One tool's rule. A tool that asks each time gets one in permissions.ask:
+ *  an ask rule wins over the allow above in every mode, bypassPermissions
+ *  included (code.claude.com/docs/en/permission-modes). */
+const claudeRule = (tool: ToolName): string =>
+  `mcp__plugin_demoman_demoman__${tool}`;
+
+/** The tools of ASKS_EACH_TIME that ask each time: all of them, unless the
+ *  person passed `--no-ask attach`. Never derived from the pull-request
+ *  setting, which can change in the Studio or a repo after setup ran. */
+export const asksFor = (flags: SetupFlags): ToolName[] =>
+  ASKS_EACH_TIME.filter((t) => !(t === "attach" && flags.noAsk === "attach"));
+
+/** What a fully wired agent says about its tools. */
+const runWithoutAsking = (asks: readonly ToolName[]): string =>
+  `its tools run without asking, except ${listed([...asks])}, which ${asks.length === 1 ? "asks" : "ask"} each time`;
 
 /** Applies edit to the file at path, writing only a change. null when the
  *  file now says what setup wants; else why it does not. */
@@ -358,7 +401,7 @@ function edited(
     : null;
 }
 
-function claudeCode(d: SetupDeps): AgentResult {
+function claudeCode(d: SetupDeps, asks: readonly ToolName[]): AgentResult {
   const result = (state: AgentState): AgentResult => ({
     agent: "Claude Code",
     state,
@@ -453,21 +496,22 @@ function claudeCode(d: SetupDeps): AgentResult {
   const settings = claudeSettings(
     d,
     hasMarket ? marketList.find((m) => m.name === MARKETPLACE_NAME) : undefined,
+    asks,
   );
   const stale = settings.updates === null ? updatesOff(d, settings.text) : null;
   const path = d.claude.settings;
-  const allowFix = `add "${CLAUDE_ALLOW_RULE}" to permissions.allow`;
+  const allowFix = `add "${CLAUDE_ALLOW_RULE}" to permissions.allow and ${asks.map((t) => `"${claudeRule(t)}"`).join(" and ")} to permissions.ask`;
   const updateFix = `set "autoUpdate": true on extraKnownMarketplaces.${MARKETPLACE_NAME}`;
   const limits: string[] = [];
   if (settings.allow !== null && settings.allow === settings.updates) {
     // One cause for both (the file is unreadable, say): said once.
     limits.push(
-      `its tools will ask before they run and it will not update itself (${settings.allow}). To fix both, ${allowFix} and ${updateFix} in ${path}`,
+      `setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them, and it will not update itself (${settings.allow}). To fix both, ${allowFix}, and ${updateFix} in ${path}`,
     );
   } else {
     if (settings.allow !== null) {
       limits.push(
-        `its tools will ask before they run (${settings.allow}). To stop that, ${allowFix} in ${path}`,
+        `setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${settings.allow}). To set it, ${allowFix} in ${path}`,
       );
     }
     if (settings.updates !== null) {
@@ -479,11 +523,11 @@ function claudeCode(d: SetupDeps): AgentResult {
   if (stale !== null) limits.push(`it will not update itself (${stale})`);
   const updates = settings.updates === null && stale === null;
   const installed = `Claude Code: the demoman plugin is installed (${d.version})${updates ? " and updates itself" : ""}`;
-  const asks = settings.allow === null ? "; its tools run without asking" : "";
+  const unasked = settings.allow === null ? `; ${runWithoutAsking(asks)}` : "";
   d.say(
     limits.length === 0
-      ? `${installed}${asks}`
-      : `${installed}${asks}, but ${limits.join("; and ")}`,
+      ? `${installed}${unasked}`
+      : `${installed}${unasked}, but ${limits.join("; and ")}`,
   );
   duplicates(d);
   return result(limits.length === 0 ? "wired" : "partial");
@@ -497,6 +541,7 @@ function claudeCode(d: SetupDeps): AgentResult {
 function claudeSettings(
   d: SetupDeps,
   listed: unknown,
+  asks: readonly ToolName[],
 ): { allow: string | null; updates: string | null; text: string | null } {
   const path = d.claude.settings;
   const file = d.readText(path);
@@ -505,7 +550,12 @@ function claudeSettings(
     return { allow: why, updates: why, text: null };
   }
   const before = "text" in file ? file.text : null;
-  const allowEdit = addAllowRules(before, [CLAUDE_ALLOW_RULE]);
+  const allowEdit = addPermissionRules(before, {
+    allow: [CLAUDE_ALLOW_RULE],
+    ask: asks.map(claudeRule),
+    // A tool that asked before and no longer does (the setting became Attach).
+    drop: ASKS_EACH_TIME.filter((t) => !asks.includes(t)).map(claudeRule),
+  });
   const afterAllow = "text" in allowEdit ? allowEdit.text : before;
   const updateEdit = marketplaceAutoUpdate(afterAllow, listed);
   const after = "text" in updateEdit ? updateEdit.text : afterAllow;
@@ -668,7 +718,7 @@ function parseJson(r: Ran): unknown | { unreadable: string } {
 /** Codex installs our marketplace repo as a plugin, the way Claude Code
  *  does (`.claude-plugin/`, `.mcp.json`, `skills/`), so the plugin pins
  *  the version; setup then pre-approves its server in config.toml. */
-const codex: Wire = (d) => {
+const codex: Wire = (d, asks) => {
   const result = (state: AgentState): AgentResult => ({
     agent: "Codex",
     state,
@@ -736,17 +786,20 @@ const codex: Wire = (d) => {
   }
   const list = codexStep(["plugin", "list", "--json"]);
   if (list === null) return result("failed");
-  const listed = parseJson(list) as {
+  const pluginList = parseJson(list) as {
     installed?: Array<Record<string, unknown>>;
     unreadable?: string;
   };
-  if (listed?.unreadable !== undefined || !Array.isArray(listed?.installed)) {
+  if (
+    pluginList?.unreadable !== undefined ||
+    !Array.isArray(pluginList?.installed)
+  ) {
     d.say(
-      `Codex: could not read its plugin list (${listed?.unreadable ?? "it has no installed list"})`,
+      `Codex: could not read its plugin list (${pluginList?.unreadable ?? "it has no installed list"})`,
     );
     return result("failed");
   }
-  const plugin = listed.installed.find((p) => p.pluginId === PLUGIN_ID);
+  const plugin = pluginList.installed.find((p) => p.pluginId === PLUGIN_ID);
   if (plugin === undefined) {
     d.say(
       `Codex: the install reported success, but \`codex plugin list\` does not list ${PLUGIN_ID}`,
@@ -766,13 +819,13 @@ const codex: Wire = (d) => {
     return result("failed");
   }
   const installed = `Codex: the demoman plugin is installed (${d.version})`;
-  const refused = edited(d, config, codexApproval);
+  const refused = edited(d, config, (text) => codexApproval(text, asks));
   if (refused === null) {
-    d.say(`${installed}; its tools run without asking`);
+    d.say(`${installed}; ${runWithoutAsking(asks)}`);
     return result("wired");
   }
   d.say(
-    `${installed}, but its tools will ask before they run (${refused}). To stop that, add this to ${config}:\n\n${CODEX_APPROVAL_TABLE}\n`,
+    `${installed}, but setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${refused}). To set it, add this to ${config}:\n\n${codexApprovalTable(asks)}\n`,
   );
   return result("partial");
 };
@@ -830,6 +883,26 @@ const cursorClis = (d: SetupDeps): string[] => [
   "cursor-agent",
 ];
 
+/** Whether each agent's own file says Demoman is connected there, read
+ *  without running anything. */
+function connectedAgents(d: SetupDeps): Map<AgentName, Connected> {
+  const read = (path: string, says: (t: string | null) => Connected) => {
+    const file = d.readText(path);
+    return "error" in file
+      ? { unreadable: `${path} could not be read: ${file.error}` }
+      : says("text" in file ? file.text : null);
+  };
+  return new Map<AgentName, Connected>([
+    ["Claude Code", read(d.claude.settings, claudeConnected)],
+    ["Codex", read(`${d.codexHome}/config.toml`, codexConnected)],
+    ["Cursor", read(`${d.home}/.cursor/mcp.json`, cursorConnected)],
+    [
+      "OpenCode",
+      read(`${opencodeDir(d.home, d.env)}/opencode.json`, opencodeConnected),
+    ],
+  ]);
+}
+
 /** The agents on this machine, found without changing anything: the
  *  ones setup offers to connect. */
 export function foundAgents(d: SetupDeps): AgentName[] {
@@ -844,14 +917,16 @@ export function foundAgents(d: SetupDeps): AgentName[] {
   ];
 }
 
-/** Every tool of the demoman server, in the CLI's permission syntax
- *  (cursor.com/docs/cli/reference/permissions documents the wildcard). */
-export const CURSOR_ALLOW_RULE = "Mcp(demoman:*)";
+/** Every tool of the demoman server, in the agent CLI's permission syntax
+ *  (cursor.com/docs/cli/reference/permissions). Setup wrote it until
+ *  0.9.6, and takes it out again: the CLI has no ask list to keep attach and
+ *  ci asking beside it. */
+export const CURSOR_WILDCARD_RULE = "Mcp(demoman:*)";
 
 /** Cursor cannot install a plugin from a shell, so setup writes its global
  *  mcp.json (read by the app and the `agent` CLI alike) and copies the
  *  skill; then pre-approves the server where a file allows it. */
-const cursor: Wire = (d) => {
+const cursor: Wire = (d, asks) => {
   const result = (state: AgentState): AgentResult => ({
     agent: "Cursor",
     state,
@@ -946,12 +1021,18 @@ const cursor: Wire = (d) => {
       }
       reasons.push(cannot);
     }
+    // Each tool but those that ask, one rule apiece; a rule an earlier run
+    // wrote for a tool that asks now (the setting left Attach) goes.
+    const allow = TOOL_NAMES.filter((t) => !asks.includes(t)).map(cursorRule);
     const refused = edited(d, `${d.home}/.cursor/cli-config.json`, (text) =>
-      addAllowRules(text, [CURSOR_ALLOW_RULE]),
+      addPermissionRules(text, {
+        allow,
+        drop: [CURSOR_WILDCARD_RULE, ...asks.map(cursorRule)],
+      }),
     );
     if (refused !== null) {
       reasons.push(
-        `the agent CLI's tools will ask (${refused}); add "${CURSOR_ALLOW_RULE}" to permissions.allow in ~/.cursor/cli-config.json`,
+        `setup could not set which of the agent CLI's tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${refused}); add ${allow.map((r) => `"${r}"`).join(", ")} to permissions.allow in ~/.cursor/cli-config.json, and remove "${CURSOR_WILDCARD_RULE}" if it is there`,
       );
     }
   }
@@ -962,7 +1043,7 @@ const cursor: Wire = (d) => {
   }
   const connected = "Cursor: Demoman is connected and updates itself";
   if (reasons.length === 0) {
-    d.say(`${connected}; its tools run without asking`);
+    d.say(`${connected}; ${runWithoutAsking(asks)}`);
     return result("wired");
   }
   d.say(`${connected}, but ${reasons.join("; ")}`);
@@ -1041,9 +1122,9 @@ function placeSkill(
 const OPENCODE_MIN = [2, 0, 0] as const;
 
 /** OpenCode has no plugin layer either: setup writes its opencode.json and
- *  copies the skill. Its tools run without asking by default, so there is
- *  nothing to pre-approve. */
-const opencode: Wire = (d) => {
+ *  copies the skill. Its tools run without asking by default, so setup
+ *  pre-approves nothing and adds an ask rule for each tool that asks. */
+const opencode: Wire = (d, asks) => {
   const result = (state: AgentState): AgentResult => ({
     agent: "OpenCode",
     state,
@@ -1100,8 +1181,11 @@ const opencode: Wire = (d) => {
     );
     return result("failed");
   }
-  if (edit.changed) {
-    const wrote = d.writeText(config, edit.text);
+  // The ask rules ride in the same write; a refusal still writes the entry.
+  const asked = opencodeAsks(edit.text, asks);
+  const next = "text" in asked ? asked.text : edit.text;
+  if (next !== ("text" in file ? file.text : null)) {
+    const wrote = d.writeText(config, next);
     if ("error" in wrote) {
       d.say(
         `OpenCode: ${config} could not be written (${wrote.error}); ${pasteIn(config)}`,
@@ -1120,7 +1204,14 @@ const opencode: Wire = (d) => {
   ) {
     return result("failed");
   }
-  d.say("OpenCode: Demoman is connected and updates itself");
+  const connected = "OpenCode: Demoman is connected and updates itself";
+  if ("refused" in asked) {
+    d.say(
+      `${connected}, but setup could not add its ask rules to ${config} (${asked.refused}), so ${listed([...asks])} may run without asking. To add them, put these in "permissions" there:\n\n${asks.map((t) => JSON.stringify(opencodeAskRule(t))).join(",\n")}\n`,
+    );
+    return result("partial");
+  }
+  d.say(`${connected}; ${runWithoutAsking(asks)}`);
   return result("wired");
 };
 
@@ -1178,6 +1269,29 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
     chosen !== undefined &&
     !chosen.includes(agent) &&
     (flags.agents !== undefined || found.includes(agent));
+  // No one to ask and no --agents: usually an agent running setup to fix
+  // its own install (installCommand, updateCommand). Connecting another
+  // agent, and pre-approving tools there, is the person's choice, so such a
+  // run updates only the agents Demoman is connected to already. A machine
+  // connected to none (a first install) connects each agent found, as the
+  // menu preselects them.
+  const connected =
+    d.ask === null && flags.agents === undefined ? connectedAgents(d) : null;
+  // A file that cannot say counts as maybe connected: such a run is no
+  // first install, so it connects nothing it cannot account for.
+  const onlyConnected =
+    connected !== null && [...connected.values()].some((c) => c !== false);
+  const leftAlone = (agent: AgentName): string | null => {
+    const c = connected?.get(agent);
+    if (!onlyConnected || c === true) return null;
+    const flag = AGENT_FLAGS.find(([, name]) => name === agent)?.[0];
+    const connect = `to connect it, run \`npx ${PACKAGE_NAME}@${d.version} setup\` in a terminal, or with --agents ${flag}`;
+    return typeof c === "object"
+      ? `${agent}: not changed; setup could not tell whether Demoman is connected there (${c.unreadable}), and without a terminal it connects no new agent — ${connect}`
+      : `${agent}: not changed; Demoman is not connected there, and without a terminal setup connects no new agent — ${connect}`;
+  };
+
+  const asks = asksFor(flags);
 
   if (!(await browser(d))) return 1;
   const wires: Array<[AgentName, Wire]> = [
@@ -1187,8 +1301,13 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
     ["OpenCode", opencode],
   ];
   const results = wires.map(([agent, wire]): AgentResult => {
+    const alone = leftAlone(agent);
+    if (alone !== null) {
+      d.say(alone);
+      return { agent, state: "skipped" };
+    }
     if (!skip(agent)) {
-      const r = wire(d);
+      const r = wire(d, asks);
       // Named in --agents: not installed is a failure, not a pass.
       return r.state === "absent" && flags.agents?.includes(agent)
         ? { agent, state: "failed" }

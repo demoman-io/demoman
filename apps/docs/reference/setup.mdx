@@ -4,7 +4,7 @@ description: "Install Demoman's browser and connect your agents, or set up CI wi
 ---
 
 ```bash
-npx demoman setup [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach]
+npx demoman setup [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach] [--no-ask attach]
 npx demoman setup --browser-only
 ```
 
@@ -17,10 +17,11 @@ asked.
 
 | Flag | |
 | --- | --- |
-| `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way |
+| `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way. Without `--agents`, it updates only the agents Demoman is already connected to, and connects every agent it finds only when it is connected to none |
 | `--browser-only` | Installs Chromium and connects no agent, asking nothing; for CI. On Linux it exits 1, naming the one `sudo` command, when Chromium's libraries are missing |
 | `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor`, `opencode` |
 | `--quality <quality>` | Export quality: `share`, `high` or `full` |
+| `--no-ask attach` | Lets `attach` post to GitHub without your agent asking you first, for runs with no one to answer. `ci` always asks. A later run without the flag puts the prompt back |
 | `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` ([Pull requests](/guides/pull-requests)) |
 
 ## setup --ci

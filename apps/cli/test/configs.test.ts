@@ -5,15 +5,20 @@ import { join } from "node:path";
 import { parse } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import {
-  addAllowRules,
+  addPermissionRules,
   CODEX_APPROVAL_TABLE,
+  claudeConnected,
   codexApproval,
+  codexConnected,
+  cursorConnected,
   cursorEntry,
   cursorServer,
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
   NPX_PREFIX,
+  opencodeAsks,
+  opencodeConnected,
   opencodeEntry,
   opencodeServer,
 } from "../src/configs.js";
@@ -33,6 +38,28 @@ const approval = (toml: string): unknown =>
     }
   ).plugins?.["demoman@demoman"]?.mcp_servers?.demoman
     ?.default_tools_approval_mode;
+
+/** Each tool table's approval_mode under the plugin's server. */
+const asks = (toml: string): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(
+      (
+        parse(toml) as {
+          plugins?: Record<
+            string,
+            {
+              mcp_servers?: Record<
+                string,
+                { tools?: Record<string, { approval_mode?: unknown }> }
+              >;
+            }
+          >;
+        }
+      ).plugins?.["demoman@demoman"]?.mcp_servers?.demoman?.tools ?? {},
+    )
+      .filter(([tool]) => tool === "attach" || tool === "ci")
+      .map(([tool, t]) => [tool, t.approval_mode]),
+  );
 
 describe("codexApproval", () => {
   it("appends the table to an absent, an empty and a populated file", () => {
@@ -64,10 +91,33 @@ describe("codexApproval", () => {
     const out = text(codexApproval(before));
     const a = before.split("\n");
     const b = out.split("\n");
-    expect(b.length).toBe(a.length);
+    // The tool tables are appended after everything that was there.
+    expect(b.length).toBeGreaterThan(a.length);
     const changed = a.flatMap((line, i) => (line === b[i] ? [] : [i]));
     expect(changed).toEqual([5]);
     expect(b[5]).toBe('default_tools_approval_mode = "approve"');
+    expect(asks(out)).toEqual({ attach: "prompt", ci: "prompt" });
+  });
+
+  it("writes attach and ci back to asking, in tool tables already there", () => {
+    const before = [
+      '[plugins."demoman@demoman".mcp_servers.demoman]',
+      'default_tools_approval_mode = "approve"',
+      "",
+      '[plugins."demoman@demoman".mcp_servers.demoman.tools.attach]',
+      'approval_mode = "approve"',
+      "",
+      '[plugins."demoman@demoman".mcp_servers.demoman.tools.run]',
+      'approval_mode = "prompt"',
+      "",
+    ].join("\n");
+    const out = text(codexApproval(before));
+    expect(asks(out)).toEqual({ attach: "prompt", ci: "prompt" });
+    // A tool the person set to ask themselves stays asking.
+    expect(out).toContain(
+      '[plugins."demoman@demoman".mcp_servers.demoman.tools.run]\napproval_mode = "prompt"',
+    );
+    expect(out.match(/tools\.attach\]/g)).toHaveLength(1);
   });
 
   it("inserts the key into an existing table that lacks it", () => {
@@ -79,6 +129,17 @@ describe("codexApproval", () => {
     expect(
       out.match(/\[plugins\."demoman@demoman"\.mcp_servers\.demoman\]/g),
     ).toHaveLength(1);
+  });
+
+  it("approves attach when it is not asked to ask, and back again", () => {
+    const asking = text(codexApproval(null));
+    const attach = text(codexApproval(asking, ["ci"]));
+    expect(asks(attach)).toEqual({ attach: "approve", ci: "prompt" });
+    expect(attach.match(/tools\.attach\]/g)).toHaveLength(1);
+    expect(asks(text(codexApproval(attach)))).toEqual({
+      attach: "prompt",
+      ci: "prompt",
+    });
   });
 
   it("is idempotent", () => {
@@ -117,51 +178,198 @@ describe("codexApproval", () => {
   });
 });
 
-describe("addAllowRules", () => {
+describe("addPermissionRules", () => {
   it("adds missing rules, keeps the rest, and is idempotent", () => {
     const before = JSON.stringify({
       permissions: { allow: ["Bash(ls)"], deny: ["X"] },
       model: "m",
     });
-    const once = addAllowRules(before, ["R1", "R2"]);
+    const once = addPermissionRules(before, { allow: ["R1", "R2"] });
     expect(once).toMatchObject({ changed: true });
     expect(JSON.parse(text(once))).toEqual({
       permissions: { allow: ["Bash(ls)", "R1", "R2"], deny: ["X"] },
       model: "m",
     });
     expect(text(once).endsWith("}\n")).toBe(true);
-    expect(addAllowRules(text(once), ["R1", "R2"])).toEqual({
+    expect(addPermissionRules(text(once), { allow: ["R1", "R2"] })).toEqual({
       text: text(once),
       changed: false,
     });
   });
 
   it("creates the file and the list when they are absent", () => {
-    expect(JSON.parse(text(addAllowRules(null, ["R1"])))).toEqual({
+    expect(
+      JSON.parse(text(addPermissionRules(null, { allow: ["R1"] }))),
+    ).toEqual({
       permissions: { allow: ["R1"] },
     });
-    expect(JSON.parse(text(addAllowRules('{"a":1}', ["R1"])))).toEqual({
+    expect(
+      JSON.parse(text(addPermissionRules('{"a":1}', { allow: ["R1"] }))),
+    ).toEqual({
       a: 1,
       permissions: { allow: ["R1"] },
     });
   });
 
   it("treats a file's own `refused` key as data", () => {
-    expect(JSON.parse(text(addAllowRules('{"refused":"x"}', ["R"])))).toEqual({
+    expect(
+      JSON.parse(text(addPermissionRules('{"refused":"x"}', { allow: ["R"] }))),
+    ).toEqual({
       refused: "x",
       permissions: { allow: ["R"] },
     });
   });
 
   it("refuses non-JSON and a non-array allow", () => {
-    expect(addAllowRules("{ // hi\n}", ["R"])).toHaveProperty("refused");
-    expect(addAllowRules("[]", ["R"])).toHaveProperty("refused");
+    expect(addPermissionRules("{ // hi\n}", { allow: ["R"] })).toHaveProperty(
+      "refused",
+    );
+    expect(addPermissionRules("[]", { allow: ["R"] })).toHaveProperty(
+      "refused",
+    );
     expect(
-      addAllowRules('{"permissions":{"allow":"Bash(ls)"}}', ["R"]),
+      addPermissionRules('{"permissions":{"allow":"Bash(ls)"}}', {
+        allow: ["R"],
+      }),
     ).toHaveProperty("refused");
     expect(
-      addAllowRules('{"permissions":{"allow":[1]}}', ["R"]),
+      addPermissionRules('{"permissions":{"allow":[1]}}', { allow: ["R"] }),
     ).toHaveProperty("refused");
+  });
+});
+
+describe("addPermissionRules: ask and drop", () => {
+  it("adds ask rules beside the allow, and is idempotent", () => {
+    const before = JSON.stringify({ permissions: { ask: ["Bash(rm)"] } });
+    const once = addPermissionRules(before, {
+      allow: ["A"],
+      ask: ["Q1", "Q2"],
+    });
+    expect(JSON.parse(text(once))).toEqual({
+      permissions: { ask: ["Bash(rm)", "Q1", "Q2"], allow: ["A"] },
+    });
+    expect(
+      addPermissionRules(text(once), { allow: ["A"], ask: ["Q1", "Q2"] }),
+    ).toEqual({ text: text(once), changed: false });
+  });
+
+  it("takes a dropped rule out of allow, and only there", () => {
+    const before = JSON.stringify({
+      permissions: { allow: ["Mine", "Old"], deny: ["Old"] },
+    });
+    const out = JSON.parse(
+      text(addPermissionRules(before, { allow: ["New"], drop: ["Old"] })),
+    );
+    expect(out).toEqual({
+      permissions: { allow: ["Mine", "New"], deny: ["Old"] },
+    });
+  });
+
+  it("drops a rule even when every allow rule is already there", () => {
+    const before = JSON.stringify({ permissions: { allow: ["New", "Old"] } });
+    const out = addPermissionRules(before, { allow: ["New"], drop: ["Old"] });
+    expect(out).toMatchObject({ changed: true });
+    expect(JSON.parse(text(out)).permissions.allow).toEqual(["New"]);
+  });
+
+  // An allow written without its asks would run attach and ci unasked.
+  it("writes nothing when the ask list cannot be read", () => {
+    const out = addPermissionRules('{"permissions":{"ask":"Bash(rm)"}}', {
+      allow: ["A"],
+      ask: ["Q"],
+    });
+    expect(out).toEqual({
+      refused: "its permissions.ask is not a list of rules",
+    });
+  });
+});
+
+describe("opencodeAsks", () => {
+  const rule = (tool: string) => ({
+    action: `demoman_${tool}`,
+    resource: "*",
+    effect: "ask",
+  });
+  it("appends each rule once, and changes nothing the second time", () => {
+    const once = text(opencodeAsks('{"mcp":{}}', ["attach", "ci"]));
+    expect(JSON.parse(once).permissions).toEqual([rule("attach"), rule("ci")]);
+    expect(opencodeAsks(once, ["attach", "ci"])).toEqual({
+      text: once,
+      changed: false,
+    });
+  });
+
+  it("removes only setup's own rule for a tool that stopped asking", () => {
+    const mine = { action: "demoman_attach", resource: "*", effect: "deny" };
+    const before = JSON.stringify({
+      permissions: [mine, rule("attach"), rule("ci")],
+    });
+    expect(JSON.parse(text(opencodeAsks(before, ["ci"]))).permissions).toEqual([
+      mine,
+      rule("ci"),
+    ]);
+  });
+
+  it("refuses a permissions that is not a list", () => {
+    expect(opencodeAsks('{"permissions":{}}', ["ci"])).toEqual({
+      refused: "its permissions is not a list",
+    });
+  });
+});
+
+describe("connected readers", () => {
+  const entry = cursorEntry("/opt/node/bin");
+  it("say no for an absent file", () => {
+    for (const read of [
+      claudeConnected,
+      codexConnected,
+      cursorConnected,
+      opencodeConnected,
+    ])
+      expect(read(null)).toBe(false);
+  });
+
+  it("read Claude Code's enabledPlugins, disabled included", () => {
+    expect(
+      claudeConnected('{"enabledPlugins":{"demoman@demoman":false}}'),
+    ).toBe(true);
+    expect(claudeConnected('{"enabledPlugins":{"other@x":true}}')).toBe(false);
+    expect(claudeConnected("{")).toHaveProperty("unreadable");
+  });
+
+  it("read Codex's plugin table", () => {
+    expect(
+      codexConnected('[plugins."demoman@demoman"]\nenabled = true\n'),
+    ).toBe(true);
+    expect(codexConnected('[plugins."other@x"]\nenabled = true\n')).toBe(false);
+    // Setup's own approval tables, left after the plugin was removed.
+    expect(
+      codexConnected(
+        '[plugins."demoman@demoman".mcp_servers.demoman]\ndefault_tools_approval_mode = "approve"\n',
+      ),
+    ).toBe(false);
+    expect(codexConnected("a = ")).toHaveProperty("unreadable");
+  });
+
+  it("read Cursor's and OpenCode's entries, and only setup's own", () => {
+    expect(
+      cursorConnected(JSON.stringify({ mcpServers: { demoman: entry } })),
+    ).toBe(true);
+    expect(
+      cursorConnected(
+        JSON.stringify({
+          mcpServers: { demoman: { command: "node", args: [] } },
+        }),
+      ),
+    ).toBe(false);
+    const oc = opencodeEntry("/opt/node/bin");
+    expect(
+      opencodeConnected(JSON.stringify({ mcp: { servers: { demoman: oc } } })),
+    ).toBe(true);
+    expect(opencodeConnected(JSON.stringify({ mcp: { demoman: oc } }))).toBe(
+      true,
+    );
+    expect(opencodeConnected(JSON.stringify({ mcp: {} }))).toBe(false);
   });
 });
 

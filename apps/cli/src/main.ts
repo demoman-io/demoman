@@ -54,7 +54,7 @@ import {
   postToolUseAnswer,
 } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
-import { refreshAgentSkill } from "./agent-skill.js";
+import { refreshAgentSkill, refreshCursorRules } from "./agent-skill.js";
 import { allowActionPullRequests, readGithub } from "./ci-github.js";
 import { openSetupPr } from "./ci-pr.js";
 import {
@@ -115,7 +115,7 @@ function requirePageBundles(pages: string, say: (line: string) => void): void {
 const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
-    [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach]
+    [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach] [--no-ask attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
     [--yes] [--env-file <path>] [--replace-secret <NAME>]…
@@ -204,6 +204,13 @@ async function mcp(args: string[]): Promise<void> {
     writeText: writeTextFile,
   });
   if (skill !== null) log(skill);
+  const rules = refreshCursorRules({
+    env: process.env,
+    home: homedir(),
+    readText: readTextFile,
+    writeText: writeTextFile,
+  });
+  if (rules !== null) log(rules);
   await serveCli({
     createLocalExecutor,
     recipe,

@@ -6,8 +6,14 @@
 // reason the caller prints beside the block to paste by hand — a file it
 // cannot read, rather than overwriting it.
 import { basename } from "node:path";
+import { ASKS_EACH_TIME, type ToolName } from "@demoman/mcp/annotations";
 import { parse } from "smol-toml";
-import { MARKETPLACE_NAME, MARKETPLACE_SOURCE, PACKAGE_NAME } from "./names.js";
+import {
+  MARKETPLACE_NAME,
+  MARKETPLACE_SOURCE,
+  PACKAGE_NAME,
+  PLUGIN_ID,
+} from "./names.js";
 
 /** The new text, and whether it differs; or why the file was left alone.
  *  A null input text means the file does not exist. */
@@ -16,28 +22,69 @@ export type Edit = { text: string; changed: boolean } | { refused: string };
 const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const CODEX_HEADER = '[plugins."demoman@demoman".mcp_servers.demoman]';
-const CODEX_KEY = 'default_tools_approval_mode = "approve"';
-/** Pre-approves the plugin's server in Codex's config.toml (Task 1
- *  findings: Codex validates the value, and refuses to start on a bad one). */
-export const CODEX_APPROVAL_TABLE = `${CODEX_HEADER}\n${CODEX_KEY}`;
+const CODEX_SERVER = '[plugins."demoman@demoman".mcp_servers.demoman]';
+const codexTool = (tool: string): string =>
+  `[plugins."demoman@demoman".mcp_servers.demoman.tools.${tool}]`;
+/** Each table setup keeps in Codex's config.toml, the key it sets there and
+ *  that key's value: the plugin's server approved, then each tool of
+ *  ASKS_EACH_TIME set to asking when `asks` holds it, else approved (a
+ *  plugin's server table takes `tools.<tool>.approval_mode`, launch E
+ *  spec). Codex validates the values, and refuses to start on a bad one
+ *  (Task 1 findings; "prompt" checked against codex-cli 0.166). */
+const codexTables = (asks: readonly ToolName[]) => [
+  {
+    header: CODEX_SERVER,
+    key: "default_tools_approval_mode",
+    value: "approve",
+  },
+  ...ASKS_EACH_TIME.map((tool) => ({
+    header: codexTool(tool),
+    key: "approval_mode",
+    value: asks.includes(tool) ? "prompt" : "approve",
+  })),
+];
+const codexLine = (t: { key: string; value: string }): string =>
+  `${t.key} = "${t.value}"`;
+/** What setup writes to Codex's config.toml, as one block to paste. */
+export const codexApprovalTable = (asks: readonly ToolName[]): string =>
+  codexTables(asks)
+    .map((t) => `${t.header}\n${codexLine(t)}`)
+    .join("\n\n");
+/** The block when every tool of ASKS_EACH_TIME asks. */
+export const CODEX_APPROVAL_TABLE = codexApprovalTable(ASKS_EACH_TIME);
 
-const approvalIn = (toml: string): unknown =>
+type CodexServer = {
+  default_tools_approval_mode?: unknown;
+  tools?: Record<string, { approval_mode?: unknown }>;
+};
+const serverIn = (toml: string): CodexServer | undefined =>
   (
     parse(toml) as {
-      plugins?: Record<
-        string,
-        { mcp_servers?: Record<string, Record<string, unknown>> }
-      >;
+      plugins?: Record<string, { mcp_servers?: Record<string, CodexServer> }>;
     }
-  ).plugins?.["demoman@demoman"]?.mcp_servers?.demoman
-    ?.default_tools_approval_mode;
+  ).plugins?.["demoman@demoman"]?.mcp_servers?.demoman;
+
+/** Whether the parsed file says what codexTables(asks) says. */
+function codexSays(toml: string, asks: readonly ToolName[]): boolean {
+  const server = serverIn(toml);
+  return (
+    server?.default_tools_approval_mode === "approve" &&
+    ASKS_EACH_TIME.every(
+      (tool) =>
+        server.tools?.[tool]?.approval_mode ===
+        (asks.includes(tool) ? "prompt" : "approve"),
+    )
+  );
+}
 
 /** A line without its trailing comment. Neither form setup looks for holds
  *  a `#` inside a string. */
 const bare = (line: string): string => line.replace(/\s*#.*$/, "").trim();
 
-export function codexApproval(text: string | null): Edit {
+export function codexApproval(
+  text: string | null,
+  asks: readonly ToolName[] = ASKS_EACH_TIME,
+): Edit {
   const src = text ?? "";
   try {
     parse(src);
@@ -45,33 +92,37 @@ export function codexApproval(text: string | null): Edit {
     return { refused: `it is not TOML Codex can read (${message(error)})` };
   }
   const eol = src.includes("\r\n") ? "\r\n" : "\n";
-  const lines = src.split(eol);
-  const header = lines.findIndex((l) => bare(l) === CODEX_HEADER);
-  let out: string;
-  if (header >= 0) {
-    let end = lines.findIndex((l, i) => i > header && /^\s*\[/.test(l));
-    if (end < 0) end = lines.length;
-    const key = lines.findIndex(
-      (l, i) =>
-        i > header && i < end && /^\s*default_tools_approval_mode\s*=/.test(l),
-    );
-    if (key >= 0) lines[key] = CODEX_KEY;
-    else lines.splice(header + 1, 0, CODEX_KEY);
-    out = lines.join(eol);
-  } else {
-    const table = `${CODEX_APPROVAL_TABLE.replaceAll("\n", eol)}${eol}`;
-    if (src === "") out = table;
-    else out = `${src}${src.endsWith(eol) ? "" : eol}${eol}${table}`;
+  let out = src;
+  for (const t of codexTables(asks)) {
+    const lines = out.split(eol);
+    const header = lines.findIndex((l) => bare(l) === t.header);
+    if (header >= 0) {
+      let end = lines.findIndex((l, i) => i > header && /^\s*\[/.test(l));
+      if (end < 0) end = lines.length;
+      const keyAt = new RegExp(`^\\s*${t.key}\\s*=`);
+      const key = lines.findIndex(
+        (l, i) => i > header && i < end && keyAt.test(l),
+      );
+      if (key >= 0) lines[key] = codexLine(t);
+      else lines.splice(header + 1, 0, codexLine(t));
+      out = lines.join(eol);
+    } else {
+      const table = `${t.header}${eol}${codexLine(t)}${eol}`;
+      out =
+        out === ""
+          ? table
+          : `${out}${out.endsWith(eol) ? "" : eol}${eol}${table}`;
+    }
   }
-  let value: unknown;
+  let says: boolean;
   try {
-    value = approvalIn(out);
+    says = codexSays(out, asks);
   } catch (error) {
     return {
       refused: `it already sets demoman@demoman's plugin table in a form setup cannot extend (${message(error)})`,
     };
   }
-  if (value !== "approve") {
+  if (!says) {
     return {
       refused:
         "it already sets demoman@demoman's plugin table in a form setup cannot extend",
@@ -99,9 +150,15 @@ function readObject(
   return { obj: v };
 }
 
-/** Adds each missing rule to permissions.allow: Claude Code's settings.json
- *  and Cursor's cli-config.json share the shape. */
-export function addAllowRules(text: string | null, rules: string[]): Edit {
+/** Takes each `drop` rule out of permissions.allow and permissions.ask,
+ *  then adds each missing rule to its list: Claude Code's
+ *  settings.json and Cursor's cli-config.json share the shape. One list it
+ *  cannot read refuses the whole edit, so an allow is never written without
+ *  the asks beside it. */
+export function addPermissionRules(
+  text: string | null,
+  rules: { allow: string[]; ask?: string[]; drop?: string[] },
+): Edit {
   const read = readObject(text);
   if ("refused" in read) return read;
   const { obj } = read;
@@ -109,15 +166,22 @@ export function addAllowRules(text: string | null, rules: string[]): Edit {
   if (!isObject(permissions)) {
     return { refused: "its permissions is not an object" };
   }
-  const allow = permissions.allow ?? [];
-  if (!Array.isArray(allow) || !allow.every((r) => typeof r === "string")) {
-    return { refused: "its permissions.allow is not a list of rules" };
+  let changed = false;
+  for (const [list, add] of [
+    ["allow", rules.allow],
+    ["ask", rules.ask ?? []],
+  ] as const) {
+    const had = permissions[list] ?? [];
+    if (!Array.isArray(had) || !had.every((r) => typeof r === "string")) {
+      return { refused: `its permissions.${list} is not a list of rules` };
+    }
+    const kept = had.filter((r) => !(rules.drop ?? []).includes(r));
+    const missing = add.filter((r) => !kept.includes(r));
+    if (missing.length === 0 && kept.length === had.length) continue;
+    permissions[list] = [...kept, ...missing];
+    changed = true;
   }
-  const missing = rules.filter((r) => !allow.includes(r));
-  if (missing.length === 0 && text !== null) {
-    return { text, changed: false };
-  }
-  permissions.allow = [...allow, ...missing];
+  if (!changed && text !== null) return { text, changed: false };
   obj.permissions = permissions;
   return { text: serialise(obj), changed: true };
 }
@@ -385,3 +449,103 @@ export function isOurSkill(text: string): boolean {
   const [, front = "", body = ""] = m;
   return /^name:\s*record-demo\s*$/m.test(front) && body.includes("Demoman");
 }
+
+/** Whether an agent's own file says Demoman is connected there; why not
+ *  known when the file cannot be read. An absent file says no. */
+export type Connected = boolean | { unreadable: string };
+
+function fromJson(
+  text: string | null,
+  says: (obj: JsonObject) => boolean,
+): Connected {
+  const read = readObject(text);
+  return "refused" in read ? { unreadable: read.refused } : says(read.obj);
+}
+
+/** Claude Code lists an installed plugin under enabledPlugins, true or
+ *  false: a disabled plugin is still connected, and setup says so. */
+export const claudeConnected = (text: string | null): Connected =>
+  fromJson(
+    text,
+    (o) => isObject(o.enabledPlugins) && PLUGIN_ID in o.enabledPlugins,
+  );
+
+/** Codex writes the installed plugin's own table with `enabled`. Setup's
+ *  approval tables sit under that table too, so the key alone would count a
+ *  plugin removed since as connected. */
+export function codexConnected(text: string | null): Connected {
+  try {
+    const toml = parse(text ?? "") as {
+      plugins?: Record<string, { enabled?: unknown }>;
+    };
+    return toml.plugins?.[PLUGIN_ID]?.enabled !== undefined;
+  } catch (error) {
+    return { unreadable: `it is not TOML Codex can read (${message(error)})` };
+  }
+}
+
+export const cursorConnected = (text: string | null): Connected =>
+  fromJson(
+    text,
+    (o) => isObject(o.mcpServers) && isOurCursorEntry(o.mcpServers.demoman),
+  );
+
+/** Either of OpenCode's forms (see opencodeServer). */
+export const opencodeConnected = (text: string | null): Connected =>
+  fromJson(
+    text,
+    (o) =>
+      isObject(o.mcp) &&
+      (isOurOpencodeEntry(o.mcp.demoman) ||
+        (isObject(o.mcp.servers) && isOurOpencodeEntry(o.mcp.servers.demoman))),
+  );
+
+/** Setup's rule that makes OpenCode ask before one Demoman tool. OpenCode
+ *  names an MCP tool `<server>_<tool>` (opencode.ai/docs/mcp-servers). */
+export const opencodeAskRule = (tool: string) => ({
+  action: `demoman_${tool}`,
+  resource: "*",
+  effect: "ask",
+});
+
+/**
+ * OpenCode 2's `permissions`: an ordered list where the last matching rule
+ * wins, read after each agent's built-in allow-everything rule (opencode
+ * 2.0.32's `debug agents` lists setup's rules after it). Each tool of
+ * `asks` gets setup's ask rule, appended; setup's own rule for a tool of
+ * ASKS_EACH_TIME that no longer asks is removed, and nothing else is
+ * touched. A rule of the person's own placed after these still wins.
+ */
+export function opencodeAsks(
+  text: string | null,
+  asks: readonly ToolName[],
+): Edit {
+  const read = readObject(text);
+  if ("refused" in read) return read;
+  const { obj } = read;
+  if (obj.permission !== undefined) {
+    return {
+      refused:
+        "it sets OpenCode's older \"permission\" form, and how OpenCode reads setup's rules beside it is untested",
+    };
+  }
+  const had = obj.permissions ?? [];
+  if (!Array.isArray(had)) return { refused: "its permissions is not a list" };
+  const ours = (r: unknown, tool: string): boolean =>
+    isObject(r) && JSON.stringify(r) === JSON.stringify(opencodeAskRule(tool));
+  const kept = had.filter(
+    (r) => !ASKS_EACH_TIME.some((t) => !asks.includes(t) && ours(r, t)),
+  );
+  const missing = asks
+    .filter((t) => !kept.some((r) => ours(r, t)))
+    .map(opencodeAskRule);
+  if (missing.length === 0 && kept.length === had.length && text !== null) {
+    return { text, changed: false };
+  }
+  obj.permissions = [...kept, ...missing];
+  return { text: serialise(obj), changed: true };
+}
+
+/** One Demoman tool in Cursor's agent CLI permission syntax
+ *  (cursor.com/docs/cli/reference/permissions). */
+export const cursorRule = (tool: string): string => `Mcp(demoman:${tool})`;

@@ -583,6 +583,10 @@ describe("setup", () => {
     ).toEqual({
       permissions: {
         allow: ["Bash(ls)", "mcp__plugin_demoman_demoman__*"],
+        ask: [
+          "mcp__plugin_demoman_demoman__attach",
+          "mcp__plugin_demoman_demoman__ci",
+        ],
       },
       theme: "dark",
       extraKnownMarketplaces: {
@@ -592,7 +596,81 @@ describe("setup", () => {
         },
       },
     });
-    expect(m.out()).toContain("its tools run without asking");
+    expect(m.out()).toContain(
+      "its tools run without asking, except attach and ci, which ask each time",
+    );
+  });
+
+  // --no-ask attach is the person's own yes to uploads without a prompt,
+  // given to setup itself; the pull-request setting never decides it.
+  describe("--no-ask attach", () => {
+    const SETTINGS = "/Users/u/.claude/settings.json";
+    const ATTACH_ASKS = [
+      "mcp__plugin_demoman_demoman__attach",
+      "mcp__plugin_demoman_demoman__ci",
+    ];
+
+    it("leaves only ci asking in Claude Code, and takes the attach rule out", async () => {
+      const m = machine();
+      m.files.set(
+        SETTINGS,
+        JSON.stringify({
+          permissions: {
+            allow: ["mcp__plugin_demoman_demoman__*"],
+            ask: ["Bash(rm)", ...ATTACH_ASKS],
+          },
+        }),
+      );
+      expect(await setup(m.d, { noAsk: "attach" })).toBe(0);
+      expect(JSON.parse(m.files.get(SETTINGS) ?? "").permissions).toEqual({
+        allow: ["mcp__plugin_demoman_demoman__*"],
+        ask: ["Bash(rm)", "mcp__plugin_demoman_demoman__ci"],
+      });
+      expect(m.out()).toContain(
+        "its tools run without asking, except ci, which asks each time",
+      );
+    });
+
+    it("is undone by a run without it, which puts the attach rule back", async () => {
+      const first = machine();
+      expect(await setup(first.d, { noAsk: "attach" })).toBe(0);
+      const then = machine();
+      then.files.set(SETTINGS, first.files.get(SETTINGS) ?? "");
+      // The premise: the first run left only ci asking.
+      expect(
+        JSON.parse(then.files.get(SETTINGS) ?? "").permissions.ask,
+      ).toEqual(["mcp__plugin_demoman_demoman__ci"]);
+      expect(await setup(then.d)).toBe(0);
+      // Appended after ci: the order of ask rules means nothing.
+      expect(
+        [...JSON.parse(then.files.get(SETTINGS) ?? "").permissions.ask].sort(),
+      ).toEqual(ATTACH_ASKS);
+    });
+
+    // A Studio or repo setting of Attach removes no prompt: only the flag.
+    it("is not implied by a pull-request setting of Attach", async () => {
+      const m = machine({
+        settings: {
+          read: async () => ({ exportQuality: "high", pullRequests: "attach" }),
+          write: async () => {
+            throw new Error("a setting was written");
+          },
+        },
+      });
+      expect(await setup(m.d)).toBe(0);
+      expect(JSON.parse(m.files.get(SETTINGS) ?? "").permissions.ask).toEqual(
+        ATTACH_ASKS,
+      );
+    });
+
+    it("parses, and refuses any tool but attach", () => {
+      expect(parseSetupArgs(["--no-ask", "attach"])).toEqual({
+        noAsk: "attach",
+      });
+      expect(parseSetupArgs(["--no-ask", "ci"])).toEqual({
+        refused: '--no-ask accepts attach only; got "ci"',
+      });
+    });
   });
 
   // Claude Code reads both files from CLAUDE_CONFIG_DIR when it is set; a
@@ -613,7 +691,13 @@ describe("setup", () => {
     expect(
       JSON.parse(m.files.get("/Users/u/.claude-work/settings.json") ?? ""),
     ).toEqual({
-      permissions: { allow: ["mcp__plugin_demoman_demoman__*"] },
+      permissions: {
+        allow: ["mcp__plugin_demoman_demoman__*"],
+        ask: [
+          "mcp__plugin_demoman_demoman__attach",
+          "mcp__plugin_demoman_demoman__ci",
+        ],
+      },
       extraKnownMarketplaces: {
         demoman: {
           source: { source: "github", repo: "demoman-io/plugins" },
@@ -631,14 +715,15 @@ describe("setup", () => {
     const m = machine();
     const broken = '{ "permissions": { "allow": [ } ';
     m.files.set("/Users/u/.claude/settings.json", broken);
-    expect(await setup(m.d)).toBe(0);
+    // Named: unattended, a file setup cannot read leaves Claude Code alone.
+    expect(await setup(m.d, { agents: ["Claude Code"] })).toBe(0);
     expect(m.files.get("/Users/u/.claude/settings.json")).toBe(broken);
     expect(m.writes).not.toContain("/Users/u/.claude/settings.json");
     expect(m.out()).toContain(
-      "Claude Code: the demoman plugin is installed (0.2.0), but its tools will ask before they run and it will not update itself (/Users/u/.claude/settings.json was left alone: it is not JSON (",
+      "Claude Code: the demoman plugin is installed (0.2.0), but setup could not set which of its tools ask, so attach and ci may run without asking if an earlier setup approved them, and it will not update itself (/Users/u/.claude/settings.json was left alone: it is not JSON (",
     );
     expect(m.out()).toContain(
-      'To fix both, add "mcp__plugin_demoman_demoman__*" to permissions.allow and set "autoUpdate": true on extraKnownMarketplaces.demoman in /Users/u/.claude/settings.json',
+      'To fix both, add "mcp__plugin_demoman_demoman__*" to permissions.allow and "mcp__plugin_demoman_demoman__attach" and "mcp__plugin_demoman_demoman__ci" to permissions.ask, and set "autoUpdate": true on extraKnownMarketplaces.demoman in /Users/u/.claude/settings.json',
     );
     // /code-review: one cause, said once, not once per edit.
     expect(m.out().split("it is not JSON").length - 1).toBe(1);
@@ -686,7 +771,7 @@ describe("setup", () => {
       expect(await setup(m.d)).toBe(0);
       expect(settings(m).extraKnownMarketplaces.demoman.autoUpdate).toBe(false);
       expect(m.out()).toContain(
-        "Claude Code: the demoman plugin is installed (0.2.0); its tools run without asking, but it will not update itself (/Users/u/.claude/settings.json was left alone: autoUpdate is false on its extraKnownMarketplaces.demoman entry. To turn that on,",
+        "Claude Code: the demoman plugin is installed (0.2.0); its tools run without asking, except attach and ci, which ask each time, but it will not update itself (/Users/u/.claude/settings.json was left alone: autoUpdate is false on its extraKnownMarketplaces.demoman entry. To turn that on,",
       );
       expect(m.out()).not.toContain("updates itself;");
       expect(m.out()).toContain("Done. Restart Claude Code");
@@ -696,20 +781,26 @@ describe("setup", () => {
       const both = machine({ writeText: () => ({ error: "EACCES" }) });
       expect(await setup(both.d)).toBe(0);
       expect(both.out()).toContain(
-        "but its tools will ask before they run and it will not update itself (/Users/u/.claude/settings.json could not be written: EACCES). To fix both,",
+        "but setup could not set which of its tools ask, so attach and ci may run without asking if an earlier setup approved them, and it will not update itself (/Users/u/.claude/settings.json could not be written: EACCES). To fix both,",
       );
       expect(both.out()).not.toContain("updates itself");
-      // The rule already there: only the update was lost to the write.
+      // The rules already there: only the update was lost to the write.
       const one = machine({ writeText: () => ({ error: "EACCES" }) });
       one.files.set(
         SETTINGS,
         JSON.stringify({
-          permissions: { allow: ["mcp__plugin_demoman_demoman__*"] },
+          permissions: {
+            allow: ["mcp__plugin_demoman_demoman__*"],
+            ask: [
+              "mcp__plugin_demoman_demoman__attach",
+              "mcp__plugin_demoman_demoman__ci",
+            ],
+          },
         }),
       );
       expect(await setup(one.d)).toBe(0);
       expect(one.out()).toContain(
-        "installed (0.2.0); its tools run without asking, but it will not update itself (/Users/u/.claude/settings.json could not be written: EACCES. To turn that on,",
+        "installed (0.2.0); its tools run without asking, except attach and ci, which ask each time, but it will not update itself (/Users/u/.claude/settings.json could not be written: EACCES. To turn that on,",
       );
     });
 
@@ -723,10 +814,18 @@ describe("setup", () => {
         return read(p);
       };
       expect(await setup(m.d)).toBe(0);
-      expect(reads.filter((p) => p === SETTINGS)).toHaveLength(1);
+      // One read to see whether Demoman is connected there (no terminal),
+      // and one for both edits.
+      expect(reads.filter((p) => p === SETTINGS)).toHaveLength(2);
       expect(m.writes.filter((p) => p === SETTINGS)).toHaveLength(1);
       expect(settings(m)).toEqual({
-        permissions: { allow: ["mcp__plugin_demoman_demoman__*"] },
+        permissions: {
+          allow: ["mcp__plugin_demoman_demoman__*"],
+          ask: [
+            "mcp__plugin_demoman_demoman__attach",
+            "mcp__plugin_demoman_demoman__ci",
+          ],
+        },
         extraKnownMarketplaces: { demoman: { source: OURS, autoUpdate: true } },
       });
     });
@@ -907,6 +1006,87 @@ describe("setup", () => {
       });
     const CONFIG = "/Users/u/.codex/config.toml";
 
+    // An agent fixing its own install runs setup with no terminal and no
+    // --agents; that run must not connect, and pre-approve tools in, an
+    // agent the person never chose.
+    describe("without a terminal or --agents", () => {
+      const CLAUDE_SETTINGS = "/Users/u/.claude/settings.json";
+      const claudeConnected = (m: ReturnType<typeof machine>) =>
+        m.files.set(
+          CLAUDE_SETTINGS,
+          JSON.stringify({ enabledPlugins: { "demoman@demoman": true } }),
+        );
+
+      it("updates the agent Demoman is connected to and leaves Codex alone", async () => {
+        const m = withCodex();
+        claudeConnected(m);
+        // The premise: Codex is installed, so a first install would wire it.
+        expect(m.d.run("codex", ["--version"]).status).toBe(0);
+        const before = m.calls.length;
+        expect(await setup(m.d)).toBe(0);
+        expect(
+          m.calls.slice(before).filter((c) => c.startsWith("codex ")),
+        ).toEqual([]);
+        expect(m.files.has(CONFIG)).toBe(false);
+        expect(m.out()).toContain(
+          "Codex: not changed; Demoman is not connected there, and without a terminal setup connects no new agent — to connect it, run `npx demoman@0.2.0 setup` in a terminal, or with --agents codex",
+        );
+        expect(m.out()).toContain(
+          "Claude Code: the demoman plugin is installed (0.2.0)",
+        );
+        expect(m.lines.at(-2)).toContain("Restart Claude Code,");
+      });
+
+      it("updates Codex too when it is connected", async () => {
+        const m = withCodex();
+        claudeConnected(m);
+        m.files.set(CONFIG, '[plugins."demoman@demoman"]\nenabled = true\n');
+        expect(await setup(m.d)).toBe(0);
+        expect(m.files.get(CONFIG)).toContain(CODEX_APPROVAL_TABLE);
+        expect(m.lines.at(-2)).toContain("Restart Claude Code and Codex");
+      });
+
+      it("connects Codex when --agents names it", async () => {
+        const m = withCodex();
+        claudeConnected(m);
+        expect(await setup(m.d, { agents: ["Codex"] })).toBe(0);
+        expect(m.files.get(CONFIG)).toBe(`${CODEX_APPROVAL_TABLE}\n`);
+      });
+
+      it("says why when it cannot tell whether Codex is connected", async () => {
+        const m = withCodex();
+        claudeConnected(m);
+        m.files.set(CONFIG, "model = ");
+        expect(await setup(m.d)).toBe(0);
+        expect(m.files.get(CONFIG)).toBe("model = ");
+        expect(m.out()).toContain(
+          "Codex: not changed; setup could not tell whether Demoman is connected there (it is not TOML Codex can read (",
+        );
+      });
+
+      // A file that cannot say is no proof of a first install.
+      it("connects nothing when the only sign of a connection cannot be read", async () => {
+        const m = withCodex();
+        m.files.set(CLAUDE_SETTINGS, "{ nope");
+        const before = m.calls.length;
+        expect(await setup(m.d)).toBe(0);
+        expect(
+          m.calls.slice(before).filter((c) => c.startsWith("codex ")),
+        ).toEqual([]);
+        expect(m.files.has(CONFIG)).toBe(false);
+        expect(m.out()).toContain(
+          "Claude Code: not changed; setup could not tell whether Demoman is connected there",
+        );
+      });
+
+      it("connects every agent found on a machine connected to none", async () => {
+        const m = withCodex();
+        expect(await setup(m.d)).toBe(0);
+        expect(m.files.get(CONFIG)).toBe(`${CODEX_APPROVAL_TABLE}\n`);
+        expect(m.out()).not.toContain("not changed");
+      });
+    });
+
     it("wires Codex: marketplace, plugin, check, pre-approval", async () => {
       const m = withCodex();
       m.files.set(CONFIG, 'model = "o5"\n');
@@ -1010,10 +1190,11 @@ describe("setup", () => {
     it("an unparseable config.toml leaves Codex partial and prints the table", async () => {
       const m = withCodex();
       m.files.set(CONFIG, "model = ");
-      expect(await setup(m.d)).toBe(0);
+      // Named: unattended, a file setup cannot read leaves Codex alone.
+      expect(await setup(m.d, { agents: ["Codex"] })).toBe(0);
       expect(m.files.get(CONFIG)).toBe("model = ");
       expect(m.out()).toContain(
-        "Codex: the demoman plugin is installed (0.2.0), but its tools will ask before they run (",
+        "Codex: the demoman plugin is installed (0.2.0), but setup could not set which of its tools ask, so attach and ci may run without asking if an earlier setup approved them (",
       );
       expect(m.out()).toContain(
         `add this to ${CONFIG}:\n\n${CODEX_APPROVAL_TABLE}`,
@@ -1041,6 +1222,21 @@ describe("setup", () => {
   });
 
   describe("Cursor", () => {
+    /** Every tool but attach and ci, written out so a tool added to the
+     *  server without a decision here fails this file. */
+    const CURSOR_TOOLS_APPROVED = [
+      "recipe",
+      "status",
+      "flows",
+      "derive",
+      "report",
+      "snapshot",
+      "probe",
+      "run",
+      "export",
+      "studio",
+      "add",
+    ].map((t) => `Mcp(demoman:${t})`);
     const MCP = "/Users/u/.cursor/mcp.json";
     const SKILL_FILE = "/Users/u/.cursor/skills/record-demo/SKILL.md";
     const CLI_CONFIG = "/Users/u/.cursor/cli-config.json";
@@ -1071,13 +1267,48 @@ describe("setup", () => {
       expect(m.files.get(SKILL_FILE)).toBe(SKILL);
       expect(m.calls).toContain("agent mcp enable demoman");
       expect(JSON.parse(m.files.get(CLI_CONFIG) ?? "")).toEqual({
-        permissions: { allow: ["Shell(ls)", "Mcp(demoman:*)"], deny: [] },
+        permissions: {
+          allow: ["Shell(ls)", ...CURSOR_TOOLS_APPROVED],
+          deny: [],
+        },
         version: 1,
       });
       expect(m.out()).toContain(
-        "Cursor: Demoman is connected and updates itself; its tools run without asking",
+        "Cursor: Demoman is connected and updates itself; its tools run without asking, except attach and ci, which ask each time",
       );
       expect(m.lines.at(-2)).toContain("Restart Claude Code and Cursor");
+    });
+
+    it("allows attach in the agent CLI with --no-ask attach, and takes it out after", async () => {
+      const m = withCli();
+      expect(await setup(m.d, { noAsk: "attach" })).toBe(0);
+      const allowed = JSON.parse(m.files.get(CLI_CONFIG) ?? "").permissions
+        .allow;
+      expect(allowed).toContain("Mcp(demoman:attach)");
+      expect(allowed).not.toContain("Mcp(demoman:ci)");
+      expect(m.out()).toContain("except ci, which asks each time");
+
+      expect(await setup(m.d)).toBe(0);
+      expect(
+        JSON.parse(m.files.get(CLI_CONFIG) ?? "").permissions.allow,
+      ).toEqual(CURSOR_TOOLS_APPROVED);
+    });
+
+    // The agent CLI has no ask list: the wildcard an earlier setup wrote
+    // would run attach and ci unasked beside any rule, so it goes.
+    it("takes out the wildcard an earlier setup wrote, keeping the person's rules", async () => {
+      const m = withCli();
+      m.files.set(
+        CLI_CONFIG,
+        JSON.stringify({
+          permissions: { allow: ["Shell(ls)", "Mcp(demoman:*)"], deny: [] },
+        }),
+      );
+      expect(await setup(m.d)).toBe(0);
+      const allow = JSON.parse(m.files.get(CLI_CONFIG) ?? "").permissions.allow;
+      expect(allow).toEqual(["Shell(ls)", ...CURSOR_TOOLS_APPROVED]);
+      expect(allow).not.toContain("Mcp(demoman:attach)");
+      expect(allow).not.toContain("Mcp(demoman:ci)");
     });
 
     // npx caches demoman@latest apart from the pinned version the plugins
@@ -1327,7 +1558,8 @@ describe("setup", () => {
     it("an unparseable mcp.json fails Cursor and prints the entry to paste", async () => {
       const m = withCli();
       m.files.set(MCP, "{ nope");
-      expect(await setup(m.d)).toBe(1);
+      // Named: unattended, a file setup cannot read leaves Cursor alone.
+      expect(await setup(m.d, { agents: ["Cursor"] })).toBe(1);
       expect(m.files.get(MCP)).toBe("{ nope");
       expect(m.out()).toContain('"demoman@latest"');
     });
@@ -1594,7 +1826,7 @@ describe("setup's questions", () => {
 
   // An agent may run setup in a pseudo-terminal, where a menu would wait
   // for an answer nobody gives: the command Demoman hands agents says --yes.
-  it("asks nothing, probes nothing and reads no settings with --yes, even in a terminal", async () => {
+  it("asks nothing and probes nothing with --yes, even in a terminal", async () => {
     const m = machine();
     const q = asking(m, "cancelled");
     expect(await setup(m.d, { yes: true })).toBe(0);
@@ -1766,6 +1998,44 @@ describe("setup's OpenCode step", () => {
   const ENTRY = opencodeEntry("/opt/node/bin");
   const withOpencode = (version = "opencode v2.0.32\n") =>
     machine({ answers: { "opencode --version": OK(version) } });
+  const ASK_ATTACH = {
+    action: "demoman_attach",
+    resource: "*",
+    effect: "ask",
+  };
+  const ASK_CI = { action: "demoman_ci", resource: "*", effect: "ask" };
+
+  // OpenCode runs every tool unasked unless a later rule says otherwise;
+  // the person's own rules keep their places, and setup's go after them.
+  it("asks before attach and ci after the person's own rules, and drops attach's with --no-ask attach", async () => {
+    const mine = { action: "bash", resource: "rm *", effect: "deny" };
+    const m = withOpencode();
+    m.files.set(CONFIG, JSON.stringify({ permissions: [mine] }));
+    expect(await setup(m.d)).toBe(0);
+    const first = JSON.parse(m.files.get(CONFIG) ?? "").permissions;
+    expect(first).toEqual([mine, ASK_ATTACH, ASK_CI]);
+
+    expect(await setup(m.d, { noAsk: "attach" })).toBe(0);
+    expect(JSON.parse(m.files.get(CONFIG) ?? "").permissions).toEqual([
+      mine,
+      ASK_CI,
+    ]);
+    expect(m.out()).toContain("except ci, which asks each time");
+  });
+
+  it("leaves OpenCode's older permission form alone, partial, and names the rules", async () => {
+    const m = withOpencode();
+    m.files.set(CONFIG, JSON.stringify({ permission: { edit: "ask" } }));
+    expect(await setup(m.d)).toBe(0);
+    const written = JSON.parse(m.files.get(CONFIG) ?? "");
+    // The entry still lands; only the rules are left out.
+    expect(written.mcp.servers.demoman).toEqual(ENTRY);
+    expect(written.permissions).toBeUndefined();
+    expect(m.out()).toContain(
+      'OpenCode: Demoman is connected and updates itself, but setup could not add its ask rules to /Users/u/.config/opencode/opencode.json (it sets OpenCode\'s older "permission" form',
+    );
+    expect(m.out()).toContain(JSON.stringify(ASK_ATTACH));
+  });
 
   it("writes the server and the skill, warms @latest, and names OpenCode at the end", async () => {
     const m = withOpencode();
@@ -1779,10 +2049,11 @@ describe("setup's OpenCode step", () => {
         pencil: { type: "local", command: ["p"] },
         servers: { demoman: ENTRY },
       },
+      permissions: [ASK_ATTACH, ASK_CI],
     });
     expect(m.files.get(SKILL_FILE)).toBe(SKILL);
     expect(m.out()).toContain(
-      "OpenCode: Demoman is connected and updates itself",
+      "OpenCode: Demoman is connected and updates itself; its tools run without asking, except attach and ci, which ask each time",
     );
     expect(m.calls).toContain("npx --prefix ~/ -y demoman@latest --version");
     expect(m.out()).toContain("Done. Restart Claude Code and OpenCode");
@@ -1835,7 +2106,8 @@ describe("setup's OpenCode step", () => {
   it("leaves a file it cannot parse alone and prints the block to paste", async () => {
     const m = withOpencode();
     m.files.set(CONFIG, '{ // mine\n "mcp": {} }');
-    expect(await setup(m.d)).toBe(1);
+    // Named: unattended, a file setup cannot read leaves OpenCode alone.
+    expect(await setup(m.d, { agents: ["OpenCode"] })).toBe(1);
     expect(m.out()).toContain(
       `OpenCode: ${CONFIG} was left alone: it is not JSON`,
     );

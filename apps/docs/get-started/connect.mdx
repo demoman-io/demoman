@@ -22,9 +22,10 @@ Setup connects every one of these it finds on your machine:
 | Cursor | an entry in `~/.cursor/mcp.json`, and the `record-demo` skill |
 | OpenCode | an entry in `~/.config/opencode/opencode.json`, and the `record-demo` skill |
 
-Demoman's tools then run without asking. Setup pre-approves them in Claude
-Code, Codex and Cursor and says so; OpenCode needs no approval unless its own
-settings ask for one.
+Demoman's tools then run without asking, except `attach` and `ci`, which act
+on GitHub under your account and ask each time. Setup sets this in Claude
+Code, Codex, Cursor's agent CLI and OpenCode, and says so. The Cursor app
+keeps its own list and may ask once for each tool.
 Restart the agent before your first demo.
 
 Demoman then updates itself in each agent. For Cursor and OpenCode, run setup
