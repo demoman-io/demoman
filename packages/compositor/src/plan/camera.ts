@@ -640,12 +640,21 @@ export function returnsBetween(
  * pull-out. Exported because the replay asks it too (spec 2026-10-30 F): a
  * take runs on until this has landed, so the walk and the camera must
  * answer alike.
+ *
+ * `holdThroughMs`: an instant the pull-out may not start before. A script
+ * that ends `after: "action"` asks for the close-up at its cut, and a step
+ * that finishes later than the hold would otherwise end on the pull-out
+ * (DEM-178); the run records the landing as the zoom's `end`.
  */
 export function pullOutLandsAt(
   heldUntilMs: number,
   timings: Pick<MotionTimings, "zoomOutMs">,
+  holdThroughMs = Number.NEGATIVE_INFINITY,
 ): number {
-  return heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs + timings.zoomOutMs;
+  return (
+    Math.max(heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs, holdThroughMs) +
+    timings.zoomOutMs
+  );
 }
 
 function insertNeutralKeys(

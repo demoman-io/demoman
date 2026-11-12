@@ -59,7 +59,7 @@ import {
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
-import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
+import { SETTLE_MS, WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -1257,7 +1257,7 @@ export function assembleAuthored(
     // The caller's (`AuthoredDeps.cameraFor`): a zoom on every click, as a
     // recorded take opens with. Spec 2026-10-01 §1.2. The clicks it left out
     // ride beside it, as `finalize` writes them: only when there is one.
-    camera: args.camera.camera,
+    camera: holdZoomThroughCut(args.camera.camera, trim.held),
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
@@ -1334,6 +1334,12 @@ export function assembleAuthored(
  * tail lands past the last thing filmed, as on a run the walk stopped
  * before its tail sleep. Written there, the compositor would clamp it to
  * the take's end and say nothing (`resolveRange`).
+ *
+ * An end `after: "action"` also returns `held`: where the camera is back at
+ * full frame once the step's zoom has held through the cut, as the walk
+ * filmed it (`StepTiming.zoomOutMs` less its `SETTLE_MS`). The take's zoom
+ * on that step gets it as its `end` (`holdZoomThroughCut`), so the render
+ * ends on the close-up the trim asks for (DEM-178).
  */
 function trimFromScript(
   script: DemoScript,
@@ -1342,9 +1348,11 @@ function trimFromScript(
 ): {
   trim?: { head?: SceneMarker; tail?: SceneMarker };
   clamped?: NonNullable<AuthoredResult["trimClamped"]>;
+  held?: SceneMarker;
   unplaced: ("start" | "end")[];
 } {
   const unplaced: ("start" | "end")[] = [];
+  let held: SceneMarker | undefined;
   const asked = script.trim;
   if (asked === undefined) return { unplaced };
   const performed = (index: number | null) => {
@@ -1384,14 +1392,38 @@ function trimFromScript(
           : finishMs;
       const offsetMs = base + asked.end.ms;
       if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
-      else trim.tail = { actionId: at.actionId, offsetMs };
+      else {
+        trim.tail = { actionId: at.actionId, offsetMs };
+        if (asked.end.after === "action" && zoomOutMs !== null)
+          held = { actionId: at.actionId, offsetMs: zoomOutMs - SETTLE_MS };
+      }
     }
   }
   return {
     ...(trim.head === undefined && trim.tail === undefined ? {} : { trim }),
     ...(clamped === undefined ? {} : { clamped }),
+    ...(held === undefined ? {} : { held }),
     unplaced,
   };
+}
+
+/**
+ * `camera` with the take's last zoom ended at `held`, when that zoom is on
+ * `held`'s own step: the one zoom a tail trimmed `after: "action"` cuts
+ * inside. A step that did not zoom keeps the camera as it is; it ends where
+ * `"zoomOut"` would (spec 2026-11-01 §2).
+ */
+function holdZoomThroughCut(
+  camera: SceneDocument["camera"],
+  held: SceneMarker | undefined,
+): SceneDocument["camera"] {
+  if (held === undefined) return camera;
+  let last = -1;
+  camera.forEach((c, i) => {
+    if (c.kind === "zoom") last = i;
+  });
+  if (camera[last]?.marker.actionId !== held.actionId) return camera;
+  return camera.map((c, i) => (i === last ? { ...c, end: held } : c));
 }
 
 /**

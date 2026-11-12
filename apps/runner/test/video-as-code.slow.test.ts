@@ -53,6 +53,12 @@ const steps = (reports?: { zoom: false }): ScriptStep[] => [
 ];
 const REPORTS = 2;
 const PLACE_ORDER = 4;
+/** The end trim kept after the last click's finish, `after: "action"`. Long
+ *  enough that the cut falls after the camera's own pull-out would have
+ *  started on any machine (asserted below), so the close-up at the cut is
+ *  the zoom held through it (DEM-178), not a click that happened to finish
+ *  inside the hold. */
+const TAIL_MS = 700;
 
 let app: { url: string; close(): void };
 let home: string;
@@ -237,7 +243,7 @@ const untrimmed = () => once("untrimmed", () => run("untrimmed"));
 const trimmedToAction = () =>
   once("toAction", () =>
     run("trim-to-action", {
-      trim: { start: { ms: 0 }, end: { ms: 0, after: "action" } },
+      trim: { start: { ms: 0 }, end: { ms: TAIL_MS, after: "action" } },
     }),
   );
 const trimmedToZoomOut = () =>
@@ -247,7 +253,7 @@ const trimmedToZoomOut = () =>
 
 describe("a script's trim, on the decoded video", () => {
   it(
-    "trim start 0 and end 0 after action: the video runs from the first shown marker to the last finish",
+    "trim start 0 and end 700 after action: the video runs from the first shown marker to 700 ms past the last finish",
     async () => {
       const whole = await untrimmed();
       const cut = await trimmedToAction();
@@ -255,7 +261,7 @@ describe("a script's trim, on the decoded video", () => {
       const cutPicture = await picture(cut);
       const first = cut.at(REPORTS);
       const last = cut.at(PLACE_ORDER);
-      const expected = last.outputMs - first.outputMs + last.finishMs;
+      const expected = last.outputMs - first.outputMs + last.finishMs + TAIL_MS;
       const evidence = JSON.stringify({
         first,
         last,
@@ -297,16 +303,33 @@ describe("a script's trim, on the decoded video", () => {
       }
       const cropped = await picture(toAction);
       const full = await picture(toZoomOut);
+      const cutMs = toAction.scene.edits.trim?.tail?.offsetMs ?? null;
+      const clickMs = toZoomOut.at(PLACE_ORDER).outputMs;
       const evidence = JSON.stringify({
         action: cropped.last,
         zoomOut: full.last,
         trims: [toAction.scene.edits.trim, toZoomOut.scene.edits.trim],
+        finishMs: toAction.at(PLACE_ORDER).finishMs,
+        cutMs,
+        camera: toAction.scene.camera,
       });
+      // The premise: the cut falls where the camera, left to itself, has
+      // already pulled out. The zoomOut take is the same script with no hold,
+      // so its frames that far after its own click show the canvas edges.
+      expect(cutMs, evidence).not.toBeNull();
+      const unheld = full.edgesBetween(
+        clickMs + (cutMs ?? 0) - 125,
+        clickMs + (cutMs ?? 0) + 125,
+      );
+      expect(unheld.length, evidence).toBeGreaterThan(0);
+      expect(
+        Math.min(...unheld.map((d) => d.green)),
+        JSON.stringify({ unheld, evidence }),
+      ).toBeGreaterThanOrEqual(3);
       expect(greenEdges(full.last), evidence).toBe(4);
       expect(greenEdges(cropped.last), evidence).toBeLessThanOrEqual(2);
       // And the zoomOut video did zoom on that click before it came back:
       // its end being full frame is the pull-out, not a zoom that never was.
-      const clickMs = toZoomOut.at(PLACE_ORDER).outputMs;
       const during = full.edgesBetween(clickMs, clickMs + 1000);
       expect(during.length, JSON.stringify(during)).toBeGreaterThanOrEqual(3);
       expect(

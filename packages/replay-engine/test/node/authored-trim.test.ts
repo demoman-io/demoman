@@ -6,7 +6,7 @@ import {
   type SceneAnchor,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
-import { TAKE_TAIL_MS } from "../../src/constants.js";
+import { SETTLE_MS, TAKE_TAIL_MS } from "../../src/constants.js";
 import type {
   AuthoredDeps,
   AuthoredResult,
@@ -55,6 +55,8 @@ async function run(
     zooms?: boolean;
     slowKey?: string;
     pullOutMs?: number;
+    /** The action, by index, the take's one zoom is on. */
+    cameraOn?: number;
   } = {},
 ): Promise<{ result: AuthoredResult; slowCalls: number; zoomed: string[] }> {
   /** The actions the room said it zooms to. */
@@ -140,14 +142,35 @@ async function run(
     startingBranding: BRANDING_DEFAULTS,
     roomFor: () => ({
       neededMs: () => 0,
-      settledAfterMs: (heldUntil) =>
-        heldUntil + (opts.pullOutMs ?? PULL_OUT_MS),
+      // The real room's rule in small (`pullOutLandsAt`): the pull-out
+      // starts no earlier than an instant it is held through.
+      settledAfterMs: (heldUntil, holdThrough) =>
+        Math.max(heldUntil, holdThrough ?? Number.NEGATIVE_INFINITY) +
+        (opts.pullOutMs ?? PULL_OUT_MS),
       zooms: ({ actionId }) => {
         if (opts.zooms === true) zoomed.push(actionId);
         return opts.zooms ?? false;
       },
     }),
-    cameraFor: () => ({ camera: [], zoomsSkipped: [] }),
+    cameraFor: (actions) => {
+      const on =
+        opts.cameraOn === undefined ? undefined : actions[opts.cameraOn];
+      return {
+        camera:
+          on === undefined || on.anchorId === null
+            ? []
+            : [
+                {
+                  id: "zoom-1",
+                  kind: "zoom",
+                  anchorId: on.anchorId,
+                  marker: { actionId: on.id, offsetMs: -350 },
+                  source: "click",
+                },
+              ],
+        zoomsSkipped: [],
+      };
+    },
   };
   const script: DemoScript = {
     scriptVersion: 8,
@@ -387,6 +410,67 @@ describe("runAuthored: each step's finish, and the script's trim", () => {
     expect(plan.range.endMs, evidence).toBeLessThan(
       plan.timeline.outputDurationMs,
     );
+  });
+
+  // DEM-178: a step that finishes after the zoom's hold would otherwise end
+  // the video on the pull-out, not the close-up `after: "action"` asks for.
+  it("an end after action holds the step's zoom through the cut, and the take films its return", async () => {
+    const { result } = await run([CLICK_A, CLICK_B], {
+      trim: { end: { ms: 400, after: "action" } },
+      zooms: true,
+      cameraOn: 1,
+    });
+    const evidence = JSON.stringify({
+      run: evidenceOf(result),
+      camera: result.document?.camera,
+    });
+    const timing = timingOf(result, 1);
+    const actionId = result.steps[1]?.actionId;
+    const cut = timing.finishMs + 400;
+    // Premise: the cut is where the trim put it, and the zoom arrived
+    // before it, so holding through it is a later return than the hold's own.
+    expect(result.document?.edits.trim, evidence).toEqual({
+      tail: { actionId, offsetMs: cut },
+    });
+    expect(result.document?.camera, evidence).toHaveLength(1);
+    // The walk counted the return from the cut, not from the arrival...
+    expect(timing.zoomOutMs, evidence).toBe(cut + PULL_OUT_MS);
+    // ...the take's zoom records it as its end...
+    expect(result.document?.camera[0]?.end, evidence).toEqual({
+      actionId,
+      offsetMs: cut + PULL_OUT_MS - SETTLE_MS,
+    });
+    // ...and the film reaches it, so the compositor clamps nothing.
+    expect(lastFrameMs(result), evidence).toBeGreaterThanOrEqual(
+      timing.markerMs + cut + PULL_OUT_MS - SETTLE_MS,
+    );
+    const plan = rendered(result);
+    expect(plan.clampedRanges, evidence).toEqual([]);
+  });
+
+  it("an end after action on a step that did not zoom leaves the camera as it is", async () => {
+    const { result } = await run([CLICK_A, CLICK_B], {
+      trim: { end: { ms: 400, after: "action" } },
+      zooms: true,
+      cameraOn: 0,
+    });
+    const evidence = JSON.stringify(result.document?.camera);
+    expect(result.document?.camera, evidence).toHaveLength(1);
+    expect(result.document?.camera[0]?.marker.actionId, evidence).toBe(
+      result.steps[0]?.actionId,
+    );
+    expect(result.document?.camera[0]?.end, evidence).toBeUndefined();
+  });
+
+  it("an end after zoomOut writes no end on the zoom", async () => {
+    const { result } = await run([CLICK_A, CLICK_B], {
+      trim: { end: { ms: 0 } },
+      zooms: true,
+      cameraOn: 1,
+    });
+    const evidence = JSON.stringify(result.document?.camera);
+    expect(result.document?.camera, evidence).toHaveLength(1);
+    expect(result.document?.camera[0]?.end, evidence).toBeUndefined();
   });
 
   it("an end after zoomOut, on a step that did not zoom, waits out the zoom before it", async () => {

@@ -362,6 +362,8 @@ const RANGE_READ = `function () {
  * and its span closed, `zoomOutMs` when the camera is back at full frame
  * after the latest zoom at or before the step (`RoomPolicy.settledAfterMs`,
  * the number the tail itself asks), null before any zoom or with no room.
+ * Under a tail trimmed `after: "action"` that zoom is held through the cut
+ * the trim would make at this step, as the tail films it.
  */
 export interface StepTiming {
   markerMs: number;
@@ -447,8 +449,11 @@ export interface RoomPolicy {
    * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
    * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
    * on until then, so the decision is recorded in its frames.
+   * `holdThroughMs`: the pull-out starts no earlier (`pullOutLandsAt`), for
+   * a tail trimmed `after: "action"`. The result is the landing plus
+   * `SETTLE_MS`.
    */
-  settledAfterMs(heldUntilMs: number): number;
+  settledAfterMs(heldUntilMs: number, holdThroughMs?: number): number;
 }
 
 export interface EngineDeps {
@@ -793,6 +798,11 @@ export async function runWalk(
   /** The last counted step's finish, for `config.tail`. Cast so the
    *  checker does not narrow it to `null`: `stepFinished` sets it. */
   let lastFinishAt = null as number | null;
+  /** Where a tail trimmed `after: "action"` at a step finished at `finishAt`
+   *  cuts: the zoom holds through it, so the video ends on the close-up
+   *  (DEM-178). Undefined for any other tail. */
+  const holdThrough = (finishAt: number): number | undefined =>
+    config.tail?.after === "action" ? finishAt + config.tail.ms : undefined;
   /**
    * The one place a step's finish is measured: where the walk counts it,
    * after its verb returned and (sampled) its span closed. It moves with the
@@ -808,7 +818,7 @@ export async function runWalk(
     const atMs = at();
     const zoomOutAtMs =
       room !== undefined && lastHeldUntil !== null
-        ? room.settledAfterMs(lastHeldUntil)
+        ? room.settledAfterMs(lastHeldUntil, holdThrough(atMs))
         : null;
     lastFinishAt = atMs;
     source.onFinished?.(actionId, {
@@ -3205,7 +3215,10 @@ export async function runWalk(
       if (reason === null && lastMarkerAt !== undefined) {
         const settledAt =
           room !== undefined && lastHeldUntil !== null
-            ? room.settledAfterMs(lastHeldUntil)
+            ? room.settledAfterMs(
+                lastHeldUntil,
+                lastFinishAt === null ? undefined : holdThrough(lastFinishAt),
+              )
             : Number.NEGATIVE_INFINITY;
         // The script's end trim, which needs at least its own `ms` filmed
         // after the last step's finish (or its zoom-out) to have it to keep.
