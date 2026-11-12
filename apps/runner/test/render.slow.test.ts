@@ -874,9 +874,6 @@ describe("an agent take that ends on a click", () => {
       stillLog: stillLog(),
       stills,
     });
-    console.log(
-      `STILL_LOG render ${JSON.stringify({ detail: answer.warnings.detailViolations, stills, log: stillLog() })}`,
-    );
     // The premises: each window holds a run of decoded frames, and the
     // film runs past the moving one.
     expect(last.length, evidence).toBeGreaterThanOrEqual(5);

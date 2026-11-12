@@ -372,9 +372,6 @@ describe("a click's zoom, on the decoded video", () => {
         zoomedStills: await stillsOf(zoomed),
         stillLog: stillLog(),
       });
-      console.log(
-        `STILL_LOG zoom ${JSON.stringify({ detail: zoomedPicture.detail, stills: await stillsOf(zoomed), log: stillLog() })}`,
-      );
       expect(withZoom.length, evidence).toBeGreaterThanOrEqual(6);
       expect(without.length, evidence).toBeGreaterThanOrEqual(6);
       expect(
