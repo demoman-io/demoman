@@ -18,6 +18,15 @@ import { keyframeOnlyBundle, renderSmallFilm } from "./render-small.js";
 // for elsewhere in this lane.
 const MEASURE_MS = 15_000;
 
+// The setup is three steps, each its own hook with its own budget, so a
+// timeout names the step that ran out (DEM-175). Measured locally on
+// 2026-11-12 (Apple silicon, three runs): the measurer 0.2–0.5 s, the
+// slideshow 1.3–1.5 s, the moving film 0.6 s; 2.2 s together, the file 3.5 s.
+// The macOS runner took 9.3–25.0 s for the file over 12 runs (2026-11-08..12),
+// up to 7x, and once spent more than 15 s in the three steps together (PR #69,
+// run 43181273475). 30 s a step is 20x the longest step here.
+const SETUP_MS = 30_000;
+
 let dir: string;
 let measurer: Measurer;
 let whole: Buffer;
@@ -26,12 +35,16 @@ const SMALL = { ...LANDSCAPE_1080P, width: 320, height: 180, fps: 30 };
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "demoman-measure-"));
   measurer = await createMeasurer();
-  // A 320x180, 30 fps film of the render lane's keyframe-only bundle: one
-  // picture for 9 s, with a cursor gliding over it — a slideshow.
+}, SETUP_MS);
+// A 320x180, 30 fps film of the render lane's keyframe-only bundle: one
+// picture for 9 s, with a cursor gliding over it — a slideshow.
+beforeAll(async () => {
   whole = await renderSmallFilm(SMALL);
-  // The same size and rate, 2 s, whose picture changes every frame.
+}, SETUP_MS);
+// The same size and rate, 2 s, whose picture changes every frame.
+beforeAll(async () => {
   moving = await renderSmallFilm(SMALL, { ms: 2000 });
-}, MEASURE_MS);
+}, SETUP_MS);
 afterAll(async () => {
   await measurer.close();
   await rm(dir, { recursive: true, force: true });
