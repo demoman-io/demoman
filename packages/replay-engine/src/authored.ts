@@ -224,6 +224,10 @@ export interface AuthoredStep {
   fieldHolds?: { value: string; holds: boolean };
   /** On a `type` whose field could not be read back: why. Not a divergence. */
   fieldRead?: { unavailable: string };
+  /** On a `type` whose last key the page was not seen to paint: why. The
+   *  step's end is the bound, so the camera may leave before the value
+   *  shows (DEM-173). */
+  lastKeyPaint?: { unconfirmed: string };
   /** On a `waitForLoad` that was met: whether a load started since the
    *  previous step began. False is a wait that passed without a navigation. */
   loadSeen?: boolean;
@@ -1040,6 +1044,13 @@ export function createAuthoredRun(
               )
             : undefined,
           text: step.do === "type" ? step.text : null,
+          ...(step.do === "type"
+            ? {
+                onLastKeyUnpainted: (why: string) => {
+                  record.lastKeyPaint = { unconfirmed: why };
+                },
+              }
+            : {}),
           // Never read for a credential field: its value is kept nowhere.
           ...(step.do === "type" && record.textHidden === null
             ? {

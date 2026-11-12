@@ -101,6 +101,8 @@ describe("a typed field, against a real page", () => {
           value: "hello",
           holds: true,
         });
+        // A page that paints its keys says nothing about the paint.
+        expect(result.steps[0]?.lastKeyPaint).toBeUndefined();
       },
     );
   });
@@ -155,6 +157,38 @@ describe("the editing keys, against a real page", () => {
       ],
       async (_result, page) => {
         expect(await page.inputValue("#plain")).toBe("heo");
+      },
+    );
+  });
+});
+
+describe("a field whose last key is never seen painted", () => {
+  // DEM-173: the step's end waits for the last key's paint, bounded; a page
+  // that draws no frame inside the bound is said, not taken as painted.
+  it("says so on the step rather than reporting the key painted", async () => {
+    await runTypes(
+      [{ do: "type", into: { stableId: "frozen" }, text: "ab" }],
+      async (result, page) => {
+        // The premise: the keys went in; only the frames were withheld.
+        expect(await page.inputValue("#frozen")).toBe("ab");
+        expect(result.steps[0]?.lastKeyPaint).toEqual({
+          unconfirmed: "the page drew no frame within 1000 ms of the last key",
+        });
+      },
+    );
+  });
+});
+
+describe("a field whose key takes the page away", () => {
+  // Review of DEM-173: the document the key went into is gone, so there is
+  // no paint left to confirm; the step is not reported as unpainted.
+  it("says nothing about the last key's paint", async () => {
+    await runTypes(
+      [{ do: "type", into: { stableId: "leave" }, text: "a" }],
+      async (result, page) => {
+        // The premise: the key did navigate.
+        await page.waitForURL(/\?left=1$/);
+        expect(result.steps[0]?.lastKeyPaint).toBeUndefined();
       },
     );
   });

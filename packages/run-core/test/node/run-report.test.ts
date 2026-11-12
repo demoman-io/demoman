@@ -1446,6 +1446,21 @@ describe("a typed field that does not hold its text", () => {
     expect(report.steps[0]?.loadSeen).toBe(false);
     expect(report.verdict.kind).toBe("matches");
   });
+
+  // DEM-173: a `type` whose last key was never seen painted is said on the
+  // step, so the report does not read as a step whose value showed.
+  it("carries lastKeyPaint onto the step", () => {
+    const args = complete();
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const unconfirmed = "the page drew no frame within 1000 ms of the last key";
+    const report = buildRunReport({
+      ...args,
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, lastKeyPaint: { unconfirmed } } : s,
+      ),
+    });
+    expect(report.steps[0]?.lastKeyPaint).toEqual({ unconfirmed });
+  });
 });
 
 describe("RunReport opening, trim and zoom notes", () => {
