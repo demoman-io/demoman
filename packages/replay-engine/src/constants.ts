@@ -301,8 +301,9 @@ export const ACT_CEILING_MS = 1000;
  * What it cannot cover: a page that changes after a quiet gap longer than
  * about 200 ms with no request open is captured before it changes. That is
  * a debounce longer than the beat, and any delay made by a timer alone
- * (`setTimeout` with no fetch or XHR) longer than the beat. A delay that
- * waits on a request is condition 2's, and is waited out.
+ * (`setTimeout` with no request open) longer than the beat. A delay that
+ * waits on a request (fetch, XHR, or code being loaded: a script or a
+ * stylesheet, DEM-176) is condition 2's, and is waited out.
  */
 export const STEP_QUIET_MS = 200;
 /**
@@ -312,7 +313,8 @@ export const STEP_QUIET_MS = 200;
  */
 export const STEP_SETTLE_CAP_MS = 2000;
 /**
- * The most the walk waits for one step's fetch/XHR requests to finish,
+ * The most the walk waits for one step's requests (fetch, XHR, scripts,
+ * stylesheets: `requests.ts`) to finish,
  * before the page is asked at all. Longer than the page's cap because a
  * streamed answer is one request that stays open while it is written:
  * measured 2026-11-10, the chatbot sample's reply and the helpdesk's drafted
