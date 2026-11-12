@@ -176,7 +176,7 @@ function baseRun(): BuildArgs["run"] {
     id: "run-1",
     startedAt: 0,
     target: "https://app.example.com/",
-    executor: "extension",
+    executor: "cli",
     script: { name: "run report fixture", scriptVersion: 1, steps: 9 },
   };
 }

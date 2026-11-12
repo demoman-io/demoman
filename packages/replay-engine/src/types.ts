@@ -143,6 +143,9 @@ export interface FrameEncoder {
  * What the last replay of a scene did, in the four numbers a surface needs
  * to say something true about it.
  *
+ * Stored beside that scene's frames (`status.json` in the take), so it
+ * lives exactly as long as they do.
+ *
  * The absence of a status is itself the fact a caller needs: **no status
  * means no replay has been run for this scene**, which is a different thing
  * from a replay that ran and stopped, and the two must not present alike.
@@ -514,17 +517,13 @@ export interface ReplayResult {
    * nowhere else is `bundle !== null && storageRefused`, and a caller that
    * means to render later should re-persist exactly then.
    *
-   * Narrow on purpose. It exists because the retired extension's telemetry
-   * could not otherwise see storage exhaustion — quota was the most
-   * plausible failure it had, frames being the largest thing it wrote, up to
-   * 200 keyframes at 1-3 MB — and a run that had already stopped for another
-   * reason kept its original `reason` (correctly) while the write survived
-   * only in the progress note, which never entered telemetry because it can
-   * quote page content. So `storageRefused` is exactly the set of runs whose bundle the
-   * store rejected, with no false positives to dilute it. Widening it to
-   * "there is no stored bundle" would fire on every refusal and every
-   * wait-only scene, and nothing else in a counters-only payload separates
-   * those from a real quota failure.
+   * Narrow on purpose. The run report carries it as `frames.storageRefused`,
+   * and its verdict line then says the frame store refused frames during the
+   * run. A run that had already stopped for another reason keeps its original
+   * `reason` (correctly), so this flag is the only place the refused write
+   * survives outside the progress note. Widening it to "there is no stored
+   * bundle" would fire on every refusal and every wait-only scene, and put a
+   * storage failure in the verdict of runs where nothing failed.
    *
    * A throw from bundle *assembly* is deliberately not counted here. The
    * store was never asked, so it is not a storage event — it is an engine
