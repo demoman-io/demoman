@@ -59,6 +59,9 @@ interface Nav {
   documents: number;
   loaded: number;
   failed: number;
+  /** The page's origin and path as the last acting step began: what a
+   *  client-side sign-in has moved away from (DEM-151). */
+  pathBefore: string;
 }
 
 export type AccountSignInFailure = {
@@ -200,10 +203,18 @@ async function runSteps(
       nav.loaded = 0;
       nav.failed = 0;
     }
+    // Read just before the last acting step dispatches, after its element
+    // was found: a navigation the step before set going has landed by then
+    // (review of DEM-151). Every signIn starts with a goto (accounts.ts),
+    // so the last acting step always exists and this is always set.
+    const pathNow = () => {
+      if (i === lastAction) nav.pathBefore = originAndPath(page.url());
+    };
     const stepUntil = Math.min(until, Date.now() + STEP_WAIT_MS);
     try {
       switch (step.do) {
         case "goto":
+          pathNow();
           await page.goto(step.url, { waitUntil: "load", timeout: left() });
           break;
         case "waitForLoad":
@@ -217,6 +228,7 @@ async function runSteps(
           break;
         case "click":
           await mark(page, step.on, String(i), "visible", stepUntil);
+          pathNow();
           await page
             .locator(`[${SIGN_IN_MARK}="${i}"]`)
             .click({ timeout: left() });
@@ -244,6 +256,7 @@ async function runSteps(
                   : `the page is on ${here}, not ${origin}, so the secret was not typed — a sign-in never types a secret off its own site`,
               );
             }
+            pathNow();
             await handle.fill(resolve(step.text), { timeout: left() });
           } finally {
             await handle.dispose().catch(() => undefined);
@@ -469,7 +482,7 @@ export async function signInAccount(
       // document changes such as replaceState, which are not a submit): a
       // form that submits from script after its click lands after the last
       // step returns.
-      const nav: Nav = { documents: 0, loaded: 0, failed: 0 };
+      const nav: Nav = { documents: 0, loaded: 0, failed: 0, pathBefore: "" };
       const mainNavigation = (request: import("playwright").Request) =>
         request.isNavigationRequest() && request.frame() === page.mainFrame();
       page.on("request", (request) => {
@@ -526,7 +539,9 @@ export async function signInAccount(
         // (read as checkUrl's check reads it, every field, CSP-safe). Either
         // alone is not enough: a form can hide its field and navigate a
         // second later, or rewrite its query and still submit (review).
-        const pathBefore = originAndPath(page.url());
+        // The path is the one the last step began on, not this moment's: a
+        // page that moved before its click returned was already elsewhere
+        // here, and waited out the 10 s (DEM-151).
         let signedInPlace = false;
         let lastLook = 0;
         while (nav.documents === 0 && Date.now() < navUntil) {
@@ -538,7 +553,7 @@ export async function signInAccount(
             if (
               facts !== null &&
               !facts.passwordFieldVisible &&
-              originAndPath(facts.landedUrl) !== pathBefore
+              originAndPath(facts.landedUrl) !== nav.pathBefore
             ) {
               signedInPlace = true;
               break;
