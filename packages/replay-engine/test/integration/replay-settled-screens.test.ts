@@ -676,6 +676,9 @@ describe("a layout change as a still is taken, under the resting pointer", () =>
   const hoveredAtHold: boolean[] = [];
   /** #hoverbtn's top before the harness changed the layout. */
   let topBefore: number | null = null;
+  /** How many layout changes and stills it took to lose the hover. */
+  let stillTries = 0;
+  const STILL_TRIES = 5;
   beforeAll(async () => {
     const hovered = (page: Page) =>
       page.evaluate(
@@ -713,28 +716,52 @@ describe("a layout change as a still is taken, under the resting pointer", () =>
               document.getElementById("hoverbtn") as HTMLElement
             ).getBoundingClientRect().y,
         );
-        await page.evaluate(() => {
-          const d = document.createElement("div");
-          d.style.height = "20px";
-          document.getElementById("finwrap")?.append(d);
-        });
-        await cdp.send("Page.captureScreenshot", {
-          format: "jpeg",
-          quality: 95,
-        });
-        hoveredAfterStill = await hovered(page);
+        // The race is Chrome's, so a still can miss it (Linux CI,
+        // DEM-174): try again, bounded, and say how many tries it took.
+        do {
+          stillTries++;
+          await page.evaluate(() => {
+            const d = document.createElement("div");
+            d.style.height = "20px";
+            document.getElementById("finwrap")?.append(d);
+          });
+          await cdp.send("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: 95,
+          });
+          hoveredAfterStill = await hovered(page);
+          // A recompute a frame late is this try's, not a miss: read again.
+          if (hoveredAfterStill) {
+            await page.evaluate(
+              () => new Promise((done) => requestAnimationFrame(done)),
+            );
+            hoveredAfterStill = await hovered(page);
+          }
+        } while (hoveredAfterStill && stillTries < STILL_TRIES);
       },
     );
   }, 60_000);
 
   // Red without the pointer's move before the settle (`settleAndCapture`):
   // the screen after the click shows the button as the opening does.
-  it("the screen after the click shows the button under the pointer hovered", () => {
+  it("the screen after the click shows the button under the pointer hovered", async ({
+    annotate,
+  }) => {
+    // A later try is a green run that missed once: an annotation on the
+    // run's page, so a rising miss rate shows before all five miss.
+    if (stillTries > 1 && hoveredAfterStill === false)
+      await annotate(
+        `the hover was lost to the still on try ${stillTries} of ${STILL_TRIES}`,
+        "warning",
+      );
     // The premises: the opening had nothing hovered, and the harness's
     // still really did lose the hover the click had.
     expect(hoveredAtHold, "hovered as each capture began").toHaveLength(2);
     expect(hoveredAtHold[0], "the opening").toBe(false);
-    expect(hoveredAfterStill, "lost to the still").toBe(false);
+    expect(
+      hoveredAfterStill,
+      `lost to the still (${stillTries} of ${STILL_TRIES} tries)`,
+    ).toBe(false);
     // The layout change is below the button (#finwrap), so the button did
     // not move: the picture below compares the same pixels.
     expect(topBefore, "premise: read before the change").not.toBeNull();
