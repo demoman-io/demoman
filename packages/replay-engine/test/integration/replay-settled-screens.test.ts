@@ -148,6 +148,9 @@ type PixelDiff = {
   pixels: number;
   maxDelta: number;
   box: { x0: number; y0: number; x1: number; y1: number } | null;
+  /** The share of the picture each of refresh's looks counts changed, and
+   *  whether it is over that look's allowance (refresh's "changed"). */
+  looks: { name: string; share: number; over: boolean }[];
 };
 
 /**
@@ -373,7 +376,7 @@ async function pixelDiff(
       };
       const [x, y] = [await read(a), await read(b)];
       if (x.width !== y.width || x.height !== y.height)
-        return { pixels: -1, maxDelta: -1, box: null };
+        return { pixels: -1, maxDelta: -1, box: null, looks: [] };
       let pixels = 0;
       let maxDelta = 0;
       let box: { x0: number; y0: number; x1: number; y1: number } | null = null;
@@ -399,7 +402,55 @@ async function pixelDiff(
                 y1: Math.max(box.y1, py),
               };
       }
-      return { pixels, maxDelta, box };
+      // Refresh's own reading of the pair: `STILL_LOOKS`
+      // (apps/runner/src/executor/same-picture.ts) over `blockMoves`'s
+      // arithmetic (apps/runner/src/picture-diff.ts), which this package
+      // cannot import: each channel's a-minus-b averaged over the
+      // block-wide square around each pixel, clipped at the edges; a pixel
+      // counts when its most-moved channel moved more than `levels`.
+      const w = x.width;
+      const h = x.height;
+      const looks = [
+        { name: "sharply", block: 1, levels: 40, allowed: 0.000008 },
+        { name: "faintly", block: 8, levels: 13, allowed: 0.00017 },
+      ].map(({ name, block, levels, allowed }) => {
+        const lo = Math.floor((block - 1) / 2);
+        const hi = block - 1 - lo;
+        const moves = new Float32Array(w * h);
+        for (let c = 0; c < 3; c++) {
+          const sum = new Float64Array((w + 1) * (h + 1));
+          for (let py = 0; py < h; py++) {
+            let row = 0;
+            for (let px = 0; px < w; px++) {
+              const p = (py * w + px) * 4 + c;
+              row += (x.data[p] ?? 0) - (y.data[p] ?? 0);
+              sum[(py + 1) * (w + 1) + px + 1] =
+                (sum[py * (w + 1) + px + 1] ?? 0) + row;
+            }
+          }
+          for (let py = 0; py < h; py++) {
+            const y0 = Math.max(0, py - lo);
+            const y1 = Math.min(h, py + hi + 1);
+            for (let px = 0; px < w; px++) {
+              const x0 = Math.max(0, px - lo);
+              const x1 = Math.min(w, px + hi + 1);
+              const at = (yy: number, xx: number) =>
+                sum[yy * (w + 1) + xx] ?? 0;
+              const move = Math.abs(
+                (at(y1, x1) - at(y0, x1) - at(y1, x0) + at(y0, x0)) /
+                  ((x1 - x0) * (y1 - y0)),
+              );
+              const i = py * w + px;
+              if (move > (moves[i] ?? 0)) moves[i] = move;
+            }
+          }
+        }
+        let changed = 0;
+        for (const m of moves) if (m > levels) changed++;
+        const share = changed / moves.length;
+        return { name, share, over: share > allowed };
+      });
+      return { pixels, maxDelta, box, looks };
     },
     {
       a: Buffer.from(a).toString("base64"),
@@ -559,11 +610,14 @@ describe("a continuous walk settles each step and captures its page", () => {
     ).toBe(0);
   });
 
-  // Under 8 levels a pixel moves neither of refresh's looks (`STILL_LOOKS`:
-  // 40 levels a pixel, 13 levels an 8x8 mean). Measured: 1 px by 2 levels
-  // at #q's focus-ring corner in some recordings. A hover lost on #spinbtn
-  // was 39 levels (CI, 2026-11-10), which this still fails on.
-  it("two recordings of the same script give page screens no pixel of which differs by 8 levels or more", () => {
+  // Two recordings may differ where refresh cannot see it: read with
+  // refresh's own looks (`pixelDiff`), no screen may be over either
+  // allowance. Measured: 1 px by 2 levels at #q's focus-ring corner
+  // (macOS), and 3 px by 40 levels in the column at x=7 on the last screen
+  // (ubuntu, 2026-11-11), each read 0 by both looks. A hover lost on
+  // #spinbtn (1251 px by up to 39 levels, CI, 2026-11-10) reads changed
+  // faintly, so this still fails on it.
+  it("two recordings of the same script give page screens refresh reads as the same", () => {
     // The premises: an endless spinner was on screen and held for every
     // screen after the first step, and the field held focus for the
     // screens after the focus, the typing and the hover. The caret itself is
@@ -593,11 +647,12 @@ describe("a continuous walk settles each step and captures its page", () => {
       if (!differing.includes(i)) expect(d.pixels, `screen ${i}`).toBe(0);
     // -1 is two sizes, which no tolerance forgives.
     expect(
-      differing.filter((i) => {
-        const d = b.against[i];
-        return d === undefined || d.maxDelta < 0 || d.maxDelta >= 8;
-      }),
-      `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(differing.map((i) => ({ i, after: a.screens[i]?.after, ...b.against[i] })))}`,
+      // Every screen, read from the pixels: what refresh would compare.
+      b.against
+        .map((d, i) => ({ i, d }))
+        .filter(({ d }) => d.maxDelta < 0 || d.looks.some((l) => l.over))
+        .map(({ i }) => i),
+      `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(b.against.map((d, i) => ({ i, after: a.screens[i]?.after, ...d })).filter((d) => d.pixels !== 0))}`,
     ).toEqual([]);
   });
 
