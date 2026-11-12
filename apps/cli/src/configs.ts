@@ -470,11 +470,15 @@ export const claudeConnected = (text: string | null): Connected =>
     (o) => isObject(o.enabledPlugins) && PLUGIN_ID in o.enabledPlugins,
   );
 
-/** Codex writes the installed plugin's own table. */
+/** Codex writes the installed plugin's own table with `enabled`. Setup's
+ *  approval tables sit under that table too, so the key alone would count a
+ *  plugin removed since as connected. */
 export function codexConnected(text: string | null): Connected {
   try {
-    const toml = parse(text ?? "") as { plugins?: Record<string, unknown> };
-    return toml.plugins?.[PLUGIN_ID] !== undefined;
+    const toml = parse(text ?? "") as {
+      plugins?: Record<string, { enabled?: unknown }>;
+    };
+    return toml.plugins?.[PLUGIN_ID]?.enabled !== undefined;
   } catch (error) {
     return { unreadable: `it is not TOML Codex can read (${message(error)})` };
   }
@@ -541,3 +545,7 @@ export function opencodeAsks(
   obj.permissions = [...kept, ...missing];
   return { text: serialise(obj), changed: true };
 }
+
+/** One Demoman tool in Cursor's agent CLI permission syntax
+ *  (cursor.com/docs/cli/reference/permissions). */
+export const cursorRule = (tool: string): string => `Mcp(demoman:${tool})`;

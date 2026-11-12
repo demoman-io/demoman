@@ -342,6 +342,12 @@ describe("connected readers", () => {
       codexConnected('[plugins."demoman@demoman"]\nenabled = true\n'),
     ).toBe(true);
     expect(codexConnected('[plugins."other@x"]\nenabled = true\n')).toBe(false);
+    // Setup's own approval tables, left after the plugin was removed.
+    expect(
+      codexConnected(
+        '[plugins."demoman@demoman".mcp_servers.demoman]\ndefault_tools_approval_mode = "approve"\n',
+      ),
+    ).toBe(false);
     expect(codexConnected("a = ")).toHaveProperty("unreadable");
   });
 

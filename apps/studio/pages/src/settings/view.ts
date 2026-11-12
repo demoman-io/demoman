@@ -234,16 +234,6 @@ export function renderSettings(
     }
     row.append(group);
     pr.body.append(row);
-    // Setup writes whether the agents ask before an upload from this setting
-    // as it runs (asksFor, apps/cli/src/setup.ts), so a change here reaches
-    // them only when setup runs again.
-    pr.body.append(
-      el(
-        "p",
-        { class: "hint", "data-pull-requests-hint": "" },
-        "With Attach, your agent posts the video to a pull request without asking you first. After changing this, run npx demoman setup so your agents follow it.",
-      ),
-    );
     content.append(pr.box);
   }
 

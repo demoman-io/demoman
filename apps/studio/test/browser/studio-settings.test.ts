@@ -108,11 +108,6 @@ describe("the Studio's Pull requests setting, in a real window", () => {
         { label: "Ask", checked: "true" },
         { label: "Attach", checked: "false" },
       ]);
-      const hint = page.locator(
-        '[data-section="pullRequests"] [data-pull-requests-hint]',
-      );
-      expect(await hint.isVisible(), await pageEvidence(page)).toBe(true);
-      expect(await hint.innerText()).toContain("run npx demoman setup");
 
       await page
         .locator('[aria-label="Pull requests"] [role="radio"]', {

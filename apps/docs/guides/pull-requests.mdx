@@ -15,7 +15,7 @@ and adds nothing to a pull request without a video.
 | --- | --- |
 | Off | Records a pull request only when you ask |
 | Ask | Offers to record it first. The default |
-| Attach | Records and attaches it without asking |
+| Attach | Records and attaches it without offering first |
 
 Set your default in the Studio, under **Settings → Pull requests**. To set
 it for one repository, commit a `.demoman/config.json`:
@@ -28,16 +28,16 @@ it for one repository, commit a `.demoman/config.json`:
 
 The repository's file wins over your default.
 
-Your agent asks you before each upload, whatever the setting, in Claude
-Code, Codex, Cursor's agent CLI and OpenCode. When your own default is
-Attach, setup lets it upload without that prompt. Setup reads the default
-as it runs, so run `npx demoman setup` again after changing it. A
-repository's Attach does not remove the prompt.
+Whatever the setting, your agent's app asks you before each upload in
+Claude Code, Codex, Cursor's agent CLI and OpenCode, so a page your agent
+read cannot talk it into posting a video.
 
-With no one there to answer, the prompt is a refusal: a `claude -p` run
+With no one there to answer, that prompt is a refusal: a `claude -p` run
 records and exports the video, then cannot attach it. For unattended runs
-on your machine, set your default to Attach. An agent in the cloud reads
-its own settings, not the ones setup wrote here.
+on your machine, run `npx demoman setup --no-ask attach`, which lets your
+agents upload without the prompt. A later setup run without the flag
+brings the prompt back. An agent in the cloud reads its own settings, not
+the ones setup wrote here.
 
 ## What it needs
 

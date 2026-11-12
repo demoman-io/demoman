@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type AgentSkillDeps, refreshAgentSkill } from "../src/agent-skill.js";
+import {
+  type AgentSkillDeps,
+  refreshAgentSkill,
+  refreshCursorRules,
+} from "../src/agent-skill.js";
 
 const PATH = "/Users/u/.cursor/skills/record-demo/SKILL.md";
 const skill = (v: string) =>
@@ -121,5 +125,53 @@ describe("refreshAgentSkill, for OpenCode", () => {
       expect(refreshAgentSkill(m.d), String(client)).toBeNull();
       expect(m.writes).toEqual([]);
     }
+  });
+});
+
+describe("refreshCursorRules", () => {
+  const CLI = "/Users/u/.cursor/cli-config.json";
+  const allow = (m: ReturnType<typeof server>) =>
+    JSON.parse(m.files.get(CLI) ?? "").permissions.allow as string[];
+
+  // Setup wrote these for an older version, which had no `report`.
+  it("adds a tool this version has that the file lacks, never attach or ci", () => {
+    const m = server();
+    m.files.set(
+      CLI,
+      JSON.stringify({
+        permissions: { allow: ["Shell(ls)", "Mcp(demoman:run)"] },
+      }),
+    );
+    // The premise: the file approved Demoman before, without report.
+    expect(allow(m)).not.toContain("Mcp(demoman:report)");
+    expect(refreshCursorRules(m.d)).toBe(
+      `Cursor's agent CLI now allows this version's new tools (${CLI})`,
+    );
+    expect(allow(m)).toContain("Mcp(demoman:report)");
+    expect(allow(m)[0]).toBe("Shell(ls)");
+    expect(allow(m)).not.toContain("Mcp(demoman:attach)");
+    expect(allow(m)).not.toContain("Mcp(demoman:ci)");
+    expect(refreshCursorRules(m.d)).toBeNull();
+  });
+
+  it("leaves a file with no Demoman rule alone: being asked is the person's choice", () => {
+    const m = server();
+    const mine = JSON.stringify({ permissions: { allow: ["Shell(ls)"] } });
+    m.files.set(CLI, mine);
+    expect(refreshCursorRules(m.d)).toBeNull();
+    expect(m.files.get(CLI)).toBe(mine);
+    expect(m.writes).toEqual([]);
+  });
+
+  it("does nothing for another agent's server, and says a file it cannot read", () => {
+    const other = server({ env: { DEMOMAN_CLIENT: "opencode" } });
+    other.files.set(CLI, '{"permissions":{"allow":["Mcp(demoman:run)"]}}');
+    expect(refreshCursorRules(other.d)).toBeNull();
+    expect(other.writes).toEqual([]);
+    const broken = server();
+    broken.files.set(CLI, "{ nope");
+    expect(refreshCursorRules(broken.d)).toMatch(
+      /^Cursor's agent CLI allow rules were not refreshed: .* is not JSON/,
+    );
   });
 });

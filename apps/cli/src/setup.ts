@@ -35,6 +35,7 @@ import {
   codexConnected,
   cursorConnected,
   cursorEntry,
+  cursorRule,
   cursorServer,
   type Edit,
   isOurSkill,
@@ -283,6 +284,10 @@ export interface SetupFlags {
   agents?: AgentName[];
   quality?: ExportQuality;
   pullRequests?: PullRequestsValue;
+  /** `--no-ask attach`: the person's own yes to attach running unasked,
+   *  for runs with no one to answer. Recorded only in the agents' configs,
+   *  so a later run without it puts the prompt back. */
+  noAsk?: "attach";
 }
 
 /** setup's arguments, or why they cannot be used, before anything runs. */
@@ -295,6 +300,7 @@ export function parseSetupArgs(
     agents?: string;
     quality?: string;
     "pull-requests"?: string;
+    "no-ask"?: string;
   };
   try {
     ({ values } = parseArgs({
@@ -305,6 +311,7 @@ export function parseSetupArgs(
         agents: { type: "string" },
         quality: { type: "string" },
         "pull-requests": { type: "string" },
+        "no-ask": { type: "string" },
       },
       strict: true,
       allowPositionals: false,
@@ -337,6 +344,14 @@ export function parseSetupArgs(
     }
     flags.quality = quality;
   }
+  const noAsk = values["no-ask"];
+  if (noAsk !== undefined) {
+    // ci sets secrets and repo settings: it asks every time, flag or not.
+    if (noAsk !== "attach") {
+      return { refused: `--no-ask accepts attach only; got "${noAsk}"` };
+    }
+    flags.noAsk = "attach";
+  }
   const pr = values["pull-requests"];
   if (pr !== undefined) {
     if (!isPullRequestsValue(pr)) {
@@ -358,11 +373,11 @@ export const CLAUDE_ALLOW_RULE = "mcp__plugin_demoman_demoman__*";
 const claudeRule = (tool: ToolName): string =>
   `mcp__plugin_demoman_demoman__${tool}`;
 
-/** The tools of ASKS_EACH_TIME that ask each time: attach does not when
- *  the person's own pull-request setting is Attach, which is their yes to
- *  uploads without a prompt. */
-export const asksFor = (pullRequests: PullRequestsValue): ToolName[] =>
-  ASKS_EACH_TIME.filter((t) => !(t === "attach" && pullRequests === "attach"));
+/** The tools of ASKS_EACH_TIME that ask each time: all of them, unless the
+ *  person passed `--no-ask attach`. Never derived from the pull-request
+ *  setting, which can change in the Studio or a repo after setup ran. */
+export const asksFor = (flags: SetupFlags): ToolName[] =>
+  ASKS_EACH_TIME.filter((t) => !(t === "attach" && flags.noAsk === "attach"));
 
 /** What a fully wired agent says about its tools. */
 const runWithoutAsking = (asks: readonly ToolName[]): string =>
@@ -491,12 +506,12 @@ function claudeCode(d: SetupDeps, asks: readonly ToolName[]): AgentResult {
   if (settings.allow !== null && settings.allow === settings.updates) {
     // One cause for both (the file is unreadable, say): said once.
     limits.push(
-      `setup could not set which of its tools ask and it will not update itself (${settings.allow}). To fix both, ${allowFix}, and ${updateFix} in ${path}`,
+      `setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them, and it will not update itself (${settings.allow}). To fix both, ${allowFix}, and ${updateFix} in ${path}`,
     );
   } else {
     if (settings.allow !== null) {
       limits.push(
-        `setup could not set which of its tools ask (${settings.allow}). To set it, ${allowFix} in ${path}`,
+        `setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${settings.allow}). To set it, ${allowFix} in ${path}`,
       );
     }
     if (settings.updates !== null) {
@@ -771,17 +786,20 @@ const codex: Wire = (d, asks) => {
   }
   const list = codexStep(["plugin", "list", "--json"]);
   if (list === null) return result("failed");
-  const listed = parseJson(list) as {
+  const pluginList = parseJson(list) as {
     installed?: Array<Record<string, unknown>>;
     unreadable?: string;
   };
-  if (listed?.unreadable !== undefined || !Array.isArray(listed?.installed)) {
+  if (
+    pluginList?.unreadable !== undefined ||
+    !Array.isArray(pluginList?.installed)
+  ) {
     d.say(
-      `Codex: could not read its plugin list (${listed?.unreadable ?? "it has no installed list"})`,
+      `Codex: could not read its plugin list (${pluginList?.unreadable ?? "it has no installed list"})`,
     );
     return result("failed");
   }
-  const plugin = listed.installed.find((p) => p.pluginId === PLUGIN_ID);
+  const plugin = pluginList.installed.find((p) => p.pluginId === PLUGIN_ID);
   if (plugin === undefined) {
     d.say(
       `Codex: the install reported success, but \`codex plugin list\` does not list ${PLUGIN_ID}`,
@@ -807,7 +825,7 @@ const codex: Wire = (d, asks) => {
     return result("wired");
   }
   d.say(
-    `${installed}, but setup could not set which of its tools ask (${refused}). To set it, add this to ${config}:\n\n${codexApprovalTable(asks)}\n`,
+    `${installed}, but setup could not set which of its tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${refused}). To set it, add this to ${config}:\n\n${codexApprovalTable(asks)}\n`,
   );
   return result("partial");
 };
@@ -904,7 +922,6 @@ export function foundAgents(d: SetupDeps): AgentName[] {
  *  0.9.6, and takes it out again: the CLI has no ask list to keep attach and
  *  ci asking beside it. */
 export const CURSOR_WILDCARD_RULE = "Mcp(demoman:*)";
-const cursorRule = (tool: ToolName): string => `Mcp(demoman:${tool})`;
 
 /** Cursor cannot install a plugin from a shell, so setup writes its global
  *  mcp.json (read by the app and the `agent` CLI alike) and copies the
@@ -1015,7 +1032,7 @@ const cursor: Wire = (d, asks) => {
     );
     if (refused !== null) {
       reasons.push(
-        `setup could not set which of the agent CLI's tools ask (${refused}); add ${allow.map((r) => `"${r}"`).join(", ")} to permissions.allow in ~/.cursor/cli-config.json, and remove "${CURSOR_WILDCARD_RULE}" if it is there`,
+        `setup could not set which of the agent CLI's tools ask, so ${listed([...asks])} may run without asking if an earlier setup approved them (${refused}); add ${allow.map((r) => `"${r}"`).join(", ")} to permissions.allow in ~/.cursor/cli-config.json, and remove "${CURSOR_WILDCARD_RULE}" if it is there`,
       );
     }
   }
@@ -1190,7 +1207,7 @@ const opencode: Wire = (d, asks) => {
   const connected = "OpenCode: Demoman is connected and updates itself";
   if ("refused" in asked) {
     d.say(
-      `${connected}, but setup could not add its ask rules to ${config} (${asked.refused}), so attach and ci may run without asking. To add them, put these in "permissions" there:\n\n${asks.map((t) => JSON.stringify(opencodeAskRule(t))).join(",\n")}\n`,
+      `${connected}, but setup could not add its ask rules to ${config} (${asked.refused}), so ${listed([...asks])} may run without asking. To add them, put these in "permissions" there:\n\n${asks.map((t) => JSON.stringify(opencodeAskRule(t))).join(",\n")}\n`,
     );
     return result("partial");
   }
@@ -1260,8 +1277,10 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   // menu preselects them.
   const connected =
     d.ask === null && flags.agents === undefined ? connectedAgents(d) : null;
+  // A file that cannot say counts as maybe connected: such a run is no
+  // first install, so it connects nothing it cannot account for.
   const onlyConnected =
-    connected !== null && [...connected.values()].some((c) => c === true);
+    connected !== null && [...connected.values()].some((c) => c !== false);
   const leftAlone = (agent: AgentName): string | null => {
     const c = connected?.get(agent);
     if (!onlyConnected || c === true) return null;
@@ -1272,16 +1291,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
       : `${agent}: not changed; Demoman is not connected there, and without a terminal setup connects no new agent — ${connect}`;
   };
 
-  // Read here when nothing above read it. An unreadable file reads as the
-  // default, which keeps attach asking, and is said.
-  let pullRequests =
-    flags.pullRequests ?? answers.pullRequests ?? preselected.pullRequests;
-  if (pullRequests === undefined) {
-    const read = await d.settings.read();
-    if (read.unreadable !== undefined) d.say(`settings: ${read.unreadable}`);
-    pullRequests = read.pullRequests ?? PULL_REQUESTS_DEFAULT;
-  }
-  const asks = asksFor(pullRequests);
+  const asks = asksFor(flags);
 
   if (!(await browser(d))) return 1;
   const wires: Array<[AgentName, Wire]> = [
