@@ -45,9 +45,13 @@ beforeAll(async () => {
 beforeAll(async () => {
   moving = await renderSmallFilm(SMALL, { ms: 2000 });
 }, SETUP_MS);
+// A setup step that failed leaves what came after it unset.
 afterAll(async () => {
-  await measurer.close();
-  await rm(dir, { recursive: true, force: true });
+  try {
+    await measurer?.close();
+  } finally {
+    if (dir !== undefined) await rm(dir, { recursive: true, force: true });
+  }
 });
 
 describe("measure", () => {
