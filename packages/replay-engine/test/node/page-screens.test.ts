@@ -11,6 +11,7 @@ import {
   STEP_SETTLE_MARKER,
   STILL_DRAIN_MS,
 } from "../../src/index.js";
+import { ECHO_WINDOW_MS } from "../../src/step-settle.js";
 import {
   type CdpFake,
   createCdpFake,
@@ -549,13 +550,24 @@ describe("frames a page screen keeps out of the film", () => {
         d.cdp.emit("Page.screencastFrame", { sessionId: 1, data: HI });
       }
       // On the walk's next call after the opening's release: Chrome's 1x
-      // frame, then the page moving at 2x.
+      // frame, then the page moving at 2x, all painted past the release's
+      // echo (`ECHO_WINDOW_MS`), so only the stray rule can drop the 1x one.
       if (strayDue && method !== "Page.screencastFrameAck") {
         strayDue = false;
         strays++;
-        d.cdp.emit("Page.screencastFrame", { sessionId: 2, data: LO });
+        const past = d.clock.now() + ECHO_WINDOW_MS;
+        const at = (ms: number) => ({ timestamp: ms / 1000 });
+        d.cdp.emit("Page.screencastFrame", {
+          sessionId: 2,
+          data: LO,
+          metadata: at(past + 1),
+        });
         for (let i = 0; i < 4; i++) {
-          d.cdp.emit("Page.screencastFrame", { sessionId: 3 + i, data: HI });
+          d.cdp.emit("Page.screencastFrame", {
+            sessionId: 3 + i,
+            data: HI,
+            metadata: at(past + 2 + i),
+          });
         }
       }
       const reply = await send(method, params);
@@ -621,7 +633,8 @@ describe("frames a page screen keeps out of the film", () => {
       if (burstDue && method !== "Page.screencastFrameAck") {
         burstDue = false;
         burst++;
-        const after = d.clock.now();
+        // Past the release's echo, so only the stray rule judges these.
+        const after = d.clock.now() + ECHO_WINDOW_MS;
         frame(2, HI, after);
         frame(3, HELD, holdAt);
         frame(4, LO, after + 1);

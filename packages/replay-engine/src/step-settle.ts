@@ -185,20 +185,41 @@ export const PAGE_CAPTURE_RELEASE = `(() => {
  */
 export const STRAY_WINDOW_MS = 250;
 
+/**
+ * How long after a page capture's release a frame of any size is still the
+ * capture's echo: the page repainting what the screen just took, not the
+ * page moving. Measured on CI (ubuntu, PR #67, 2026-11-12): two frames
+ * painted 4 ms before to 52 ms after every release. Kept, they joined a
+ * full still's own two echo frames in one span of 3 or more
+ * (`SPAN_MIN_FRAMES`), which owed a settled still; the next step's still,
+ * decided within `MOVING_RECENT_MS` of it, stood in at the screencast's
+ * size, and the zoom on the click after it was granted 1x. The rest is room
+ * for a loaded machine. The echo ends early at the walk's next input, so a
+ * hover the next step's pointer paints is the page's, filmed and seen; an
+ * endless animation loses at most this long after each step's capture,
+ * beside the hold it already loses.
+ */
+export const ECHO_WINDOW_MS = 100;
+
 /** A page capture, on the walk's clock: when the hold began and ended (null
- *  while it holds), and the frame size seen before it (null when none was). */
+ *  while it holds), when the walk's next input began after it (null until
+ *  then), and the frame size seen before it (null when none was). */
 export interface CaptureWindow {
   fromMs: number;
   toMs: number | null;
+  inputMs: number | null;
   size: string | null;
 }
 
 /**
  * Whether a screencast frame stamped at `paintedMs` stays out of the film
  * because of a page capture: stamped while the capture held the page (caret
- * hidden, spinners held), whenever it arrives; or stamped within
- * `STRAY_WINDOW_MS` after it at another size than the page had before it,
- * whatever came between. `size` is read only in that window: it decodes.
+ * hidden, spinners held), whenever it arrives; stamped within
+ * `ECHO_WINDOW_MS` after the release and before the walk's next input, at
+ * any size (the capture's echo); or
+ * stamped within `STRAY_WINDOW_MS` after it at another size than the page
+ * had before it, whatever came between. `size` is read only past the echo
+ * and inside the stray window: it decodes.
  */
 export function capturedAway(
   paintedMs: number,
@@ -207,6 +228,11 @@ export function capturedAway(
 ): boolean {
   if (capture === null || paintedMs < capture.fromMs) return false;
   if (capture.toMs === null || paintedMs <= capture.toMs) return true;
+  const echoEnds = Math.min(
+    capture.toMs + ECHO_WINDOW_MS,
+    capture.inputMs ?? Number.POSITIVE_INFINITY,
+  );
+  if (paintedMs <= echoEnds) return true;
   if (capture.size === null || paintedMs > capture.toMs + STRAY_WINDOW_MS)
     return false;
   return size() !== capture.size;

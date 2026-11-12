@@ -961,7 +961,17 @@ export async function runWalk(
 
   // --- CDP helpers -------------------------------------------------------
   // Input and stills never overlap: see `input-gate.ts` for why.
-  const gate = deps.inputGate ?? createInputGate();
+  const sharedGate = deps.inputGate ?? createInputGate();
+  // Every input section ends the last page capture's echo
+  // (`ECHO_WINDOW_MS`): what paints after the walk acts is the page's.
+  const gate: InputGate = {
+    section: (input) =>
+      sharedGate.section(() => {
+        pageFrames.inputBegan();
+        return input();
+      }),
+    capture: (take) => sharedGate.capture(take),
+  };
   const takeShot = async (actionId: string | null): Promise<void> => {
     const reply = await gate.capture(() =>
       cdp.send("Page.captureScreenshot", {
@@ -1228,11 +1238,20 @@ export async function runWalk(
         capture = {
           fromMs: clock.now(),
           toMs: null,
+          inputMs: null,
           size: latest === null ? null : sizeOf(latest),
         };
       },
       release(): void {
         if (capture !== null) capture.toMs = clock.now();
+      },
+      inputBegan(): void {
+        if (
+          capture !== null &&
+          capture.toMs !== null &&
+          capture.inputMs === null
+        )
+          capture.inputMs = clock.now();
       },
       dropping(data: string, paintedMs: number): boolean {
         return capturedAway(paintedMs, () => sizeOf(data), capture);
