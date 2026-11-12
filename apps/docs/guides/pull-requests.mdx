@@ -29,10 +29,15 @@ it for one repository, commit a `.demoman/config.json`:
 The repository's file wins over your default.
 
 Your agent asks you before each upload, whatever the setting, in Claude
-Code, Codex and Cursor's agent CLI. When your own default is Attach, setup
-lets it upload without that prompt. Setup reads the default as it runs, so
-run `npx demoman setup` again after changing it. A repository's Attach
-does not remove the prompt.
+Code, Codex, Cursor's agent CLI and OpenCode. When your own default is
+Attach, setup lets it upload without that prompt. Setup reads the default
+as it runs, so run `npx demoman setup` again after changing it. A
+repository's Attach does not remove the prompt.
+
+With no one there to answer, the prompt is a refusal: a `claude -p` run
+records and exports the video, then cannot attach it. For unattended runs
+on your machine, set your default to Attach. An agent in the cloud reads
+its own settings, not the ones setup wrote here.
 
 ## What it needs
 

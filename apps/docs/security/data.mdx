@@ -19,9 +19,10 @@ Setup connects each agent you choose and pre-approves Demoman's tools, so they r
 | --- | --- |
 | Claude Code | Installs the Demoman plugin from GitHub, allows its tools in `~/.claude/settings.json`, and lists `attach` and `ci` there to ask each time. |
 | Codex | Installs the Demoman plugin from GitHub, and sets its tools to run without asking in `~/.codex/config.toml`, except `attach` and `ci`, which ask. |
+| OpenCode | Adds a `demoman` server to `opencode.json`, rules there that make `attach` and `ci` ask, and the `record-demo` skill. |
 | Cursor | Adds a `demoman` server to `~/.cursor/mcp.json` and the `record-demo` skill to `~/.cursor/skills/record-demo/`. With Cursor's agent CLI, it also enables the server and allows each tool but `attach` and `ci` in `~/.cursor/cli-config.json`. The Cursor app may ask once for each tool. |
 
-Setup is the whole approval for every tool but `attach` and `ci`. Once it has run, any session of an agent it connected can use Demoman on any site. There is no per-agent or per-site grant. In OpenCode, which runs tools without asking unless its own settings say otherwise, and in the Cursor app, whose allow-list setup cannot write, `attach` and `ci` follow those agents' own settings.
+Setup is the whole approval for every tool but `attach` and `ci`. Once it has run, any session of an agent it connected can use Demoman on any site. There is no per-agent or per-site grant. In the Cursor app, whose allow-list setup cannot write, `attach` and `ci` follow Cursor's own settings.
 
 ## What it keeps on disk
 
@@ -86,7 +87,7 @@ To the publisher: nothing.
 - **npm**, once a day at most: Demoman asks `https://registry.npmjs.org/demoman/latest` whether a newer version exists, with no identifiers beyond Node's default user agent. `DEMOMAN_NO_UPDATE_CHECK=1` turns it off; set it where your agent starts Demoman, and see [Sign in](/get-started/sign-in#demo-accounts) for why Codex may not pass it on from your shell. `npx` also asks npm for the newest Demoman each time your agent starts the server.
 - **During setup**: Playwright downloads Chromium from its CDN, Claude Code and Codex fetch the Demoman plugin from GitHub, and npm's cache is warmed with the package.
 - **GitHub, to update the plugin**: Claude Code and Codex check the Demoman plugin's GitHub repository in the background and install a newer version when there is one.
-- **GitHub**, only when your agent attaches a video to a pull request: the video goes up through your `gh` sign-in, to the pull request's description or a comment, where anyone who can see the pull request can see it. Your agent does this without asking only when the pull-request setting is Attach. It is Ask unless you change it, which offers first. The setting guides your agent; what enforces it is the agent's own prompt. Unless your own setting is Attach when setup runs, setup leaves `attach` asking each time in Claude Code, Codex and Cursor's agent CLI, so you approve every upload there, including one a page your agent read talked it into. In OpenCode, `attach` runs unasked unless OpenCode's own settings ask.
+- **GitHub**, only when your agent attaches a video to a pull request: the video goes up through your `gh` sign-in, to the pull request's description or a comment, where anyone who can see the pull request can see it. Your agent does this without asking only when the pull-request setting is Attach. It is Ask unless you change it, which offers first. The setting guides your agent; what enforces it is the agent's own prompt. Unless your own setting is Attach when setup runs, setup leaves `attach` asking each time in Claude Code, Codex, Cursor's agent CLI and OpenCode, so you approve every upload there, including one a page your agent read talked it into.
 - **The sites your agent opens**, and whatever they load, in Demoman's browser.
 - **Your agent's AI service**, through the agent, for everything under "What your agent sees". Demoman neither sees nor controls that.
 

@@ -495,3 +495,49 @@ export const opencodeConnected = (text: string | null): Connected =>
       (isOurOpencodeEntry(o.mcp.demoman) ||
         (isObject(o.mcp.servers) && isOurOpencodeEntry(o.mcp.servers.demoman))),
   );
+
+/** Setup's rule that makes OpenCode ask before one Demoman tool. OpenCode
+ *  names an MCP tool `<server>_<tool>` (opencode.ai/docs/mcp-servers). */
+export const opencodeAskRule = (tool: string) => ({
+  action: `demoman_${tool}`,
+  resource: "*",
+  effect: "ask",
+});
+
+/**
+ * OpenCode 2's `permissions`: an ordered list where the last matching rule
+ * wins, read after each agent's built-in allow-everything rule (opencode
+ * 2.0.32's `debug agents` lists setup's rules after it). Each tool of
+ * `asks` gets setup's ask rule, appended; setup's own rule for a tool of
+ * ASKS_EACH_TIME that no longer asks is removed, and nothing else is
+ * touched. A rule of the person's own placed after these still wins.
+ */
+export function opencodeAsks(
+  text: string | null,
+  asks: readonly ToolName[],
+): Edit {
+  const read = readObject(text);
+  if ("refused" in read) return read;
+  const { obj } = read;
+  if (obj.permission !== undefined) {
+    return {
+      refused:
+        "it sets OpenCode's older \"permission\" form, and how OpenCode reads setup's rules beside it is untested",
+    };
+  }
+  const had = obj.permissions ?? [];
+  if (!Array.isArray(had)) return { refused: "its permissions is not a list" };
+  const ours = (r: unknown, tool: string): boolean =>
+    isObject(r) && JSON.stringify(r) === JSON.stringify(opencodeAskRule(tool));
+  const kept = had.filter(
+    (r) => !ASKS_EACH_TIME.some((t) => !asks.includes(t) && ours(r, t)),
+  );
+  const missing = asks
+    .filter((t) => !kept.some((r) => ours(r, t)))
+    .map(opencodeAskRule);
+  if (missing.length === 0 && kept.length === had.length && text !== null) {
+    return { text, changed: false };
+  }
+  obj.permissions = [...kept, ...missing];
+  return { text: serialise(obj), changed: true };
+}

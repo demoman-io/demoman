@@ -40,6 +40,8 @@ import {
   isOurSkill,
   marketplaceAutoUpdate,
   NPX_PREFIX,
+  opencodeAskRule,
+  opencodeAsks,
   opencodeConnected,
   opencodeDir,
   opencodeEntry,
@@ -1103,9 +1105,9 @@ function placeSkill(
 const OPENCODE_MIN = [2, 0, 0] as const;
 
 /** OpenCode has no plugin layer either: setup writes its opencode.json and
- *  copies the skill. Its tools run without asking by default, so there is
- *  nothing to pre-approve. */
-const opencode: Wire = (d) => {
+ *  copies the skill. Its tools run without asking by default, so setup
+ *  pre-approves nothing and adds an ask rule for each tool that asks. */
+const opencode: Wire = (d, asks) => {
   const result = (state: AgentState): AgentResult => ({
     agent: "OpenCode",
     state,
@@ -1162,8 +1164,11 @@ const opencode: Wire = (d) => {
     );
     return result("failed");
   }
-  if (edit.changed) {
-    const wrote = d.writeText(config, edit.text);
+  // The ask rules ride in the same write; a refusal still writes the entry.
+  const asked = opencodeAsks(edit.text, asks);
+  const next = "text" in asked ? asked.text : edit.text;
+  if (next !== ("text" in file ? file.text : null)) {
+    const wrote = d.writeText(config, next);
     if ("error" in wrote) {
       d.say(
         `OpenCode: ${config} could not be written (${wrote.error}); ${pasteIn(config)}`,
@@ -1182,7 +1187,14 @@ const opencode: Wire = (d) => {
   ) {
     return result("failed");
   }
-  d.say("OpenCode: Demoman is connected and updates itself");
+  const connected = "OpenCode: Demoman is connected and updates itself";
+  if ("refused" in asked) {
+    d.say(
+      `${connected}, but setup could not add its ask rules to ${config} (${asked.refused}), so attach and ci may run without asking. To add them, put these in "permissions" there:\n\n${asks.map((t) => JSON.stringify(opencodeAskRule(t))).join(",\n")}\n`,
+    );
+    return result("partial");
+  }
+  d.say(`${connected}; ${runWithoutAsking(asks)}`);
   return result("wired");
 };
 

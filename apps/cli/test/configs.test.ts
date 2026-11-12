@@ -17,6 +17,7 @@ import {
   isOurSkill,
   marketplaceAutoUpdate,
   NPX_PREFIX,
+  opencodeAsks,
   opencodeConnected,
   opencodeEntry,
   opencodeServer,
@@ -279,6 +280,39 @@ describe("addPermissionRules: ask and drop", () => {
     });
     expect(out).toEqual({
       refused: "its permissions.ask is not a list of rules",
+    });
+  });
+});
+
+describe("opencodeAsks", () => {
+  const rule = (tool: string) => ({
+    action: `demoman_${tool}`,
+    resource: "*",
+    effect: "ask",
+  });
+  it("appends each rule once, and changes nothing the second time", () => {
+    const once = text(opencodeAsks('{"mcp":{}}', ["attach", "ci"]));
+    expect(JSON.parse(once).permissions).toEqual([rule("attach"), rule("ci")]);
+    expect(opencodeAsks(once, ["attach", "ci"])).toEqual({
+      text: once,
+      changed: false,
+    });
+  });
+
+  it("removes only setup's own rule for a tool that stopped asking", () => {
+    const mine = { action: "demoman_attach", resource: "*", effect: "deny" };
+    const before = JSON.stringify({
+      permissions: [mine, rule("attach"), rule("ci")],
+    });
+    expect(JSON.parse(text(opencodeAsks(before, ["ci"]))).permissions).toEqual([
+      mine,
+      rule("ci"),
+    ]);
+  });
+
+  it("refuses a permissions that is not a list", () => {
+    expect(opencodeAsks('{"permissions":{}}', ["ci"])).toEqual({
+      refused: "its permissions is not a list",
     });
   });
 });

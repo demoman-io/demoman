@@ -2001,6 +2001,54 @@ describe("setup's OpenCode step", () => {
   const ENTRY = opencodeEntry("/opt/node/bin");
   const withOpencode = (version = "opencode v2.0.32\n") =>
     machine({ answers: { "opencode --version": OK(version) } });
+  const ASK_ATTACH = {
+    action: "demoman_attach",
+    resource: "*",
+    effect: "ask",
+  };
+  const ASK_CI = { action: "demoman_ci", resource: "*", effect: "ask" };
+
+  // OpenCode runs every tool unasked unless a later rule says otherwise;
+  // the person's own rules keep their places, and setup's go after them.
+  it("asks before attach and ci after the person's own rules, and drops attach's at Attach", async () => {
+    const mine = { action: "bash", resource: "rm *", effect: "deny" };
+    const m = withOpencode();
+    m.files.set(CONFIG, JSON.stringify({ permissions: [mine] }));
+    expect(await setup(m.d)).toBe(0);
+    const first = JSON.parse(m.files.get(CONFIG) ?? "").permissions;
+    expect(first).toEqual([mine, ASK_ATTACH, ASK_CI]);
+
+    const attach = machine({
+      answers: { "opencode --version": OK("opencode v2.0.32\n") },
+      settings: {
+        read: async () => ({ exportQuality: "high", pullRequests: "attach" }),
+        write: async () => {
+          throw new Error("a setting was written");
+        },
+      },
+    });
+    attach.files.set(CONFIG, m.files.get(CONFIG) ?? "");
+    expect(await setup(attach.d)).toBe(0);
+    expect(JSON.parse(attach.files.get(CONFIG) ?? "").permissions).toEqual([
+      mine,
+      ASK_CI,
+    ]);
+    expect(attach.out()).toContain("except ci, which asks each time");
+  });
+
+  it("leaves OpenCode's older permission form alone, partial, and names the rules", async () => {
+    const m = withOpencode();
+    m.files.set(CONFIG, JSON.stringify({ permission: { edit: "ask" } }));
+    expect(await setup(m.d)).toBe(0);
+    const written = JSON.parse(m.files.get(CONFIG) ?? "");
+    // The entry still lands; only the rules are left out.
+    expect(written.mcp.servers.demoman).toEqual(ENTRY);
+    expect(written.permissions).toBeUndefined();
+    expect(m.out()).toContain(
+      'OpenCode: Demoman is connected and updates itself, but setup could not add its ask rules to /Users/u/.config/opencode/opencode.json (it sets OpenCode\'s older "permission" form',
+    );
+    expect(m.out()).toContain(JSON.stringify(ASK_ATTACH));
+  });
 
   it("writes the server and the skill, warms @latest, and names OpenCode at the end", async () => {
     const m = withOpencode();
@@ -2014,10 +2062,11 @@ describe("setup's OpenCode step", () => {
         pencil: { type: "local", command: ["p"] },
         servers: { demoman: ENTRY },
       },
+      permissions: [ASK_ATTACH, ASK_CI],
     });
     expect(m.files.get(SKILL_FILE)).toBe(SKILL);
     expect(m.out()).toContain(
-      "OpenCode: Demoman is connected and updates itself",
+      "OpenCode: Demoman is connected and updates itself; its tools run without asking, except attach and ci, which ask each time",
     );
     expect(m.calls).toContain("npx --prefix ~/ -y demoman@latest --version");
     expect(m.out()).toContain("Done. Restart Claude Code and OpenCode");
