@@ -541,8 +541,9 @@ interface RawSegment {
  * paced regions' edges. Motion always passes through at rate 1.0
  * (`outDurationMs === srcDuration`) — that never changes here, on either
  * bundle mode. Idle passes through unchanged too, UNLESS an authored gap or a
- * planned beat covers it on a real-time bundle; see `idleOutputFor`. Either way a cut here no longer risks re-timing dead air
- * twice the way the deleted min/max clamp did.
+ * planned beat covers it on a real-time bundle; see `idleOutputFor`. Either
+ * way a cut here no longer risks re-timing dead air twice the way the
+ * deleted min/max clamp did.
  *
  * Holds must never contribute a cut here regardless: a cut here splits
  * whatever span contains it into two proportionally-apportioned halves (see
@@ -690,15 +691,25 @@ function authoredRegions(
  * instant). Inside an author's cut it is dropped with the cut, as
  * `paceInstants` drops a pace.
  *
+ * Inside an interruption a freeze has no frame to stand on: the instant is
+ * removed, and nothing after the interruption is in this stretch (the
+ * stretch ends inside it). It moves back to where the interruption began,
+ * the stretch's last frame that plays, which `buildTimeline` emits the way
+ * it does a cut's seam. When the interruption began at or before the
+ * stretch's start, the stretch has no frame that plays, and the beat is
+ * counted.
+ *
  * A beat that cannot be placed — a marker missing, the step's marker without
- * an approach, or an approach outside its pair — is counted, never guessed:
- * the pair then plays as recorded, and `unplacedPaces` says so.
+ * an approach, an approach outside its pair, or a freeze with no frame — is
+ * counted, never guessed: the pair then plays as recorded, and
+ * `unplacedPaces` says so.
  */
 function plannedIdleOf(
   plan: RenderPlan,
   bundle: FrameBundle,
   idleIn: (fromMs: number, toMs: number) => number,
   cuts: readonly ResolvedCut[],
+  interruptions: readonly TimeSpan[],
   sourceDurationMs: number,
 ): { regions: IdleRegion[]; freezes: PaceInstant[]; unplacedPaces: number } {
   const regions: IdleRegion[] = [];
@@ -706,13 +717,27 @@ function plannedIdleOf(
   let unplacedPaces = 0;
   if (!isRealTime(bundle)) return { regions, freezes, unplacedPaces };
   const markerOf = new Map(bundle.markers.map((m) => [m.actionId, m]));
-  const share = (srcStartMs: number, srcEndMs: number, targetMs: number) => {
+  /** False when the stretch's planned idle has nowhere to play. */
+  const share = (
+    srcStartMs: number,
+    srcEndMs: number,
+    targetMs: number,
+  ): boolean => {
     const idleMs = idleIn(srcStartMs, srcEndMs);
     if (idleMs > 0) {
       regions.push({ srcStartMs, srcEndMs, targetMs, idleMs });
-    } else if (targetMs > 0 && !insideCutClosed(cuts, srcEndMs)) {
-      freezes.push({ sourceTimeMs: srcEndMs, durationMs: targetMs });
+      return true;
     }
+    if (targetMs <= 0 || insideCutClosed(cuts, srcEndMs)) return true;
+    const gone = interruptions.find(
+      (s) => s.startMs <= srcEndMs && srcEndMs < s.endMs,
+    );
+    const at = gone ? gone.startMs : srcEndMs;
+    // No frame: the interruption opens at or before the stretch, or where an
+    // author's cut closes (its seam frame is removed too).
+    if (gone && (at <= srcStartMs || insideCutClosed(cuts, at))) return false;
+    freezes.push({ sourceTimeMs: at, durationMs: targetMs });
+    return true;
   };
   for (const pace of plan.paces ?? []) {
     if (pace.origin !== "planned") continue;
@@ -732,8 +757,9 @@ function plannedIdleOf(
       unplacedPaces++;
       continue;
     }
-    share(after, approach, pace.restMs);
-    share(approach, step.sourceTimeMs, pace.arriveMs);
+    const rest = share(after, approach, pace.restMs);
+    const arrive = share(approach, step.sourceTimeMs, pace.arriveMs);
+    if (!rest || !arrive) unplacedPaces++;
   }
   if (plan.tailMs != null) {
     // The plan's last step is the last pair's second one: a plan writes a
@@ -741,8 +767,9 @@ function plannedIdleOf(
     const lastStep = plan.paces?.at(-1)?.beforeActionId;
     const last =
       lastStep === undefined ? undefined : markerOf.get(lastStep)?.sourceTimeMs;
-    if (last === undefined) unplacedPaces++;
-    else share(last, sourceDurationMs, plan.tailMs);
+    if (last === undefined || !share(last, sourceDurationMs, plan.tailMs)) {
+      unplacedPaces++;
+    }
   }
   return { regions, freezes, unplacedPaces };
 }
@@ -980,7 +1007,14 @@ export function buildTimeline(
   const recorded = paceInstants(plan, bundle, motion, cuts);
   const idleIn = (fromMs: number, toMs: number) =>
     idleMsIn(motion, removed, fromMs, toMs);
-  const planned = plannedIdleOf(plan, bundle, idleIn, cuts, sourceDurationMs);
+  const planned = plannedIdleOf(
+    plan,
+    bundle,
+    idleIn,
+    cuts,
+    interruptions,
+    sourceDurationMs,
+  );
   const regions = [
     ...authoredRegions(plan, bundle, idleIn),
     ...planned.regions,
@@ -1061,6 +1095,10 @@ export function buildTimeline(
     cuts.some(
       (cut) => Math.abs(cut.srcStartMs - sourceTimeMs) <= HOLD_EPSILON_MS,
     );
+  const opensInterruption = (sourceTimeMs: number): boolean =>
+    interruptions.some(
+      (span) => Math.abs(span.startMs - sourceTimeMs) <= HOLD_EPSILON_MS,
+    );
 
   for (const seg of raw) {
     emitHoldsAt(seg.srcStartMs);
@@ -1085,8 +1123,12 @@ export function buildTimeline(
     // It cannot double-emit: this fires only on a cut's opening instant,
     // and what follows a cut is removed segments, so the next emitted
     // segment starts at the cut's CLOSING instant, not at this one.
-    if (isSeam(seg.srcEndMs)) {
-      emitHoldsAt(seg.srcEndMs);
+    //
+    // An interruption's opening instant is the same kind of seam for a
+    // pace: `plannedIdleOf` moves a planned freeze there when its own
+    // instant was removed. (Holds keep the cut-only rule; nothing moves one.)
+    if (isSeam(seg.srcEndMs)) emitHoldsAt(seg.srcEndMs);
+    if (isSeam(seg.srcEndMs) || opensInterruption(seg.srcEndMs)) {
       emitPacesAt(seg.srcEndMs);
     }
   }

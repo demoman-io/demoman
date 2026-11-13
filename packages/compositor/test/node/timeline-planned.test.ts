@@ -130,6 +130,7 @@ function expectWellFormed(t: Timeline): void {
 
 describe("planned idle", () => {
   it("plays a pair's idle for its planned rest and arrive, on a fast and a slow recording alike", () => {
+    // Red if `share(after, approach, pace.restMs)` in `plannedIdleOf` goes.
     const fast = pacedBundle(FAST).bundle;
     const slow = pacedBundle(SLOW).bundle;
     const a = buildTimeline(plan, fast);
@@ -157,6 +158,7 @@ describe("planned idle", () => {
   });
 
   it("freezes on the step for a planned stretch with no idle in it", () => {
+    // Red if `share`'s `freezes.push` in `plannedIdleOf` goes.
     // The journey runs right up to s2: the arrive stretch holds no idle.
     const { bundle, at } = pacedBundle({ ...FAST, arrive: 0 });
     expect(idleSrc(bundle, at.approach2, at.s2)).toBe(0);
@@ -176,6 +178,7 @@ describe("planned idle", () => {
   });
 
   it("gives an interruption inside the pair no share of the planned rest", () => {
+    // Red if `idleIn` passes `[]` for `removed` to `idleMsIn`.
     const { s1 } = pacedBundle(SLOW).at;
     const { bundle, at } = pacedBundle(SLOW, {
       degradations: [
@@ -198,7 +201,79 @@ describe("planned idle", () => {
     expectWellFormed(t);
   });
 
+  it("moves a freeze an interruption removed back to the stretch's last frame that plays", () => {
+    // Red if `share`'s `const at = gone ? gone.startMs : srcEndMs` becomes
+    // `srcEndMs`, or `buildTimeline` stops emitting paces at `opensInterruption`.
+    // The second journey sets off as s1's response ends: the rest stretch
+    // [s1, approach2] is all motion, so its rest is a freeze at approach2.
+    const { s1 } = pacedBundle({ ...FAST, rest: 0 }).at;
+    const pause = { startMs: s1 + 200, endMs: s1 + 600 };
+    const { bundle, at } = pacedBundle(
+      { ...FAST, rest: 0 },
+      {
+        degradations: [
+          {
+            ...pause,
+            kind: "occlusionPause",
+            note: "the replay window was covered",
+          },
+        ],
+      },
+    );
+    const t = buildTimeline(plan, bundle);
+    // Premise: the stretch holds no idle, its end (the freeze's own instant)
+    // is inside the removed pause, and the pause opens inside the stretch.
+    expect(idleSrc(bundle, at.s1, at.approach2)).toBe(0);
+    expect(t.interruptions).toEqual([pause]);
+    expect(at.approach2).toBeGreaterThanOrEqual(pause.startMs);
+    expect(at.approach2).toBeLessThan(pause.endMs);
+    expect(pause.startMs).toBeGreaterThan(at.s1);
+
+    const freezes = t.segments.filter((s) => s.kind === "pace");
+    expect(freezes).toHaveLength(1);
+    expect(freezes[0]?.srcStartMs).toBe(pause.startMs);
+    expect((freezes[0]?.outEndMs ?? 0) - (freezes[0]?.outStartMs ?? 0)).toBe(
+      900,
+    );
+    expect(t.unplacedPaces).toBe(0);
+    expectWellFormed(t);
+  });
+
+  it("counts a freeze an interruption removed when the stretch has no frame that plays", () => {
+    // Red if `share`'s `if (gone && (at <= srcStartMs || …)) return false`
+    // goes, or `plannedIdleOf` stops counting `!rest || !arrive`.
+    // The journey runs right up to s2: the arrive stretch [approach2, s2] is
+    // all motion, so its arrive is a freeze at s2.
+    const { approach2, s2 } = pacedBundle({ ...FAST, arrive: 0 }).at;
+    const pause = { startMs: approach2 - 100, endMs: s2 + 100 };
+    const { bundle, at } = pacedBundle(
+      { ...FAST, arrive: 0 },
+      {
+        degradations: [
+          {
+            ...pause,
+            kind: "occlusionPause",
+            note: "the replay window was covered",
+          },
+        ],
+      },
+    );
+    const t = buildTimeline(plan, bundle);
+    // Premise: the freeze's instant is inside the removed pause, and the
+    // pause opens before the stretch does, so no frame of it plays.
+    expect(idleSrc(bundle, at.approach2, at.s2)).toBe(0);
+    expect(t.interruptions).toEqual([pause]);
+    expect(at.s2).toBeGreaterThanOrEqual(pause.startMs);
+    expect(at.s2).toBeLessThan(pause.endMs);
+    expect(pause.startMs).toBeLessThanOrEqual(at.approach2);
+
+    expect(t.unplacedPaces).toBe(1);
+    expect(t.segments.filter((s) => s.kind === "pace")).toEqual([]);
+    expectWellFormed(t);
+  });
+
   it("lets an authored gap win over the planned beat", () => {
+    // Red if `planScene` asks `planned(...)` before `gapAfter.get(...)`.
     const authored = planScene(
       twoStepScene(PACING, [
         { id: "g1", afterActionId: "s1", durationMs: 2000 },
@@ -216,6 +291,7 @@ describe("planned idle", () => {
   });
 
   it("counts a beat it cannot place and plays that pair as recorded", () => {
+    // Red if `plannedIdleOf`'s `approach === undefined` check or its `unplacedPaces++` goes.
     const { bundle, at } = pacedBundle(SLOW);
     const noApproach: FrameBundle = {
       ...bundle,
@@ -246,6 +322,7 @@ describe("planned idle", () => {
   });
 
   it("plays the idle after the last step for the planned tail", () => {
+    // Red if `plannedIdleOf`'s tail `share(last, sourceDurationMs, plan.tailMs)` goes.
     for (const idle of [FAST, SLOW]) {
       const { bundle, at } = pacedBundle(idle);
       const t = buildTimeline(plan, bundle);
@@ -263,6 +340,7 @@ describe("planned idle", () => {
   });
 
   it("plays the opening beat from the start of the take", () => {
+    // Red if the opening's `after` stops being 0, or `planScene` stops pushing `opening`.
     for (const idle of [FAST, SLOW]) {
       const { bundle, at } = pacedBundle(idle);
       const t = buildTimeline(plan, bundle);
@@ -274,6 +352,7 @@ describe("planned idle", () => {
   });
 
   it("renders a sampled replay as recorded: planned beats are a real-time rule", () => {
+    // Red if `paceInstants` stops skipping `origin === "planned"`.
     const sampled = { ...pacedBundle(SLOW).bundle, timing: undefined };
     const planned = buildTimeline(plan, sampled);
     const unplanned = buildTimeline(planScene(twoStepScene()), sampled);
@@ -285,6 +364,7 @@ describe("a take without a beat plan", () => {
   // Drawn by the code at 35f94523, before planned pacing existed.
   const cases = noPacingCases();
   it("carries the fixture the comparison depends on", () => {
+    // Red if `noPacingCases()` stops covering approaches, an interruption and a gap.
     expect(beforePlannedPacing.map((c) => c.name)).toEqual(
       cases.map((c) => c.name),
     );
@@ -301,6 +381,7 @@ describe("a take without a beat plan", () => {
 
   for (const [i, { name, scene, bundle }] of cases.entries()) {
     it(`renders exactly as before: ${name}`, () => {
+      // Red on any change to `planScene` or `buildTimeline` for a take with no `pacing`.
       const before = beforePlannedPacing[i];
       const { compositorVersion: _v, tailMs, ...unplanned } = planScene(scene);
       expect(tailMs).toBeNull();

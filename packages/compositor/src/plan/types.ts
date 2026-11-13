@@ -210,9 +210,11 @@ export interface RecordedPace extends PaceAnchors {
  * field with two meanings is a seam, and this is what a reader falling
  * through it costs. Distinct names make picking the wrong one a type error.
  *
- * Both variants are turned into ONE number — the idle duration the pair
- * should end up with, against a particular bundle — by `idleTargetMsFor` in
- * `plan/timeline.ts`, which is the only place the conversion happens.
+ * The authored and recorded variants are turned into ONE number — the idle
+ * duration the pair should end up with, against a particular bundle — by
+ * `idleTargetMsFor` in `plan/timeline.ts`, the only place that conversion
+ * happens. A planned beat is two numbers, rest and arrive, and is applied
+ * by `plannedIdleOf` there instead.
  */
 export type PlannedPace = AuthoredPace | RecordedPace | PlannedBeat;
 
