@@ -214,7 +214,29 @@ export interface RecordedPace extends PaceAnchors {
  * should end up with, against a particular bundle — by `idleTargetMsFor` in
  * `plan/timeline.ts`, which is the only place the conversion happens.
  */
-export type PlannedPace = AuthoredPace | RecordedPace;
+export type PlannedPace = AuthoredPace | RecordedPace | PlannedBeat;
+
+/**
+ * A pace the take's BEAT PLAN set (`scene.pacing`, spec 2026-11-13 Part 3):
+ * designed idle, not measured idle. On a real-time bundle the idle between
+ * `afterActionId`'s marker and `beforeActionId`'s `approachSourceTimeMs`
+ * (where the cursor set off) plays for `restMs` in all, and the idle from
+ * there to the step for `arriveMs`; motion plays at rate 1.0 between them.
+ * So the pair lasts `restMs + arriveMs + its motion` on any machine.
+ *
+ * `afterActionId` is `null` for the opening beat, which runs from source 0.
+ * Only the opening can carry `null`; `AuthoredPace` and `RecordedPace` keep
+ * `string`, since a pair always has a step before it.
+ *
+ * On a sampled replay it is ignored and the pair renders as recorded: a
+ * scripted take, the only kind that writes a plan, is always real time.
+ */
+export interface PlannedBeat extends Omit<PaceAnchors, "afterActionId"> {
+  afterActionId: string | null;
+  origin: "planned";
+  restMs: number;
+  arriveMs: number;
+}
 
 export interface RenderPlan {
   planVersion: 1;
@@ -235,6 +257,11 @@ export interface RenderPlan {
    * though that were the recorded pace.
    */
   paces: PlannedPace[] | null;
+  /**
+   * The beat plan's idle after the last step, or `null` when the take has
+   * no beat plan (the tail then plays as recorded).
+   */
+  tailMs: number | null;
   /**
    * Pieces the author removed. Resolved to SOURCE ranges by `buildTimeline`
    * (it needs `bundle.markers`) and dropped from the output axis there.

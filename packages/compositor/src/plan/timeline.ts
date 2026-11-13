@@ -9,7 +9,7 @@ import {
 import { clamp } from "../geometry.js";
 import { CURSOR_SPRING_TAU_MS, springSettleMs } from "./cursor-spring.js";
 import { inScreenSpace } from "./screen-space.js";
-import type { AuthoredPace, PlannedPace, RenderPlan } from "./types.js";
+import type { AuthoredPace, RecordedPace, RenderPlan } from "./types.js";
 
 export interface TimeSpan {
   startMs: number;
@@ -32,9 +32,12 @@ export interface TimelineSegment {
    * advances while source time stands still — and kept distinct so the editor
    * can tell the author which durations are theirs.
    *
-   * Only ever emitted for a replay bundle. A capture bundle already contains
-   * the pause as real elapsed source time; emitting one there would play it
-   * twice.
+   * A recorded pace is only ever emitted for a sampled replay bundle. A
+   * capture bundle already contains the pause as real elapsed source time;
+   * emitting one there would play it twice. The other `pace` is a planned
+   * beat's stretch that held no idle frame to stretch (`plannedIdleOf`): a
+   * freeze of its planned length at the stretch's end, on a real-time
+   * bundle.
    */
   kind: "motion" | "idle" | "hold" | "pace";
 }
@@ -95,6 +98,11 @@ export interface Timeline {
    * session. Never silently zero: the caller surfaces it, because a video
    * shorter than the take with no explanation is the defect this feature
    * exists to remove.
+   *
+   * On a real-time bundle it counts the planned beats (and the planned tail)
+   * that could not be placed: a marker missing, or the step's marker without
+   * the `approachSourceTimeMs` that splits rest from arrive. That pair plays
+   * as recorded, never silently shorter or longer than the plan.
    */
   unplacedPaces: number;
   /**
@@ -400,7 +408,7 @@ function motionMsBetween(
 }
 
 /**
- * The one place `PlannedPace`'s two variants become one number: the IDLE
+ * The one place the authored and recorded paces become one number: the IDLE
  * duration this pair should end up with, on the bundle being rendered.
  *
  * An authored gap already IS an idle figure — that is what the author set,
@@ -411,14 +419,17 @@ function motionMsBetween(
  * tell a dropdown opening apart from the author sitting still, so it carries
  * the whole interval and the motion comes off here, against whichever
  * bundle is being rendered. On a capture bundle that subtraction returns the
- * idle the bundle already holds, which is why `authoredPaceCovering` can
+ * idle the bundle already holds, which is why `authoredRegions` can
  * skip recorded paces outright rather than re-deriving a no-op. On a replay
  * bundle it cancels with `replayIdle` in `paceInstants`, leaving
  * `max(0, recordedSpanMs − (to − from))` — the whole-span arithmetic rebuild
  * mode has always used for recorded pacing, and correctly: reproducing the
  * take's own length is exactly what a recorded pace asks for.
  */
-function idleTargetMsFor(pace: PlannedPace, motionMs: number): number {
+function idleTargetMsFor(
+  pace: AuthoredPace | RecordedPace,
+  motionMs: number,
+): number {
   return pace.origin === "authored"
     ? pace.idleTargetMs
     : Math.max(0, pace.recordedSpanMs - motionMs);
@@ -484,6 +495,10 @@ function paceInstants(
   const instants: PaceInstant[] = [];
   let unplacedPaces = 0;
   for (const pace of plan.paces) {
+    // A beat plan is a real-time rule (`plannedIdleOf`): on a sampled replay
+    // the pair renders as recorded, and is not a pace this one failed to
+    // place.
+    if (pace.origin === "planned") continue;
     const from = markerAt.get(pace.afterActionId);
     const to = markerAt.get(pace.beforeActionId);
     if (from === undefined || to === undefined) {
@@ -522,11 +537,11 @@ interface RawSegment {
 }
 
 /**
- * The pre-hold segmentation: cut only at markers and motion-span boundaries.
- * Motion always passes through at rate 1.0 (`outDurationMs === srcDuration`)
- * — that never changes here, on either bundle mode. Idle passes through
- * unchanged too, UNLESS an authored gap covers it on a capture bundle; see
- * `idleOutputFor`. Either way a cut here no longer risks re-timing dead air
+ * The pre-hold segmentation: cut only at markers, motion-span boundaries and
+ * paced regions' edges. Motion always passes through at rate 1.0
+ * (`outDurationMs === srcDuration`) — that never changes here, on either
+ * bundle mode. Idle passes through unchanged too, UNLESS an authored gap or a
+ * planned beat covers it on a real-time bundle; see `idleOutputFor`. Either way a cut here no longer risks re-timing dead air
  * twice the way the deleted min/max clamp did.
  *
  * Holds must never contribute a cut here regardless: a cut here splits
@@ -534,11 +549,11 @@ interface RawSegment {
  * `splitAtHold`), and that split belongs to the hold, not to this pass.
  */
 function rawSegmentsOf(
-  plan: RenderPlan,
   bundle: FrameBundle,
   motion: TimeSpan[],
   sourceDurationMs: number,
   cuts: ResolvedCut[],
+  regions: readonly IdleRegion[],
 ): RawSegment[] {
   // `cutSet` is a set of CUT POINTS on the source axis — boundaries where
   // the segmentation splits. `cuts` is the author's removed stretches. Two
@@ -554,6 +569,13 @@ function rawSegmentsOf(
   for (const cut of cuts) {
     cutSet.add(cut.srcStartMs);
     cutSet.add(cut.srcEndMs);
+  }
+  // Every paced region's edges, so no idle segment straddles two targets. A
+  // planned beat's rest and arrive meet at the approach, which is no marker;
+  // every other edge is already here.
+  for (const region of regions) {
+    cutSet.add(region.srcStartMs);
+    cutSet.add(region.srcEndMs);
   }
   const ordered = [...cutSet]
     .filter((t) => t >= 0 && t <= sourceDurationMs)
@@ -585,15 +607,7 @@ function rawSegmentsOf(
     const outDurationMs =
       kind === "motion"
         ? srcDuration
-        : idleOutputFor(
-            plan,
-            bundle,
-            motion,
-            cuts,
-            srcStartMs,
-            srcEndMs,
-            srcDuration,
-          );
+        : idleOutputFor(regions, srcStartMs, srcEndMs, srcDuration);
 
     raw.push({ srcStartMs, srcEndMs, kind, outDurationMs });
   }
@@ -601,7 +615,20 @@ function rawSegmentsOf(
 }
 
 /**
- * The authored pace, if any, whose action pair brackets this idle segment.
+ * A stretch of source time whose idle plays for `targetMs` in all: an
+ * authored gap's pair, or one of a planned beat's rest, arrive or tail.
+ * `idleMs` is the idle in it that plays (`idleMsIn`), the denominator
+ * `idleOutputFor` shares `targetMs` against.
+ */
+interface IdleRegion {
+  srcStartMs: number;
+  srcEndMs: number;
+  targetMs: number;
+  idleMs: number;
+}
+
+/**
+ * The authored paces, as the stretches their idle is set on.
  *
  * Gated to capture bundles (Ruling P1, 2026-09-08): a capture bundle's
  * source time IS real time, so an authored gap can set the segment's OUTPUT
@@ -615,37 +642,118 @@ function rawSegmentsOf(
  * recorded target already IS what the bundle holds (the source time itself),
  * so re-applying it would double it the same way.
  */
-function authoredPaceCovering(
+function authoredRegions(
   plan: RenderPlan,
   bundle: FrameBundle,
-  srcStartMs: number,
-  srcEndMs: number,
-): AuthoredPace | undefined {
-  if (!isRealTime(bundle)) return undefined;
-  if (!plan.paces) return undefined;
+  idleIn: (fromMs: number, toMs: number) => number,
+): IdleRegion[] {
+  if (!isRealTime(bundle)) return [];
   const markerAt = new Map(
     bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
   );
-  return plan.paces.find((pace): pace is AuthoredPace => {
-    if (pace.origin !== "authored") return false;
+  return (plan.paces ?? []).flatMap((pace) => {
+    if (pace.origin !== "authored") return [];
     // Already in source time: the engine waited this exact gap out live.
     if (gapPacedLive(bundle, pace.afterActionId, pace.idleTargetMs)) {
-      return false;
+      return [];
     }
     const after = markerAt.get(pace.afterActionId);
     const before = markerAt.get(pace.beforeActionId);
-    if (after === undefined || before === undefined) return false;
-    return after <= srcStartMs && srcEndMs <= before;
+    if (after === undefined || before === undefined) return [];
+    return [
+      {
+        srcStartMs: after,
+        srcEndMs: before,
+        targetMs: pace.idleTargetMs,
+        idleMs: idleIn(after, before),
+      },
+    ];
   });
 }
 
 /**
- * Total idle source-ms between an authored pace's two markers: the marker
- * span minus whatever motion falls inside it. This is the denominator
- * `idleOutputFor` apportions `targetMs` against when several idle segments
- * (with motion between them) fall inside the same authored pair — the same
- * reasoning as `splitAtHold`'s apportion-rather-than-re-derive: independent
- * per-segment targets would not sum back to what the author asked for.
+ * The beat plan, as the stretches its idle is set on (spec 2026-11-13,
+ * Part 3). Real-time bundles only: a sampled replay renders a planned pair as
+ * recorded (`paceInstants` skips it), and a scripted take, the only kind
+ * that writes a plan, is never sampled.
+ *
+ * Each beat is two stretches, split where the cursor set off for its step
+ * (`approachSourceTimeMs`): from the step before (source 0 for the opening)
+ * to there plays `restMs`, from there to the step `arriveMs`. The idle after
+ * the plan's last step plays `tailMs`. Motion inside any of them plays at
+ * rate 1.0 as everywhere, so a pair lasts its planned idle plus its motion.
+ *
+ * A stretch with no idle that plays (all motion, or all removed) has nothing
+ * to stretch, so it becomes a freeze of its planned length at its end — at
+ * the approach, the cursor sets off when the rest is over; at the step, the
+ * step acts when the arrive is over (`toOutputMs` answers a pace's last
+ * instant). Inside an author's cut it is dropped with the cut, as
+ * `paceInstants` drops a pace.
+ *
+ * A beat that cannot be placed — a marker missing, the step's marker without
+ * an approach, or an approach outside its pair — is counted, never guessed:
+ * the pair then plays as recorded, and `unplacedPaces` says so.
+ */
+function plannedIdleOf(
+  plan: RenderPlan,
+  bundle: FrameBundle,
+  idleIn: (fromMs: number, toMs: number) => number,
+  cuts: readonly ResolvedCut[],
+  sourceDurationMs: number,
+): { regions: IdleRegion[]; freezes: PaceInstant[]; unplacedPaces: number } {
+  const regions: IdleRegion[] = [];
+  const freezes: PaceInstant[] = [];
+  let unplacedPaces = 0;
+  if (!isRealTime(bundle)) return { regions, freezes, unplacedPaces };
+  const markerOf = new Map(bundle.markers.map((m) => [m.actionId, m]));
+  const share = (srcStartMs: number, srcEndMs: number, targetMs: number) => {
+    const idleMs = idleIn(srcStartMs, srcEndMs);
+    if (idleMs > 0) {
+      regions.push({ srcStartMs, srcEndMs, targetMs, idleMs });
+    } else if (targetMs > 0 && !insideCutClosed(cuts, srcEndMs)) {
+      freezes.push({ sourceTimeMs: srcEndMs, durationMs: targetMs });
+    }
+  };
+  for (const pace of plan.paces ?? []) {
+    if (pace.origin !== "planned") continue;
+    const after =
+      pace.afterActionId === null
+        ? 0
+        : markerOf.get(pace.afterActionId)?.sourceTimeMs;
+    const step = markerOf.get(pace.beforeActionId);
+    const approach = step?.approachSourceTimeMs;
+    if (
+      after === undefined ||
+      step === undefined ||
+      approach === undefined ||
+      approach < after ||
+      approach > step.sourceTimeMs
+    ) {
+      unplacedPaces++;
+      continue;
+    }
+    share(after, approach, pace.restMs);
+    share(approach, step.sourceTimeMs, pace.arriveMs);
+  }
+  if (plan.tailMs != null) {
+    // The plan's last step is the last pair's second one: a plan writes a
+    // beat for every step, the opening included.
+    const lastStep = plan.paces?.at(-1)?.beforeActionId;
+    const last =
+      lastStep === undefined ? undefined : markerOf.get(lastStep)?.sourceTimeMs;
+    if (last === undefined) unplacedPaces++;
+    else share(last, sourceDurationMs, plan.tailMs);
+  }
+  return { regions, freezes, unplacedPaces };
+}
+
+/**
+ * Idle source-ms in `[fromMs, toMs]` that plays: the span minus whatever
+ * motion falls inside it. This is the denominator `idleOutputFor` apportions
+ * a region's `targetMs` against when several idle segments (with motion
+ * between them) fall inside it — the same reasoning as `splitAtHold`'s
+ * apportion-rather-than-re-derive: independent per-segment targets would not
+ * sum back to what the author (or the plan) asked for.
  *
  * `motion` carries the same constraint `motionMsBetween` states: it must be
  * the merged set `rawSegmentsOf` classified this segment with, hints
@@ -658,28 +766,17 @@ function authoredPaceCovering(
  * (review of 2026-10-03). Merged with motion first, so a stretch that is
  * both is subtracted once.
  */
-function idleMsBetweenMarkers(
-  bundle: FrameBundle,
+function idleMsIn(
   motion: TimeSpan[],
   removed: readonly ResolvedCut[],
-  pace: PlannedPace,
+  fromMs: number,
+  toMs: number,
 ): number {
-  const markerAt = new Map(
-    bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
-  );
-  const after = markerAt.get(pace.afterActionId);
-  const before = markerAt.get(pace.beforeActionId);
-  // Belt-and-braces, not reachable through the current call graph:
-  // `authoredPaceCovering` already resolved both markers (with the exact
-  // same lookup) before it would ever hand back a `pace` this function sees.
-  // Kept because `Map.get`'s return type is `number | undefined` regardless,
-  // and TypeScript has no way to know the caller already proved it.
-  if (after === undefined || before === undefined) return 0;
   const notIdle = merge([
     ...motion,
     ...removed.map((cut) => ({ startMs: cut.srcStartMs, endMs: cut.srcEndMs })),
   ]);
-  return Math.max(0, before - after - motionMsBetween(notIdle, after, before));
+  return Math.max(0, toMs - fromMs - motionMsBetween(notIdle, fromMs, toMs));
 }
 
 /**
@@ -687,39 +784,31 @@ function idleMsBetweenMarkers(
  *
  * Recorded pacing needs no work here: a capture bundle's source time IS real
  * time, so passing the span through at rate 1.0 already reproduces what the
- * author left. Only an AUTHORED gap changes anything, and it changes the
- * idle portion alone — the motion segments on either side keep rate 1.0,
- * which is why this is asked per-segment rather than per-action-pair.
+ * author left. Only an authored gap or a planned beat changes anything, and
+ * it changes the idle portion alone — the motion segments on either side
+ * keep rate 1.0, which is why this is asked per-segment rather than
+ * per-action-pair.
  *
- * A pair with several idle segments between it (motion in the middle) shares
- * the authored target proportionally, for the same reason `splitAtHold`
- * apportions rather than re-derives: two independently-set halves would not
- * sum to the duration the author asked for.
+ * A region with several idle segments in it (motion in the middle) shares
+ * its target proportionally, for the same reason `splitAtHold` apportions
+ * rather than re-derives: two independently-set halves would not sum to the
+ * duration asked for.
  */
 function idleOutputFor(
-  plan: RenderPlan,
-  bundle: FrameBundle,
-  motion: TimeSpan[],
-  removed: readonly ResolvedCut[],
+  regions: readonly IdleRegion[],
   srcStartMs: number,
   srcEndMs: number,
   srcDuration: number,
 ): number {
-  const pace = authoredPaceCovering(plan, bundle, srcStartMs, srcEndMs);
-  if (!pace) return srcDuration;
-  const idleTotal = idleMsBetweenMarkers(bundle, motion, removed, pace);
-  // Not reachable through the current call graph once `motion` here is the
-  // same set `rawSegmentsOf` classified this segment as idle with: this
-  // very segment's own [srcStartMs, srcEndMs) is non-motion by that
-  // classification and lies inside the pace's marker bracket (that is what
-  // `authoredPaceCovering` just checked), so `idleTotal` is at least
-  // `srcDuration` and strictly positive. Reaching this line for real would
-  // mean `pace.afterActionId`/`beforeActionId` resolve to markers with
-  // `after >= before` — a malformed pace `planScene` cannot produce — and
-  // the pass-through is the same "answer with what we have, not a division
-  // by (near) zero" choice `holdInstants` makes for a hold with no marker.
-  if (idleTotal <= 0) return srcDuration;
-  return pace.idleTargetMs * (srcDuration / idleTotal);
+  const region = regions.find(
+    (r) => r.srcStartMs <= srcStartMs && srcEndMs <= r.srcEndMs,
+  );
+  // `idleMs` is not 0 for any region holding an idle segment: that segment
+  // is idle by the same `motion` and `removed`, and inside the region. The
+  // guard is the "answer with what we have, not a division by (near) zero"
+  // choice `holdInstants` makes for a hold with no marker.
+  if (!region || region.idleMs <= 0) return srcDuration;
+  return region.targetMs * (srcDuration / region.idleMs);
 }
 
 /**
@@ -888,12 +977,20 @@ export function buildTimeline(
     })),
   ].sort((a, b) => a.srcStartMs - b.srcStartMs);
   const holds = holdInstants(plan, bundle, sourceDurationMs, cuts);
-  const { instants: paces, unplacedPaces } = paceInstants(
-    plan,
-    bundle,
-    motion,
-    cuts,
+  const recorded = paceInstants(plan, bundle, motion, cuts);
+  const idleIn = (fromMs: number, toMs: number) =>
+    idleMsIn(motion, removed, fromMs, toMs);
+  const planned = plannedIdleOf(plan, bundle, idleIn, cuts, sourceDurationMs);
+  const regions = [
+    ...authoredRegions(plan, bundle, idleIn),
+    ...planned.regions,
+  ];
+  // A sampled replay places recorded paces and a real-time one planned
+  // beats; one of these is always empty.
+  const paces = [...recorded.instants, ...planned.freezes].sort(
+    (a, b) => a.sourceTimeMs - b.sourceTimeMs,
   );
+  const unplacedPaces = recorded.unplacedPaces + planned.unplacedPaces;
   // Counted off the plan rather than inside `paceInstants`, which returns
   // early for a capture bundle: the log's order is a property of the take,
   // not of the frames being rendered, and reporting it only in rebuild mode
@@ -908,7 +1005,7 @@ export function buildTimeline(
   // cut) is what keeps both kinds' rate-1.0 pass-through untouched. Paces
   // reuse the same splitter: it is generic over "some source instant",
   // agnostic to what produced it.
-  let raw = rawSegmentsOf(plan, bundle, motion, sourceDurationMs, removed);
+  let raw = rawSegmentsOf(bundle, motion, sourceDurationMs, removed, regions);
   for (const hold of holds) raw = splitAtHold(raw, hold.sourceTimeMs);
   for (const pace of paces) raw = splitAtHold(raw, pace.sourceTimeMs);
 

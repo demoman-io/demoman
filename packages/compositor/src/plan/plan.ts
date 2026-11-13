@@ -54,7 +54,27 @@ export function planScene(
   const gapAfter = new Map(
     (scene.edits.gaps ?? []).map((gap) => [gap.afterActionId, gap] as const),
   );
+  // Precedence per pair: the author's gap, else the beat plan, else as
+  // recorded. The opening beat has no gap to lose to.
+  const beatBefore = new Map(
+    (scene.pacing?.beats ?? []).map((beat) => [beat.beforeActionId, beat]),
+  );
+  const planned = (afterActionId: string | null, beforeActionId: string) => {
+    const beat = beatBefore.get(beforeActionId);
+    return beat
+      ? {
+          afterActionId,
+          beforeActionId,
+          origin: "planned" as const,
+          restMs: beat.restMs,
+          arriveMs: beat.arriveMs,
+        }
+      : undefined;
+  };
   const paces: PlannedPace[] = [];
+  const first = scene.actions[0];
+  const opening = first && planned(null, first.id);
+  if (opening) paces.push(opening);
   for (let i = 0; i + 1 < scene.actions.length; i++) {
     const from = scene.actions[i];
     const to = scene.actions[i + 1];
@@ -64,7 +84,7 @@ export function planScene(
     paces.push(
       authored
         ? { ...anchors, origin: "authored", idleTargetMs: authored.durationMs }
-        : {
+        : (planned(from.id, to.id) ?? {
             ...anchors,
             origin: "recorded",
             // Raw, and negative when the log does not ascend. This carried a
@@ -90,7 +110,7 @@ export function planScene(
             // survives the trip so `buildTimeline` can count it into
             // `Timeline.nonMonotonicPaces` rather than smooth it away.
             recordedSpanMs: to.timestamp - from.timestamp,
-          },
+          }),
     );
   }
 
@@ -126,6 +146,7 @@ export function planScene(
       ];
     }),
     paces,
+    tailMs: scene.pacing?.tailMs ?? null,
     removed,
     removedSteps: [...cutSteps],
     attachedToCuts,

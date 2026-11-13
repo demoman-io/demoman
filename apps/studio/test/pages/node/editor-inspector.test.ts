@@ -803,7 +803,7 @@ describe("pause after a step — gap and legacy hold, carried over", () => {
   });
 
   it("withholds the pause where a capture bundle finds no dead air, and says why", () => {
-    // On a capture bundle `authoredPaceCovering` matches idle segments only,
+    // On a capture bundle `authoredRegions` matches idle segments only,
     // so a stretch that is motion end to end never has the target applied.
     const scene = readonlyScene();
     const bundle = {

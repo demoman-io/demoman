@@ -1,0 +1,353 @@
+[
+  {
+    "name": "real-time, interrupted",
+    "plan": {
+      "planVersion": 1,
+      "sceneId": "scene-actions-001",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cursorSegments": [],
+      "cameraIntents": [],
+      "cosmetics": [],
+      "holds": [],
+      "paces": [
+        {
+          "afterActionId": "s1",
+          "beforeActionId": "s2",
+          "origin": "recorded",
+          "recordedSpanMs": 2000
+        }
+      ],
+      "removed": [],
+      "removedSteps": [],
+      "attachedToCuts": [],
+      "trim": {
+        "head": null,
+        "tail": null
+      },
+      "retiming": {
+        "motionDiffThreshold": 0.02
+      },
+      "hoverSensitive": false,
+      "durationHintMs": 3000
+    },
+    "timeline": {
+      "segments": [
+        {
+          "outStartMs": 0,
+          "outEndMs": 900,
+          "srcStartMs": 0,
+          "srcEndMs": 900,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 900,
+          "outEndMs": 1600,
+          "srcStartMs": 900,
+          "srcEndMs": 1600,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 1600,
+          "outEndMs": 1850,
+          "srcStartMs": 1600,
+          "srcEndMs": 1850,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 1850,
+          "outEndMs": 2350,
+          "srcStartMs": 1850,
+          "srcEndMs": 2350,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 2350,
+          "outEndMs": 3000,
+          "srcStartMs": 2350,
+          "srcEndMs": 3000,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 3000,
+          "outEndMs": 6350,
+          "srcStartMs": 5000,
+          "srcEndMs": 8350,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 6350,
+          "outEndMs": 7050,
+          "srcStartMs": 8350,
+          "srcEndMs": 9050,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 7050,
+          "outEndMs": 7390,
+          "srcStartMs": 9050,
+          "srcEndMs": 9390,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 7390,
+          "outEndMs": 7890,
+          "srcStartMs": 9390,
+          "srcEndMs": 9890,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 7890,
+          "outEndMs": 9090,
+          "srcStartMs": 9890,
+          "srcEndMs": 11090,
+          "kind": "idle"
+        }
+      ],
+      "outputDurationMs": 9090,
+      "sourceDurationMs": 11090,
+      "cuts": [],
+      "unplacedCuts": [],
+      "interruptions": [
+        {
+          "startMs": 3000,
+          "endMs": 5000
+        }
+      ],
+      "unplacedPaces": 0,
+      "nonMonotonicPaces": 0
+    }
+  },
+  {
+    "name": "real-time, authored gap",
+    "plan": {
+      "planVersion": 1,
+      "sceneId": "scene-actions-001",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cursorSegments": [],
+      "cameraIntents": [],
+      "cosmetics": [],
+      "holds": [],
+      "paces": [
+        {
+          "afterActionId": "s1",
+          "beforeActionId": "s2",
+          "origin": "authored",
+          "idleTargetMs": 800
+        }
+      ],
+      "removed": [],
+      "removedSteps": [],
+      "attachedToCuts": [],
+      "trim": {
+        "head": null,
+        "tail": null
+      },
+      "retiming": {
+        "motionDiffThreshold": 0.02
+      },
+      "hoverSensitive": false,
+      "durationHintMs": 3000
+    },
+    "timeline": {
+      "segments": [
+        {
+          "outStartMs": 0,
+          "outEndMs": 900,
+          "srcStartMs": 0,
+          "srcEndMs": 900,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 900,
+          "outEndMs": 1600,
+          "srcStartMs": 900,
+          "srcEndMs": 1600,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 1600,
+          "outEndMs": 1850,
+          "srcStartMs": 1600,
+          "srcEndMs": 1850,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 1850,
+          "outEndMs": 2350,
+          "srcStartMs": 1850,
+          "srcEndMs": 2350,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 2350,
+          "outEndMs": 2469.8156682027648,
+          "srcStartMs": 2350,
+          "srcEndMs": 3000,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 2469.8156682027648,
+          "outEndMs": 3087.327188940092,
+          "srcStartMs": 5000,
+          "srcEndMs": 8350,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 3087.327188940092,
+          "outEndMs": 3787.327188940092,
+          "srcStartMs": 8350,
+          "srcEndMs": 9050,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 3787.327188940092,
+          "outEndMs": 3850,
+          "srcStartMs": 9050,
+          "srcEndMs": 9390,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 3850,
+          "outEndMs": 4350,
+          "srcStartMs": 9390,
+          "srcEndMs": 9890,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 4350,
+          "outEndMs": 5550,
+          "srcStartMs": 9890,
+          "srcEndMs": 11090,
+          "kind": "idle"
+        }
+      ],
+      "outputDurationMs": 5550,
+      "sourceDurationMs": 11090,
+      "cuts": [],
+      "unplacedCuts": [],
+      "interruptions": [
+        {
+          "startMs": 3000,
+          "endMs": 5000
+        }
+      ],
+      "unplacedPaces": 0,
+      "nonMonotonicPaces": 0
+    }
+  },
+  {
+    "name": "sampled replay",
+    "plan": {
+      "planVersion": 1,
+      "sceneId": "scene-actions-001",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "cursorSegments": [],
+      "cameraIntents": [],
+      "cosmetics": [],
+      "holds": [],
+      "paces": [
+        {
+          "afterActionId": "s1",
+          "beforeActionId": "s2",
+          "origin": "recorded",
+          "recordedSpanMs": 2000
+        }
+      ],
+      "removed": [],
+      "removedSteps": [],
+      "attachedToCuts": [],
+      "trim": {
+        "head": null,
+        "tail": null
+      },
+      "retiming": {
+        "motionDiffThreshold": 0.02
+      },
+      "hoverSensitive": false,
+      "durationHintMs": 3000
+    },
+    "timeline": {
+      "segments": [
+        {
+          "outStartMs": 0,
+          "outEndMs": 900,
+          "srcStartMs": 0,
+          "srcEndMs": 900,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 900,
+          "outEndMs": 1600,
+          "srcStartMs": 900,
+          "srcEndMs": 1600,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 1600,
+          "outEndMs": 1850,
+          "srcStartMs": 1600,
+          "srcEndMs": 1850,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 1850,
+          "outEndMs": 2350,
+          "srcStartMs": 1850,
+          "srcEndMs": 2350,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 2350,
+          "outEndMs": 8350,
+          "srcStartMs": 2350,
+          "srcEndMs": 8350,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 8350,
+          "outEndMs": 9050,
+          "srcStartMs": 8350,
+          "srcEndMs": 9050,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 9050,
+          "outEndMs": 9390,
+          "srcStartMs": 9050,
+          "srcEndMs": 9390,
+          "kind": "idle"
+        },
+        {
+          "outStartMs": 9390,
+          "outEndMs": 9890,
+          "srcStartMs": 9390,
+          "srcEndMs": 9890,
+          "kind": "motion"
+        },
+        {
+          "outStartMs": 9890,
+          "outEndMs": 11090,
+          "srcStartMs": 9890,
+          "srcEndMs": 11090,
+          "kind": "idle"
+        }
+      ],
+      "outputDurationMs": 11090,
+      "sourceDurationMs": 11090,
+      "cuts": [],
+      "unplacedCuts": [],
+      "interruptions": [],
+      "unplacedPaces": 0,
+      "nonMonotonicPaces": 0
+    }
+  }
+]
