@@ -360,6 +360,233 @@ describe("planned idle", () => {
   });
 });
 
+/** `bundle` with `fields` set on `actionId`'s marker. */
+function withMarker(
+  bundle: FrameBundle,
+  actionId: string,
+  fields: Partial<FrameBundle["markers"][number]>,
+): FrameBundle {
+  return {
+    ...bundle,
+    markers: bundle.markers.map((m) =>
+      m.actionId === actionId ? { ...m, ...fields } : m,
+    ),
+  };
+}
+
+/** The act's own idle, after s1's response: what a typed step's lead-in or
+ *  the walk's own gaps leave between its marker and its act end, and what
+ *  a slower machine lengthens. */
+const ACT_IDLE_MS = 800;
+
+describe("the planned rest counts from the act's end", () => {
+  const REST = {
+    beats: [
+      { beforeActionId: "s1", restMs: 500, arriveMs: 200 },
+      { beforeActionId: "s2", restMs: 2000, arriveMs: 300 },
+    ],
+    tailMs: 1000,
+  };
+  const restPlan = planScene(twoStepScene(REST));
+  /** s1's act runs its response and `ACT_IDLE_MS` of idle; the rest
+   *  stretch after it holds `idle.rest - ACT_IDLE_MS`. */
+  const typed = (idle: Idle) => {
+    const { bundle, at } = pacedBundle(idle);
+    const actEnd = at.s1 + ACT_MS + ACT_IDLE_MS;
+    return {
+      bundle: withMarker(bundle, "s1", { actEndSourceTimeMs: actEnd }),
+      at: { ...at, actEnd },
+    };
+  };
+
+  it("plays the act's own idle for 0 and the rest after it for restMs, fast and slow alike", () => {
+    // Red if `plannedIdleOf`'s rest starts at the marker again
+    // (`share(afterAct(prev, restEnd), …)` to `share(prev.sourceTimeMs, …)`):
+    // the act's 800 ms then takes a share of the 2000. Red too if
+    // `afterAct` stops setting the act's idle to 0 (`share(…, end, 0)`):
+    // the act's 800 ms then plays as recorded.
+    const fast = typed({ ...FAST, rest: ACT_IDLE_MS + 400 });
+    const slow = typed({ ...SLOW, rest: ACT_IDLE_MS + 6000 });
+    // Premise: the act's idle is 800 in both, and the idle after it differs
+    // by seconds.
+    for (const { bundle, at } of [fast, slow]) {
+      expect(idleSrc(bundle, at.s1, at.actEnd)).toBe(ACT_IDLE_MS);
+    }
+    expect(
+      idleSrc(slow.bundle, slow.at.actEnd, slow.at.approach2) -
+        idleSrc(fast.bundle, fast.at.actEnd, fast.at.approach2),
+    ).toBeGreaterThan(5000);
+
+    const outs = [fast, slow].map(({ bundle, at }) => {
+      const t = buildTimeline(restPlan, bundle);
+      expect(idleOut(t, bundle, at.s1, at.actEnd)).toBeCloseTo(0, 6);
+      expect(idleOut(t, bundle, at.actEnd, at.approach2)).toBeCloseTo(2000, 6);
+      expect(idleOut(t, bundle, at.approach2, at.s2)).toBeCloseTo(300, 6);
+      expect(t.unplacedPaces).toBe(0);
+      expectWellFormed(t);
+      return t.outputDurationMs;
+    });
+    expect(outs[0]).toBeCloseTo(outs[1] ?? Number.NaN, 6);
+  });
+
+  it("starts the rest at the marker when the act end is absent, as before act ends were read", () => {
+    // Red if `afterAct`'s guard (`end < prev.sourceTimeMs || end > endMs`)
+    // goes: an act end past the approach then opens a stretch that runs
+    // backwards, and the timeline differs from the one without it.
+    const { bundle, at } = typed({ ...FAST, rest: ACT_IDLE_MS + 400 });
+    const without = withMarker(bundle, "s1", {
+      actEndSourceTimeMs: undefined,
+    });
+    // Premise: the act end is really gone, and the act's idle is there.
+    expect(without.markers[0]?.actEndSourceTimeMs).toBeUndefined();
+    expect(idleSrc(without, at.s1, at.approach2)).toBe(ACT_IDLE_MS + 400);
+    const t = buildTimeline(restPlan, without);
+    // Task 3's rule: every idle ms from the marker to the approach shares
+    // the rest in proportion, the act's own included.
+    expect(idleOut(t, without, at.s1, at.approach2)).toBeCloseTo(2000, 6);
+    expect(idleOut(t, without, at.s1, at.actEnd)).toBeCloseTo(
+      (2000 * ACT_IDLE_MS) / (ACT_IDLE_MS + 400),
+      6,
+    );
+    // An act end past this step's approach, or before its own marker, is
+    // read as absent.
+    for (const actEndSourceTimeMs of [at.approach2 + 1, at.s1 - 1]) {
+      expect(
+        buildTimeline(
+          restPlan,
+          withMarker(bundle, "s1", { actEndSourceTimeMs }),
+        ),
+      ).toEqual(t);
+    }
+  });
+
+  it("counts the tail from the last act's end, and plays the act's idle for 0", () => {
+    // Red if the tail's `share(afterAct(last, …), …)` starts at the last
+    // marker again: the act's 300 ms then takes a share of the tail.
+    for (const idle of [FAST, SLOW]) {
+      const { bundle: raw, at } = pacedBundle({ ...idle, tail: 2000 });
+      const actEnd = at.s2 + ACT_MS + 300;
+      const bundle = withMarker(raw, "s2", { actEndSourceTimeMs: actEnd });
+      const t = buildTimeline(restPlan, bundle);
+      // Premise: the act holds 300 of idle and the recorded tail after it
+      // is not the planned one.
+      expect(idleSrc(bundle, at.s2, actEnd)).toBe(300);
+      expect(idleSrc(bundle, actEnd, t.sourceDurationMs)).not.toBe(1000);
+      expect(idleOut(t, bundle, at.s2, actEnd)).toBeCloseTo(0, 6);
+      expect(idleOut(t, bundle, actEnd, t.sourceDurationMs)).toBeCloseTo(
+        1000,
+        6,
+      );
+      expect(t.unplacedPaces).toBe(0);
+    }
+  });
+});
+
+describe("a planned step reached by an approach scroll", () => {
+  /** The scroll: 200 ms after s1's response, 400 ms long, inside the rest
+   *  stretch. */
+  const SCROLL_MS = 400;
+  const scrolled = (idle: Idle) => {
+    const { bundle, at } = pacedBundle(idle);
+    const scroll = {
+      startMs: at.s1 + ACT_MS + 200,
+      endMs: at.s1 + ACT_MS + 200 + SCROLL_MS,
+    };
+    const withScroll = withMarker(
+      {
+        ...bundle,
+        motionSpans: [
+          ...bundle.motionSpans,
+          {
+            ...scroll,
+            byteLength: 0,
+            ref: "scroll",
+            width: 1280,
+            height: 800,
+            fps: 60,
+          },
+        ],
+      },
+      "s2",
+      { scrollEndSourceTimeMs: scroll.endMs },
+    );
+    return { bundle: withScroll, at: { ...at, scrollEnd: scroll.endMs } };
+  };
+  const pacing = (afterScrollMs?: number) => ({
+    beats: [
+      { beforeActionId: "s1", restMs: 500, arriveMs: 200 },
+      {
+        beforeActionId: "s2",
+        restMs: 900,
+        arriveMs: 300,
+        ...(afterScrollMs === undefined ? {} : { afterScrollMs }),
+      },
+    ],
+    tailMs: 1000,
+  });
+
+  it("plays the idle after the scroll for afterScrollMs and the idle before it for restMs", () => {
+    // Red if `plannedIdleOf` drops the scroll's stretch
+    // (`share(scrollEnd, approach, pace.afterScrollMs)`) or ends the rest at
+    // the approach (`restEnd = scrollEnd ?? approach` to `approach`).
+    const plan = planScene(twoStepScene(pacing(1500)));
+    for (const idle of [
+      { ...FAST, rest: 1500 },
+      { ...SLOW, rest: 6000 },
+    ]) {
+      const { bundle, at } = scrolled(idle);
+      // Premise: the scroll is motion between s1's act and the approach,
+      // with idle on both sides of it.
+      expect(motionIn(bundle, at.scrollEnd - SCROLL_MS, at.scrollEnd)).toBe(
+        SCROLL_MS,
+      );
+      expect(idleSrc(bundle, at.s1, at.scrollEnd)).toBe(200);
+      expect(idleSrc(bundle, at.scrollEnd, at.approach2)).toBe(
+        idle.rest - 200 - SCROLL_MS,
+      );
+      expect(plan.paces?.[1]).toMatchObject({ afterScrollMs: 1500 });
+
+      const t = buildTimeline(plan, bundle);
+      expect(idleOut(t, bundle, at.s1, at.scrollEnd)).toBeCloseTo(900, 6);
+      expect(idleOut(t, bundle, at.scrollEnd, at.approach2)).toBeCloseTo(
+        1500,
+        6,
+      );
+      expect(idleOut(t, bundle, at.approach2, at.s2)).toBeCloseTo(300, 6);
+      expect(t.unplacedPaces).toBe(0);
+      expectWellFormed(t);
+    }
+  });
+
+  it("counts a beat with only one of the scroll's end and afterScrollMs, and plays that pair as recorded", () => {
+    // Red if `plannedIdleOf`'s check `(scrollEnd === undefined) !==
+    // (pace.afterScrollMs === undefined)` goes: the pair is then paced.
+    const { bundle, at } = scrolled({ ...SLOW, rest: 6000 });
+    const noScrollEnd = withMarker(bundle, "s2", {
+      scrollEndSourceTimeMs: undefined,
+    });
+    const cases = [
+      // The marker says it scrolled, the beat plans nothing after it.
+      { plan: planScene(twoStepScene(pacing())), bundle },
+      // The beat plans after a scroll the marker does not have.
+      { plan: planScene(twoStepScene(pacing(1500))), bundle: noScrollEnd },
+    ];
+    // Premise: each case has exactly one of the two.
+    expect(bundle.markers[1]?.scrollEndSourceTimeMs).toBe(at.scrollEnd);
+    expect(cases[0]?.plan.paces?.[1]).not.toHaveProperty("afterScrollMs");
+    expect(noScrollEnd.markers[1]?.scrollEndSourceTimeMs).toBeUndefined();
+    expect(cases[1]?.plan.paces?.[1]).toMatchObject({ afterScrollMs: 1500 });
+    for (const c of cases) {
+      const t = buildTimeline(c.plan, c.bundle);
+      expect(t.unplacedPaces).toBe(1);
+      expect(toOutputMs(t, at.s2) - toOutputMs(t, at.s1)).toBeCloseTo(
+        at.s2 - at.s1,
+        6,
+      );
+    }
+  });
+});
+
 describe("a take without a beat plan", () => {
   // Drawn by the code at 35f94523, before planned pacing existed.
   const cases = noPacingCases();

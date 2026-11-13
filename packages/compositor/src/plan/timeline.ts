@@ -679,10 +679,18 @@ function authoredRegions(
  * that writes a plan, is never sampled.
  *
  * Each beat is two stretches, split where the cursor set off for its step
- * (`approachSourceTimeMs`): from the step before (source 0 for the opening)
- * to there plays `restMs`, from there to the step `arriveMs`. The idle after
- * the plan's last step plays `tailMs`. Motion inside any of them plays at
- * rate 1.0 as everywhere, so a pair lasts its planned idle plus its motion.
+ * (`approachSourceTimeMs`): from the step before's act end (its marker when
+ * it has none, source 0 for the opening) to there plays `restMs`, from there
+ * to the step `arriveMs`. A step whose approach scrolled
+ * (`scrollEndSourceTimeMs` with the beat's `afterScrollMs`) has a third: the
+ * rest ends where the scroll did, and from there to the approach plays
+ * `afterScrollMs`, the camera's room after the page moved. The idle after
+ * the plan's last act plays `tailMs`. Idle inside a step's own act (from
+ * its marker to its act end) plays for 0: an act's length is the machine's
+ * (measured 94 against 416 ms for one click, fast against slowed, on
+ * 2026-11-13), so playing its idle would put the machine back into the
+ * video. Motion plays at rate 1.0 as everywhere, so a pair lasts its planned
+ * idle and its motion.
  *
  * A stretch with no idle that plays (all motion, or all removed) has nothing
  * to stretch, so it becomes a freeze of its planned length at its end — at
@@ -700,7 +708,8 @@ function authoredRegions(
  * counted.
  *
  * A beat that cannot be placed — a marker missing, the step's marker without
- * an approach, an approach outside its pair, or a freeze with no frame — is
+ * an approach, an approach outside its pair, a scroll's end without its
+ * `afterScrollMs` (or the reverse), or a freeze with no frame — is
  * counted, never guessed: the pair then plays as recorded, and
  * `unplacedPaces` says so.
  */
@@ -739,35 +748,73 @@ function plannedIdleOf(
     freezes.push({ sourceTimeMs: at, durationMs: targetMs });
     return true;
   };
+  /**
+   * Where a stretch after `prev` starts: its act end, so the act's own idle
+   * takes no share of the rest meant to follow it, and plays for 0 itself
+   * (its region's target). An act end before the marker (the schema refuses
+   * one) or past `endMs` is treated as absent: the stretch then starts at
+   * the marker, as before act ends were read here.
+   *
+   * shortcut: typing's designed lead-in (`TYPE_LEAD_MS` of idle before the
+   * first key) is in its act and is dropped with it; if it is missed, the
+   * walk can plan it into that step's `arriveMs`.
+   */
+  const afterAct = (
+    prev: { sourceTimeMs: number; actEndSourceTimeMs?: number },
+    endMs: number,
+  ): number => {
+    const end = prev.actEndSourceTimeMs;
+    if (end === undefined || end < prev.sourceTimeMs || end > endMs) {
+      return prev.sourceTimeMs;
+    }
+    // A target of 0 never freezes, so this cannot fail.
+    share(prev.sourceTimeMs, end, 0);
+    return end;
+  };
   for (const pace of plan.paces ?? []) {
     if (pace.origin !== "planned") continue;
-    const after =
+    const prev =
       pace.afterActionId === null
-        ? 0
-        : markerOf.get(pace.afterActionId)?.sourceTimeMs;
+        ? { sourceTimeMs: 0 }
+        : markerOf.get(pace.afterActionId);
     const step = markerOf.get(pace.beforeActionId);
     const approach = step?.approachSourceTimeMs;
+    const scrollEnd = step?.scrollEndSourceTimeMs;
     if (
-      after === undefined ||
+      prev === undefined ||
       step === undefined ||
       approach === undefined ||
-      approach < after ||
-      approach > step.sourceTimeMs
+      approach < prev.sourceTimeMs ||
+      approach > step.sourceTimeMs ||
+      // The scroll's stretch needs both halves: where the scroll ended and
+      // what to play after it. One without the other is not guessed at.
+      (scrollEnd === undefined) !== (pace.afterScrollMs === undefined) ||
+      (scrollEnd !== undefined &&
+        (scrollEnd < prev.sourceTimeMs || scrollEnd > approach))
     ) {
       unplacedPaces++;
       continue;
     }
-    const rest = share(after, approach, pace.restMs);
+    // The rest runs to the scroll's end when the step scrolled: the camera
+    // needs its room after the scroll, which `afterScrollMs` carries.
+    const restEnd = scrollEnd ?? approach;
+    const rest = share(afterAct(prev, restEnd), restEnd, pace.restMs);
+    const scroll =
+      scrollEnd === undefined || pace.afterScrollMs === undefined
+        ? true
+        : share(scrollEnd, approach, pace.afterScrollMs);
     const arrive = share(approach, step.sourceTimeMs, pace.arriveMs);
-    if (!rest || !arrive) unplacedPaces++;
+    if (!rest || !scroll || !arrive) unplacedPaces++;
   }
   if (plan.tailMs != null) {
     // The plan's last step is the last pair's second one: a plan writes a
     // beat for every step, the opening included.
     const lastStep = plan.paces?.at(-1)?.beforeActionId;
-    const last =
-      lastStep === undefined ? undefined : markerOf.get(lastStep)?.sourceTimeMs;
-    if (last === undefined || !share(last, sourceDurationMs, plan.tailMs)) {
+    const last = lastStep === undefined ? undefined : markerOf.get(lastStep);
+    if (
+      last === undefined ||
+      !share(afterAct(last, sourceDurationMs), sourceDurationMs, plan.tailMs)
+    ) {
       unplacedPaces++;
     }
   }

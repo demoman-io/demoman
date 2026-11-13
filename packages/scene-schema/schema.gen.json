@@ -1244,6 +1244,10 @@
               "arriveMs": {
                 "type": "number",
                 "minimum": 0
+              },
+              "afterScrollMs": {
+                "type": "number",
+                "minimum": 0
               }
             },
             "required": [

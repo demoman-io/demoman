@@ -15,7 +15,9 @@ import { describe, expect, it } from "vitest";
 import {
   ARRIVE_MS,
   actMs,
+  afterScroll,
   BASE_REST_MS,
+  JOURNEY_TAIL_MS,
   OPENING_REST_MS,
   restBefore,
   tailMs,
@@ -40,13 +42,23 @@ describe("restBefore", () => {
     expect(restBefore({ ...plain, pauseMs: 1500 })).toBe(BASE_REST_MS + 1500);
   });
 
-  // Red if `i.roomMs - i.journeyMs - ARRIVE_MS` loses the journey or arrive term.
-  it("grows to the room the camera needs, less what the journey and arrival already give", () => {
+  // Red if `roomLeft` loses the journey, arrive or journey-tail term.
+  it("grows to the room the camera needs, less what the journey (less its eased-out end) and arrival already give", () => {
     const roomMs = 3000;
     const i = { ...plain, roomMs };
     expect(roomMs - i.journeyMs - ARRIVE_MS).toBeGreaterThan(BASE_REST_MS); // premise
-    expect(restBefore(i)).toBe(roomMs - i.journeyMs - ARRIVE_MS);
+    expect(restBefore(i)).toBe(
+      roomMs - i.journeyMs - ARRIVE_MS + JOURNEY_TAIL_MS,
+    );
     expect(ARRIVE_MS).toBe(SETTLE_MS);
+  });
+
+  // Red if the margin is added without a journey (`journeyMs > 0 ?` in
+  // `roomLeft` dropped): a cursor that does not move has no eased-out end.
+  it("plans no journey margin when the cursor makes no journey", () => {
+    const i = { ...plain, roomMs: 3000, journeyMs: 0 };
+    expect(3000 - ARRIVE_MS).toBeGreaterThan(BASE_REST_MS); // premise
+    expect(restBefore(i)).toBe(3000 - ARRIVE_MS);
   });
 
   // Red if the max becomes a sum.
@@ -54,6 +66,31 @@ describe("restBefore", () => {
     const i = { ...plain, roomMs: 100 };
     expect(100 - i.journeyMs - ARRIVE_MS).toBeLessThan(BASE_REST_MS); // premise
     expect(restBefore(i)).toBe(BASE_REST_MS);
+  });
+});
+
+describe("afterScroll", () => {
+  // Red if the non-zoomed branch plans anything but an arrive's worth.
+  it("is an arrive's worth before a step that does not zoom, whatever the room", () => {
+    expect(afterScroll({ zooms: false, roomMs: 3000, journeyMs: 400 })).toBe(
+      ARRIVE_MS,
+    );
+  });
+
+  // Red if the zoomed branch loses `roomLeft`'s journey, arrive or
+  // journey-tail term.
+  it("is the room left after the journey, less its eased-out end, and the arrive before a zoomed click", () => {
+    const i = { zooms: true, roomMs: 3000, journeyMs: 400 };
+    expect(3000 - 400 - ARRIVE_MS).toBeGreaterThan(ARRIVE_MS); // premise
+    expect(afterScroll(i)).toBe(3000 - 400 - ARRIVE_MS + JOURNEY_TAIL_MS);
+    expect(afterScroll({ ...i, journeyMs: 0 })).toBe(3000 - ARRIVE_MS);
+  });
+
+  // Red if the floor at `ARRIVE_MS` goes: a pan's room is 0.
+  it("never plans less than an arrive's worth", () => {
+    expect(afterScroll({ zooms: true, roomMs: 0, journeyMs: 400 })).toBe(
+      ARRIVE_MS,
+    );
   });
 });
 

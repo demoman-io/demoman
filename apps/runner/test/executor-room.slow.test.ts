@@ -3,13 +3,15 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CAMERA_DEFAULTS,
   type FrameBundle,
+  motionTimings,
   planScene,
   resolvePlan,
   toOutputMs,
 } from "@demoman/compositor";
 import { ARRIVE_MS, BASE_REST_MS, type BrandKitsRead } from "@demoman/run-core";
-import type { SceneDocument } from "@demoman/scene-schema";
+import { MOTION_DEFAULTS, type SceneDocument } from "@demoman/scene-schema";
 import type { BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBrowserSession } from "../src/executor/browser.js";
@@ -179,7 +181,17 @@ async function run(steps: Step[], scriptVersion = 1) {
     if (segment === undefined) throw new Error(`no zoom segment: ${said()}`);
     return segment;
   };
-  return { report, scene, bundle, markerOf, said, out, beatOf, segmentOf };
+  return {
+    report,
+    scene,
+    bundle,
+    markerOf,
+    said,
+    out,
+    beatOf,
+    segmentOf,
+    resolved,
+  };
 }
 
 describe("unhurried beats through the executor", () => {
@@ -299,41 +311,83 @@ describe("unhurried beats through the executor", () => {
     expect(beatOf(1).restMs, said()).toBe(BASE_REST_MS);
   }, 120_000);
 
-  // The approach scroll is motion between the planned rest and the
-  // journey; the rest still carries the room, so the camera has it from
-  // the act before. (R7's "room after the scroll" is not planned: see the
-  // report of 2026-11-13 Task 7.) Red as the typing case above.
-  it("plans a zoomed click's room when its target is scrolled to, and the render plays it", async () => {
-    const { scene, bundle, markerOf, out, said } = await run([
+  // Task 7 measured 1510 ms here against 2050: the room sat in the rest,
+  // before the scroll, and the camera needs it after the page moved. (This
+  // replaced the case that asserted the room from the typing's end alone,
+  // which the scroll's own motion and the base rest now cover whatever the
+  // plan says; it is the last assertion here.) Red if
+  // the walk leaves the room out of `afterScrollMs` (walk.ts's zoomed
+  // `beats.afterScroll({ zooms: true, … })` to `zooms: false`), or
+  // the compositor drops the scroll's stretch (timeline.ts
+  // `share(scrollEnd, approach, pace.afterScrollMs)`).
+  it("leaves a zoomed click scrolled to its push-in after the scroll, on the rendered timeline", async () => {
+    const { scene, bundle, markerOf, beatOf, out, said, resolved } = await run([
       { do: "type", into: { stableId: "amount" }, text: "48" },
       { do: "click", on: { text: "Below the fold" } },
     ]);
     const typed = markerOf(0);
     const click = markerOf(1);
-    // Premise: the click is zoomed, and its target was scrolled into view
-    // with the scroll filmed between the typing and the click.
+    // Premise: the walk really scrolled, after the typing's act and before
+    // the cursor set off, the beat plans a rest after it, and the click
+    // really zooms.
+    const scrollEnd = click.scrollEndSourceTimeMs as number;
+    expect(scrollEnd, said()).toBeGreaterThanOrEqual(
+      typed.actEndSourceTimeMs as number,
+    );
+    expect(scrollEnd, said()).toBeLessThanOrEqual(
+      click.approachSourceTimeMs as number,
+    );
+    expect(beatOf(1).afterScrollMs, said()).toBeGreaterThan(ARRIVE_MS);
     expect(
       scene.camera.map((c) => c.marker.actionId),
       said(),
     ).toContain(click.actionId);
-    const rect = bundle.anchorRects.find((r) => r.actionId === click.actionId);
-    expect(rect?.rect.y ?? 0, said()).toBeLessThan(800);
-    const scroll = bundle.motionSpans
-      .filter(
-        (m) =>
-          m.startMs > (typed.actEndSourceTimeMs as number) &&
-          m.endMs <= click.sourceTimeMs,
-      )
-      .at(-1);
-    expect(scroll, said()).toBeDefined();
-    const scrollEnd = (scroll?.endMs ?? 0) - 250; // its last paint
-    const room =
-      out(click.sourceTimeMs) - out(typed.actEndSourceTimeMs as number);
-    // Reported, not asserted: the room left after the scroll's last paint.
-    console.info(
-      `executor-room scroll: room from the typing ${Math.round(room)} ms, after the scroll ${Math.round(out(click.sourceTimeMs) - out(scrollEnd))} ms (NEEDED_MS ${NEEDED_MS})`,
+    const { zoomInMs } = motionTimings(
+      (scene.motion ?? MOTION_DEFAULTS).smoothness,
     );
-    expect(room, said()).toBeGreaterThanOrEqual(NEEDED_MS);
+    const pushIn =
+      CAMERA_DEFAULTS.actSettleMs +
+      zoomInMs +
+      Math.abs(CAMERA_DEFAULTS.leadInMs);
+    // From the first output instant showing the scroll's end. `out` answers
+    // a freeze's LAST instant, and when the cursor set off the moment the
+    // scroll ended (`scrollEnd === approach`, seen here) the planned rest
+    // after the scroll is a freeze standing on exactly that instant.
+    const shown = resolved.timeline.segments.find(
+      (g) => g.srcEndMs >= scrollEnd,
+    );
+    const scrollEndOut =
+      shown === undefined
+        ? Number.NaN
+        : shown.srcEndMs === shown.srcStartMs
+          ? shown.outStartMs
+          : shown.outStartMs +
+            ((scrollEnd - shown.srcStartMs) /
+              (shown.srcEndMs - shown.srcStartMs)) *
+              (shown.outEndMs - shown.outStartMs);
+    const afterScroll = out(click.sourceTimeMs) - scrollEndOut;
+    console.info(
+      `executor-room scroll: after the scroll ${Math.round(afterScroll)} ms (push-in ${pushIn})`,
+    );
+    // The journey's eased-out end renders as idle inside the arrive; the
+    // rule plans `JOURNEY_TAIL_MS` for it (run-core's `beats.ts`), so the
+    // room holds with nothing measured added here. The cursor's samples are
+    // in the evidence for when it does not.
+    const evidence = JSON.stringify({
+      said: JSON.parse(said()),
+      segments: resolved.timeline.segments.filter(
+        (g) => g.srcEndMs >= scrollEnd && g.srcStartMs <= click.sourceTimeMs,
+      ),
+      cursor: bundle.cursorSamples.filter(
+        (c) =>
+          c.sourceTimeMs >= scrollEnd && c.sourceTimeMs <= click.sourceTimeMs,
+      ),
+    });
+    expect(afterScroll, evidence).toBeGreaterThanOrEqual(pushIn);
+    expect(
+      out(click.sourceTimeMs) - out(typed.actEndSourceTimeMs as number),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
   }, 120_000);
 
   // Red as the typing case above: the cursor makes no journey to the

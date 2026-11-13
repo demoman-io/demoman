@@ -14,6 +14,7 @@ import {
 import {
   ARRIVE_MS,
   actMs,
+  afterScroll,
   attributeClosedWindow,
   chooseRunSize,
   clickNotDeliveredDetail,
@@ -323,7 +324,7 @@ export async function playOnStage(
       createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
     // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
     // instead of waiting the camera's room out live.
-    beats: { restBefore, actMs, tailMs, arriveMs: ARRIVE_MS },
+    beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
   });
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop

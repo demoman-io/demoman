@@ -53,15 +53,26 @@ const PULL_OUT_MS = 5000;
 const ARRIVE = 300;
 const BASE = 700;
 const OPENING = 800;
+const JOURNEY_TAIL = 100;
+
+/** The room left once the journey (less its eased-out end) and the arrive
+ *  have given theirs, as run-core's `beats.ts` counts it. */
+const roomLeft = (roomMs: number, journeyMs: number) =>
+  roomMs - journeyMs - ARRIVE + (journeyMs > 0 ? JOURNEY_TAIL : 0);
 
 /** The pacing rule's shape (run-core's `beats.ts`), with numbers of its
  *  own: this package cannot import run-core. */
 const restBefore = vi.fn<BeatRules["restBefore"]>(
   ({ first, pauseMs, roomMs, journeyMs }) =>
-    Math.max((first ? OPENING : BASE) + pauseMs, roomMs - journeyMs - ARRIVE),
+    Math.max(
+      (first ? OPENING : BASE) + pauseMs,
+      roomMs > 0 ? roomLeft(roomMs, journeyMs) : roomMs - journeyMs - ARRIVE,
+    ),
 );
 const RULES: BeatRules = {
   restBefore,
+  afterScroll: ({ zooms, roomMs, journeyMs }) =>
+    Math.max(ARRIVE, zooms ? roomLeft(roomMs, journeyMs) : 0),
   actMs: (a: SceneAction) =>
     a.kind === "type" ? 250 + 100 * ((a.text ?? "").length - 1) : 0,
   tailMs: ({ zoomSettleMs, trimEndMs, trimAfterAction, pauseMs }) =>
@@ -900,11 +911,11 @@ describe("a planned zoomed click the walk scrolled to", () => {
   // Review 6c: the approach scroll sits between the planned rest and the
   // journey (the walk sets off after it), so the camera keeps the room the
   // plan gave it on the rendered timeline, from the act before. The scroll
-  // is given motion here, as a real one paints. Red if the planned room is
-  // not in the rest (walk.ts `restWith(room.neededMs(...))` to
-  // `restWith(0)`): seen red at the room line. (Without the typing's
-  // motion the room came out 2600 ms, not 6000: an act's own idle takes a
-  // share of the rest after it. That limit is the act's, not the scroll's.)
+  // and the typing are given motion here, as real ones paint. Red if the
+  // planned room is not after the scroll (walk.ts's zoomed
+  // `beats.afterScroll({ zooms: true, … })` to `zooms: false`). The
+  // same without any motion, and the room after the scroll's end, are the
+  // cases of "the rest sits where the camera needs it" below.
   it("leaves the camera its room on the rendered timeline", async () => {
     const { result, scrolledAt } = await run([TYPE_A, click("far")], {
       beats: RULES,
@@ -966,5 +977,155 @@ describe("a planned zoomed click the walk scrolled to", () => {
       out(clicked.sourceTimeMs) - out(typed.actEndSourceTimeMs as number),
       evidence,
     ).toBeGreaterThanOrEqual(NEEDED_MS);
+  });
+});
+
+/** The take's rendered timeline, on the fake's own bundle (which paints
+ *  nothing: every act's span is idle). */
+const renderedOf = (result: AuthoredResult) => {
+  const { bundle, document } = result;
+  if (bundle === null || document === null) throw new Error(evidenceOf(result));
+  const { timeline } = resolvePlan(planScene(document), bundle, document);
+  return (sourceMs: number) => toOutputMs(timeline, sourceMs);
+};
+
+describe("the rest sits where the camera needs it", () => {
+  // Task 7 measured 2600 ms here against 6000: the typing's own idle took
+  // a share of the rest planned after it. Red if the compositor's rest
+  // starts at the previous marker again (`plannedIdleOf`'s
+  // `share(afterAct(prev, restEnd), …)` to `share(prev.sourceTimeMs, …)`).
+  it("leaves a zoomed click after a typed step its room from the act's end", async () => {
+    const { result } = await run([TYPE_A, click("b")], {
+      beats: RULES,
+      camera: gapCamera,
+    });
+    const evidence = evidenceOf(result);
+    const typed = markerOf(result, 0);
+    const clicked = markerOf(result, 1);
+    // Premise: the click zoomed from full frame, and the typing's act holds
+    // idle of its own (the fake page paints nothing), which is what took
+    // the share; no scroll is involved.
+    expect(
+      result.document?.camera.map((c) => c.arrives),
+      evidence,
+    ).toEqual(["return"]);
+    const actEnd = typed.actEndSourceTimeMs ?? Number.NaN;
+    expect(actEnd - typed.sourceTimeMs, evidence).toBeGreaterThan(0);
+    expect(clicked.scrollEndSourceTimeMs, evidence).toBeUndefined();
+    const out = renderedOf(result);
+    expect(
+      out(clicked.sourceTimeMs) - out(actEnd),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
+  });
+
+  // Task 7 measured 1510 ms after the scroll against 2050 on the executor:
+  // the room was in the rest, before the scroll. Red if the walk leaves the
+  // room out of `afterScrollMs` (walk.ts's zoomed `beats.afterScroll({
+  // zooms: true, … })` to `zooms: false`), or the compositor drops the
+  // scroll's stretch.
+  it("gives a zoomed click reached by a scroll its room after the scroll", async () => {
+    const { result, journeys } = await run([TYPE_A, click("far")], {
+      beats: RULES,
+      camera: gapCamera,
+    });
+    const evidence = evidenceOf(result);
+    const typed = markerOf(result, 0);
+    const clicked = markerOf(result, 1);
+    const scrollEnd = clicked.scrollEndSourceTimeMs ?? Number.NaN;
+    // Premise: the click zoomed from full frame, and its approach scrolled
+    // after the typing's act and before the cursor set off.
+    expect(
+      result.document?.camera.map((c) => c.arrives),
+      evidence,
+    ).toEqual(["return"]);
+    expect(scrollEnd, evidence).toBeGreaterThanOrEqual(
+      typed.actEndSourceTimeMs ?? Number.NaN,
+    );
+    expect(scrollEnd, evidence).toBeLessThanOrEqual(
+      clicked.approachSourceTimeMs ?? Number.NaN,
+    );
+    const journey = journeys.at(-1) ?? Number.NaN;
+    expect(NEEDED_MS - journey - ARRIVE, evidence).toBeGreaterThan(ARRIVE);
+
+    const beat = result.pacing?.beats[1];
+    expect(beat?.beforeActionId, evidence).toBe(clicked.actionId);
+    expect(beat?.afterScrollMs, evidence).toBeGreaterThanOrEqual(
+      NEEDED_MS - journey - ARRIVE,
+    );
+    // The rest before the scroll keeps its base: the room is after it.
+    expect(beat?.restMs, evidence).toBe(BASE);
+    const out = renderedOf(result);
+    expect(
+      out(clicked.sourceTimeMs) - out(scrollEnd),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
+  });
+
+  // Red if a scrolled-to step's after-scroll rest is not an arrive's worth
+  // (walk.ts's first `beats.afterScroll({ zooms: false, … })` to `0`), or
+  // a step that did
+  // not scroll writes one (`...(scrolledTo ? { afterScrollMs } : {})`).
+  it("rests an arrive's worth after the scroll before a step that does not zoom", async () => {
+    const { result } = await run([TYPE_A, click("far")], {
+      beats: RULES,
+      zooms: () => false,
+    });
+    const evidence = evidenceOf(result);
+    // Premise: the click scrolled and did not zoom; the typing did not
+    // scroll.
+    expect(markerOf(result, 1).scrollEndSourceTimeMs, evidence).toBeDefined();
+    expect(markerOf(result, 0).scrollEndSourceTimeMs, evidence).toBeUndefined();
+    expect(
+      result.decided?.get(markerOf(result, 1).actionId),
+      evidence,
+    ).not.toHaveProperty("arrives");
+    expect(result.pacing?.beats, evidence).toEqual([
+      {
+        beforeActionId: markerOf(result, 0).actionId,
+        restMs: OPENING,
+        arriveMs: ARRIVE,
+      },
+      {
+        beforeActionId: markerOf(result, 1).actionId,
+        restMs: BASE,
+        arriveMs: ARRIVE,
+        afterScrollMs: ARRIVE,
+      },
+    ]);
+  });
+
+  // Red if the marker's scroll end is written only under a plan
+  // (`continuous && scrolls` to `beats !== undefined && scrolls`), or if
+  // the walk without a plan writes any planned number.
+  it("without a plan marks where the scroll ended and plans nothing", async () => {
+    const { result } = await run([TYPE_A, click("far")], {
+      camera: gapCamera,
+    });
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    expect(result.pacing, evidence).toBeUndefined();
+    expect(result.document?.pacing, evidence).toBeUndefined();
+    const typed = markerOf(result, 0);
+    const clicked = markerOf(result, 1);
+    expect(typed.scrollEndSourceTimeMs, evidence).toBeUndefined();
+    expect(clicked.scrollEndSourceTimeMs, evidence).toBeGreaterThanOrEqual(
+      typed.actEndSourceTimeMs ?? Number.NaN,
+    );
+    expect(clicked.scrollEndSourceTimeMs, evidence).toBeLessThanOrEqual(
+      clicked.approachSourceTimeMs ?? Number.NaN,
+    );
+    // The live room is still waited out, and the marker carries nothing
+    // new beside the scroll's end.
+    expect(clicked.roomMs, evidence).toBeGreaterThan(0);
+    expect(Object.keys(clicked).sort(), evidence).toEqual([
+      "actEndSourceTimeMs",
+      "actionId",
+      "approachSourceTimeMs",
+      "roomHeldMs",
+      "roomMs",
+      "scrollEndSourceTimeMs",
+      "sourceTimeMs",
+    ]);
   });
 });

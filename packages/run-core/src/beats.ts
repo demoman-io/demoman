@@ -19,6 +19,24 @@ export const OPENING_REST_MS = 800;
 export const ARRIVE_MS = SETTLE_MS;
 
 /**
+ * Planned margin on the room a cursor journey is counted toward. The
+ * journey's eased-out end (measured 50–73 ms on 2026-11-13) moves the
+ * pointer less than the timeline's cursor-motion threshold
+ * (`CURSOR_MOTION_EPSILON_PX`), so it renders as idle inside the arrive,
+ * which plays `ARRIVE_MS` in all: the rendered journey is that much shorter
+ * than its designed length. 100 covers the measured range with room. It is a
+ * constant added to planned numbers, never compared with a measurement, so
+ * nothing decides across it and it cannot jitter.
+ */
+export const JOURNEY_TAIL_MS = 100;
+
+/** The room left to plan once the journey and the arrive have given theirs:
+ *  the journey counted less its eased-out end. */
+function roomLeft(roomMs: number, journeyMs: number): number {
+  return roomMs - journeyMs - ARRIVE_MS + (journeyMs > 0 ? JOURNEY_TAIL_MS : 0);
+}
+
+/**
  * Dead air before a step's journey. `roomMs` is what the camera needs from
  * the last act's designed end to this click, 0 when it does not zoom or pans.
  */
@@ -30,8 +48,24 @@ export function restBefore(i: {
 }): number {
   return Math.max(
     (i.first ? OPENING_REST_MS : BASE_REST_MS) + i.pauseMs,
-    i.roomMs - i.journeyMs - ARRIVE_MS,
+    i.roomMs > 0
+      ? roomLeft(i.roomMs, i.journeyMs)
+      : i.roomMs - i.journeyMs - ARRIVE_MS,
   );
+}
+
+/**
+ * Dead air between a step's approach scroll and its journey: an arrive's
+ * worth, or, before a click the camera zooms to, the room it needs after
+ * the page moved (`roomMs` as for `restBefore`). The rest before the scroll
+ * then keeps its base.
+ */
+export function afterScroll(i: {
+  zooms: boolean;
+  roomMs: number;
+  journeyMs: number;
+}): number {
+  return Math.max(ARRIVE_MS, i.zooms ? roomLeft(i.roomMs, i.journeyMs) : 0);
 }
 
 /**

@@ -490,6 +490,9 @@ export interface BeatRules {
     roomMs: number;
     journeyMs: number;
   }): number;
+  /** Dead air between a step's approach scroll and its journey; `zooms`
+   *  for a click the camera zooms to, `roomMs` as for `restBefore`. */
+  afterScroll(i: { zooms: boolean; roomMs: number; journeyMs: number }): number;
   /** A step's own designed length. */
   actMs(action: SceneAction): number;
   /** How long the take runs on after its last act; `pauseMs` is the
@@ -3096,6 +3099,9 @@ export async function runWalk(
         reason = stopForResolveFailure(located.failureReason);
         break;
       }
+      // Where the approach scroll ended, for the marker: the renderer plays
+      // the beat's `afterScrollMs` from here (spec 2026-11-13 Part 3).
+      const scrollEndAt = continuous && scrolls ? at() : undefined;
       // The scroll moved the page under the camera too: the camera's room
       // is measured from its last paint (code review 2026-10-20, R7).
       if (unhurriedScroll) {
@@ -3170,8 +3176,17 @@ export async function runWalk(
               journeyMs,
             });
       const arriveMs = beats?.arriveMs ?? 0;
+      // A step the approach scrolled to rests again after the scroll, where
+      // the designed clock adds it beside the rest: an arrive's worth, or
+      // the camera's room for a zoomed click (below). The scroll itself is
+      // motion and is not on the designed clock.
+      const scrolledTo = beats !== undefined && scrollEndAt !== undefined;
+      let afterScrollMs =
+        beats !== undefined && scrolledTo
+          ? beats.afterScroll({ zooms: false, roomMs: 0, journeyMs })
+          : 0;
       const designedAt = (restMs: number): number =>
-        designed + restMs + journeyMs + arriveMs;
+        designed + restMs + afterScrollMs + journeyMs + arriveMs;
       let restMs = restWith(0);
       const unroomedMs = designedAt(restMs);
       if (
@@ -3209,12 +3224,21 @@ export async function runWalk(
           // of the designed act end before it, which `designed` is.
           roomHere += await quietThenFinalize();
           if (plannedBeats.length > 0) {
-            restMs = restWith(
-              room.neededMs({
-                heldUntilMs: designedHeldUntil,
-                clickMs: unroomedMs,
-              }),
-            );
+            const roomMs = room.neededMs({
+              heldUntilMs: designedHeldUntil,
+              clickMs: unroomedMs,
+            });
+            // Reached by a scroll, the camera needs its room after the page
+            // moved: the rest keeps its base and the room goes after it.
+            if (scrolledTo) {
+              afterScrollMs = beats.afterScroll({
+                zooms: true,
+                roomMs,
+                journeyMs,
+              });
+            } else {
+              restMs = restWith(roomMs);
+            }
           }
           const arrives = room.arrives({
             heldUntilMs: designedHeldUntil,
@@ -3284,6 +3308,9 @@ export async function runWalk(
         actionId: step.action.id,
         sourceTimeMs: markedAt,
         ...(continuous ? { approachSourceTimeMs: pathFrom } : {}),
+        ...(scrollEndAt === undefined
+          ? {}
+          : { scrollEndSourceTimeMs: scrollEndAt }),
         // Under a plan nothing was waited for the camera: its room is in the
         // planned rest, and the waits counted here are settles.
         ...(beats === undefined && roomHere > 0
@@ -3296,7 +3323,12 @@ export async function runWalk(
       markers.push(marker);
       if (beats !== undefined) {
         stepPlan = {
-          beat: { beforeActionId: step.action.id, restMs, arriveMs },
+          beat: {
+            beforeActionId: step.action.id,
+            restMs,
+            arriveMs,
+            ...(scrolledTo ? { afterScrollMs } : {}),
+          },
           markerMs: designedAt(restMs),
           zoomed: zoomedClick || zoomedDrag,
         };

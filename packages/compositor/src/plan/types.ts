@@ -223,10 +223,12 @@ export type PlannedPace = AuthoredPace | RecordedPace | PlannedBeat;
 /**
  * A pace the take's BEAT PLAN set (`scene.pacing`, spec 2026-11-13 Part 3):
  * designed idle, not measured idle. On a real-time bundle the idle between
- * `afterActionId`'s marker and `beforeActionId`'s `approachSourceTimeMs`
- * (where the cursor set off) plays for `restMs` in all, and the idle from
- * there to the step for `arriveMs`; motion plays at rate 1.0 between them.
- * So the pair lasts `restMs + arriveMs + its motion` on any machine.
+ * `afterActionId`'s act end (its marker when it has none) and
+ * `beforeActionId`'s `approachSourceTimeMs` (where the cursor set off) plays
+ * for `restMs` in all, or up to its approach scroll's end when the step
+ * scrolled and the rest after it for `afterScrollMs`; the idle from the
+ * approach to the step plays for `arriveMs`. Idle inside the previous act
+ * plays for 0, and motion at rate 1.0 throughout (`plannedIdleOf`).
  *
  * `afterActionId` is `null` for the opening beat, which runs from source 0.
  * Only the opening can carry `null`; `AuthoredPace` and `RecordedPace` keep
@@ -240,6 +242,11 @@ export interface PlannedBeat extends Omit<PaceAnchors, "afterActionId"> {
   origin: "planned";
   restMs: number;
   arriveMs: number;
+  /** Idle from the step's approach scroll's end (the marker's
+   *  `scrollEndSourceTimeMs`) to where the cursor set off. Absent on a step
+   *  whose approach did not scroll, and on every plan before 2026-11-13's
+   *  Task 7b. */
+  afterScrollMs?: number;
 }
 
 export interface RenderPlan {

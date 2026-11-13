@@ -872,6 +872,9 @@ export const SceneDocumentSchema = z
             restMs: z.number().min(0),
             /** How long the walk to the action takes. */
             arriveMs: z.number().min(0),
+            /** Dead air from the approach scroll's end to the journey's
+             *  start. Only on a step whose approach scrolled. */
+            afterScrollMs: z.number().min(0).optional(),
           }),
         ),
         /** Dead air after the last action's motion. */

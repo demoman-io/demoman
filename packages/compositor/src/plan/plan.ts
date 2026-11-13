@@ -68,6 +68,9 @@ export function planScene(
           origin: "planned" as const,
           restMs: beat.restMs,
           arriveMs: beat.arriveMs,
+          ...(beat.afterScrollMs === undefined
+            ? {}
+            : { afterScrollMs: beat.afterScrollMs }),
         }
       : undefined;
   };
