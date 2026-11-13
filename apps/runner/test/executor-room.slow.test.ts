@@ -14,6 +14,7 @@ import { runScript } from "../src/executor/run.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
+import { lagCdp } from "./lag.js";
 
 // Spec 2026-10-19 (unhurried beats), through the CLI executor in a real
 // browser: each acting step's marker records when its act ended, and the
@@ -80,27 +81,12 @@ const session = createBrowserSession({
   onLaunched: async ({ context }) => {
     await installResolver(context);
     await installExecutorEntry(context);
-    // DEMOMAN_ROOM_LAG_MS=n holds every CDP command n ms: a slow CI runner
-    // on this machine, whose stills and lookups between the typing and the
-    // click take longer (DEM-183). Page-CPU throttling does not reach them.
-    // From about 80 the screencast stalls too, and the report counts long
-    // stills.
+    // DEMOMAN_ROOM_LAG_MS=n holds every CDP command n ms (lag.ts): a slow CI
+    // runner on this machine, whose stills and lookups between the typing and
+    // the click take longer (DEM-183). From about 80 the screencast stalls
+    // too, and the report counts long stills.
     const lag = Number(process.env.DEMOMAN_ROOM_LAG_MS ?? 0);
-    if (lag > 0) {
-      const proto = Object.getPrototypeOf(
-        await context.newCDPSession(
-          context.pages()[0] ?? (await context.newPage()),
-        ),
-      );
-      if (proto.send.lagged !== true) {
-        const send = proto.send;
-        proto.send = async function (this: unknown, ...args: unknown[]) {
-          await new Promise((r) => setTimeout(r, lag));
-          return send.apply(this, args);
-        };
-        proto.send.lagged = true;
-      }
-    }
+    if (lag > 0) await lagCdp(context, lag);
   },
 });
 const kits: BrandKitsRead = {
