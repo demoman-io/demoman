@@ -948,6 +948,7 @@ export function resolvePlan(
     motion,
     actEnds,
     holdOutputMs,
+    (scene?.edits.gaps ?? []).map((gap) => gap.afterActionId),
   );
   const intentAction = new Map(
     plan.cameraIntents.map((intent) => [intent.id, intent.actionId] as const),

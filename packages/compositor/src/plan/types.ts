@@ -97,6 +97,8 @@ export interface CameraIntent {
   fit?: Rect;
   /** Where the camera is back at full frame. Null: the compositor's own return timing. */
   end: PlannedMarker | null;
+  /** How the recording said the camera reaches this zoom (`arrivesOf`). */
+  arrives?: "pan" | "return";
 }
 
 /** A mask: an opaque fill over `rect`, the one cosmetic the editor keeps. */
