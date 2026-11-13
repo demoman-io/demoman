@@ -166,26 +166,36 @@ const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
 export const HEADLESS_GPU_ARGS = GPU_ARGS_BY_PLATFORM[process.platform] ?? [];
 
 /**
- * The scale a run's stills are emulated and taken at (`EngineDeps.dpr`):
- * `REPLAY_DPR` (3) except headless on Linux, where it is 2. Decided once, at
- * launch, and recorded in the take's `dpr`, which everything after reads.
+ * The scale a desktop run's stills are emulated and taken at
+ * (`EngineDeps.dpr`): 2 for a headless browser launched with no GPU
+ * arguments (`HEADLESS_GPU_ARGS`, from `GPU_ARGS_BY_PLATFORM`: today every
+ * platform but macOS), else `REPLAY_DPR` (3). Decided once, when the session
+ * is made (`BrowserSession.stillsDpr`), and recorded in the take's `dpr`,
+ * which everything after reads. A device run keeps `REPLAY_DPR` (the walk's
+ * `stillsDpr`): its viewport is a fraction of a desktop's pixels, and its
+ * portrait export needs them.
  *
- * Headless Linux draws on the CPU (there is no Linux entry in
- * `GPU_ARGS_BY_PLATFORM`), and a full still makes it rasterise the whole
- * page again at the emulated scale. Measured 2026-11-13 on ubuntu-24.04
- * (DEM-75), on Nylon's invoices page with its New invoice sheet and backdrop
- * blur open, median of 3: 2961 ms at 3, 624 ms at 2, 124 ms at the window's
- * own 1. `apps/runner/compare/still-cost.mjs` measures the same on a page
- * of that shape, and its workflow runs it on the ubuntu runners. The walk
- * waits for every still, and the video held each wait as a frozen frame:
- * a 25 s flow came out 99 s. At 2 a 1710-wide page's stills are 3420 px,
- * still above the 2560 px a shared export is.
+ * Without those arguments headless draws on the CPU, and a full still makes
+ * it rasterise the whole page again at the emulated scale. Measured
+ * 2026-11-13 on ubuntu-24.04 (DEM-75), on Nylon's invoices page with its New
+ * invoice sheet and backdrop blur open, median of 3: 2961 ms at 3, 624 ms at
+ * 2, 124 ms at the window's own 1. `apps/runner/compare/still-cost.mjs`
+ * measures the same on a page of that shape, and its workflow runs it on the
+ * ubuntu runners. The walk waits for every still, and the video held each
+ * wait as a frozen frame: a 25 s flow came out 99 s, and 58 s at 2.
+ *
+ * What it costs: a 1280-wide page's stills are 2560 px, so a click zoom past
+ * about 1.2x in a 1440p export has fewer pixels than it draws, and the
+ * export narrows it and says so (`warnings.detailViolations`). A visible
+ * window is left at 3: whether it has a GPU cannot be read (Chromium says
+ * "Hardware accelerated" either way), so a headed run under xvfb still
+ * draws 3x stills on the CPU.
  */
 export function stillsDprFor(
-  platform: NodeJS.Platform,
+  gpuArgs: readonly string[],
   headless: boolean,
 ): number {
-  return platform === "linux" && headless ? 2 : REPLAY_DPR;
+  return headless && gpuArgs.length === 0 ? 2 : REPLAY_DPR;
 }
 
 /** The browser's own user agent with `HeadlessChrome` said as `Chrome`. */

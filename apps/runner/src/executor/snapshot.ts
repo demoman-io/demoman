@@ -18,7 +18,6 @@ import {
   DeviceIdSchema,
 } from "@demoman/scene-schema";
 import type { BrowserContext } from "playwright";
-import { stillsDprFor } from "../launch.js";
 import type { BrowserSession } from "./browser.js";
 import { readKits } from "./kits.js";
 import { landingVerdict, readLandingFacts } from "./landing.js";
@@ -105,9 +104,9 @@ export async function snapshotOp(
     contains,
     device,
     desktop,
-    // The scale a run on this browser films its stills at, so the page is
-    // laid out as that run lays it out.
-    stillsDprFor(process.platform, deps.session.headless),
+    // The scale a run on this browser films its stills at, as the session
+    // decided it, so the page is laid out as that run lays it out.
+    deps.session.stillsDpr,
   );
   if (!outcome.ok) return outcome;
   let session: "saved" | "none" | "signedOut" | "unchecked";

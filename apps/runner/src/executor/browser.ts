@@ -16,9 +16,11 @@ import {
 } from "../install-advice.js";
 import {
   type Display,
+  HEADLESS_GPU_ARGS,
   type Launched,
   launch,
   openCdpSession,
+  stillsDprFor,
 } from "../launch.js";
 import { recorderPlatform } from "../platform.js";
 import { messageOf } from "../report.js";
@@ -241,6 +243,10 @@ export interface BrowserSession {
   /** Whether this session's browser is headless: no window anyone can see,
    *  so a page that goes away was not closed by a person. */
   readonly headless: boolean;
+  /** The scale a desktop run's stills are taken at in this session's
+   *  browser (`stillsDprFor`), decided once here: the run and the snapshot
+   *  both read it, so the page a snapshot lists is laid out as the run's. */
+  readonly stillsDpr: number;
   /** Terminal: closes any browser, including one still launching. */
   close(): Promise<void>;
 }
@@ -746,6 +752,7 @@ export function createBrowserSession(options: {
         ? await readScreen(page, options.log)
         : { error: screenUnknown },
     headless: options.headless,
+    stillsDpr: stillsDprFor(HEADLESS_GPU_ARGS, options.headless),
     running: () => live !== null && !pageClosed && live.browser.isConnected(),
     version: () =>
       live?.browser.isConnected() ? live.browser.version() : null,

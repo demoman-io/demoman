@@ -58,7 +58,7 @@ settled in both videos, nothing is compared and the flow fails with the
 reason, its files left as they are.
 
 A compared screen catches a change as small as one digit of body text, or a
-colour change alone. Five things are not caught, or caught when they should
+colour change alone. Six things are not caught, or caught when they should
 not be:
 
 - A change seen only in motion or mid-scroll, or something that appears and
@@ -74,6 +74,10 @@ not be:
   read as changed.
 - A flow added on macOS is replaced once by the first refresh on Linux,
   whose fonts differ. After that, refresh in CI only.
+- On Linux, Demoman takes its stills at 2x rather than 3x, which keeps a
+  runner without a GPU from pausing on each one. A page that picks images
+  or draws a canvas by pixel density can read as changed once, at the first
+  refresh after an upgrade to this.
 
 A receipt written by Demoman 0.9.4 or earlier has no page screens. Its first
 refresh records the flow again and replaces its files once, with nothing

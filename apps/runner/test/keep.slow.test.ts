@@ -1646,7 +1646,7 @@ describe("keep's exports are not listed on the take", () => {
 
 // The scale a kept video films at is the one its motion was filmed at:
 // screencast frames follow the display's DPR, where `meta.capture.dpr` is
-// REPLAY_DPR (3), the stills' scale, on every authored take.
+// the stills' scale (3 in these fixtures; `stillsDprFor` decides a run's).
 describe("keep's scale, from the motion frames", () => {
   /** A span of the given pixel width over the take's 1280px viewport. */
   const span = (id: string, width: number) => [

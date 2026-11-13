@@ -511,10 +511,11 @@ export interface EngineDeps {
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */
   room?: RoomPolicy;
   /**
-   * The scale the stills are emulated and taken at, decided by the caller
-   * at launch and recorded in the take (`counters.dpr`, the bundle's `dpr`).
-   * `REPLAY_DPR` when absent. The runner asks for less where a still is
-   * drawn on the CPU (`stillsDprFor` in `apps/runner/src/launch.ts`).
+   * The scale a desktop run's stills are emulated and taken at, decided by
+   * the caller at launch and recorded in the take (`counters.dpr`, the
+   * bundle's `dpr`). `REPLAY_DPR` when absent; a device run is always at
+   * `REPLAY_DPR` (`deviceMetrics`). The runner asks for less where a still
+   * is drawn on the CPU (`stillsDprFor` in `apps/runner/src/launch.ts`).
    */
   dpr?: number;
 }
@@ -740,7 +741,8 @@ export async function runWalk(
   // window stops painting, and its screenshot then never answers.
   const screening = withAnswerDeadline(cdp, STILL_DRAIN_MS);
   const { sceneId, viewport, total, device } = config;
-  const stillsDpr = deps.dpr ?? REPLAY_DPR;
+  // A device keeps REPLAY_DPR whatever the caller asked (`deviceMetrics`).
+  const stillsDpr = device === null ? (deps.dpr ?? REPLAY_DPR) : REPLAY_DPR;
 
   const empty = (reason: ReplayStopReason): ReplayResult => ({
     bundle: null,
@@ -968,7 +970,7 @@ export async function runWalk(
       "Emulation.setDeviceMetricsOverride",
       device === null
         ? desktopMetrics(viewport, stillsDpr)
-        : deviceMetrics(device, 1, stillsDpr),
+        : deviceMetrics(device),
     );
   };
 
@@ -2654,7 +2656,7 @@ export async function runWalk(
     // `install()` below performs, so the page loads as the phone it is filmed
     // as. A refusal stops the run as `deviceFailed` — never the desktop.
     if (device === null) await applyMetrics();
-    else await applyDevice(cdp, device, 1, stillsDpr);
+    else await applyDevice(cdp, device);
     await cdp.send("Page.setWebLifecycleState", { state: "active" });
     await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     // The screencast, for the life of the run — not per span. Chrome exempts

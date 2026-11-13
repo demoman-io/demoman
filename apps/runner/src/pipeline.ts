@@ -7,7 +7,12 @@ import type { ReplayStopReason } from "@demoman/replay-engine";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { createFileFrameStore } from "./frame-store.js";
 import { chromiumInstallCommand } from "./install-advice.js";
-import { type Launched, launch } from "./launch.js";
+import {
+  HEADLESS_GPU_ARGS,
+  type Launched,
+  launch,
+  stillsDprFor,
+} from "./launch.js";
 import { type MuxedSpan, muxSpans } from "./mux.js";
 import { renderPhase } from "./render.js";
 import { replayPhase } from "./replay.js";
@@ -296,6 +301,8 @@ export const runPipeline: RunPipeline = async (input) => {
       store,
       launched,
       report,
+      // `launch()` above is headless (its default).
+      dpr: stillsDprFor(HEADLESS_GPU_ARGS, true),
     });
     const { result } = replay;
 

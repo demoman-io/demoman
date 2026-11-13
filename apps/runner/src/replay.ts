@@ -98,8 +98,10 @@ export async function replayPhase(input: {
    *  reporter: a park it cannot make rejects `push`, and the engine's own
    *  recorder reports that as a bundle degradation.) */
   report: Report;
+  /** The stills' scale, as the caller decided it at launch (`stillsDprFor`). */
+  dpr: number;
 }): Promise<ReplayPhase> {
-  const { scene, targetUrl, store, launched, report } = input;
+  const { scene, targetUrl, store, launched, report, dpr } = input;
   const { page, clock } = launched;
   // Every CDP call replay makes goes through the watcher, so whichever
   // `Page.navigate` the engine sends is the one whose `errorText` is read.
@@ -150,6 +152,7 @@ export async function replayPhase(input: {
     mayReplay,
     occlusion,
     madeFrom: madeFromOf(scene),
+    dpr,
   });
 
   if (!occlusion.navigated() && result.bundle !== null) {

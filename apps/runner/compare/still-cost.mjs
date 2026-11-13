@@ -19,18 +19,22 @@ const { values } = parseArgs({
     rounds: { type: "string", default: "3" },
   },
 });
-if (!values.repo) {
-  say("usage: still-cost.mjs --repo <root> [--rounds 3]");
+const rounds = Number(values.rounds);
+// A measurement that took no samples must not exit 0 like one that did.
+if (!values.repo || !Number.isInteger(rounds) || rounds < 1) {
+  say(
+    "usage: still-cost.mjs --repo <root> [--rounds 3] (rounds: a whole number, 1 or more)",
+  );
   process.exit(2);
 }
-const rounds = Number(values.rounds);
 const dist = (p) =>
   import(join(resolve(values.repo), "apps", "runner", "dist", p));
 const { launch, HEADLESS_GPU_ARGS, stillsDprFor } = await dist("launch.js");
 // The full Chromium the CLI launches, not Playwright's headless shell, which
 // a launch picks when it names no executable and which draws differently.
 const { fullChromiumPath } = await dist("executor/browser.js");
-const { desktopMetrics } = await import(
+// The walk's own override and still quality, so this times the still it takes.
+const { desktopMetrics, KEYFRAME_QUALITY } = await import(
   join(resolve(values.repo), "packages", "replay-engine", "dist", "index.js")
 );
 
@@ -62,7 +66,7 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 const executablePath = fullChromiumPath();
 say(
-  `platform ${process.platform}, browser ${executablePath}, launch args [${HEADLESS_GPU_ARGS.join(" ")}], stillsDprFor answers ${stillsDprFor(process.platform, true)} headless`,
+  `platform ${process.platform}, browser ${executablePath}, launch args [${HEADLESS_GPU_ARGS.join(" ")}], stillsDprFor answers ${stillsDprFor(HEADLESS_GPU_ARGS, true)} headless`,
 );
 const { browser } = await launch({ executablePath });
 let failed = false;
@@ -96,7 +100,7 @@ try {
         const t = performance.now();
         await cdp.send("Page.captureScreenshot", {
           format: "jpeg",
-          quality: 90,
+          quality: KEYFRAME_QUALITY,
         });
         times.push(performance.now() - t);
       }

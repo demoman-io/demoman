@@ -158,7 +158,10 @@ export const HEARTBEAT_STALL_MS = 2_000;
 /**
  * How long a finished run waits for a still already asked for before it
  * gives up on it and says so. A 3x still takes 60–120 ms (spec 2026-10-03,
- * measured on the landing page), so 5 s is forty of them; a screenshot of a
+ * measured on the landing page), so 5 s is forty of them. Drawn on the CPU
+ * it can take most of this: about 3 s for a page behind a blurred overlay on
+ * a runner with no GPU (DEM-75), which is why such runs take their stills at
+ * 2x (`stillsDprFor` in apps/runner/src/launch.ts). A screenshot of a
  * page that has stopped painting has no deadline of its own and would
  * otherwise hold the run forever.
  */

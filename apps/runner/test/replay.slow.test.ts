@@ -9,6 +9,7 @@ import {
   createOcclusionGuard,
   jpegSize,
   type OcclusionGuard,
+  REPLAY_DPR,
   type ReplayResult,
   replayPolicy,
   runReplay,
@@ -290,6 +291,7 @@ describe("replayPhase", () => {
           store: freshStore(),
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         expect(result.outcome).toBe("complete");
         expect(result.completed).toBe(4);
@@ -321,6 +323,7 @@ describe("replayPhase", () => {
           store,
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         const first = result.bundle?.keyframes[0];
         expect(
@@ -350,6 +353,7 @@ describe("replayPhase", () => {
           store: freshStore(),
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         expect(spans.filter((s) => s.kept).length).toBeGreaterThanOrEqual(1);
       } finally {
@@ -410,6 +414,7 @@ describe("replayPhase", () => {
           store: freshStore(),
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         // Chromium's own string, carried verbatim rather than paraphrased —
         // the whole point is that the reason survives to the user.
@@ -451,6 +456,7 @@ describe("replayPhase", () => {
           store: freshStore(),
           launched,
           report: (line) => reported.push(line),
+          dpr: REPLAY_DPR,
         });
         expect(result.outcome).toBe("complete");
         expect(reported.some((l) => l.includes(`anchor "${first.id}"`))).toBe(
@@ -491,6 +497,7 @@ describe("replayPhase", () => {
           store: refusing,
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         expect(result.outcome).toBe("complete");
         const notes = (result.bundle?.degradations ?? []).map((d) => d.note);
@@ -530,6 +537,7 @@ describe("replayPhase", () => {
           store,
           launched,
           report: () => undefined,
+          dpr: REPLAY_DPR,
         });
         expect(result.outcome).toBe("complete");
         const bundle = result.bundle;

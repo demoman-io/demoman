@@ -122,6 +122,7 @@ describe("snapshotOnStage", () => {
       null,
       null,
       SCREEN,
+      3,
     );
     expect(s.sent[0]).toBe("Page.enable");
     expect(s.occlusion.install).toHaveBeenCalledTimes(1);
@@ -159,6 +160,7 @@ describe("snapshotOnStage", () => {
       null,
       null,
       SCREEN,
+      3,
     );
     expect(outcome).toMatchObject({
       ok: true,
@@ -177,6 +179,7 @@ describe("snapshotOnStage", () => {
       "pay",
       null,
       SCREEN,
+      3,
     );
     expect(outcome).toEqual({
       ok: false,
@@ -196,6 +199,7 @@ describe("snapshotOnStage", () => {
       null,
       null,
       SCREEN,
+      3,
     );
     expect(outcome).toMatchObject({ ok: false, reason: "pageDidNotLoad" });
     if (!outcome.ok) expect(outcome.detail).toContain("http://localhost:4000/");
@@ -230,6 +234,7 @@ describe("snapshotOnStage with a device", () => {
       null,
       "phone",
       SCREEN,
+      3,
     );
     const install = log.indexOf("install");
     expect(install, log.join(",")).toBeGreaterThan(-1);
@@ -252,6 +257,7 @@ describe("snapshotOnStage with a device", () => {
       null,
       "phone",
       SCREEN,
+      3,
     );
     expect(outcome).toMatchObject({ ok: false, reason: "deviceFailed" });
     expect(outcome.ok ? "" : outcome.detail).toMatch(/could not emulate Phone/);
@@ -267,6 +273,7 @@ describe("snapshotOnStage with a device", () => {
       null,
       "phone",
       SCREEN,
+      3,
     );
     expect(outcome).toMatchObject({
       ok: true,
@@ -307,7 +314,14 @@ describe("snapshotOnStage on the desktop", () => {
 
   it("lays the page out at the run's size before it loads, and says so", async () => {
     const { s, log } = ordered();
-    const outcome = await snapshotOnStage(s, "http://a/", null, null, SCREEN);
+    const outcome = await snapshotOnStage(
+      s,
+      "http://a/",
+      null,
+      null,
+      SCREEN,
+      3,
+    );
     const methods = log.map((c) => c.method);
     const override = methods.indexOf("Emulation.setDeviceMetricsOverride");
     expect(override, methods.join(",")).toBeGreaterThan(-1);
@@ -334,10 +348,17 @@ describe("snapshotOnStage on the desktop", () => {
   // the reason on the answer.
   it("lays it out at the window's own size, measured and with the reason, when the screen is unreadable", async () => {
     const { s, log } = ordered();
-    const outcome = await snapshotOnStage(s, "http://a/", null, null, {
-      kind: "measure",
-      error: "the screen reported 0x0, which no page can be recorded at",
-    });
+    const outcome = await snapshotOnStage(
+      s,
+      "http://a/",
+      null,
+      null,
+      {
+        kind: "measure",
+        error: "the screen reported 0x0, which no page can be recorded at",
+      },
+      3,
+    );
     expect(log.filter((c) => c.method.startsWith("Emulation."))).toEqual([]);
     expect(outcome).toMatchObject({
       ok: true,
@@ -357,7 +378,14 @@ describe("snapshotOnStage on the desktop", () => {
   // told it saw the run's size when it did not.
   it("says a refused size and lists the window's layout", async () => {
     const { s } = ordered("Emulation.setDeviceMetricsOverride");
-    const outcome = await snapshotOnStage(s, "http://a/", null, null, SCREEN);
+    const outcome = await snapshotOnStage(
+      s,
+      "http://a/",
+      null,
+      null,
+      SCREEN,
+      3,
+    );
     expect(outcome).toMatchObject({
       ok: true,
       value: { size: { width: 900, height: 519, from: "window" } },
@@ -377,6 +405,7 @@ describe("containsNote", () => {
       contains,
       null,
       SCREEN,
+      3,
     );
 
   // Red if an empty answer to `contains` reads like "absent": the note is the

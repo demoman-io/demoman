@@ -20,13 +20,14 @@ export class DeviceEmulationError extends Error {}
 /** The metrics override for a desktop page at `viewport` — the walk's when it
  *  films no device, and the snapshot's, which must lay the page out exactly
  *  as the run it is taken for. One function so the two cannot drift; `dpr`
- *  is the run's still scale (`EngineDeps.dpr`), which both must be handed. */
+ *  is the run's still scale (`EngineDeps.dpr`), which both are handed, so
+ *  the compiler finds a caller that forgets it. */
 export function desktopMetrics(
   viewport: {
     width: number;
     height: number;
   },
-  dpr = REPLAY_DPR,
+  dpr: number,
 ): Record<string, unknown> {
   return {
     width: viewport.width,
@@ -36,18 +37,18 @@ export function desktopMetrics(
   };
 }
 
-/** The metrics override for a device. `scale` below 1 only for a manual
- *  phone window that does not fit the screen (`phone-window.ts`); `dpr` as
- *  `desktopMetrics`'s. */
+/** The metrics override for a device, always at `REPLAY_DPR`: a device's
+ *  viewport is a fraction of a desktop's pixels, and its portrait export
+ *  needs all of them. `scale` below 1 only for a manual phone window that
+ *  does not fit the screen (`phone-window.ts`). */
 export function deviceMetrics(
   device: DeviceLike,
   scale = 1,
-  dpr = REPLAY_DPR,
 ): Record<string, unknown> {
   return {
     width: device.width,
     height: device.height,
-    deviceScaleFactor: dpr,
+    deviceScaleFactor: REPLAY_DPR,
     mobile: device.mobile,
     ...(scale === 1 ? {} : { scale }),
   };
@@ -57,7 +58,6 @@ export async function applyDevice(
   cdp: CdpSession,
   device: DeviceLike,
   scale = 1,
-  dpr = REPLAY_DPR,
 ): Promise<void> {
   const step = async (
     method: string,
@@ -74,7 +74,7 @@ export async function applyDevice(
   };
   await step(
     "Emulation.setDeviceMetricsOverride",
-    deviceMetrics(device, scale, dpr),
+    deviceMetrics(device, scale),
   );
   if (device.touch) {
     await step("Emulation.setTouchEmulationEnabled", {

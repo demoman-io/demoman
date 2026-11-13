@@ -30,7 +30,6 @@ import {
   MOTION_DEFAULTS,
   type SceneBranding,
 } from "@demoman/scene-schema";
-import { stillsDprFor } from "../launch.js";
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
@@ -310,9 +309,9 @@ export async function playOnStage(
     ...(viewport === null ? {} : { viewport }),
     // Decided once, at launch; the take records it for keep to read.
     ...(filmScale === null ? {} : { displayScale: filmScale }),
-    // The stills' scale, decided by platform at launch and recorded in the
-    // take (`stillsDprFor`: a CPU-drawn still at 3x cost seconds, DEM-75).
-    dpr: stillsDprFor(process.platform, deps.session.headless),
+    // The stills' scale, decided once by the session (`stillsDprFor`: a
+    // CPU-drawn still at 3x cost seconds, DEM-75); the take records it.
+    dpr: deps.session.stillsDpr,
     // Spec 2026-10-01 §1: the take starts as a recorded one does — the
     // author's kit and a zoom on every click.
     startingBranding,

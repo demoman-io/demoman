@@ -91,6 +91,26 @@ const oneClick = (): DemoScript => ({
 });
 
 describe("an authored run with a device", () => {
+  // DEM-75. Red if a device takes the caller's desktop still scale: a phone's
+  // 393 px at 2x is 786 px, below what its portrait export draws.
+  it("keeps REPLAY_DPR for a device whatever scale the caller asked", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(
+      { ...oneClick(), scriptVersion: 4, device: "phone" },
+      { ...deps(cdp), dpr: 2 },
+    );
+    expect(result.completed, JSON.stringify(result.reason)).toBe(1);
+    const overrides = cdp.calls.filter(
+      (c) => c.method === "Emulation.setDeviceMetricsOverride",
+    );
+    // Premise: the walk asserted the device at all.
+    expect(overrides.length).toBeGreaterThan(0);
+    for (const o of overrides) {
+      expect(o.params).toMatchObject({ deviceScaleFactor: 3 });
+    }
+    expect(result.document?.meta.capture.dpr).toBe(3);
+  });
+
   it("films at the device's size and records it on the take", async () => {
     const cdp = createCdpFake();
     const result = await runAuthored(
