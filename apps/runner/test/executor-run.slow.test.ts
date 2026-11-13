@@ -34,6 +34,7 @@ import {
   siteOf,
 } from "../src/executor/sessions.js";
 import type { RunnerStore } from "../src/frame-store.js";
+import { stillsDprFor } from "../src/launch.js";
 import { installResolver } from "../src/page-agent.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleImage } from "./mp4-probe.js";
@@ -299,6 +300,12 @@ describe("runScript", () => {
     expect(seen.w / seen.h, JSON.stringify(seen)).toBeCloseTo(1280 / 800, 2);
     expect(seen.w, JSON.stringify(seen)).toBeGreaterThanOrEqual(1280);
     expect(seen.colors, JSON.stringify(seen)).toBeGreaterThan(8);
+    // DEM-75: the still is drawn at the scale this platform's headless run
+    // decided (2 on Linux, where it is drawn on the CPU; 3 elsewhere), and
+    // the take records the scale its stills really have.
+    const dpr = stillsDprFor(process.platform, true);
+    expect(seen.w, JSON.stringify({ seen, dpr })).toBe(1280 * dpr);
+    expect(doc?.meta.capture.dpr).toBe(dpr);
     expect(
       JSON.parse(
         await readFile(

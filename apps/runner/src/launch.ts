@@ -1,4 +1,8 @@
-import type { CdpSession, Clock } from "@demoman/replay-engine";
+import {
+  type CdpSession,
+  type Clock,
+  REPLAY_DPR,
+} from "@demoman/replay-engine";
 import {
   type Browser,
   type BrowserContext,
@@ -160,6 +164,29 @@ const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["--enable-gpu"],
 };
 export const HEADLESS_GPU_ARGS = GPU_ARGS_BY_PLATFORM[process.platform] ?? [];
+
+/**
+ * The scale a run's stills are emulated and taken at (`EngineDeps.dpr`):
+ * `REPLAY_DPR` (3) except headless on Linux, where it is 2. Decided once, at
+ * launch, and recorded in the take's `dpr`, which everything after reads.
+ *
+ * Headless Linux draws on the CPU (there is no Linux entry in
+ * `GPU_ARGS_BY_PLATFORM`), and a full still makes it rasterise the whole
+ * page again at the emulated scale. Measured 2026-11-13 on ubuntu-24.04
+ * (DEM-75), on Nylon's invoices page with its New invoice sheet and backdrop
+ * blur open, median of 3: 2961 ms at 3, 624 ms at 2, 124 ms at the window's
+ * own 1. `apps/runner/compare/still-cost.mjs` measures the same on a page
+ * of that shape, and its workflow runs it on the ubuntu runners. The walk
+ * waits for every still, and the video held each wait as a frozen frame:
+ * a 25 s flow came out 99 s. At 2 a 1710-wide page's stills are 3420 px,
+ * still above the 2560 px a shared export is.
+ */
+export function stillsDprFor(
+  platform: NodeJS.Platform,
+  headless: boolean,
+): number {
+  return platform === "linux" && headless ? 2 : REPLAY_DPR;
+}
 
 /** The browser's own user agent with `HeadlessChrome` said as `Chrome`. */
 async function visibleUserAgent(browser: Browser): Promise<string> {

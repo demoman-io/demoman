@@ -294,6 +294,17 @@ describe("snapshotOnStage on the desktop", () => {
     return { s, log };
   }
 
+  // DEM-75. Red if the snapshot keeps REPLAY_DPR while the run it is taken
+  // for films its stills at 2x (headless Linux): the two layouts would part.
+  it("lays the page out at the run's still scale", async () => {
+    const { s, log } = ordered();
+    await snapshotOnStage(s, "http://a/", null, null, SCREEN, 2);
+    const override = log.find(
+      (c) => c.method === "Emulation.setDeviceMetricsOverride",
+    );
+    expect(override?.params).toMatchObject({ deviceScaleFactor: 2 });
+  });
+
   it("lays the page out at the run's size before it loads, and says so", async () => {
     const { s, log } = ordered();
     const outcome = await snapshotOnStage(s, "http://a/", null, null, SCREEN);

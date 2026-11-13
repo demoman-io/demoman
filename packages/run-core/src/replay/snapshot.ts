@@ -2,6 +2,7 @@ import {
   applyDevice,
   type CdpSession,
   desktopMetrics,
+  REPLAY_DPR,
   waitForPageReady,
 } from "@demoman/replay-engine";
 import { type DeviceId, deviceFor } from "@demoman/scene-schema";
@@ -129,6 +130,9 @@ export async function snapshotOnStage(
   contains: string | null,
   device: DeviceId | null,
   desktop: RunSizePlan,
+  /** The still scale a run on this browser emulates (`stillsDprFor`), so
+   *  the page is laid out as that run lays it out. */
+  dpr = REPLAY_DPR,
 ): Promise<SnapshotOutcome> {
   await stage.cdp.send("Page.enable", {});
   // Before the navigation `install()` makes, so the page loads as the phone a
@@ -140,7 +144,7 @@ export async function snapshotOnStage(
   if (device !== null) {
     const preset = deviceFor(device);
     try {
-      await applyDevice(stage.cdp, preset);
+      await applyDevice(stage.cdp, preset, 1, dpr);
     } catch (error) {
       return { ok: false, reason: "deviceFailed", detail: messageOf(error) };
     }
@@ -158,7 +162,7 @@ export async function snapshotOnStage(
     try {
       await stage.cdp.send(
         "Emulation.setDeviceMetricsOverride",
-        desktopMetrics(desktop.size),
+        desktopMetrics(desktop.size, dpr),
       );
       size = desktop.size;
     } catch (error) {

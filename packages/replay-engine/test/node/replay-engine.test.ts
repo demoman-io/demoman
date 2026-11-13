@@ -243,6 +243,24 @@ describe("runReplay", () => {
     expect(result.reason).not.toBe("mutating");
   });
 
+  it("emulates and records the still scale its caller decided (DEM-75)", async () => {
+    const d = deps();
+    const result = await runReplay(scene(), { ...d, dpr: 2 });
+    const overrides = d.cdp.calls.filter(
+      (c) => c.method === "Emulation.setDeviceMetricsOverride",
+    );
+
+    // Premise: the walk asserted the viewport at all, so the scale below
+    // is the walk's and not an absent call's.
+    expect(overrides.length).toBeGreaterThan(0);
+    for (const o of overrides) {
+      expect(o.params).toMatchObject({ deviceScaleFactor: 2 });
+    }
+    // What the take says it was filmed at, for keep and the renderer.
+    expect(result.counters.dpr).toBe(2);
+    expect(result.bundle?.dpr).toBe(2);
+  });
+
   it("applies SP1's production condition before harvesting anything", async () => {
     const d = deps();
     await runReplay(scene(), d);

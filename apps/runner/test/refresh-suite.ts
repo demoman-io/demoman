@@ -547,7 +547,7 @@ const deps = (): RefreshDeps => ({
         if (op === "run" && answer.ok) {
           // The scale its motion was really filmed at: the screencast's
           // frames against the page's width (`capture.dpr` is the stills'
-          // fixed REPLAY_DPR, not the display's).
+          // scale, `stillsDprFor`, not the display's).
           const takeId = (answer.value as RunReport).provenance?.takeId;
           const bundle =
             typeof takeId === "string"

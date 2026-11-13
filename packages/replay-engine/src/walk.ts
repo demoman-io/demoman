@@ -510,6 +510,13 @@ export interface EngineDeps {
   recording?: "continuous" | "sampled";
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */
   room?: RoomPolicy;
+  /**
+   * The scale the stills are emulated and taken at, decided by the caller
+   * at launch and recorded in the take (`counters.dpr`, the bundle's `dpr`).
+   * `REPLAY_DPR` when absent. The runner asks for less where a still is
+   * drawn on the CPU (`stillsDprFor` in `apps/runner/src/launch.ts`).
+   */
+  dpr?: number;
 }
 /** The shortest gap between two mouse moves of a dispatched path. Chrome's
  *  own answer, about a frame, is the real pace; this only bounds the rate
@@ -733,6 +740,7 @@ export async function runWalk(
   // window stops painting, and its screenshot then never answers.
   const screening = withAnswerDeadline(cdp, STILL_DRAIN_MS);
   const { sceneId, viewport, total, device } = config;
+  const stillsDpr = deps.dpr ?? REPLAY_DPR;
 
   const empty = (reason: ReplayStopReason): ReplayResult => ({
     bundle: null,
@@ -746,7 +754,7 @@ export async function runWalk(
     // Nothing was built, so nothing was lost to the store. See the field.
     storageRefused: false,
     hoverSensitive: config.hoverSensitive,
-    counters: blankCounters(viewport, total),
+    counters: blankCounters(viewport, total, stillsDpr),
   });
 
   // The mutation rule, at the entry point. Resolved by the caller (see
@@ -843,7 +851,7 @@ export async function runWalk(
   const anchorRects: FrameBundle["anchorRects"] = [];
   const markers: FrameBundle["markers"] = [];
   const degradations: Degradation[] = [];
-  const counters = blankCounters(viewport, total);
+  const counters = blankCounters(viewport, total, stillsDpr);
 
   // Where the cursor enters, taken from the plan rather than from the origin
   // — see `WalkConfig.firstCursor`, and `runReplay` for where it comes from.
@@ -958,7 +966,9 @@ export async function runWalk(
   const applyMetrics = async (): Promise<void> => {
     await cdp.send(
       "Emulation.setDeviceMetricsOverride",
-      device === null ? desktopMetrics(viewport) : deviceMetrics(device),
+      device === null
+        ? desktopMetrics(viewport, stillsDpr)
+        : deviceMetrics(device, 1, stillsDpr),
     );
   };
 
@@ -2644,7 +2654,7 @@ export async function runWalk(
     // `install()` below performs, so the page loads as the phone it is filmed
     // as. A refusal stops the run as `deviceFailed` — never the desktop.
     if (device === null) await applyMetrics();
-    else await applyDevice(cdp, device);
+    else await applyDevice(cdp, device, 1, stillsDpr);
     await cdp.send("Page.setWebLifecycleState", { state: "active" });
     await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     // The screencast, for the life of the run — not per span. Chrome exempts
@@ -3374,7 +3384,7 @@ export async function runWalk(
         source: "replay",
         ...(continuous ? { timing: "real" as const } : {}),
         ...(pacedGaps.length > 0 ? { pacedGaps } : {}),
-        dpr: REPLAY_DPR,
+        dpr: stillsDpr,
         viewport,
         keyframes,
         motionSpans,
@@ -3690,6 +3700,7 @@ const DOCUMENT_GONE =
 function blankCounters(
   viewport: { width: number; height: number },
   total: number,
+  dpr: number,
 ): ReplayCounters {
   return {
     actions: total,
@@ -3710,7 +3721,7 @@ function blankCounters(
     motionWidth: 0,
     motionHeight: 0,
     durationMs: 0,
-    dpr: REPLAY_DPR,
+    dpr,
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
   };
