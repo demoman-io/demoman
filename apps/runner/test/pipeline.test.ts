@@ -46,7 +46,12 @@ const pageGotoMock = vi.fn(async () => undefined);
 // same one its own cleanup logic acts on.
 const createFileFrameStoreMock = vi.fn((root: string) => ({ root }));
 
-vi.mock("../src/launch.js", () => ({ launch: launchMock }));
+// Only `launch` is faked: the pipeline also asks the module's real rule for
+// its stills' scale (`stillsDprFor`), which must not come back undefined.
+vi.mock("../src/launch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/launch.js")>()),
+  launch: launchMock,
+}));
 vi.mock("../src/replay.js", () => ({ replayPhase: replayPhaseMock }));
 vi.mock("../src/mux.js", () => ({ muxSpans: muxSpansMock }));
 vi.mock("../src/render.js", () => ({ renderPhase: renderPhaseMock }));
@@ -247,6 +252,14 @@ describe("runPipeline", () => {
     expect(renderPhaseMock).not.toHaveBeenCalled();
     expect(cdpDetachMock).toHaveBeenCalled();
     expect(closeMock).toHaveBeenCalled();
+    // DEM-75: the replay is handed the stills' scale this headless launch
+    // decided, not left to the engine's default.
+    const { HEADLESS_GPU_ARGS, stillsDprFor } = await import(
+      "../src/launch.js"
+    );
+    expect(replayPhaseMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dpr: stillsDprFor(HEADLESS_GPU_ARGS, true) }),
+    );
 
     // Task 12 fix round 1: a run that did not render is a failure this
     // pipeline must not tidy away — its frames are exactly what someone
