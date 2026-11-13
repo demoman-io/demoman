@@ -12,6 +12,8 @@ import {
   runAuthored,
 } from "@demoman/replay-engine";
 import {
+  ARRIVE_MS,
+  actMs,
   attributeClosedWindow,
   chooseRunSize,
   clickNotDeliveredDetail,
@@ -21,7 +23,9 @@ import {
   newId,
   type RunReport,
   type RunSize,
+  restBefore,
   scrubUrl,
+  tailMs,
   zoomsForClicks,
 } from "@demoman/run-core";
 import {
@@ -317,6 +321,9 @@ export async function playOnStage(
     // earlier step is still acting; the replay waits for room instead.
     roomFor: (vp, intentOf) =>
       createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
+    // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
+    // instead of waiting the camera's room out live.
+    beats: { restBefore, actMs, tailMs, arriveMs: ARRIVE_MS },
   });
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop

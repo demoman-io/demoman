@@ -4042,13 +4042,16 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
   it("adds no room before a zoomed click the camera pans to", async () => {
     const doc = scene({ anchorIds: ["a", "b", "c"] });
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
+    // Answers as the real policy would for a run this tight: a pan, with
+    // no room, once there is a zoom before it.
+    const arrives: RoomPolicy["arrives"] = (gap) =>
+      gap.heldUntilMs === null ? "return" : "pan";
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
-      // Answers as the real policy would for a run this tight: a pan.
-      arrives: () => "return", // not asked until the walk reads it
+      arrives,
       neededMs: (gap) => {
         asked.push(gap);
-        return gap.heldUntilMs === null ? 2050 : 0;
+        return arrives(gap) === "pan" ? 0 : 2050;
       },
       zooms: () => true,
     };

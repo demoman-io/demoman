@@ -63,7 +63,12 @@ import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
-import type { Rect, ReplayResult, ReplayStopReason } from "./types.js";
+import type {
+  Rect,
+  ReplayResult,
+  ReplayStopReason,
+  ZoomDecision,
+} from "./types.js";
 import {
   type EngineDeps,
   type RoomPolicy,
@@ -682,10 +687,19 @@ export function createAuthoredRun(
       timings.set(actionId, timing);
     },
     async *steps(): AsyncGenerator<WalkStep> {
+      // The pauses slept since the last step yielded, handed to the next
+      // (`WalkStep.pauseMs`): the beat plan adds them to its rest.
+      let paused = 0;
+      const pauseMs = (): number => {
+        const ms = paused;
+        paused = 0;
+        return ms;
+      };
       for (const [index, step] of script.steps.entries()) {
         if (step.do === "pause") {
           // The clock moves and nothing enters the log. A duration, not a beat.
           await deps.clock.sleep(step.ms);
+          paused += step.ms;
           continue;
         }
 
@@ -719,6 +733,7 @@ export function createAuthoredRun(
             target: null,
             segment: undefined,
             text: null,
+            pauseMs: pauseMs(),
             onLoadSeen: (seen) => {
               record.loadSeen = seen;
             },
@@ -736,7 +751,13 @@ export function createAuthoredRun(
             timestamp: stamp(),
             marker: markerFor("press", null),
           });
-          yield { action, target: null, segment: undefined, text: null };
+          yield {
+            action,
+            target: null,
+            segment: undefined,
+            text: null,
+            pauseMs: pauseMs(),
+          };
           commit(action, null, record, null);
           continue;
         }
@@ -884,6 +905,7 @@ export function createAuthoredRun(
           // condition the page never reached.
           yield {
             action,
+            pauseMs: pauseMs(),
             target: anchor ?? intent,
             segment: undefined,
             text: null,
@@ -1020,6 +1042,7 @@ export function createAuthoredRun(
         let measured = null as Rect | null;
         yield {
           action,
+          pauseMs: pauseMs(),
           // The captured ANCHOR, not the intent that found it. The walk reads
           // `fingerprint.treePath` for the frame hops that tell it which
           // execution context to look in, and an intent has none — so an
@@ -1485,16 +1508,17 @@ export function cameraInputs(
    * the take decides on exactly that, so it cannot disagree with the walk
    * near `MIN_ZOOM_GAP_MS` (code review 2026-10-20, R6).
    */
-  decided: ReadonlyMap<
-    string,
-    { unwaitedMs: number; scale: number }
-  > = new Map(),
+  decided: ReadonlyMap<string, ZoomDecision> = new Map(),
 ): { actions: SceneAction[]; scaleAt: (action: SceneAction) => number } {
   const realAt = new Map(actions.map((a) => [a.id, a.timestamp]));
   return {
     actions: unwaitedActions(actions, markers).map((action) => {
       const d = decided.get(action.id);
-      return d === undefined ? action : { ...action, timestamp: d.unwaitedMs };
+      // A designed time is on another clock than these stamps, so it is
+      // not mixed in among them here.
+      return d === undefined || !("unwaitedMs" in d)
+        ? action
+        : { ...action, timestamp: d.unwaitedMs };
     }),
     scaleAt: (action) =>
       decided.get(action.id)?.scale ??
@@ -1557,24 +1581,8 @@ export async function runAuthored(
   const run = createAuthoredRun(script, deps, viewport);
 
   // Each click's zoom is decided once, by the walk; the take is handed what
-  // it was decided on (`cameraInputs`).
-  const decided = new Map<string, { unwaitedMs: number; scale: number }>();
-  const policy = deps.roomFor?.(viewport, run.zoomIntentOf);
-  const room: RoomPolicy | undefined =
-    policy === undefined
-      ? undefined
-      : {
-          neededMs: policy.neededMs,
-          arrives: policy.arrives,
-          settledAfterMs: policy.settledAfterMs,
-          zooms: (click) => {
-            decided.set(click.actionId, {
-              unwaitedMs: click.unwaitedMs,
-              scale: click.scale,
-            });
-            return policy.zooms(click);
-          },
-        };
+  // it was decided on (`ReplayResult.decided`, `cameraInputs`).
+  const room = deps.roomFor?.(viewport, run.zoomIntentOf);
   const walked = await runWalk(
     run.source,
     // The log these frames were made from, which for an authored run is what
@@ -1616,7 +1624,7 @@ export async function runAuthored(
     run.actions,
     walked.bundle?.markers ?? [],
     walked.bundle?.viewportTransforms ?? [],
-    decided,
+    walked.decided,
   );
   const assembled = assembleAuthored(script, {
     sceneId: deps.sceneId,
