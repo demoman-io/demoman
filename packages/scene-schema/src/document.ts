@@ -335,6 +335,12 @@ const CameraEvent = z.object({
    * scale's value. Absent when the scale was the default.
    */
   scaleSetBy: z.enum(["script", "author"]).optional(),
+  /**
+   * How the camera reaches this zoom, decided once at record time from the
+   * beat plan: `pan` slides from the zoom before it, `return` pulls back to
+   * full frame first. Absent: the renderer's own clock (every earlier take).
+   */
+  arrives: z.enum(["pan", "return"]).optional(),
 });
 
 /**
@@ -853,6 +859,25 @@ export const SceneDocumentSchema = z
     anchors: z.array(Anchor),
     actions: z.array(Action),
     camera: z.array(CameraEvent),
+    /**
+     * The take's pauses, planned rather than measured: one beat per action,
+     * in order. Absent on every take recorded before the plan existed.
+     */
+    pacing: z
+      .object({
+        beats: z.array(
+          z.object({
+            beforeActionId: z.string().min(1),
+            /** Dead air before the action. */
+            restMs: z.number().min(0),
+            /** How long the walk to the action takes. */
+            arriveMs: z.number().min(0),
+          }),
+        ),
+        /** Dead air after the last action's motion. */
+        tailMs: z.number().min(0),
+      })
+      .optional(),
     /** See `ZoomSkipped`. */
     zoomsSkipped: z.array(ZoomSkipped).optional(),
     edits: z.object({

@@ -1208,6 +1208,13 @@
               "script",
               "author"
             ]
+          },
+          "arrives": {
+            "type": "string",
+            "enum": [
+              "pan",
+              "return"
+            ]
           }
         },
         "required": [
@@ -1217,6 +1224,46 @@
         ],
         "additionalProperties": false
       }
+    },
+    "pacing": {
+      "type": "object",
+      "properties": {
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beforeActionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "restMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "arriveMs": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "beforeActionId",
+              "restMs",
+              "arriveMs"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "tailMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "beats",
+        "tailMs"
+      ],
+      "additionalProperties": false
     },
     "zoomsSkipped": {
       "type": "array",
