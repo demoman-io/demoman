@@ -386,6 +386,7 @@ export interface WalkResultLike {
   /** `AuthoredResult`'s own, carried for `trimNotes`. */
   trimClamped?: { side: "start"; askedMs: number; keptMs: number };
   trimUnplaced?: ("start" | "end")[];
+  trimHeldUnplaced?: true;
 }
 
 interface BuildArgsCommon {
@@ -549,6 +550,11 @@ function trimNotesOf(
     const step = (trimStepIndex(script, "start") ?? 0) + 1;
     notes.push(
       `trim.start asked for ${clamp.askedMs} ms before step ${step} and the video holds ${clamp.keptMs} ms; it starts at the beginning`,
+    );
+  }
+  if (walk.trimHeldUnplaced === true) {
+    notes.push(
+      "trim.end's zoom lands after the end of the recording, so it is not held through the cut and pulls out before it",
     );
   }
   for (const side of walk.trimUnplaced ?? []) {

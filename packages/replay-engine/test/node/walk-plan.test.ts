@@ -1,14 +1,26 @@
+import { readFileSync } from "node:fs";
+import {
+  CAMERA_DEFAULTS,
+  cursorMotionSpans,
+  motionTimings,
+  planScene,
+  resolvePlan,
+  toOutputMs,
+} from "@demoman/compositor";
 import type { AnchorIntent } from "@demoman/resolver";
 import {
   BRANDING_DEFAULTS,
   type DemoScript,
   type SceneAction,
   type SceneAnchor,
+  type SceneDocument,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
+import { assembleAuthored } from "../../src/authored.js";
 import type {
   AuthoredDeps,
   AuthoredResult,
+  AuthoredStep,
   ClickSeen,
   EngineDeps,
   PageAgent,
@@ -16,6 +28,7 @@ import type {
 } from "../../src/index.js";
 import {
   runAuthored,
+  SCROLL_MARKER,
   SETTLE_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
@@ -122,6 +135,10 @@ async function run(
     zooms?: (turn: number) => boolean | null;
     /** The third step's click is released elsewhere. */
     missThird?: boolean;
+    /** The script's trim. */
+    trim?: DemoScript["trim"];
+    /** The take's camera: `gapCamera`, or none. */
+    camera?: AuthoredDeps["cameraFor"];
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -130,8 +147,30 @@ async function run(
     clock += opts.lagMs ?? 0;
   };
   const slept: number[] = [];
+  const scrolledAt: number[] = [];
+  let belowFold = false;
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
+    if (
+      method === "Runtime.callFunctionOn" &&
+      String(params?.functionDeclaration ?? "").includes(SCROLL_MARKER)
+    ) {
+      scrolledAt.push(clock);
+      belowFold = false;
+      return {
+        result: { type: "object", value: { settled: true, movedPx: 2000 } },
+      };
+    }
+    if (method === "DOM.getBoxModel" && belowFold) {
+      const { model } = (await send(method, params)) as {
+        model: { border: number[]; content: number[] };
+      };
+      const down = (q: number[]) =>
+        q.map((v, i) => (i % 2 === 1 ? v + 2000 : v));
+      return {
+        model: { border: down(model.border), content: down(model.content) },
+      };
+    }
     if (method === "Page.captureScreenshot") {
       for (let i = 0; i < 3; i++) {
         cdp.emit("Page.screencastFrame", {
@@ -183,8 +222,11 @@ async function run(
         cdp.click = MISSED;
     },
     // `stableId: "gone"` is an element the page does not have.
+    // `stableId: "far"` starts 2000 px below the fold, so its approach
+    // scrolls, which `scrolledAt` times on the clock.
     captureResolved: async (intent) => {
       await lag();
+      if (intent.fingerprint.stableId === "far") belowFold = true;
       return intent.fingerprint.stableId === "gone"
         ? {
             anchor: null,
@@ -209,18 +251,73 @@ async function run(
     viewport: { width: 1280, height: 800 },
     startingBranding: BRANDING_DEFAULTS,
     roomFor: () => room,
-    cameraFor: () => ({ camera: [], zoomsSkipped: [] }),
+    cameraFor: opts.camera ?? (() => ({ camera: [], zoomsSkipped: [] })),
   };
   restBefore.mockClear();
   const result = await runAuthored(
-    { scriptVersion: 8, name: "plan", target: PAGE, steps },
+    {
+      scriptVersion: 8,
+      name: "plan",
+      target: PAGE,
+      steps,
+      ...(opts.trim === undefined ? {} : { trim: opts.trim }),
+    },
     deps,
   );
   // Each step's journey, as the walk handed it to the rule (the last ask
   // per step is the one its rest came from).
   const journeys = restBefore.mock.calls.map(([i]) => i.journeyMs);
-  return { result, slept, asked, journeys };
+  return { result, slept, asked, journeys, scrolledAt };
 }
+
+/**
+ * The take's camera, as `zoomsForClicks` decides it with the fake room's
+ * numbers: a zoom on every click 2500 ms or more past the last zoomed one,
+ * judged on the stamps it is handed.
+ */
+const gapCamera: AuthoredDeps["cameraFor"] = (actions) => {
+  const camera: SceneDocument["camera"] = [];
+  let last: number | null = null;
+  for (const a of actions) {
+    if (a.kind !== "click") continue;
+    if (last !== null && a.timestamp - last < 2500) continue;
+    last = a.timestamp;
+    camera.push({
+      id: `zoom-${camera.length + 1}`,
+      kind: "zoom",
+      anchorId: a.anchorId,
+      marker: { actionId: a.id, offsetMs: -350 },
+      scale: 1.8,
+      source: "click",
+    });
+  }
+  return { camera, zoomsSkipped: [] };
+};
+
+/** A script with a type, zoomed clicks, a pan, a return and a pause. */
+const PLANNED_STEPS: DemoScript["steps"] = [
+  { do: "type", into: { stableId: "a" }, text: "4800" },
+  { do: "click", on: { stableId: "b" } },
+  { do: "click", on: { stableId: "c" } },
+  { do: "pause", ms: 1500 },
+  { do: "click", on: { stableId: "d" } },
+  { do: "click", on: { stableId: "e" } },
+];
+
+/** What a take's assembly writes that is a position or a decision. */
+const positionsOf = (result: AuthoredResult) => ({
+  trim: result.document?.edits.trim ?? null,
+  camera: result.document?.camera ?? null,
+  pacing: result.document?.pacing ?? null,
+  stamps: result.document?.actions.map((a) => [a.id, a.timestamp]) ?? null,
+  steps: result.steps.map((s) => ({
+    index: s.index,
+    actionId: s.actionId,
+    timing: s.timing ?? null,
+  })),
+  trimClamped: result.trimClamped ?? null,
+  trimUnplaced: result.trimUnplaced ?? null,
+});
 
 /** Pressed where sent, released elsewhere: `clickNotDelivered`. */
 const MISSED: ClickSeen = {
@@ -481,5 +578,393 @@ describe("a planned run that stops early", () => {
     expect(result.bundle?.markers, evidence).toHaveLength(2);
     expect(result.pacing?.beats, evidence).toHaveLength(2);
     expect(result.pacing?.tailMs, evidence).toBe(PULL_OUT_MS - 350);
+  });
+});
+
+describe("a take assembled without a plan", () => {
+  // `test/fixtures/authored-no-pacing.json` was written by this same
+  // assembly at 85287998, before the plan reached the take. Red on any
+  // change to how a take without `pacing` writes its trim, held zoom,
+  // camera or step timings (e.g. `placeOnPlan` run on every take).
+  it("writes what it wrote before the plan, trim and held zoom included", async () => {
+    const zoomOut = await run(PLANNED_STEPS, {
+      camera: gapCamera,
+      trim: { start: { ms: 400 }, end: { ms: 3000 } },
+    });
+    const action = await run(PLANNED_STEPS, {
+      camera: gapCamera,
+      trim: { start: { ms: 100000 }, end: { ms: 3000, after: "action" } },
+    });
+    const stored = JSON.parse(
+      readFileSync(
+        new URL("../fixtures/authored-no-pacing.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    // Premise: the fixture has a trim on both sides, a held zoom, a clamp
+    // and two zooms, so each conversion had something to move.
+    expect(stored.zoomOut.trim.tail.offsetMs).toBeGreaterThan(0);
+    expect(stored.action.camera.some((c: { end?: unknown }) => c.end)).toBe(
+      true,
+    );
+    expect(stored.action.trimClamped).not.toBeNull();
+    expect(stored.zoomOut.camera).toHaveLength(2);
+    expect(zoomOut.result.pacing).toBeUndefined();
+    expect(
+      JSON.parse(
+        JSON.stringify({
+          zoomOut: positionsOf(zoomOut.result),
+          action: positionsOf(action.result),
+        }),
+      ),
+    ).toEqual(stored);
+  });
+});
+
+/** The page's response after a step: a motion span this long, 50 ms after
+ *  the step's marker, by step index (pauses excluded). The same on any
+ *  machine, as motion is meant to be. */
+const RESPONSE_MS: Record<number, number> = { 0: 400, 1: 250, 4: 300 };
+
+/**
+ * `result`'s take assembled again, as `runAuthored` assembled it, from a
+ * bundle carrying `RESPONSE_MS` as motion: the fake page paints nothing,
+ * so without this every step's motion would be 0 and the finish's motion
+ * sum would never be exercised.
+ */
+function withResponse(result: AuthoredResult, trim: DemoScript["trim"]) {
+  const bundle = result.bundle;
+  const document = result.document;
+  if (bundle === null || document === null) throw new Error(evidenceOf(result));
+  const spans = Object.entries(RESPONSE_MS).map(([i, ms]) => {
+    const at = markerOf(result, Number(i)).sourceTimeMs + 50;
+    return {
+      startMs: at,
+      endMs: at + ms,
+      ref: `response-${i}`,
+      width: 1280,
+      height: 800,
+      fps: 30,
+      byteLength: 0,
+    };
+  });
+  const steps: AuthoredStep[] = result.steps.map(
+    ({ outputTiming: _, ...step }) => step,
+  );
+  const walked = {
+    ...result,
+    bundle: { ...bundle, motionSpans: [...bundle.motionSpans, ...spans] },
+  };
+  const assembled = assembleAuthored(
+    {
+      scriptVersion: 8,
+      name: "plan",
+      target: PAGE,
+      steps: PLANNED_STEPS,
+      trim,
+    },
+    {
+      sceneId: "plan",
+      createdAt: "2026-11-13T09:00:00.000Z",
+      viewport: { width: 1280, height: 800 },
+      actions: document.actions,
+      anchors: document.anchors,
+      walked,
+      startingBranding: BRANDING_DEFAULTS,
+      camera: {
+        camera: document.camera.map(({ end: _, ...zoom }) => zoom),
+        zoomsSkipped: [],
+      },
+      steps,
+      settledAfterMs: (heldUntilMs) => heldUntilMs + PULL_OUT_MS,
+    },
+  );
+  return { ...walked, ...assembled, steps };
+}
+
+/** Source ms of motion (spans and the cursor's travel) inside each
+ *  performed step, `[marker, marker + finishMs]`. */
+const motionInSteps = (result: ReturnType<typeof withResponse>) => {
+  const bundle = result.bundle;
+  const moving = [
+    ...(bundle?.motionSpans ?? []),
+    ...cursorMotionSpans(bundle?.cursorSamples ?? []),
+  ];
+  return result.steps.map((step) => {
+    const t = step.timing;
+    if (t === undefined) return null;
+    return moving.reduce(
+      (sum, m) =>
+        sum +
+        Math.max(
+          0,
+          Math.min(m.endMs, t.markerMs + t.finishMs) -
+            Math.max(m.startMs, t.markerMs),
+        ),
+      0,
+    );
+  });
+};
+
+const positionsOnPlan = (
+  result: ReturnType<typeof withResponse>,
+): Record<string, unknown> => ({
+  trim: result.document?.edits.trim ?? null,
+  camera: result.document?.camera ?? null,
+  pacing: result.document?.pacing ?? null,
+  outputTiming: result.steps.map((s) => s.outputTiming ?? null),
+  trimClamped: result.trimClamped ?? null,
+  trimUnplaced: result.trimUnplaced ?? null,
+});
+
+describe("a planned take is written in output time", () => {
+  for (const after of ["zoomOut", "action"] as const) {
+    // Red if `trimFromScript` reads the walk's source `timing` rather than
+    // the step's `outputTiming` (`timing: planned ?? timing` to `timing`),
+    // or if a step's finish is `out(marker + finishMs) - out(marker)`
+    // rather than its motion: the slowed take's tail, held end and skeleton
+    // timings then move with its slower recording (each seen red at the
+    // `trim.tail` line). Also red if `cameraInputs` leaves a designed
+    // decision's action on its marker stamp, or `runAuthored` drops
+    // `arrives` from the zooms (seen red at the `arrives` line).
+    it(`writes one script's trim (after ${after}), camera and step timings alike on a slower machine`, async () => {
+      const trim = {
+        start: { ms: 400 },
+        end: { ms: 3000, ...(after === "action" ? { after } : {}) },
+      } as const;
+      const recorded = await Promise.all(
+        [0, 300].map((lagMs) =>
+          run(PLANNED_STEPS, { beats: RULES, camera: gapCamera, trim, lagMs }),
+        ),
+      );
+      const [fastRun, slowRun] = recorded.map((r) => r.result) as [
+        AuthoredResult,
+        AuthoredResult,
+      ];
+      const fast = withResponse(fastRun, trim);
+      const slow = withResponse(slowRun, trim);
+      const evidence = `${JSON.stringify(positionsOnPlan(fast))} ${JSON.stringify(positionsOnPlan(slow))} ${evidenceOf(slowRun)}`;
+      expect(fast.outcome, evidence).toBe("complete");
+      expect(slow.outcome, evidence).toBe("complete");
+      // Premise: the slowed recording's markers sit more than a second
+      // later, while the motion inside each step is the same, and some.
+      const last = PLANNED_STEPS.length - 2;
+      expect(
+        markerOf(slowRun, last).sourceTimeMs -
+          markerOf(fastRun, last).sourceTimeMs,
+        evidence,
+      ).toBeGreaterThan(1000);
+      expect(motionInSteps(slow), evidence).toEqual(motionInSteps(fast));
+      expect(motionInSteps(fast).slice(0, 2), evidence).toEqual([400, 250]);
+      // Premise: a trim on both sides, three zooms (a return and two pans),
+      // and, after the action, a zoom held through the cut.
+      const positions = positionsOnPlan(fast);
+      const camera = fast.document?.camera ?? [];
+      expect(fast.document?.edits.trim?.head, evidence).toBeDefined();
+      expect(fast.document?.edits.trim?.tail, evidence).toBeDefined();
+      expect(
+        camera.map((c) => c.arrives),
+        evidence,
+      ).toEqual(["return", "pan", "pan"]);
+      expect(
+        camera.some((c) => c.end !== undefined),
+        evidence,
+      ).toBe(after === "action");
+      // The camera `runAuthored` wrote is the same on both.
+      expect(slowRun.document?.camera, evidence).toEqual(
+        fastRun.document?.camera,
+      );
+      expect(positionsOnPlan(slow), evidence).toEqual(positions);
+      // The skeleton's finish is the step's motion: the type's response.
+      expect(fast.steps[0]?.outputTiming?.finishMs, evidence).toBe(400);
+    });
+  }
+
+  // Review Focus 5. The output after the last marker is its motion plus
+  // `tailMs` of idle, and `tailMs` covers the end trim (and the zoom's
+  // settle, unless `after: "action"`), so the end is placed.
+  // Red if a step's finish is its whole proportional share of the tail
+  // (`finishMs: finishAt - at` in `placeOnPlan`), or if the trim is read
+  // from source time (`timing: planned ?? timing` to `timing`): seen red at
+  // the `trimUnplaced` line.
+  for (const after of ["zoomOut", "action"] as const) {
+    it(`places a trim.end of 3000 ms on the last step (after ${after}), inside the planned tail`, async () => {
+      const trim = {
+        end: { ms: 3000, ...(after === "action" ? { after } : {}) },
+      } as const;
+      const { result } = await run(PLANNED_STEPS, {
+        beats: RULES,
+        camera: gapCamera,
+        trim,
+      });
+      const taken = withResponse(result, trim);
+      const evidence = `${JSON.stringify(positionsOnPlan(taken))} ${evidenceOf(result)}`;
+      const document = taken.document;
+      if (document === null || taken.bundle === null) throw new Error(evidence);
+      const lastStep = taken.steps.at(-1);
+      // Premise: the last step's walk finish is long, and mostly waiting.
+      expect(lastStep?.timing?.finishMs, evidence).toBeGreaterThan(2000);
+      expect(taken.pacing?.tailMs, evidence).toBeGreaterThanOrEqual(3000);
+      expect(taken.trimUnplaced, evidence).toBeUndefined();
+      const tail = document.edits.trim?.tail;
+      expect(tail?.actionId, evidence).toBe(lastStep?.actionId);
+      const { timeline } = resolvePlan(
+        planScene(document),
+        taken.bundle,
+        document,
+      );
+      // A refilm reads the asked `ms` back as the tail less the skeleton's
+      // finish or zoom-out (run-core's `merge.ts`), both on one clock now.
+      const t = lastStep?.outputTiming;
+      const base =
+        after === "action" || t?.zoomOutMs == null
+          ? t?.finishMs
+          : Math.max(t.finishMs, t.zoomOutMs);
+      expect(
+        (tail?.offsetMs ?? Number.NaN) - (base ?? Number.NaN),
+        evidence,
+      ).toBe(3000);
+      const markerAt = lastStep?.outputTiming?.markerMs ?? Number.NaN;
+      expect(
+        markerAt + (tail?.offsetMs ?? Number.NaN),
+        evidence,
+      ).toBeLessThanOrEqual(timeline.outputDurationMs);
+    });
+  }
+});
+
+describe("a planned take that cannot hold its zoom through the cut", () => {
+  // Red if `trimFromScript` drops the hold silently on a planned take
+  // (`else if (at.planned) heldUnplaced = true` removed).
+  it("says so, and still places the end", async () => {
+    const trim = { end: { ms: 3000, after: "action" } } as const;
+    const { result } = await run(PLANNED_STEPS, {
+      beats: RULES,
+      camera: gapCamera,
+      trim,
+    });
+    // A tail planned without the held landing (as before the walk planned
+    // it): the end fits, the landing 1150 ms after it does not.
+    const short = withResponse(
+      {
+        ...result,
+        ...(result.pacing === undefined
+          ? {}
+          : { pacing: { ...result.pacing, tailMs: 3000 } }),
+      },
+      trim,
+    );
+    const evidence = `${JSON.stringify(positionsOnPlan(short))} ${evidenceOf(result)}`;
+    // Premise: the planned take as recorded does hold it.
+    expect(
+      withResponse(result, trim).document?.camera.some((c) => c.end),
+      evidence,
+    ).toBe(true);
+    expect(short.document?.edits.trim?.tail, evidence).toBeDefined();
+    expect(
+      short.document?.camera.some((c) => c.end),
+      evidence,
+    ).toBe(false);
+    expect(short.trimHeldUnplaced, evidence).toBe(true);
+  });
+});
+
+describe("a planned tail with a zoom held through the cut", () => {
+  // DEM-178 on a planned take: the zoom held through an `after: "action"`
+  // cut lands `motionTimings(1).zoomOutMs` after it, and the tail plays
+  // through that and a settle. Red if `plannedHeldEnd() - designed` is
+  // dropped from `pacing.tailMs` (walk.ts): the tail is then the trim alone.
+  it("plays the tail through the held zoom's landing", async () => {
+    const { result } = await run([click("a")], {
+      beats: RULES,
+      zooms: () => true,
+      trim: { end: { ms: 6000, after: "action" } },
+    });
+    const evidence = evidenceOf(result);
+    // Premise: the click zoomed, so a zoom is held, and the trim outlasts
+    // the zoom's own hold, so the cut needs it held.
+    const id = markerOf(result, 0).actionId;
+    expect(result.decided?.get(id), evidence).toMatchObject({
+      arrives: "return",
+    });
+    expect(6000, evidence).toBeGreaterThan(
+      CAMERA_DEFAULTS.leadInMs + CAMERA_DEFAULTS.neutral.zoomHoldMs,
+    );
+    expect(result.pacing?.tailMs, evidence).toBe(
+      6000 + motionTimings(1).zoomOutMs + SETTLE_MS,
+    );
+  });
+});
+
+describe("a planned zoomed click the walk scrolled to", () => {
+  // Review 6c: the approach scroll sits between the planned rest and the
+  // journey (the walk sets off after it), so the camera keeps the room the
+  // plan gave it on the rendered timeline, from the act before. The scroll
+  // is given motion here, as a real one paints. Red if the planned room is
+  // not in the rest (walk.ts `restWith(room.neededMs(...))` to
+  // `restWith(0)`): seen red at the room line. (Without the typing's
+  // motion the room came out 2600 ms, not 6000: an act's own idle takes a
+  // share of the rest after it. That limit is the act's, not the scroll's.)
+  it("leaves the camera its room on the rendered timeline", async () => {
+    const { result, scrolledAt } = await run([TYPE_A, click("far")], {
+      beats: RULES,
+      camera: gapCamera,
+    });
+    const evidence = `${evidenceOf(result)} scrolled ${scrolledAt}`;
+    const typed = markerOf(result, 0);
+    const clicked = markerOf(result, 1);
+    // Premise: the click zoomed, from full frame, and its approach scrolled
+    // between the typing's end and where the cursor set off.
+    expect(
+      result.document?.camera.map((c) => c.arrives),
+      evidence,
+    ).toEqual(["return"]);
+    // (The type's own approach asks for a scroll too, before its marker.)
+    const scrollAt =
+      scrolledAt.find((t) => t > (typed.actEndSourceTimeMs as number)) ??
+      Number.NaN;
+    expect(scrollAt, evidence).toBeLessThan(
+      clicked.approachSourceTimeMs as number,
+    );
+    const bundle = result.bundle;
+    const document = result.document;
+    if (bundle === null || document === null) throw new Error(evidence);
+    // The typing painted through its act end, as a real field does: the
+    // fake page paints nothing, and an act's idle takes a share of the rest
+    // after it (the shortcut in `placeOnPlan`), which is not this case.
+    const span = (startMs: number, endMs: number, ref: string) => ({
+      startMs,
+      endMs,
+      ref,
+      width: 1280,
+      height: 800,
+      fps: 30,
+      byteLength: 0,
+    });
+    const scrolled = {
+      ...bundle,
+      motionSpans: [
+        ...bundle.motionSpans,
+        span(typed.sourceTimeMs, typed.actEndSourceTimeMs as number, "typing"),
+        {
+          startMs: scrollAt,
+          endMs: Math.min(
+            scrollAt + 600,
+            clicked.approachSourceTimeMs as number,
+          ),
+          ref: "scroll",
+          width: 1280,
+          height: 800,
+          fps: 30,
+          byteLength: 0,
+        },
+      ],
+    };
+    const { timeline } = resolvePlan(planScene(document), scrolled, document);
+    const out = (ms: number) => toOutputMs(timeline, ms);
+    expect(
+      out(clicked.sourceTimeMs) - out(typed.actEndSourceTimeMs as number),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
   });
 });

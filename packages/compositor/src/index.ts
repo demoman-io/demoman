@@ -32,6 +32,7 @@ export {
   fitScaleFor,
   frameCamera,
   heldThroughEndMs,
+  heldUntilOf,
   MIN_PAN_MS,
   type MotionTimings,
   motionTimings,

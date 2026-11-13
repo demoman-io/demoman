@@ -1,4 +1,4 @@
-// Slow tier: records one script twice through a real browser and renders both.
+// Slow tier: records one script twice through a real browser and renders one.
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -27,41 +27,50 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
 import { lagCdp } from "./lag.js";
-import { mp4FrameTimes } from "./mp4-probe.js";
+import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
-// Spec 2026-11-13 (same take on any machine), Part 4 test 1. One script is
-// recorded twice in this process, the second time with every CDP command
-// held 40 ms (a slower machine), and the two takes are compared step by
-// step. The comparisons are red today: the renderer keeps the idle a slow
-// machine adds, so the slowed take's steps start later by more than its
-// motion explains, and its zooms are decided from the measured gaps.
+// Spec 2026-11-13 (same take on any machine), Part 4 tests 1 to 3. One
+// script is recorded twice in this process, the second time with every CDP
+// command held 40 ms (a slower machine), and the two takes are compared
+// step by step on their rendered timelines; the fast one is rendered and
+// decoded for the seams. Both are planned takes (`scene.pacing`): their
+// idle plays at its planned length, and their camera is decided once, on
+// the designed clock.
 
 const LAG_MS = 40;
 const FRAME_MS = 1000 / 60;
-/** Acting steps after the opening waitForLoad: type, then three clicks. */
+/** Acting steps: a click with no zoom, a type, then two zoomed clicks. */
 const STEPS = 4;
 
-// A field top left; A bottom left and B top right, far apart, so each is its
-// own zoom and the camera comes back between them; C a short walk from B.
-// Positions and sizes are explicit: no glyph width moves a rect.
+// A plain button and a field top left; B top right, far from them, so the
+// camera comes in from full frame (a return); C a short walk from B, so it
+// pans on from B. The first click is `zoom: false`, so the pair after it
+// (rest, the journey to the field, arrive) is filmed with the camera at full
+// frame and the cursor already on screen: the seam check's pair. (The first
+// step's own journey is not: the cursor first appears at its first sample.)
+// Positions and sizes are explicit: no glyph width moves a rect. Colours
+// and borders are explicit and there is no outline, so no control repaints
+// on hover or focus: on 2026-11-13 the field's hover border and Xray's
+// background changed inside the planned arrive, a repaint too short to be
+// filmed as a motion span, so it played as idle and the seam check read a
+// settled frame that moved (Task 7 report: a classification question).
 const PAGE = `<!doctype html><meta charset=utf-8><title>same take</title>
 <style>
 body{margin:0;font:16px sans-serif;background:#fff}
-button,input{position:absolute;width:160px;height:40px;font:16px monospace}
+button,input{position:absolute;width:160px;height:40px;font:16px monospace;background:#eee;border:1px solid #888;outline:none}
+#x{left:40px;top:300px}
 #amount{left:40px;top:40px}
-#a{left:100px;top:700px}
 #b{left:1060px;top:120px}
 #c{left:1000px;top:190px}
 </style>
+<button id="x">Xray</button>
 <input id="amount" aria-label="Amount">
-<button id="a">Alpha</button>
 <button id="b">Bravo</button>
 <button id="c">Charlie</button>`;
 
 const SCRIPT_STEPS = [
-  { do: "waitForLoad" },
+  { do: "click", on: { text: "Xray" }, zoom: false },
   { do: "type", into: { stableId: "amount" }, text: "4800" },
-  { do: "click", on: { text: "Alpha" } },
   { do: "click", on: { text: "Bravo" } },
   { do: "click", on: { text: "Charlie" } },
 ];
@@ -94,8 +103,8 @@ interface Recording {
   scene: SceneDocument;
   bundle: FrameBundle;
   timeline: ReturnType<typeof resolvePlan>["timeline"];
-  /** The decoded film's last frame, in ms. */
-  mp4Ms: number;
+  /** The rendered film, when this recording was rendered. */
+  mp4: { bytes: Uint8Array; lastFrameMs: number } | null;
   /** The run report's own `frames` block, as the report words it. */
   frames: unknown;
   evidence: () => string;
@@ -184,7 +193,7 @@ function motionByCause(r: Recording) {
   }));
 }
 
-async function record(lagMs: number): Promise<Recording> {
+async function record(lagMs: number, render: boolean): Promise<Recording> {
   const lines: string[] = [];
   const session = createBrowserSession({
     headless: true,
@@ -199,7 +208,8 @@ async function record(lagMs: number): Promise<Recording> {
     const library = createLibrary(home);
     const report = await runScript(
       {
-        scriptVersion: 1,
+        // 8: the first version with a step's `zoom`.
+        scriptVersion: 8,
         name: `same take, lag ${lagMs}`,
         target: url,
         viewport: { width: 1280, height: 800 },
@@ -225,12 +235,25 @@ async function record(lagMs: number): Promise<Recording> {
     const store = library.frameStore(takeId);
     const bundle = (await store.getBundle(takeId)) as FrameBundle;
     const timeline = resolvePlan(planScene(scene), bundle, scene).timeline;
+    const evidence = () =>
+      JSON.stringify({
+        markers: bundle.markers,
+        camera: scene.camera,
+        pacing: scene.pacing,
+        segments: timeline.segments,
+      });
+    const frames = (report as { frames?: unknown }).frames;
+    if (!render)
+      return { scene, bundle, timeline, mp4: null, frames, evidence };
 
     const launched = await launch();
     try {
       const rendered = await renderToFiles({
         wallpaper: null,
-        scene,
+        // The seam check reads the settled frame either side of a rest: a
+        // pointer fading out after `CURSOR_IDLE_HIDE_MS` of stillness
+        // would paint over it, so this film keeps the pointer up.
+        scene: { ...scene, cursor: { ...scene.cursor, hideWhenIdle: false } },
         bundle,
         store,
         page: launched.page,
@@ -245,14 +268,9 @@ async function record(lagMs: number): Promise<Recording> {
         scene,
         bundle,
         timeline,
-        mp4Ms: (timesSec.at(-1) ?? 0) * 1000,
-        frames: (report as { frames?: unknown }).frames,
-        evidence: () =>
-          JSON.stringify({
-            markers: bundle.markers,
-            camera: scene.camera,
-            segments: timeline.segments,
-          }),
+        mp4: { bytes: file.bytes, lastFrameMs: (timesSec.at(-1) ?? 0) * 1000 },
+        frames,
+        evidence,
       };
     } finally {
       await launched.close();
@@ -262,7 +280,7 @@ async function record(lagMs: number): Promise<Recording> {
   }
 }
 
-/** Marker i is script step i (the opening waitForLoad is step 0). */
+/** Marker i is script step i. */
 const markerOf = (r: Recording, step: number) => {
   const id = r.scene.actions[step]?.id;
   const marker = r.bundle.markers.find((m) => m.actionId === id);
@@ -271,7 +289,7 @@ const markerOf = (r: Recording, step: number) => {
   }
   return marker;
 };
-const steps = Array.from({ length: STEPS }, (_, i) => i + 1);
+const steps = Array.from({ length: STEPS }, (_, i) => i);
 
 /** Where step i starts on the film. */
 const start = (r: Recording, step: number) =>
@@ -286,42 +304,46 @@ const motionMsBefore = (r: Recording, step: number) => {
 };
 
 /** What identifies a zoom decision: its step (action ids differ between
- *  recordings, so the step's index), kind and scale; no times. */
+ *  recordings, so the step's index), kind, scale and how the camera
+ *  reaches it; no times. */
 const zoomShape = (r: Recording) => (c: SceneDocument["camera"][number]) => ({
   step: r.scene.actions.findIndex((a) => a.id === c.marker.actionId),
   kind: c.kind,
   scale: c.scale,
+  arrives: c.arrives ?? null,
 });
 
 let fast: Recording;
 let slow: Recording;
 
-// Measured locally (Apple silicon, 2026-11-13): the whole file takes 75-85 s,
-// both recordings and both 1080p renders. CI is ~5x slower at composing
-// frames (CLAUDE.md, `fff4505`), so ~425 s there; 600 s leaves margin.
-const RECORD_BOTH_MS = 600_000;
+// The hook (both recordings, the fast one's 1080p render) took 37.5 s
+// locally on Apple silicon, 2026-11-13, rounded up to 40 s; the seam check
+// 0.9 s (a probe browser per seam), rounded up to 2 s. CI is about 5x
+// slower (CLAUDE.md, `fff4505`; the ubuntu runner took 535 s for the old
+// file's two four-step recordings and two renders), so each gets 5x.
+const RECORD_BOTH_MS = 40_000 * 5;
+const DECODE_MS = 2_000 * 5;
 
 beforeAll(async () => {
-  fast = await record(0);
+  fast = await record(0, true);
   // Slowed second: the lag is the process's and nothing runs after it.
-  slow = await record(LAG_MS);
+  slow = await record(LAG_MS, false);
 }, RECORD_BOTH_MS);
 
 describe("one script recorded fast and slowed", () => {
   it("the slowed recording really was slower (the premise)", () => {
     const said = `${fast.evidence()} ${slow.evidence()}`;
-    // The fixture: the three clicks are zoomed, so there are camera
-    // decisions to compare, and every step has a marker.
+    // The fixture: both takes are planned, every step has a marker, and
+    // the fast take's camera comes in from full frame to one click and pans
+    // on to the next, so there are camera decisions of both kinds.
+    expect(fast.scene.pacing, said).toBeDefined();
+    expect(slow.scene.pacing, said).toBeDefined();
     for (const step of steps) markerOf(fast, step);
     for (const step of steps) markerOf(slow, step);
-    const zoomed = new Set(fast.scene.camera.map((c) => c.marker.actionId));
-    // Steps 2 and 3 (far apart) always zoom. Step 4, near step 3, zooms in
-    // some recordings and not others (seen 2026-11-13: the fast take had it
-    // in one run and not in the next): that is the camera deciding from
-    // measured gaps, so it is compared below, not assumed here.
-    for (const step of [2, 3]) {
-      expect(zoomed.has(markerOf(fast, step).actionId), said).toBe(true);
-    }
+    expect(fast.scene.camera.map(zoomShape(fast)), said).toEqual([
+      { step: 2, kind: "zoom", scale: expect.any(Number), arrives: "return" },
+      { step: 3, kind: "zoom", scale: expect.any(Number), arrives: "pan" },
+    ]);
     const sourceDiff =
       sourceDurationOf(slow.bundle) - sourceDurationOf(fast.bundle);
     console.table({
@@ -330,11 +352,12 @@ describe("one script recorded fast and slowed", () => {
         slow: sourceDurationOf(slow.bundle),
         diff: sourceDiff,
       },
-      "mp4 ms": {
-        fast: fast.mp4Ms,
-        slow: slow.mp4Ms,
-        diff: slow.mp4Ms - fast.mp4Ms,
+      "planned output ms": {
+        fast: fast.timeline.outputDurationMs,
+        slow: slow.timeline.outputDurationMs,
+        diff: slow.timeline.outputDurationMs - fast.timeline.outputDurationMs,
       },
+      "fast mp4 last frame ms": { fast: fast.mp4?.lastFrameMs ?? null },
     });
     console.table(
       steps.map((step) => ({
@@ -389,12 +412,11 @@ describe("one script recorded fast and slowed", () => {
     expect(sourceDiff, said).toBeGreaterThan(LAG_MS * STEPS * 4);
   });
 
-  // Result 1 turns green in Task 7: idle contributes nothing to the
-  // difference. Red today because the slowed take keeps its added idle: the
-  // assertion that fails is the first step's `Math.abs(startDiff -
-  // motionDiff) <= FRAME_MS` (step 1 starts ~1400 ms later slowed, with ~50 ms
-  // more motion before it).
-  it.fails("idle contributes nothing to where each step starts", () => {
+  // Result 1: idle contributes nothing to the difference. Red if the take
+  // stops writing `pacing` (authored.ts, `assembleAuthored`): the slowed
+  // take keeps its added idle (seen 2026-11-13: step 0 started 1117 ms later
+  // slowed with 50 ms more motion before it).
+  it("idle contributes nothing to where each step starts", () => {
     for (const step of steps) {
       const startDiff = start(slow, step) - start(fast, step);
       const motionDiff =
@@ -406,16 +428,147 @@ describe("one script recorded fast and slowed", () => {
     }
   });
 
-  // Result 2: the same script gets the same camera. Skipped until Task 7,
-  // which turns it into a plain `it`: today the camera is decided from
-  // measured time, so two recordings may or may not agree (two fast
-  // recordings already differed on 2026-11-13), and an `it.fails` would go
-  // red on a run where they happen to. The shapes of both cameras are in
-  // the premise's reported output above.
-  it.skip("the two takes have the same camera", () => {
+  // Result 2: the same script gets the same camera, pan or return
+  // included. Red if `cameraInputs` hands the camera the markers' source
+  // stamps rather than the walk's designed times, or the zooms lose the
+  // walk's `arrives` (authored.ts, `runAuthored`).
+  it("the two takes have the same camera", () => {
     expect(
       slow.scene.camera.map(zoomShape(slow)),
       `${fast.evidence()} ${slow.evidence()}`,
     ).toEqual(fast.scene.camera.map(zoomShape(fast)));
   });
+
+  // Spec Part 4 test 2, seams. At each idle/motion boundary of the type's
+  // pair (rest, the journey to the field, arrive), on the decoded film: the
+  // frame on the idle side is the settled frame, equal to the idle frame
+  // 100 ms further from the seam, and the frame on the motion side differs
+  // from it. No motion frame is held and no settled frame skipped. The
+  // camera is at full frame and the cursor shown throughout this pair.
+  // Red (seen, at the motion premise) if the pointer's travel stops counting
+  // as motion (resolve.ts's cursor hints dropped): the journey then plays as
+  // planned idle and the pair has no seam. Red at the settled frame if a
+  // frame inside planned idle moves, as a control's hover repaint did (PAGE).
+  it(
+    "holds the settled frame up to each seam of a planned pair, and moves after it",
+    async () => {
+      const film = fast.mp4;
+      if (film === null) throw new Error("the fast take was not rendered");
+      const pairStart = start(fast, 0);
+      const pairEnd = start(fast, 1);
+      // The timeline's segments, runs of one kind merged: two idle
+      // segments side by side are one still stretch on the film.
+      const segments: { outStartMs: number; outEndMs: number; kind: string }[] =
+        [];
+      for (const g of fast.timeline.segments) {
+        if (g.outEndMs <= pairStart) continue;
+        if (g.outStartMs >= pairEnd) break;
+        const kind = g.kind === "motion" ? "motion" : "still";
+        const last = segments.at(-1);
+        if (last?.kind === kind) last.outEndMs = g.outEndMs;
+        else
+          segments.push({
+            outStartMs: g.outStartMs,
+            outEndMs: g.outEndMs,
+            kind,
+          });
+      }
+      const still = (g: (typeof segments)[number]) => g.kind === "still";
+      const seams: { atMs: number; idleBefore: boolean }[] = [];
+      for (let i = 0; i + 1 < segments.length; i++) {
+        const a = segments[i] as (typeof segments)[number];
+        const b = segments[i + 1] as (typeof segments)[number];
+        if (still(a) === still(b)) continue;
+        const idle = still(a) ? a : b;
+        const moving = still(a) ? b : a;
+        // Only seams a frame and the 100 ms reference can sit either side of.
+        if (idle.outEndMs - idle.outStartMs < 100 + 3 * FRAME_MS) continue;
+        if (moving.outEndMs - moving.outStartMs < 3 * FRAME_MS) continue;
+        seams.push({ atMs: a.outEndMs, idleBefore: still(a) });
+      }
+      const said = `${JSON.stringify(seams)} ${fast.evidence()}`;
+      // Premise: the pair has motion, and a seam on each side of it.
+      const motionMs = segments
+        .filter((g) => g.kind === "motion")
+        .reduce((n, g) => n + g.outEndMs - g.outStartMs, 0);
+      expect(motionMs, said).toBeGreaterThan(0);
+      expect(
+        seams.map((x) => x.idleBefore),
+        said,
+      ).toEqual(expect.arrayContaining([true, false]));
+      const grey = (r: { grey?: string }) =>
+        Buffer.from(r.grey ?? "", "base64");
+      // The encoder's own noise between two decodes of one still picture:
+      // single pixels off by 10 and by 25 measured here (2026-11-13), so
+      // twice that. The pointer moving is 195 and more.
+      const NOISE = 50;
+      /** Pixels that differ by more than `NOISE` grey levels, and where (the
+       *  box round them, at 960x540), for the failure message. */
+      type Box = [number, number, number, number];
+      const diffOf = (a: Buffer, b: Buffer, mask: Box | null = null) => {
+        let n = 0;
+        let box: Box = [960, 540, -1, -1];
+        let peak = 0;
+        for (let i = 0; i < a.length; i++) {
+          const x = i % 960;
+          const y = Math.floor(i / 960);
+          if (
+            mask !== null &&
+            x >= mask[0] &&
+            x <= mask[2] &&
+            y >= mask[1] &&
+            y <= mask[3]
+          )
+            continue;
+          const d = Math.abs((a[i] ?? 0) - (b[i] ?? 0));
+          peak = Math.max(peak, d);
+          if (d <= NOISE) continue;
+          n++;
+          box = [
+            Math.min(box[0], x),
+            Math.min(box[1], y),
+            Math.max(box[2], x),
+            Math.max(box[3], y),
+          ];
+        }
+        return { n, box, peak };
+      };
+      for (const seam of seams) {
+        const idleSide = seam.idleBefore ? -FRAME_MS / 2 : FRAME_MS * 1.5;
+        const motionSide = seam.idleBefore ? FRAME_MS * 1.5 : -FRAME_MS / 2;
+        const settled = seam.idleBefore ? idleSide - 100 : idleSide + 100;
+        const at = [settled, idleSide, motionSide]
+          .map((d) => (seam.atMs + d) / 1000)
+          .sort((x, y) => x - y);
+        const read = await readMp4Crops(
+          film.bytes,
+          at,
+          [0, 0, 1, 1],
+          { width: 960, height: 540 },
+          true,
+        );
+        const frameAt = (d: number) =>
+          grey(read[at.indexOf((seam.atMs + d) / 1000)] as { grey?: string });
+        const idleFrame = frameAt(idleSide);
+        // The motion across this seam is the pointer's journey, so what
+        // changes is the pointer: its box, with a margin.
+        const motion = diffOf(idleFrame, frameAt(motionSide));
+        const [x0, y0, x1, y1] = motion.box;
+        const pointer: Box = [x0 - 12, y0 - 12, x1 + 12, y1 + 12];
+        // The settled frame is compared outside the pointer: the frames are
+        // the recording's, the pointer is drawn over them from its samples,
+        // and the first and last half-pixel steps of a journey are below
+        // `CURSOR_MOTION_EPSILON_PX`, so they play as idle and the pointer
+        // creeps there by a pixel (2026-11-13; Task 7 report).
+        const still = diffOf(idleFrame, frameAt(settled), pointer);
+        const where = `${JSON.stringify({ still, motion })} seam at ${Math.round(seam.atMs)} ms (${seam.idleBefore ? "idle to motion" : "motion to idle"}), frames ${read.map((r) => r.frameSec)}: ${said}`;
+        // Premise: what moved is pointer-sized, so the mask hides no page.
+        expect(motion.n, where).toBeGreaterThan(0);
+        expect(x1 - x0, where).toBeLessThan(40);
+        expect(y1 - y0, where).toBeLessThan(40);
+        expect(still.n, where).toBe(0);
+      }
+    },
+    DECODE_MS,
+  );
 });

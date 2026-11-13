@@ -1665,6 +1665,22 @@ describe("RunReport opening, trim and zoom notes", () => {
     ]);
   });
 
+  // Red if `trimNotesOf` drops `trimHeldUnplaced`: the zoom then pulls out
+  // before the cut with nothing in the report saying why.
+  it("an end trim whose zoom cannot be held through the cut says so", () => {
+    const built = opening({
+      trim: { end: { ms: 500, step: 3, after: "action" } },
+    });
+    if (!("walk" in built)) throw new Error("walked");
+    const report = buildRunReport({
+      ...built,
+      walk: { ...built.walk, trimHeldUnplaced: true },
+    });
+    expect(report.trimNotes).toEqual([
+      "trim.end's zoom lands after the end of the recording, so it is not held through the cut and pulls out before it",
+    ]);
+  });
+
   it("a start trim whose step never ran says so", () => {
     const report = buildRunReport(
       opening({

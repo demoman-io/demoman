@@ -607,10 +607,11 @@ export const MIN_PAN_MS = 150;
  * back out, before the next zoom's action. The return counts from here, not
  * from the arrival. A drag pressed after the zoom would have gone out holds
  * nothing (final review, finding 1: one 20 s later kept the camera in on a
- * button).
+ * button). Exported because a planned take places its trim from it
+ * (`@demoman/replay-engine`'s assembly), so the two answer alike.
  */
-function heldUntilOf(
-  seed: Seed,
+export function heldUntilOf(
+  seed: { outputTimeMs: number; actionMs: number },
   nextActionMs: number,
   holds: readonly { startMs: number; endMs: number }[],
 ): number {

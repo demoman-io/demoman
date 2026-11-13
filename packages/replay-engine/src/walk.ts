@@ -900,6 +900,15 @@ export async function runWalk(
       zoomed: false,
     };
   };
+  /** Where the last zoom held through an `after: "action"` cut lands, and
+   *  a settle, on the designed clock; -Infinity with none held. */
+  const plannedHeldEnd = (): number => {
+    const landsAt =
+      designedHeldUntil === null || config.tail?.after !== "action"
+        ? null
+        : heldThroughEndMs(designedHeldUntil, designed + config.tail.ms);
+    return landsAt === null ? Number.NEGATIVE_INFINITY : landsAt + SETTLE_MS;
+  };
   /** A counted step's plan, onto the designed clock. */
   const commitPlan = (action: SceneAction): void => {
     const plan = stepPlan;
@@ -3653,18 +3662,24 @@ export async function runWalk(
       : {
           pacing: {
             beats: plannedBeats,
-            tailMs: beats.tailMs({
-              zoomSettleMs:
-                room === undefined || designedHeldUntil === null
-                  ? null
-                  : Math.max(
-                      0,
-                      room.settledAfterMs(designedHeldUntil) - designed,
-                    ),
-              trimEndMs: config.tail?.ms ?? null,
-              trimAfterAction: config.tail?.after === "action",
-              pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
-            }),
+            tailMs: Math.max(
+              beats.tailMs({
+                zoomSettleMs:
+                  room === undefined || designedHeldUntil === null
+                    ? null
+                    : Math.max(
+                        0,
+                        room.settledAfterMs(designedHeldUntil) - designed,
+                      ),
+                trimEndMs: config.tail?.ms ?? null,
+                trimAfterAction: config.tail?.after === "action",
+                pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
+              }),
+              // A zoom held through an `after: "action"` cut (DEM-178)
+              // lands after it: the tail plays through that landing and a
+              // settle, as the unplanned walk films through it.
+              plannedHeldEnd() - designed,
+            ),
           },
         }),
   };

@@ -25,9 +25,15 @@
 import {
   type CursorSegment,
   cursorEntryPoint,
+  type FrameBundle,
+  heldThroughEndMs,
+  heldUntilOf,
   type MadeFromStep,
   planCursorSegment,
+  planScene,
+  resolvePlan,
   sourceDurationOf,
+  toOutputMs,
   transformAt,
   VERBS,
   type Vec,
@@ -239,6 +245,22 @@ export interface AuthoredStep {
   /** How the step played, as the walk measured it (`StepTiming`). Absent
    *  for a step the walk did not perform. */
   timing?: StepTiming;
+  /**
+   * On a planned take only (one carrying `pacing`): how the step plays in
+   * the video, in output ms, converted once through the take's own timeline
+   * when it is assembled (spec 2026-11-13, "Every scripted run plans").
+   * `markerMs` is the step's output instant; the rest are ms after it, as
+   * in `timing`. `finishMs` is the motion inside the walk's finish only
+   * (`placeOnPlan` says why). `heldUntilMs` is what the latest zoom at or before the
+   * step holds until, as the camera counts it; null with no such zoom.
+   * The script's trim, a held zoom's `end` and the skeleton read these.
+   */
+  outputTiming?: {
+    markerMs: number;
+    finishMs: number;
+    zoomOutMs: number | null;
+    heldUntilMs: number | null;
+  };
 }
 
 export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
@@ -356,6 +378,12 @@ export interface AuthoredResult extends ReplayResult {
    *  run stopped before it filmed that far. Absent when every asked side
    *  was placed. */
   trimUnplaced?: ("start" | "end")[];
+  /** On a planned take: the zoom an `after: "action"` end holds through its
+   *  cut (DEM-178) would land past the end of the take, so it is not held
+   *  and pulls out before the cut. Absent otherwise. (An unplanned take
+   *  films through the landing, and drops the hold silently when a run
+   *  stops short of it, as it always has.) */
+  trimHeldUnplaced?: true;
 }
 
 /**
@@ -1229,19 +1257,23 @@ export function assembleAuthored(
     device?: CaptureDevice;
     /** The caller's display scale; absent when it does not know. */
     displayScale?: number;
-    /** What the walk measured per step, which the script's trim is cut from. */
+    /** What the walk measured per step, which the script's trim is cut from.
+     *  On a planned take each performed step is given its `outputTiming`. */
     steps: AuthoredStep[];
+    /** The room policy's `settledAfterMs`, which a planned take's zoom-outs
+     *  are placed with; absent with no room. */
+    settledAfterMs?: (heldUntilMs: number) => number;
   },
 ): {
   document: SceneDocument | null;
   error: string | null;
   trimClamped?: AuthoredResult["trimClamped"];
   trimUnplaced?: AuthoredResult["trimUnplaced"];
+  trimHeldUnplaced?: true;
 } {
   if (args.actions.length === 0) return { document: null, error: null };
-  const trim = trimFromScript(script, args.steps, args.walked.bundle);
 
-  const document: SceneDocument = {
+  const untrimmed: SceneDocument = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: {
       id: args.sceneId,
@@ -1282,20 +1314,15 @@ export function assembleAuthored(
     // The caller's (`AuthoredDeps.cameraFor`): a zoom on every click, as a
     // recorded take opens with. Spec 2026-10-01 §1.2. The clicks it left out
     // ride beside it, as `finalize` writes them: only when there is one.
-    camera: holdZoomThroughCut(args.camera.camera, args.actions, trim.held),
+    camera: args.camera.camera,
+    // The walk's beat plan, verbatim: the take renders its pauses from it.
+    ...(args.walked.pacing === undefined ? {} : { pacing: args.walked.pacing }),
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
     // Nothing has edited this take: it is one second old. The script's trim
     // is the run's, written as the markers a Studio trim would be.
-    edits: {
-      masks: [],
-      holds: [],
-      gaps: [],
-      splits: [],
-      removed: [],
-      ...(trim.trim === undefined ? {} : { trim: trim.trim }),
-    },
+    edits: { masks: [], holds: [], gaps: [], splits: [], removed: [] },
     // Nothing observed any of these. The walk has no network, console or
     // navigation collector, and an entry in `urlTrace` would have to claim an
     // instant the run never measured — it only knows which page each step's
@@ -1325,6 +1352,24 @@ export function assembleAuthored(
       ? {}
       : { motion: script.look.motion }),
   };
+  // A planned take's positions are written in output time, through its own
+  // timeline; any other take's stay where the walk measured them.
+  const { bundle } = args.walked;
+  const filmedThrough =
+    bundle === null
+      ? Number.NEGATIVE_INFINITY
+      : args.walked.pacing !== undefined
+        ? placeOnPlan(untrimmed, bundle, args.steps, args.settledAfterMs)
+        : sourceDurationOf(bundle);
+  const trim = trimFromScript(script, args.steps, filmedThrough);
+  const document: SceneDocument = {
+    ...untrimmed,
+    camera: holdZoomThroughCut(untrimmed.camera, args.actions, trim.held),
+    edits: {
+      ...untrimmed.edits,
+      ...(trim.trim === undefined ? {} : { trim: trim.trim }),
+    },
+  };
 
   // Self-validating, as `finalize` is: nothing leaves this door that the
   // schema would reject. Reported rather than thrown, because a throw here
@@ -1338,6 +1383,7 @@ export function assembleAuthored(
       error: null,
       ...(trim.clamped === undefined ? {} : { trimClamped: trim.clamped }),
       ...(trim.unplaced.length === 0 ? {} : { trimUnplaced: trim.unplaced }),
+      ...(trim.heldUnplaced === undefined ? {} : { trimHeldUnplaced: true }),
     };
   }
   return {
@@ -1365,26 +1411,52 @@ export function assembleAuthored(
  * marker on the step, for `holdZoomThroughCut` (DEM-178). Not when the film
  * stops short of it: the compositor would clamp the end and say the zoom
  * could not reach it, which is not why.
+ *
+ * On a planned take every one of these is read from the step's
+ * `outputTiming` and written in output ms after its marker, and
+ * `filmedThrough` is the take's output length: a trim measured on a slow
+ * recording lands where it does on a fast one (spec 2026-11-13).
  */
 function trimFromScript(
   script: DemoScript,
   steps: AuthoredStep[],
-  bundle: ReplayResult["bundle"],
+  /** How long the take is, on the clock its steps are read on: what the
+   *  compositor would clamp a later end to. -Infinity: nothing was filmed. */
+  filmedThrough: number,
 ): {
   trim?: { head?: SceneMarker; tail?: SceneMarker };
   clamped?: NonNullable<AuthoredResult["trimClamped"]>;
   held?: SceneMarker;
+  heldUnplaced?: true;
   unplaced: ("start" | "end")[];
 } {
   const unplaced: ("start" | "end")[] = [];
   let held: SceneMarker | undefined;
+  let heldUnplaced = false;
   const asked = script.trim;
   if (asked === undefined) return { unplaced };
   const performed = (index: number | null) => {
     const record = steps.find((r) => r.index === index);
-    return record?.actionId != null && record.timing !== undefined
-      ? { actionId: record.actionId, timing: record.timing }
-      : undefined;
+    if (record?.actionId == null || record.timing === undefined)
+      return undefined;
+    const { timing, outputTiming: planned } = record;
+    return {
+      actionId: record.actionId,
+      planned: planned !== undefined,
+      // A planned take's step as the video plays it; any other's as measured.
+      timing: planned ?? timing,
+      /** Where the zoom held through a cut `offsetMs` after the marker
+       *  lands, after the marker (`heldThroughEndMs`). */
+      heldEndMs: (offsetMs: number): number | undefined => {
+        if (planned === undefined) return timing.heldEndMs;
+        if (planned.heldUntilMs === null) return undefined;
+        const landsAt = heldThroughEndMs(
+          planned.markerMs + planned.heldUntilMs,
+          planned.markerMs + offsetMs,
+        );
+        return landsAt === null ? undefined : landsAt - planned.markerMs;
+      },
+    };
   };
   const trim: { head?: SceneMarker; tail?: SceneMarker } = {};
   let clamped: NonNullable<AuthoredResult["trimClamped"]> | undefined;
@@ -1403,10 +1475,6 @@ function trimFromScript(
   }
   if (asked.end !== undefined) {
     const at = performed(trimStepIndex(script, "end"));
-    // The compositor's own answer to how long the take filmed, which is
-    // what it would clamp a later end to. No bundle: nothing was filmed.
-    const filmedThrough =
-      bundle === null ? Number.NEGATIVE_INFINITY : sourceDurationOf(bundle);
     if (at === undefined) unplaced.push("end");
     else {
       const { markerMs, finishMs, zoomOutMs } = at.timing;
@@ -1419,13 +1487,13 @@ function trimFromScript(
       if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
       else {
         trim.tail = { actionId: at.actionId, offsetMs };
-        const { heldEndMs } = at.timing;
-        if (
-          asked.end.after === "action" &&
-          heldEndMs !== undefined &&
-          markerMs + heldEndMs <= filmedThrough
-        )
-          held = { actionId: at.actionId, offsetMs: heldEndMs };
+        const heldEndMs = at.heldEndMs(offsetMs);
+        if (asked.end.after === "action" && heldEndMs !== undefined) {
+          if (markerMs + heldEndMs <= filmedThrough)
+            held = { actionId: at.actionId, offsetMs: heldEndMs };
+          // Said on a planned take, whose tail was planned to hold it.
+          else if (at.planned) heldUnplaced = true;
+        }
       }
     }
   }
@@ -1433,8 +1501,103 @@ function trimFromScript(
     ...(trim.head === undefined && trim.tail === undefined ? {} : { trim }),
     ...(clamped === undefined ? {} : { clamped }),
     ...(held === undefined ? {} : { held }),
+    ...(heldUnplaced ? { heldUnplaced: true as const } : {}),
     unplaced,
   };
+}
+
+/**
+ * A planned take's steps, placed on the output it will render: each
+ * performed step's `outputTiming`, converted once through the take's own
+ * timeline (`resolvePlan`'s, so the same motion and the same planned idle
+ * the render gives it). Built from the document as it will be written,
+ * minus trim and a held zoom's end, neither of which moves the timeline.
+ * Answers the take's output length, which the trim is placed against.
+ *
+ * `zoomOutMs` is where the room policy says the latest zoom at or before
+ * the step has settled back at full frame, from what that zoom holds until
+ * as the camera counts it (`heldUntilOf`): its arrival, or a drag's release
+ * pressed while it is in. Null with no such zoom or no room, as the walk's.
+ * The zoom is the take's own camera, read rather than decided again.
+ */
+function placeOnPlan(
+  document: SceneDocument,
+  bundle: FrameBundle,
+  steps: AuthoredStep[],
+  settledAfterMs: ((heldUntilMs: number) => number) | undefined,
+): number {
+  const { timeline } = resolvePlan(planScene(document), bundle, document);
+  const out = (sourceMs: number) => toOutputMs(timeline, sourceMs);
+  const markerAt = new Map(
+    bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
+  );
+  const order = new Map(document.actions.map((a, i) => [a.id, i]));
+  const zooms = document.camera.filter((c) => c.kind === "zoom");
+  for (const step of steps) {
+    if (step.actionId === null || step.timing === undefined) continue;
+    const { markerMs, finishMs } = step.timing;
+    const at = out(markerMs);
+    const finishAt = out(markerMs + finishMs);
+    const index = order.get(step.actionId) ?? -1;
+    // The latest zoom at or before the step, and the one after it.
+    let zoomIndex = -1;
+    zooms.forEach((z, i) => {
+      if ((order.get(z.marker.actionId) ?? Number.POSITIVE_INFINITY) <= index)
+        zoomIndex = i;
+    });
+    const zoom = zooms[zoomIndex];
+    const zoomAt =
+      zoom === undefined ? undefined : markerAt.get(zoom.marker.actionId);
+    const nextAt = markerAt.get(zooms[zoomIndex + 1]?.marker.actionId ?? "");
+    const heldUntil =
+      zoom === undefined || zoomAt === undefined
+        ? null
+        : heldUntilOf(
+            {
+              outputTimeMs: Math.max(0, out(zoomAt) + zoom.marker.offsetMs),
+              actionMs: out(zoomAt),
+            },
+            nextAt === undefined ? Number.POSITIVE_INFINITY : out(nextAt),
+            // The drags pressed by the step's finish, as the walk counts them.
+            (bundle.heldPresses ?? [])
+              .map((h) => ({
+                startMs: out(h.pressMs),
+                endMs: out(h.releaseMs),
+              }))
+              .filter((h) => h.startMs <= finishAt),
+          );
+    // The step's finish is its motion: the walk measures `finishMs` after
+    // its settle and stills, which are this machine's waits, and the idle
+    // after a step is the planned rest or tail, not the step's.
+    // shortcut: idle between the marker and the end of the motion (the
+    // page's latency) keeps a proportional share of the planned idle, so
+    // an `after: "action"` cut with `ms: 0` can land up to that share
+    // before the motion's last frame, and an end trim lands about a settle
+    // earlier than on an unplanned take; upgrade if the side-by-side in the
+    // plan's Task 9 shows a cut act.
+    const motionMs = timeline.segments
+      .filter((s) => s.kind === "motion")
+      .reduce(
+        (sum, s) =>
+          sum +
+          Math.max(
+            0,
+            Math.min(s.srcEndMs, markerMs + finishMs) -
+              Math.max(s.srcStartMs, markerMs),
+          ),
+        0,
+      );
+    step.outputTiming = {
+      markerMs: at,
+      finishMs: motionMs,
+      zoomOutMs:
+        heldUntil === null || settledAfterMs === undefined
+          ? null
+          : settledAfterMs(heldUntil) - at,
+      heldUntilMs: heldUntil === null ? null : heldUntil - at,
+    };
+  }
+  return timeline.outputDurationMs;
 }
 
 /**
@@ -1506,10 +1669,12 @@ export function cameraInputs(
   transforms: readonly ViewportTransform[],
   /**
    * What the walk decided each click's zoom on (`ReplayResult.decided`):
-   * its time and the page zoom it read. An un-waited time is used as the
-   * action's stamp, so the take cannot disagree with the walk near
-   * `MIN_ZOOM_GAP_MS` (code review 2026-10-20, R6); a designed time is on
-   * another clock and is not. The scale is used either way.
+   * its time and the page zoom it read. That time is used as the action's
+   * stamp, so the take cannot disagree with the walk near `MIN_ZOOM_GAP_MS`
+   * (code review 2026-10-20, R6): un-waited time without a plan, designed
+   * time with one (spec 2026-11-13), where every click and drag the camera
+   * reads has a decision, so its gap rule runs on the designed clock alone.
+   * The scale is used either way.
    */
   decided: ReadonlyMap<string, ZoomDecision> = new Map(),
 ): { actions: SceneAction[]; scaleAt: (action: SceneAction) => number } {
@@ -1517,11 +1682,11 @@ export function cameraInputs(
   return {
     actions: unwaitedActions(actions, markers).map((action) => {
       const d = decided.get(action.id);
-      // A designed time is on another clock than these stamps, so it is
-      // not mixed in among them here.
-      return d === undefined || !("unwaitedMs" in d)
-        ? action
-        : { ...action, timestamp: d.unwaitedMs };
+      if (d === undefined) return action;
+      return {
+        ...action,
+        timestamp: "unwaitedMs" in d ? d.unwaitedMs : d.designedMs,
+      };
     }),
     scaleAt: (action) =>
       decided.get(action.id)?.scale ??
@@ -1629,6 +1794,22 @@ export async function runAuthored(
     walked.bundle?.viewportTransforms ?? [],
     walked.decided,
   );
+  const camera = deps.cameraFor(
+    inputs.actions,
+    viewport,
+    inputs.scaleAt,
+    run.zoomIntentOf,
+  );
+  // Pan or return, as the walk decided it for the click: recorded on the
+  // zoom so the renderer reads it rather than asking again.
+  const arrivesOf = (actionId: string) => {
+    const d = walked.decided?.get(actionId);
+    return d !== undefined && "arrives" in d ? d.arrives : undefined;
+  };
+  camera.camera = camera.camera.map((c) => {
+    const arrives = arrivesOf(c.marker.actionId);
+    return c.kind === "zoom" && arrives !== undefined ? { ...c, arrives } : c;
+  });
   const assembled = assembleAuthored(script, {
     sceneId: deps.sceneId,
     createdAt: deps.createdAt,
@@ -1638,20 +1819,16 @@ export async function runAuthored(
     walked,
     startingBranding: deps.startingBranding,
     // Each action stands at its marker now (`stampAtMarkers` above). The
-    // zooms are decided on time with the replay's added room taken out, as
-    // the walk decided them; the page's zoom is read on the real clock it
+    // zooms are decided on the time the walk decided them on (un-waited, or
+    // designed under a plan); the page's zoom is read on the real clock it
     // was recorded on (`cameraInputs`).
-    camera: deps.cameraFor(
-      inputs.actions,
-      viewport,
-      inputs.scaleAt,
-      run.zoomIntentOf,
-    ),
+    camera,
     ...(device === null ? {} : { device: captureDeviceOf(device) }),
     ...(deps.displayScale === undefined
       ? {}
       : { displayScale: deps.displayScale }),
     steps: run.steps,
+    ...(room === undefined ? {} : { settledAfterMs: room.settledAfterMs }),
   });
 
   return {
@@ -1671,5 +1848,8 @@ export async function runAuthored(
     ...(assembled.trimUnplaced === undefined
       ? {}
       : { trimUnplaced: assembled.trimUnplaced }),
+    ...(assembled.trimHeldUnplaced === undefined
+      ? {}
+      : { trimHeldUnplaced: true }),
   };
 }

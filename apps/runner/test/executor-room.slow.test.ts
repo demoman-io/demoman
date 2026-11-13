@@ -2,8 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FrameBundle, planScene, resolvePlan } from "@demoman/compositor";
-import type { BrandKitsRead } from "@demoman/run-core";
+import {
+  type FrameBundle,
+  planScene,
+  resolvePlan,
+  toOutputMs,
+} from "@demoman/compositor";
+import { ARRIVE_MS, BASE_REST_MS, type BrandKitsRead } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -113,11 +118,11 @@ afterAll(async () => {
 type Step = Record<string, unknown>;
 const CREATE = { do: "click", on: { text: "Create invoice" } };
 
-async function run(steps: Step[]) {
+async function run(steps: Step[], scriptVersion = 1) {
   const library = createLibrary(home);
   const report = await runScript(
     {
-      scriptVersion: 1,
+      scriptVersion,
       name: "room",
       target: url,
       viewport: { width: 1280, height: 800 },
@@ -151,19 +156,38 @@ async function run(steps: Step[]) {
     return marker;
   };
   const said = () =>
-    JSON.stringify({ markers: bundle.markers, camera: scene.camera });
-  return { report, scene, bundle, markerOf, said };
+    JSON.stringify({
+      markers: bundle.markers,
+      camera: scene.camera,
+      pacing: scene.pacing,
+    });
+  // The take as it renders: its output clock, and each zoom's segment.
+  const resolved = resolvePlan(planScene(scene), bundle, scene);
+  const out = (sourceMs: number) => toOutputMs(resolved.timeline, sourceMs);
+  /** The planned beat before a step, from `scene.pacing`. */
+  const beatOf = (stepIndex: number) => {
+    const id = markerOf(stepIndex).actionId;
+    const beat = scene.pacing?.beats.find((b) => b.beforeActionId === id);
+    if (beat === undefined) throw new Error(`no beat: ${said()}`);
+    return beat;
+  };
+  /** The zoom segment on a step's click, on the rendered timeline. */
+  const segmentOf = (stepIndex: number) => {
+    const id = markerOf(stepIndex).actionId;
+    const zoom = scene.camera.find((c) => c.marker.actionId === id);
+    const segment = resolved.cameraSegments.find((g) => g.id === zoom?.id);
+    if (segment === undefined) throw new Error(`no zoom segment: ${said()}`);
+    return segment;
+  };
+  return { report, scene, bundle, markerOf, said, out, beatOf, segmentOf };
 }
 
 describe("unhurried beats through the executor", () => {
   // Since spec 2026-11-13 (the beat plan) a scripted run waits no room out
-  // live: the room goes into the planned rest the walk returns as `pacing`,
-  // and the renderer plays it. Nothing at this level carries `pacing` until
-  // the take writes it into `scene.pacing`, so the live-wait cases below
-  // are todos for that task; the walk's own rule is asserted against the
-  // fake browser in `packages/replay-engine/test/node/walk-plan.test.ts`
-  // (a zoomed click's rest covers its room and nothing is slept, a pause is
-  // added to the rest, a click that does not zoom or pans gets the base).
+  // live: the room goes into the planned rest the take carries as
+  // `scene.pacing`, and the renderer plays it; the walk's own rule is also
+  // asserted against the fake browser in
+  // `packages/replay-engine/test/node/walk-plan.test.ts`.
   // The click goes back to the field it typed into, so the cursor has no
   // walk to make: the gap from the typing's end to the click is the
   // machine's own time plus the settle, under the room on this machine and
@@ -193,27 +217,171 @@ describe("unhurried beats through the executor", () => {
     expect(click.roomMs, said()).toBeUndefined();
     expect(click.sourceTimeMs - actEnd, said()).toBeLessThan(NEEDED_MS);
   }, 120_000);
-  it.todo(
-    "Task 7: a zoomed click after typing has a planned rest of at least its room less the journey and the arrive, read from scene.pacing",
-  );
-  it.todo(
-    "Task 7: a zoomed click after a 3000 ms pause has the base rest plus the pause, read from scene.pacing",
-  );
-  it.todo(
-    "Task 7: a zoomed click after a click that opens a sliding panel starts its push-in after the slide, on the rendered timeline",
-  );
-  it.todo(
-    "Task 7: a second click that does not zoom has the base rest, read from scene.pacing",
-  );
-  it.todo(
-    "Task 7: a zoomed click scrolled into view has its planned room after the scroll, on the rendered timeline",
-  );
-  it.todo(
-    "Task 7: a zoomed click on the element the cursor rests on (no journey) has a rest of at least its room less the arrive, read from scene.pacing",
-  );
-  it.todo(
-    "Task 7: a zoomed click after a navigation starts its push-in after the new page has painted, on the rendered timeline",
-  );
+  // Each case below waited the room out live before the plan (spec
+  // 2026-10-19); a scripted run now plans it into `scene.pacing` and the
+  // renderer plays it, so each reads the plan, or the rendered timeline the
+  // plan makes.
+
+  // Red if the planned branch asks the rest without the room (walk.ts
+  // `restWith(room.neededMs(...))` to `restWith(0)`): the rest is the base
+  // and the rendered gap is the machine's.
+  it("plans a zoomed click's room after typing into its rest, and the render plays it", async () => {
+    const { markerOf, beatOf, out, said } = await run([
+      { do: "type", into: { stableId: "amount" }, text: "48004800" },
+      { do: "click", on: { stableId: "amount" } },
+    ]);
+    const typed = markerOf(0);
+    const click = markerOf(1);
+    // Premise: the take is planned, and the room raised the click's rest
+    // above the base.
+    const beat = beatOf(1);
+    expect(beat.arriveMs, said()).toBe(ARRIVE_MS);
+    expect(beat.restMs, said()).toBeGreaterThan(BASE_REST_MS);
+    expect(beat.restMs + beat.arriveMs, said()).toBeGreaterThanOrEqual(
+      NEEDED_MS - 1,
+    );
+    // On the rendered timeline the camera has its room from the typing's end.
+    expect(
+      out(click.sourceTimeMs) - out(typed.actEndSourceTimeMs as number),
+      said(),
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
+  }, 120_000);
+
+  // Red if a pause stops reaching the rest (authored.ts `paused +=
+  // step.ms`): the beat is then the base alone.
+  it("plans a pause before a zoomed click as the base rest plus the pause", async () => {
+    const { beatOf, scene, markerOf, said } = await run([
+      { do: "type", into: { stableId: "amount" }, text: "48" },
+      { do: "pause", ms: 3000 },
+      CREATE,
+    ]);
+    // Premise: the click zoomed, and the pause outlasts its room.
+    expect(
+      scene.camera.map((c) => c.marker.actionId),
+      said(),
+    ).toContain(markerOf(1).actionId);
+    expect(BASE_REST_MS + 3000, said()).toBeGreaterThan(NEEDED_MS);
+    expect(beatOf(1).restMs, said()).toBe(BASE_REST_MS + 3000);
+  }, 120_000);
+
+  // Red if the camera's push-in stops waiting for the act before it on
+  // the rendered timeline (`actEnds` in the compositor's `solveCamera`).
+  it("starts a zoomed click's push-in after an earlier click's panel has opened, on the rendered timeline", async () => {
+    const { markerOf, segmentOf, out, said } = await run([
+      { do: "click", on: { text: "Open panel" } },
+      CREATE,
+    ]);
+    const open = markerOf(0);
+    const actEnd = open.actEndSourceTimeMs as number;
+    // Premise: the panel's slide outlived the click.
+    expect(actEnd - open.sourceTimeMs, said()).toBeGreaterThanOrEqual(500);
+    expect(segmentOf(1).departMs, said()).toBeGreaterThanOrEqual(out(actEnd));
+  }, 120_000);
+
+  // Red if a click that does not zoom is given room (`zooms` ignored in
+  // the walk's planned branch): its rest rises above the base. The second
+  // click says `zoom: false`: on the designed clock a click on the same
+  // button a base rest and an arrive later is 1000 ms on, which is
+  // `MIN_ZOOM_GAP_MS` exactly, so the gap rule alone zooms it.
+  it("plans the base rest before a click that will not zoom", async () => {
+    const { scene, markerOf, beatOf, said } = await run(
+      [
+        { do: "click", on: { text: "Open panel" } },
+        { do: "click", on: { text: "Open panel" }, zoom: false },
+      ],
+      8,
+    );
+    // Premise: the second click gets no zoom.
+    expect(
+      scene.camera.map((c) => c.marker.actionId),
+      said(),
+    ).not.toContain(markerOf(1).actionId);
+    expect(beatOf(1).restMs, said()).toBe(BASE_REST_MS);
+  }, 120_000);
+
+  // The approach scroll is motion between the planned rest and the
+  // journey; the rest still carries the room, so the camera has it from
+  // the act before. (R7's "room after the scroll" is not planned: see the
+  // report of 2026-11-13 Task 7.) Red as the typing case above.
+  it("plans a zoomed click's room when its target is scrolled to, and the render plays it", async () => {
+    const { scene, bundle, markerOf, out, said } = await run([
+      { do: "type", into: { stableId: "amount" }, text: "48" },
+      { do: "click", on: { text: "Below the fold" } },
+    ]);
+    const typed = markerOf(0);
+    const click = markerOf(1);
+    // Premise: the click is zoomed, and its target was scrolled into view
+    // with the scroll filmed between the typing and the click.
+    expect(
+      scene.camera.map((c) => c.marker.actionId),
+      said(),
+    ).toContain(click.actionId);
+    const rect = bundle.anchorRects.find((r) => r.actionId === click.actionId);
+    expect(rect?.rect.y ?? 0, said()).toBeLessThan(800);
+    const scroll = bundle.motionSpans
+      .filter(
+        (m) =>
+          m.startMs > (typed.actEndSourceTimeMs as number) &&
+          m.endMs <= click.sourceTimeMs,
+      )
+      .at(-1);
+    expect(scroll, said()).toBeDefined();
+    const scrollEnd = (scroll?.endMs ?? 0) - 250; // its last paint
+    const room =
+      out(click.sourceTimeMs) - out(typed.actEndSourceTimeMs as number);
+    // Reported, not asserted: the room left after the scroll's last paint.
+    console.info(
+      `executor-room scroll: room from the typing ${Math.round(room)} ms, after the scroll ${Math.round(out(click.sourceTimeMs) - out(scrollEnd))} ms (NEEDED_MS ${NEEDED_MS})`,
+    );
+    expect(room, said()).toBeGreaterThanOrEqual(NEEDED_MS);
+  }, 120_000);
+
+  // Red as the typing case above: the cursor makes no journey to the
+  // element it rests on, so the rest alone (and the arrive) is the room.
+  it("plans a zoomed click's room on the element the cursor rests on into its rest", async () => {
+    const { scene, bundle, markerOf, beatOf, said } = await run([
+      { do: "type", into: { stableId: "amount" }, text: "48" },
+      { do: "hover", on: { text: "Create invoice" } },
+      CREATE,
+    ]);
+    const hover = markerOf(1);
+    const click = markerOf(2);
+    // Premise: the click is zoomed, on the box the hover left the cursor on.
+    expect(
+      scene.camera.map((c) => c.marker.actionId),
+      said(),
+    ).toContain(click.actionId);
+    const rectOf = (id: string) =>
+      bundle.anchorRects.find((r) => r.actionId === id)?.rect;
+    expect(rectOf(click.actionId), said()).toEqual(rectOf(hover.actionId));
+    expect(beatOf(2).restMs, said()).toBeGreaterThanOrEqual(
+      NEEDED_MS - ARRIVE_MS - 1,
+    );
+  }, 120_000);
+
+  // Code review 2026-10-20 (R1), on the plan: the new page's paint is the
+  // act the camera waits for. Red if the navigation's act ends when the
+  // wait for the load begins (as before R1): the push-in would set off
+  // while the page is still fading in.
+  it("starts a zoomed click's push-in after a navigation's new page has painted, on the rendered timeline", async () => {
+    const { bundle, markerOf, segmentOf, out, said } = await run([
+      { do: "click", on: { text: "Go next" } },
+      { do: "waitForLoad" },
+      CREATE,
+    ]);
+    const click = markerOf(0);
+    const waited = markerOf(1);
+    // Premise: the new page went on painting after it loaded, and its
+    // screen waited that out.
+    const after =
+      bundle.markers.findIndex((m) => m.actionId === click.actionId) + 1;
+    const screen = bundle.pageScreens?.find((p) => p.after === after);
+    expect(screen?.unsettled, said()).toBeUndefined();
+    expect(screen?.waitedMs ?? 0, said()).toBeGreaterThanOrEqual(600);
+    expect(segmentOf(2).departMs, said()).toBeGreaterThanOrEqual(
+      out(waited.actEndSourceTimeMs as number),
+    );
+  }, 120_000);
 
   // The quiet wait before a zoomed click is a settle, which a plan keeps:
   // the act's end is measured, up to its ceiling.

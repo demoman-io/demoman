@@ -42,6 +42,64 @@ describe("applyCommand", () => {
   // it.
 });
 
+describe("a planned take's record survives the editor", () => {
+  // Spec 2026-11-13: a planned take carries `pacing` and each zoom's
+  // `arrives`, and the server saves what the editor hands it through the
+  // schema (`migrateToCurrent`), which keeps both. Red if a command
+  // rebuilds the document or a zoom field by field and leaves either out
+  // (e.g. `setZoomScale` writing `{ id, kind, marker, scale }`).
+  it("keeps pacing and each zoom's arrives through every kind of edit", () => {
+    const base = applyCommand(
+      readonlyScene(),
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-3", offsetMs: 0 },
+        target: { kind: "element", anchorId: "a-checkout" },
+        scale: 1.8,
+      },
+      ids(),
+    );
+    const pacing = {
+      beats: base.actions.map((a) => ({
+        beforeActionId: a.id,
+        restMs: 700,
+        arriveMs: 300,
+      })),
+      tailMs: 1000,
+    };
+    const planned = SceneDocumentSchema.parse({
+      ...base,
+      pacing,
+      camera: base.camera.map((c) => ({ ...c, arrives: "return" as const })),
+    });
+    // Premise: the take carries both, on a zoom the edits below touch.
+    expect(planned.pacing).toEqual(pacing);
+    const zoomId = planned.camera[0]?.id as string;
+    expect(planned.camera[0]?.arrives).toBe("return");
+    const edits = [
+      { kind: "rename", name: "Planned" },
+      { kind: "setZoomScale", id: zoomId, scale: 2.2 },
+      { kind: "setZoomTarget", id: zoomId, point: { x: 40, y: 50 } },
+      { kind: "setTrim", tail: { actionId: "act-3", offsetMs: 500 } },
+      { kind: "setGap", afterActionId: "act-1", durationMs: 900 },
+      { kind: "setMotion", patch: { smoothness: 0.5 } },
+      {
+        kind: "addMask",
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-3", sourceOffsetMs: 0 },
+      },
+    ] as const;
+    const next = ids();
+    let scene = planned;
+    for (const edit of edits) {
+      scene = applyCommand(scene, edit, next);
+      expect(scene.pacing, edit.kind).toEqual(pacing);
+      expect(scene.camera[0]?.arrives, edit.kind).toBe("return");
+    }
+  });
+});
+
 describe("action-track semantics", () => {
   // This used to author `scale: 1` rather than delete, because deleting handed
   // the beat straight back to the auto-camera that filled every click no
