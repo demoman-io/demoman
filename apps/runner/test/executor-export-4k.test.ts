@@ -38,6 +38,8 @@ beforeAll(async () => {
     headless: true,
     outDir: join(home, "out"),
     log: () => undefined,
+    // The 4K tier needs 3x stills; headless Linux would take 2x (DEM-75).
+    stillsDpr: 3,
   });
   takeId = await makeFixtureTake(executor, { home, url: app.url });
 }, RUN_MS);

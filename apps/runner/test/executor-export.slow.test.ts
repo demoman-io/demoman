@@ -139,8 +139,14 @@ describe("export, on the picture", () => {
       if (answer.outcome !== "saved" || answer.fileType === "stills") return;
       expect(answer.file.path).toBe(join(outDir, `${videoName}.mp4`));
       expect([answer.width, answer.height]).toEqual([1920, 1080]);
+      // What the keyframes back: 4K from 3x stills, 1440p from the 2x a
+      // headless run without a GPU takes (DEM-75). Read off the take.
+      const dpr = ((await library().getScene(takeId)) as SceneDocument).meta
+        .capture.dpr;
+      expect([2, 3], `stills dpr ${dpr}`).toContain(dpr);
+      const uncapped = dpr === 3 ? "3840x2160" : "2560x1440";
       expect(lines, "the cap says what it changed").toContainEqual(
-        expect.stringContaining("export capped at 1920x1080, not 3840x2160"),
+        expect.stringContaining(`export capped at 1920x1080, not ${uncapped}`),
       );
       expect(answer.summary).toMatch(/^Saved /);
       const read = await sampleMp4(await readFile(answer.file.path), {

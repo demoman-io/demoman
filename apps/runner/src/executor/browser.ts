@@ -297,6 +297,9 @@ export function createBrowserSession(options: {
   readDisplay?: () => Promise<Display | DisplayUnread>;
   /** The machine this records on; `process` unless a test stands in. */
   host?: { platform: string; arch: string };
+  /** Tests only (`ExecutorOptions.stillsDpr`): the stills' scale in place
+   *  of `stillsDprFor`'s. */
+  stillsDpr?: number;
 }): BrowserSession {
   const launchFn = options.launchFn ?? launch;
   const workWindow = options.workWindow ?? DEFAULT_WORK_WINDOW;
@@ -752,7 +755,8 @@ export function createBrowserSession(options: {
         ? await readScreen(page, options.log)
         : { error: screenUnknown },
     headless: options.headless,
-    stillsDpr: stillsDprFor(HEADLESS_GPU_ARGS, options.headless),
+    stillsDpr:
+      options.stillsDpr ?? stillsDprFor(HEADLESS_GPU_ARGS, options.headless),
     running: () => live !== null && !pageClosed && live.browser.isConnected(),
     version: () =>
       live?.browser.isConnected() ? live.browser.version() : null,

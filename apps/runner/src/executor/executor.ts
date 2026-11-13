@@ -429,6 +429,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   }
   const session = createBrowserSession({
     headless: options.headless,
+    ...(options.stillsDpr === undefined
+      ? {}
+      : { stillsDpr: options.stillsDpr }),
     ...(options.standInDisplay === true
       ? { readDisplay: () => readDisplay(options.env ?? process.env) }
       : {}),

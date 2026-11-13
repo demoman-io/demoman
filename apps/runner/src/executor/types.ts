@@ -63,6 +63,11 @@ export interface ExecutorOptions {
    *  render landscape in software at 1080p where the keyframes back 4K.
    *  Production never sets it; the keyframes decide. */
   mp4MaxTier?: RenderTarget;
+  /** Tests only: the scale a desktop run's stills are taken at, in place of
+   *  `stillsDprFor`'s, so a lane that is about the 4K tier records the
+   *  pixels it needs on a runner that would take 2x. Production never sets
+   *  it; the launch decides. */
+  stillsDpr?: number;
   /** Tests only: how `attach` runs gh. Production uses `defaultGhRun`, with
    *  `env`. */
   ghRun?: GhRun;
