@@ -748,3 +748,73 @@ describe("zoom edits are recorded for the script", () => {
     expect(back.scene.zoomsSkipped).toBeUndefined();
   });
 });
+
+describe("a zoom edit makes the renderer decide each arrival again", () => {
+  // A zoom's `arrives` is about the zoom before it, so these edits can make
+  // every stored one stale. Red if the command's kind leaves
+  // `ZOOM_SET_EDITS` in commands.ts (the line that drops `arrives`).
+  const planned = () => {
+    let n = 0;
+    const next = () => `z-${++n}`;
+    let scene = readonlyScene();
+    for (const actionId of ["act-1", "act-2", "act-3"]) {
+      scene = applyCommand(
+        scene,
+        {
+          kind: "addZoom",
+          marker: { actionId, offsetMs: 0 },
+          target: { kind: "point", x: 10, y: 10 },
+          scale: 1.8,
+        },
+        next,
+      );
+    }
+    return SceneDocumentSchema.parse({
+      ...scene,
+      camera: scene.camera.map((c) => ({ ...c, arrives: "pan" as const })),
+    });
+  };
+  const carries = (s: SceneDocument) => s.camera.map((c) => "arrives" in c);
+
+  it("the fixture's zooms carry arrives (the premise)", () => {
+    const scene = planned();
+    expect(scene.camera.length).toBe(3);
+    expect(carries(scene)).toEqual([true, true, true]);
+  });
+
+  it.each([
+    [
+      "addZoom",
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-1", offsetMs: 100 },
+        target: { kind: "point", x: 20, y: 20 },
+        scale: 2,
+      },
+    ],
+    [
+      "setZoomRange",
+      {
+        kind: "setZoomRange",
+        id: "z-2",
+        start: { actionId: "act-2", offsetMs: 200 },
+        end: null,
+      },
+    ],
+    ["removeZoom", { kind: "removeZoom", id: "z-2" }],
+  ] as const)("%s leaves no zoom carrying arrives", (_name, command) => {
+    const after = applyCommand(planned(), command, () => "z-new");
+    expect(after.camera.length).toBeGreaterThan(0);
+    expect(carries(after).every((has) => !has)).toBe(true);
+  });
+
+  it("a gap edit leaves arrives where it was", () => {
+    // Red if `setGap` joined `ZOOM_SET_EDITS`.
+    const after = applyCommand(
+      planned(),
+      { kind: "setGap", afterActionId: "act-1", durationMs: 900 },
+      () => "z-new",
+    );
+    expect(carries(after)).toEqual([true, true, true]);
+  });
+});

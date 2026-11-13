@@ -547,5 +547,24 @@ export function applyCommand(
   command: EditCommand,
   newId: IdSource,
 ): SceneDocument {
-  return SceneDocumentSchema.parse(reduce(scene, command, newId));
+  const next = reduce(scene, command, newId);
+  return SceneDocumentSchema.parse(
+    ZOOM_SET_EDITS.has(command.kind) ? decideCameraAgain(next) : next,
+  );
+}
+
+// A zoom's `arrives` is the decision about the zoom BEFORE it, so adding,
+// moving, re-timing or removing a zoom can make any of them stale. The
+// renderer follows a stored one, so drop them all and let it decide again.
+const ZOOM_SET_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
+  "addZoom",
+  "setZoomRange",
+  "removeZoom",
+]);
+
+function decideCameraAgain(scene: SceneDocument): SceneDocument {
+  return {
+    ...scene,
+    camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
+  };
 }

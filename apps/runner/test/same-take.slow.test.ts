@@ -318,11 +318,12 @@ let slow: Recording;
 
 // The hook (both recordings, the fast one's 1080p render) took 37.5 s
 // locally on Apple silicon, 2026-11-13, rounded up to 40 s; the seam check
-// 0.9 s (a probe browser per seam), rounded up to 2 s. CI is about 5x
-// slower (CLAUDE.md, `fff4505`; the ubuntu runner took 535 s for the old
-// file's two four-step recordings and two renders), so each gets 5x.
-const RECORD_BOTH_MS = 40_000 * 5;
-const DECODE_MS = 2_000 * 5;
+// 0.9 s (a probe browser per seam), rounded up to 2 s. CI is 6.5-7x slower,
+// not 5x: the ubuntu runner took 535 s for an old file's two four-step
+// recordings and two renders that ran 75-85 s locally (535/85 to 535/75).
+// A timeout in this shared hook fails every case in the file, so both get 7x.
+const RECORD_BOTH_MS = 40_000 * 7;
+const DECODE_MS = 2_000 * 7;
 
 beforeAll(async () => {
   fast = await record(0, true);
