@@ -3,7 +3,12 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FrameBundle } from "@demoman/compositor";
+import {
+  type FrameBundle,
+  planScene,
+  resolvePlan,
+  toOutputMs,
+} from "@demoman/compositor";
 import type { ExportAnswer } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -135,16 +140,30 @@ describe("a typed field and a far click, filmed unhurried", () => {
       const typed = marker(typeAction?.id);
       const click = marker(clickAction?.id);
       const facts = () =>
-        JSON.stringify({ markers: bundle.markers, camera: scene.camera });
+        JSON.stringify({
+          markers: bundle.markers,
+          camera: scene.camera,
+          pacing: scene.pacing,
+        });
       // Premises: the click is zoomed and the type recorded its act's end.
       expect(
         scene.camera.map((c) => c.marker.actionId),
         facts(),
       ).toContain(clickAction?.id);
       expect(typed?.actEndSourceTimeMs, facts()).toBeDefined();
-      const typeAt = typed?.sourceTimeMs as number;
-      const typedEnd = typed?.actEndSourceTimeMs as number;
-      const clickAt = click?.sourceTimeMs as number;
+      // A scripted run is planned (spec 2026-11-13): its film plays idle at
+      // planned lengths, so source and film time differ and every marker is
+      // read on film through the take's own timeline. Premise: the take
+      // carries the plan, and the plan has a beat before the click.
+      expect(
+        scene.pacing?.beats.map((b) => b.beforeActionId),
+        facts(),
+      ).toContain(clickAction?.id);
+      const timeline = resolvePlan(planScene(scene), bundle, scene).timeline;
+      const film = (sourceMs: number) => toOutputMs(timeline, sourceMs);
+      const typeAt = film(typed?.sourceTimeMs as number);
+      const typedEnd = film(typed?.actEndSourceTimeMs as number);
+      const clickAt = film(click?.sourceTimeMs as number);
 
       const out = await executor.request("export", {
         takeId,
@@ -166,14 +185,23 @@ describe("a typed field and a far click, filmed unhurried", () => {
         change: read.changes[i] ?? 0,
       }));
       const evidence = () =>
-        `${facts()} frames ${JSON.stringify(
+        `${facts()} film ${JSON.stringify({ typeAt, typedEnd, clickAt })} frames ${JSON.stringify(
           frames
             .filter((f) => f.ms > typeAt - 200 && f.ms < clickAt + 200)
             .map((f) => [Math.round(f.ms), Math.round(f.change * 100) / 100]),
         )}`;
 
-      // A continuous replay's film runs on the take's own clock: the
-      // timeline maps source to output one to one, so markers are film times.
+      // `typeAt`, `typedEnd` and `clickAt` are film times (above), read on a
+      // timeline built without the render's keyframe-diff hints. Premise:
+      // the film is that timeline's length, so the render played no hint
+      // the mapping does not know of.
+      const frameMs = 1000 / 30;
+      expect(
+        Math.abs(
+          (read.timesSec.at(-1) ?? 0) * 1000 - timeline.outputDurationMs,
+        ),
+        evidence(),
+      ).toBeLessThanOrEqual(2 * frameMs);
       // Premise: the typing shows on film as small changes inside its act.
       const typing = frames.filter(
         (f) => f.ms > typeAt && f.ms <= typedEnd + 50 && f.change > 0,
@@ -189,7 +217,6 @@ describe("a typed field and a far click, filmed unhurried", () => {
       expect(moving.length, evidence()).toBeGreaterThan(0);
 
       // The camera sets off only after the value is in and has settled.
-      const frameMs = 1000 / 30;
       expect(
         (moving[0] as { ms: number }).ms,
         evidence(),
@@ -249,8 +276,10 @@ describe("a typed field and a far click, filmed unhurried", () => {
       );
       // At its own speed: the push-in takes its full length (1300 ms at the
       // default smoothness), not a move squeezed into whatever room was
-      // left. Without the replay's wait the render can only start it late
-      // and fast (camera.ts' fallback); this is what tells the two apart.
+      // left. Without the plan's rest before the click played on film the
+      // render can only start it late and fast (camera.ts' fallback); this
+      // is what tells the two apart. Measured 2026-11-13: with the rest
+      // played for 0 (`plannedIdleOf`), this line goes red.
       const lastMove = moving.at(-1) as { ms: number };
       expect(
         lastMove.ms - (moving[0] as { ms: number }).ms,
