@@ -390,7 +390,10 @@ describe("one script recorded fast and slowed", () => {
   });
 
   // Result 1 turns green in Task 7: idle contributes nothing to the
-  // difference. Red today because the slowed take keeps its added idle.
+  // difference. Red today because the slowed take keeps its added idle: the
+  // assertion that fails is the first step's `Math.abs(startDiff -
+  // motionDiff) <= FRAME_MS` (step 1 starts ~1400 ms later slowed, with ~50 ms
+  // more motion before it).
   it.fails("idle contributes nothing to where each step starts", () => {
     for (const step of steps) {
       const startDiff = start(slow, step) - start(fast, step);
@@ -403,8 +406,13 @@ describe("one script recorded fast and slowed", () => {
     }
   });
 
-  // Result 2 turns green in Task 7: the same script gets the same camera.
-  it.fails("the two takes have the same camera", () => {
+  // Result 2: the same script gets the same camera. Skipped until Task 7,
+  // which turns it into a plain `it`: today the camera is decided from
+  // measured time, so two recordings may or may not agree (two fast
+  // recordings already differed on 2026-11-13), and an `it.fails` would go
+  // red on a run where they happen to. The shapes of both cameras are in
+  // the premise's reported output above.
+  it.skip("the two takes have the same camera", () => {
     expect(
       slow.scene.camera.map(zoomShape(slow)),
       `${fast.evidence()} ${slow.evidence()}`,
