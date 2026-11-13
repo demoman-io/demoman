@@ -5,8 +5,8 @@ import { authorSteps, bump, newestSiteEntry, preflight, shippedEntries, strays }
 
 // The real files, so a reworded version line fails here, not mid-release.
 // The site lives in internal/, which CI has no copy of: its version lines and
-// newest entry are copied here as the page writes them (the hero's class line,
-// the Premise drawing's two versions, an entry whose <time> carries a class),
+// /changelog's newest entry are copied here as the pages write them (the hero's
+// class line, the Premise drawing's two versions, an entry whose <time> carries a class),
 // and bump still names the real file if the page stops matching.
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const current = JSON.parse(read("apps/cli/package.json")).version;
@@ -19,8 +19,8 @@ const texts = {
   shipped: read("apps/cli/test/changelog-shipped.json"),
   site: `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
 <svg class="el" id="sync-code" viewBox="0 0 80 124"><text class="ver" x="40" y="18" text-anchor="middle">v${current}</text></svg>
-<svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>
-<article class="entry" data-version="${current}">
+<svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>`,
+  log: `<article class="entry" data-version="${current}">
   <p class="v label">${current}</p>
   <time class="label" datetime="2026-11-07">Nov 7, 2026</time>
   <h3>A release</h3>
@@ -68,7 +68,7 @@ test("bump refuses a page without the class line, naming the file", () => {
 });
 
 test("preflight reads the page's newest entry", () => {
-  assert.deepEqual(newestSiteEntry(texts.site), { version: current, datetime: "2026-11-07" });
+  assert.deepEqual(newestSiteEntry(texts.log), { version: current, datetime: "2026-11-07" });
 });
 
 test("bump names the file whose version line is gone", () => {
@@ -80,7 +80,7 @@ test("preflight asks for both changelog entries", () => {
   const missing = preflight("9.9.9", texts);
   assert.equal(missing.length, 2);
   assert.match(missing[0], /changelog\.mdx has no <Update label="9\.9\.9">/);
-  assert.match(missing[1], /index\.html's newest changelog entry is data-version="[^"]+", not "9\.9\.9"/);
+  assert.match(missing[1], /changelog\.html's newest changelog entry is data-version="[^"]+", not "9\.9\.9"/);
 });
 
 test("strays are paths outside what the package ships", () => {
