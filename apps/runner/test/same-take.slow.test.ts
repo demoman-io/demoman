@@ -4,12 +4,14 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  cursorMotionSpans,
   type FrameBundle,
   planScene,
   resolvePlan,
   sourceDurationOf,
   toOutputMs,
 } from "@demoman/compositor";
+import { TYPE_KEY_MS, TYPE_LEAD_MS } from "@demoman/replay-engine";
 import type { BrandKitsRead } from "@demoman/run-core";
 import { frameOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -94,7 +96,92 @@ interface Recording {
   timeline: ReturnType<typeof resolvePlan>["timeline"];
   /** The decoded film's last frame, in ms. */
   mp4Ms: number;
+  /** The run report's own `frames` block, as the report words it. */
+  frames: unknown;
   evidence: () => string;
+}
+
+interface Span {
+  startMs: number;
+  endMs: number;
+}
+const mergeSpans = (spans: Span[]): Span[] => {
+  const out: Span[] = [];
+  for (const s of [...spans]
+    .filter((x) => x.endMs > x.startMs)
+    .sort((a, b) => a.startMs - b.startMs)) {
+    const last = out.at(-1);
+    if (last && s.startMs <= last.endMs) {
+      last.endMs = Math.max(last.endMs, s.endMs);
+    } else out.push({ ...s });
+  }
+  return out;
+};
+const clip = (spans: Span[], from: number, to: number): Span[] =>
+  mergeSpans(
+    spans.map((s) => ({
+      startMs: Math.max(s.startMs, from),
+      endMs: Math.min(s.endMs, to),
+    })),
+  );
+/** `a` with `b`'s stretches taken out. */
+const minus = (a: Span[], b: Span[]): Span[] =>
+  mergeSpans(a).flatMap((s) => {
+    let parts = [s];
+    for (const cut of mergeSpans(b)) {
+      parts = parts.flatMap((p) =>
+        cut.endMs <= p.startMs || cut.startMs >= p.endMs
+          ? [p]
+          : [
+              { startMs: p.startMs, endMs: Math.max(p.startMs, cut.startMs) },
+              { startMs: Math.min(p.endMs, cut.endMs), endMs: p.endMs },
+            ],
+      );
+    }
+    return parts;
+  });
+const total = (spans: Span[]) =>
+  Math.round(mergeSpans(spans).reduce((n, s) => n + s.endMs - s.startMs, 0));
+
+/**
+ * Where a take's motion came from, per stretch between steps (source ms,
+ * which is output ms: motion plays at rate 1). `typing` is the page's motion
+ * between the type step's marker and its act end; `journey` is the cursor's
+ * travel (what resolvePlan takes as hints) outside that; `page` is the rest
+ * of the bundle's motion spans (the app's own response).
+ */
+function motionByCause(r: Recording) {
+  const typed = markerOf(r, 1);
+  const typing: Span[] = clip(
+    r.bundle.motionSpans,
+    typed.sourceTimeMs,
+    typed.actEndSourceTimeMs ?? typed.sourceTimeMs,
+  );
+  const travel = minus(cursorMotionSpans(r.bundle.cursorSamples), typing);
+  const page = minus(
+    minus(
+      r.bundle.motionSpans.map((s) => ({ startMs: s.startMs, endMs: s.endMs })),
+      typing,
+    ),
+    travel,
+  );
+  const marks = steps.map((s) => markerOf(r, s).sourceTimeMs);
+  const windows: [string, number, number][] = [
+    ["opening", 0, marks[0] as number],
+    ...steps
+      .slice(1)
+      .map((s, i): [string, number, number] => [
+        `step ${s - 1} to ${s}`,
+        marks[i] as number,
+        marks[i + 1] as number,
+      ]),
+  ];
+  return windows.map(([window, from, to]) => ({
+    window,
+    journey: total(clip(travel, from, to)),
+    typing: total(clip(typing, from, to)),
+    page: total(clip(page, from, to)),
+  }));
 }
 
 async function record(lagMs: number): Promise<Recording> {
@@ -159,6 +246,7 @@ async function record(lagMs: number): Promise<Recording> {
         bundle,
         timeline,
         mp4Ms: (timesSec.at(-1) ?? 0) * 1000,
+        frames: (report as { frames?: unknown }).frames,
         evidence: () =>
           JSON.stringify({
             markers: bundle.markers,
@@ -257,6 +345,41 @@ describe("one script recorded fast and slowed", () => {
         "motion before slow": Math.round(motionMsBefore(slow, step)),
       })),
     );
+    // Reported, not asserted: each stretch's motion by cause. The designed
+    // length of the typing is chars x TYPE_KEY_MS + TYPE_LEAD_MS; a journey's
+    // designed length is not persisted (the scene and bundle carry no cursor
+    // segment), so it is null here.
+    const typedText = "4800";
+    console.log(
+      `typing designed ${typedText.length * TYPE_KEY_MS + TYPE_LEAD_MS} ms; journey designed: not recorded in the scene or bundle`,
+    );
+    const causeFast = motionByCause(fast);
+    const causeSlow = motionByCause(slow);
+    console.table(
+      causeFast.map((f, i) => {
+        const s = causeSlow[i] as (typeof causeFast)[number];
+        return {
+          window: f.window,
+          "journey fast": f.journey,
+          "journey slow": s.journey,
+          "typing fast": f.typing,
+          "typing slow": s.typing,
+          "page fast": f.page,
+          "page slow": s.page,
+        };
+      }),
+    );
+    const screencast = (r: Recording) => ({
+      spans: r.bundle.motionSpans.length,
+      spanMs: total(
+        r.bundle.motionSpans.map((s) => ({
+          startMs: s.startMs,
+          endMs: s.endMs,
+        })),
+      ),
+      frames: JSON.stringify(r.frames),
+    });
+    console.table({ fast: screencast(fast), slow: screencast(slow) });
     console.log(
       JSON.stringify({
         fast: fast.scene.camera.map(zoomShape(fast)),
