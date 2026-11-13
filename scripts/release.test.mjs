@@ -23,7 +23,7 @@ const texts = {
   log: `<article class="entry" data-version="${current}">
   <p class="v label">${current}</p>
   <time class="label" datetime="2026-11-07">Nov 7, 2026</time>
-  <h3>A release</h3>
+  <h2>A release</h2>
   <p>What changed.</p>
 </article>`,
 };
