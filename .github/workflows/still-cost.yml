@@ -1,0 +1,31 @@
+name: Still cost
+
+# What one of the walk's stills costs at 1x, 2x and 3x in the browser the CLI
+# records with, on runners without a GPU (apps/runner/compare/still-cost.mjs):
+# the measurement behind `stillsDprFor` in apps/runner/src/launch.ts
+# (DEM-75). Manual only.
+
+on:
+  workflow_dispatch:
+  # workflow_dispatch reaches only workflows already on main.
+  push:
+    branches: ["perf/**"]
+    paths:
+      - ".github/workflows/still-cost.yml"
+      - "apps/runner/compare/still-cost.mjs"
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - name: A still at each scale, with and without a blurred overlay
+        run: node apps/runner/compare/still-cost.mjs --repo . --rounds 3
