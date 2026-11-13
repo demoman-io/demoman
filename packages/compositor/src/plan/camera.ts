@@ -319,6 +319,9 @@ interface Seed extends CameraKey {
    * `leadInMs`. 0 on the opening key, which is not a zoom and is never read.
    */
   actionMs: number;
+  /** The zoom's step's marker in source time, where the author's removed
+   *  pieces are resolved (`arrivesOf`). 0 on the opening key. */
+  sourceMs: number;
   /**
    * The move's length before any earlier act shortened it (`actEnds` in
    * `solveCamera`). Where the previous zoom must be back at full frame is
@@ -375,8 +378,9 @@ export function solveCamera(
   holds: readonly { startMs: number; endMs: number }[] = [],
   /**
    * The steps an authored gap follows (`edits.gaps[].afterActionId`). A
-   * recorded `arrives` is dropped across one: the author moved the beats the
-   * recording decided it on (`arrivesOf`).
+   * recorded `arrives` is dropped across one, as across any of the
+   * timeline's `cuts`: the author moved the beats the recording decided it
+   * on (`arrivesOf`).
    */
   gapAfterActionIds: readonly string[] = [],
 ): { keys: CameraKey[]; segments: CameraSegment[] } {
@@ -385,6 +389,18 @@ export function solveCamera(
     const at = markerSourceMs.get(id);
     return at === undefined ? [] : [toOutputMs(timeline, at)];
   });
+  /**
+   * Whether the author moved the beats between two zooms: an authored gap
+   * after a step in `[before, seed)`, or a removed piece reaching into
+   * `(before, seed)` in source time (one that removes `before`'s own step
+   * included). Removed pieces are compared in source time: in output time a
+   * cut that ends on `seed`'s marker collapses onto it.
+   */
+  const edited = (before: Seed, seed: Seed): boolean =>
+    gaps.some((ms) => ms >= before.actionMs && ms < seed.actionMs) ||
+    timeline.cuts.some(
+      (cut) => cut.srcEndMs > before.sourceMs && cut.srcStartMs < seed.sourceMs,
+    );
   const neutral: Vec = { x: viewport.width / 2, y: viewport.height / 2 };
   const seeds: Seed[] = [];
   /** Each seed's latest earlier act end, in output ms; settled below. */
@@ -451,6 +467,7 @@ export function solveCamera(
             }
           : null,
       actionMs,
+      sourceMs,
       plannedTransitionMs: timings.zoomInMs,
     };
     seeds.push(seed);
@@ -468,7 +485,7 @@ export function solveCamera(
     const before = seeds[i - 1];
     const pans =
       before !== undefined &&
-      arrivesOf(seed, before, holds, gaps, timings) === "pan";
+      arrivesOf(seed, before, holds, edited, timings) === "pan";
     const notBeforeMs =
       (actEndOf.get(seed) ?? Number.NEGATIVE_INFINITY) +
       (pans ? 0 : CAMERA_DEFAULTS.actSettleMs);
@@ -497,6 +514,7 @@ export function solveCamera(
         endUnplaced: false,
         fitted: null,
         actionMs: 0,
+        sourceMs: 0,
         plannedTransitionMs: 0,
       },
       ...seeds,
@@ -504,7 +522,7 @@ export function solveCamera(
     timeline.outputDurationMs,
     timings,
     holds,
-    gaps,
+    edited,
   );
 }
 
@@ -650,20 +668,19 @@ export function returnsBetween(
 /**
  * Whether the camera pans or returns on its way to `seed` from `before`: the
  * one place both `solveCamera` and `insertNeutralKeys` ask. The recording's
- * own answer (`seed.arrives`) is read when it has one, unless an authored gap
- * (`gaps`: output ms of the step it follows) sits in `[before.actionMs,
- * seed.actionMs)`: the author moved the beats it was decided on. Otherwise
- * `returnsBetween` asks, as it did before takes carried the record.
+ * own answer (`seed.arrives`) is read when it has one, unless the author
+ * moved the beats it was decided on between the two (`edited`: an authored
+ * gap or a removed piece, `solveCamera`'s). Otherwise `returnsBetween` asks,
+ * as it did before takes carried the record.
  */
 function arrivesOf(
   seed: Seed,
   before: Seed,
   holds: readonly { startMs: number; endMs: number }[],
-  gaps: readonly number[],
+  edited: (before: Seed, seed: Seed) => boolean,
   timings: Pick<MotionTimings, "zoomInMs" | "zoomOutMs">,
 ): "pan" | "return" {
-  const edited = gaps.some((ms) => ms >= before.actionMs && ms < seed.actionMs);
-  if (seed.arrives !== null && !edited) return seed.arrives;
+  if (seed.arrives !== null && !edited(before, seed)) return seed.arrives;
   return returnsBetween(
     heldUntilOf(before, seed.actionMs, holds),
     seed.outputTimeMs,
@@ -710,7 +727,7 @@ function insertNeutralKeys(
   outputDurationMs: number,
   timings: MotionTimings,
   holds: readonly { startMs: number; endMs: number }[] = [],
-  gaps: readonly number[] = [],
+  edited: (before: Seed, seed: Seed) => boolean = () => false,
 ): { keys: CameraKey[]; segments: CameraSegment[] } {
   const { neutral } = CAMERA_DEFAULTS;
   const { zoomOutMs } = timings;
@@ -810,7 +827,7 @@ function insertNeutralKeys(
     // the opening key is a zoom, stamped `zoomInMs` by `solveCamera`.
     const latestMs =
       next.outputTimeMs - next.plannedTransitionMs - neutral.minPlateauMs;
-    if (arrivesOf(next, seed, holds, gaps, timings) === "pan") {
+    if (arrivesOf(next, seed, holds, edited, timings) === "pan") {
       // No room to return: the camera pans straight to the next beat. That
       // pan is the next key's move, and it used to keep the push-in's
       // `zoomInMs` — 1300ms at the default smoothness — so on two clicks a

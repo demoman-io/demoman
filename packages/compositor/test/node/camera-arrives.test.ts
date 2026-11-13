@@ -115,6 +115,75 @@ describe("a zoom that records how the camera arrives", () => {
   });
 });
 
+/** `timeline` with the source stretch `(startMs, endMs]` removed, as
+ *  `buildTimeline` resolves an author's removed piece. */
+const cutOut = (startMs: number, endMs: number): Timeline => ({
+  ...timeline,
+  segments: [
+    {
+      outStartMs: 0,
+      outEndMs: startMs,
+      srcStartMs: 0,
+      srcEndMs: startMs,
+      kind: "motion",
+    },
+    {
+      outStartMs: startMs,
+      outEndMs: 30_000 - (endMs - startMs),
+      srcStartMs: endMs,
+      srcEndMs: 30_000,
+      kind: "motion",
+    },
+  ],
+  outputDurationMs: 30_000 - (endMs - startMs),
+  cuts: [
+    { ids: ["piece"], srcStartMs: startMs, srcEndMs: endMs, trailing: false },
+  ],
+});
+
+const solveCut = (cut: Timeline, arrives: "pan" | "return" | undefined) =>
+  solveCamera(
+    [zoomOn("z1", "first"), zoomOn("z2", "second", arrives)],
+    rectOf,
+    cut,
+    new Map([
+      ["first", 1000],
+      ["second", RETURN_AT],
+    ]),
+    viewport,
+  );
+
+describe("a zoom with a removed piece before it", () => {
+  // Red when `solveCamera`'s `edited` drops its removed-piece test
+  // (`timeline.cuts.some(...)`): the recorded pan would stand across a
+  // piece the author removed, which moved the beats it was decided on.
+  it("decides a recorded pan again when a removed piece lies between the two zooms", () => {
+    // Between the two, and over the earlier zoom's own step.
+    for (const [start, end] of [
+      [3_000, 5_000],
+      [900, 1_100],
+    ] as const) {
+      const cut = cutOut(start, end);
+      // Premise: the gap left after the cut is still on the return side of
+      // the clock, so the record and the clock disagree.
+      expect(clockReturns(RETURN_AT - (end - start))).toBe(true);
+      expect(scales(solveCut(timeline, "pan"))).toEqual(PANNED);
+      expect(scales(solveCut(cut, "pan"))).toEqual(RETURNED);
+    }
+  });
+
+  // Red when the overlap test loses its upper bound
+  // (`cut.srcStartMs < seed.sourceMs`): a piece removed after the later
+  // zoom does not touch this pair.
+  it("keeps the record when the removed piece follows the later zoom", () => {
+    const cut = cutOut(RETURN_AT + 1_000, RETURN_AT + 3_000);
+    // Premise: there is a cut, and the clock would return.
+    expect(cut.cuts).toHaveLength(1);
+    expect(clockReturns(RETURN_AT)).toBe(true);
+    expect(scales(solveCut(cut, "pan"))).toEqual(PANNED);
+  });
+});
+
 describe("a zoom with no record", () => {
   // Red when the fallback stops calling `returnsBetween` with the pair's own
   // numbers. Keys captured from the code before `arrivesOf` existed.
