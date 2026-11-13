@@ -1,0 +1,55 @@
+import {
+  SETTLE_MS,
+  TAKE_TAIL_MS,
+  TYPE_LEAD_MS,
+  typeGapMs,
+  typeKeysOf,
+} from "@demoman/replay-engine";
+import type { SceneAction } from "@demoman/scene-schema";
+
+// The designed clock: every number here comes from constants and the script,
+// never from a measurement, so the same script gets the same pauses on any
+// machine. No I/O, no clock.
+
+/** Dead air before a step's journey. Provisional: a later task replaces it from measurement. */
+export const BASE_REST_MS = 700;
+/** Dead air before the first step's journey. Provisional, as `BASE_REST_MS`. */
+export const OPENING_REST_MS = 800;
+/** Dead air after the cursor arrives. */
+export const ARRIVE_MS = SETTLE_MS;
+
+/**
+ * Dead air before a step's journey. `roomMs` is what the camera needs from
+ * the last act's designed end to this click, 0 when it does not zoom or pans.
+ */
+export function restBefore(i: {
+  first: boolean;
+  pauseMs: number;
+  roomMs: number;
+  journeyMs: number;
+}): number {
+  return Math.max(
+    (i.first ? OPENING_REST_MS : BASE_REST_MS) + i.pauseMs,
+    i.roomMs - i.journeyMs - ARRIVE_MS,
+  );
+}
+
+/**
+ * A step's own designed length: typing is the type verb's own schedule (the
+ * lead, then a gap between keys), every other act is 0. A type with no text
+ * (redacted) is the lead alone.
+ */
+export function actMs(action: SceneAction): number {
+  if (action.kind !== "type") return 0;
+  const n = typeKeysOf(action.text ?? "").length;
+  return TYPE_LEAD_MS + Math.max(0, n - 1) * typeGapMs(n);
+}
+
+/** How long the take runs on after its last act. */
+export function tailMs(i: {
+  zoomSettleMs: number | null;
+  trimEndMs: number | null;
+}): number {
+  const z = i.zoomSettleMs ?? 0;
+  return Math.max(TAKE_TAIL_MS, z, z + (i.trimEndMs ?? 0));
+}

@@ -111,9 +111,12 @@ export {
   STILL_DRAIN_MS,
   STORAGE_BUDGET_DEFAULT_BYTES,
   SWEEP_GATE_TIMEOUT_MS,
+  TAKE_TAIL_MS,
   TYPE_KEY_MS,
   TYPE_LEAD_MS,
   TYPE_MAX_MS,
+  typeGapMs,
+  typeKeysOf,
   WAIT_TIMEOUT_MS, // test-only, see header
 } from "./constants.js";
 export {

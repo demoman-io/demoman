@@ -63,9 +63,9 @@ import {
   STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
-  TYPE_KEY_MS,
   TYPE_LEAD_MS,
-  TYPE_MAX_MS,
+  typeGapMs,
+  typeKeysOf,
   WAIT_POLL_MS,
   WAIT_TIMEOUT_MS,
 } from "./constants.js";
@@ -428,15 +428,23 @@ export interface WalkConfig {
  */
 export interface RoomPolicy {
   /**
-   * Source ms the camera needs from the latest act's end to a zoomed
+   * Designed ms the camera needs from the latest act's end to a zoomed
    * click's marker: the settle, the push-in and the lead-in — or none for a
-   * click the camera pans to from the zoom before it (spec 2026-10-22).
+   * click the camera pans to from the zoom before it (spec 2026-10-22):
+   * 0 exactly when `arrives` says "pan".
    * `heldUntilMs` is what that zoom holds until as the camera counts it:
    * a zoomed click's marker plus `leadInMs`, a zoomed drag's release; null
    * before the first zoom. `clickMs` is this click's marker as it will land
    * with nothing added.
    */
   neededMs(gap: { heldUntilMs: number | null; clickMs: number }): number;
+  /** How the camera arrives at a click: "pan" from the zoom before it, or
+   *  "return" through full frame ("return" when `heldUntilMs` is null).
+   *  `gap` as for `neededMs`, in designed ms. */
+  arrives(gap: {
+    heldUntilMs: number | null;
+    clickMs: number;
+  }): "pan" | "return";
   /** Whether the camera will zoom to this click. Asked once per click and
    *  per drag (its `rect` the box round both ends), in order, with its
    *  marker time as it will be with all added room taken out. Keeps its own
@@ -449,7 +457,7 @@ export interface RoomPolicy {
     scale: number;
   }): boolean;
   /**
-   * Source ms by which the camera has pulled out of the take's last zoom and
+   * Designed ms by which the camera has pulled out of the take's last zoom and
    * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
    * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
    * on until then, so the decision is recorded in its frames.
@@ -3624,14 +3632,8 @@ async function typeKeys(
   cdp: CdpSession,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
-  const keys = Array.from(
-    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text),
-    (s) => s.segment,
-  );
-  const gap = Math.min(
-    TYPE_KEY_MS,
-    Math.floor(TYPE_MAX_MS / Math.max(1, keys.length - 1)),
-  );
+  const keys = typeKeysOf(text);
+  const gap = typeGapMs(keys.length);
   // An empty value still goes in, as it always has: over an input's
   // selection it is what empties the field.
   if (keys.length === 0) {

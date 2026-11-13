@@ -146,6 +146,7 @@ async function run(
     viewport: { width: 1280, height: 800 },
     startingBranding: BRANDING_DEFAULTS,
     roomFor: () => ({
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: () => 0,
       settledAfterMs: (heldUntil) =>
         heldUntil + (opts.pullOutMs ?? PULL_OUT_MS),

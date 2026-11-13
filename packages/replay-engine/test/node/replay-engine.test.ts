@@ -2528,6 +2528,7 @@ describe("continuous recording", () => {
     function endingPolicy(zooms: boolean) {
       const asked: number[] = [];
       const room: RoomPolicy = {
+        arrives: () => "return", // not asked until the walk reads it
         neededMs: () => 0,
         zooms: () => zooms,
         settledAfterMs: (heldUntilMs) => {
@@ -3904,6 +3905,7 @@ describe("a drag, asked of the room policy", () => {
     const asked: { actionId: string; rect: unknown }[] = [];
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: () => 0,
       zooms: ({ actionId, rect }) => {
         asked.push({ actionId, rect });
@@ -3964,6 +3966,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -4014,6 +4017,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -4041,6 +4045,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       // Answers as the real policy would for a run this tight: a pan.
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: (gap) => {
         asked.push(gap);
         return gap.heldUntilMs === null ? 2050 : 0;
@@ -4079,6 +4084,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
+      arrives: () => "return", // not asked until the walk reads it
       neededMs: (gap) => {
         asked.push(gap);
         return 0;

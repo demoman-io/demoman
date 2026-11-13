@@ -22,6 +22,23 @@ export const TYPE_LEAD_MS = 250;
  * Under `SPAN_MAX_MS`, so a sampled take's verb span holds all of it.
  */
 export const TYPE_MAX_MS = 2500;
+/**
+ * The keys of a `type`'s text: graphemes, not code units. One definition for
+ * the verb that types them and the designed clock that counts them.
+ */
+export function typeKeysOf(text: string): string[] {
+  return Array.from(
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text),
+    (s) => s.segment,
+  );
+}
+/** The gap between two keys when `keyCount` of them are typed. */
+export function typeGapMs(keyCount: number): number {
+  return Math.min(
+    TYPE_KEY_MS,
+    Math.floor(TYPE_MAX_MS / Math.max(1, keyCount - 1)),
+  );
+}
 /** No screencast frame for this long ends a motion span. */
 export const SPAN_QUIET_MS = 250;
 /**

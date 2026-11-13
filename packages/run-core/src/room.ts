@@ -43,16 +43,19 @@ export function createRoomPolicy(
     CAMERA_DEFAULTS.actSettleMs +
     timings.zoomInMs +
     Math.abs(CAMERA_DEFAULTS.leadInMs);
+  const arrives: RoomPolicy["arrives"] = ({ heldUntilMs, clickMs }) =>
+    heldUntilMs !== null &&
+    !returnsBetween(
+      heldUntilMs,
+      clickMs + CAMERA_DEFAULTS.leadInMs + PAN_MARGIN_MS,
+      timings,
+    )
+      ? "pan"
+      : "return";
   return {
-    neededMs: ({ heldUntilMs, clickMs }) =>
-      heldUntilMs !== null &&
-      !returnsBetween(
-        heldUntilMs,
-        clickMs + CAMERA_DEFAULTS.leadInMs + PAN_MARGIN_MS,
-        timings,
-      )
-        ? 0
-        : pushIn,
+    arrives,
+    // Defined by `arrives`, so 0 exactly when the camera pans.
+    neededMs: (gap) => (arrives(gap) === "pan" ? 0 : pushIn),
     // The camera's own landing, plus a settle so the film ends still.
     settledAfterMs: (heldUntilMs) =>
       pullOutLandsAt(heldUntilMs, timings) + SETTLE_MS,
