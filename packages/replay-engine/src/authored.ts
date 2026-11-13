@@ -682,19 +682,21 @@ export function createAuthoredRun(
     if (timing !== undefined) record.timing = timing;
   };
 
+  // The pauses slept since the last step yielded, handed to the next
+  // (`WalkStep.pauseMs`): the beat plan adds them to its rest, or, with no
+  // step after them, to its tail (`WalkSource.closingPauseMs`).
+  let paused = 0;
+  const pauseMs = (): number => {
+    const ms = paused;
+    paused = 0;
+    return ms;
+  };
   const source: WalkSource = {
     onFinished: (actionId, timing) => {
       timings.set(actionId, timing);
     },
+    closingPauseMs: () => paused,
     async *steps(): AsyncGenerator<WalkStep> {
-      // The pauses slept since the last step yielded, handed to the next
-      // (`WalkStep.pauseMs`): the beat plan adds them to its rest.
-      let paused = 0;
-      const pauseMs = (): number => {
-        const ms = paused;
-        paused = 0;
-        return ms;
-      };
       for (const [index, step] of script.steps.entries()) {
         if (step.do === "pause") {
           // The clock moves and nothing enters the log. A duration, not a beat.
@@ -1503,10 +1505,11 @@ export function cameraInputs(
   }[],
   transforms: readonly ViewportTransform[],
   /**
-   * What the walk decided each click's zoom on (`RoomPolicy.zooms`): its
-   * predicted un-waited time and the page zoom it read. Where one exists,
-   * the take decides on exactly that, so it cannot disagree with the walk
-   * near `MIN_ZOOM_GAP_MS` (code review 2026-10-20, R6).
+   * What the walk decided each click's zoom on (`ReplayResult.decided`):
+   * its time and the page zoom it read. An un-waited time is used as the
+   * action's stamp, so the take cannot disagree with the walk near
+   * `MIN_ZOOM_GAP_MS` (code review 2026-10-20, R6); a designed time is on
+   * another clock and is not. The scale is used either way.
    */
   decided: ReadonlyMap<string, ZoomDecision> = new Map(),
 ): { actions: SceneAction[]; scaleAt: (action: SceneAction) => number } {

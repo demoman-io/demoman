@@ -90,23 +90,61 @@ describe("actMs", () => {
 });
 
 describe("tailMs", () => {
+  const NONE = { trimAfterAction: false, pauseMs: 0 };
   // Red if TAKE_TAIL_MS leaves the max.
   it("is the take tail when nothing zooms", () => {
-    expect(tailMs({ zoomSettleMs: null, trimEndMs: null })).toBe(TAKE_TAIL_MS);
+    expect(tailMs({ zoomSettleMs: null, trimEndMs: null, ...NONE })).toBe(
+      TAKE_TAIL_MS,
+    );
   });
 
   // Red if the zoom settle is not in the max.
   it("waits for the zoom to settle when that is later", () => {
     const zoomSettleMs = TAKE_TAIL_MS + 500;
-    expect(tailMs({ zoomSettleMs, trimEndMs: null })).toBe(zoomSettleMs);
+    expect(tailMs({ zoomSettleMs, trimEndMs: null, ...NONE })).toBe(
+      zoomSettleMs,
+    );
   });
 
   // Red if the trim is not added after the settle.
   it("adds the trimmed end after the settle", () => {
-    expect(tailMs({ zoomSettleMs: 400, trimEndMs: 900 })).toBe(
+    expect(tailMs({ zoomSettleMs: 400, trimEndMs: 900, ...NONE })).toBe(
       Math.max(TAKE_TAIL_MS, 1300),
     );
-    expect(tailMs({ zoomSettleMs: 2000, trimEndMs: 900 })).toBe(2900);
+    expect(tailMs({ zoomSettleMs: 2000, trimEndMs: 900, ...NONE })).toBe(2900);
+  });
+
+  // Red if the trim is counted from the settle whatever `after` says
+  // (`(i.trimAfterAction ? 0 : z)` back to `z`): 2900 and 2300 instead.
+  it("counts a trim after the action from the act, not the settle", () => {
+    expect(
+      tailMs({
+        zoomSettleMs: 2000,
+        trimEndMs: 900,
+        trimAfterAction: true,
+        pauseMs: 0,
+      }),
+    ).toBe(2000);
+    expect(
+      tailMs({
+        zoomSettleMs: 400,
+        trimEndMs: 1900,
+        trimAfterAction: true,
+        pauseMs: 0,
+      }),
+    ).toBe(1900);
+  });
+
+  // Red if `pauseMs` leaves the take tail's term.
+  it("adds a closing pause to the take tail", () => {
+    expect(
+      tailMs({
+        zoomSettleMs: null,
+        trimEndMs: null,
+        trimAfterAction: false,
+        pauseMs: 2000,
+      }),
+    ).toBe(TAKE_TAIL_MS + 2000);
   });
 });
 

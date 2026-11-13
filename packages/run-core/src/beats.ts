@@ -45,11 +45,22 @@ export function actMs(action: SceneAction): number {
   return TYPE_LEAD_MS + Math.max(0, n - 1) * typeGapMs(n);
 }
 
-/** How long the take runs on after its last act. */
+/**
+ * How long the take runs on after its last act. A closing `pause` is added
+ * to the take tail, as a pause before a step is to the base rest. The end
+ * trim counts from the zoom's settle, or from the act when it says
+ * `after: "action"` (`trimAfterAction`).
+ */
 export function tailMs(i: {
   zoomSettleMs: number | null;
   trimEndMs: number | null;
+  trimAfterAction: boolean;
+  pauseMs: number;
 }): number {
   const z = i.zoomSettleMs ?? 0;
-  return Math.max(TAKE_TAIL_MS, z, z + (i.trimEndMs ?? 0));
+  return Math.max(
+    TAKE_TAIL_MS + i.pauseMs,
+    z,
+    (i.trimAfterAction ? 0 : z) + (i.trimEndMs ?? 0),
+  );
 }

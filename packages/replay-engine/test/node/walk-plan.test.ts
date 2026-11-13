@@ -14,7 +14,12 @@ import type {
   PageAgent,
   RoomPolicy,
 } from "../../src/index.js";
-import { runAuthored, STILL_DRAIN_MS } from "../../src/index.js";
+import {
+  runAuthored,
+  SETTLE_MS,
+  STILL_DRAIN_MS,
+  TAKE_TAIL_MS,
+} from "../../src/index.js";
 import type { BeatRules } from "../../src/walk.js";
 import { createCdpFake, fakeScreenshotBase64 } from "../helpers/cdp-fake";
 import { createMemoryFrameStore } from "../helpers/frame-store";
@@ -46,8 +51,12 @@ const RULES: BeatRules = {
   restBefore,
   actMs: (a: SceneAction) =>
     a.kind === "type" ? 250 + 100 * ((a.text ?? "").length - 1) : 0,
-  tailMs: ({ zoomSettleMs, trimEndMs }) =>
-    Math.max(1000, zoomSettleMs ?? 0, (zoomSettleMs ?? 0) + (trimEndMs ?? 0)),
+  tailMs: ({ zoomSettleMs, trimEndMs, trimAfterAction, pauseMs }) =>
+    Math.max(
+      TAKE_TAIL_MS + pauseMs,
+      zoomSettleMs ?? 0,
+      (trimAfterAction ? 0 : (zoomSettleMs ?? 0)) + (trimEndMs ?? 0),
+    ),
   arriveMs: ARRIVE,
 };
 
@@ -316,8 +325,11 @@ describe("the walk plans its pauses", () => {
     expect(clicked.roomMs, evidence).toBeUndefined();
     expect(clicked.roomHeldMs, evidence).toBeUndefined();
     const liveHeld = markerOf(live.result, 1).roomHeldMs;
-    expect(liveHeld, evidence).toBeGreaterThan(0);
-    expect(planned.slept, evidence).not.toContain(liveHeld);
+    expect(liveHeld, evidence).toBeGreaterThan(SETTLE_MS);
+    expect(live.slept, evidence).toContain(liveHeld);
+    // What the plan slept is settles only: 50 ms quiet polls, the keys' gaps
+    // and lead, and `SETTLE_MS` after each journey — no room.
+    expect(Math.max(...planned.slept), evidence).toBeLessThanOrEqual(SETTLE_MS);
   });
 
   // The control for the case above: without `beats` nothing changes.
@@ -400,6 +412,30 @@ describe("the walk plans its pauses", () => {
       );
       before = m.sourceTimeMs;
     }
+  });
+});
+
+describe("a planned take's closing pause", () => {
+  // Red if the walk's tail drops the pause after the last counted step
+  // (`pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0)` to 0):
+  // the tail is then TAKE_TAIL_MS alone.
+  it("adds a pause after the last step to the planned tail, and still sleeps it", async () => {
+    const { result, slept } = await run(
+      [click("a"), { do: "pause", ms: 2000 }],
+      { beats: RULES, zooms: () => false },
+    );
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    // Premise: the pause was slept live, and nothing zoomed to lengthen the
+    // tail on its own.
+    expect(slept, evidence).toContain(2000);
+    expect(
+      [...(result.decided?.values() ?? [])].some((d) => "arrives" in d),
+      evidence,
+    ).toBe(false);
+    expect(result.pacing?.tailMs, evidence).toBeGreaterThanOrEqual(
+      2000 + TAKE_TAIL_MS,
+    );
   });
 });
 

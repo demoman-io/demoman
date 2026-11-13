@@ -389,6 +389,9 @@ export interface WalkSource {
   /** Told each step's timing once the walk has counted it, before it pulls
    *  the next. Never told for a step the walk did not perform. */
   onFinished?(actionId: string, timing: StepTiming): void;
+  /** The script's pauses slept since the last step it yielded, asked once
+   *  the steps are done: the beat plan's tail adds them. Undefined: none. */
+  closingPauseMs?(): number;
 }
 
 /**
@@ -489,8 +492,14 @@ export interface BeatRules {
   }): number;
   /** A step's own designed length. */
   actMs(action: SceneAction): number;
-  /** How long the take runs on after its last act. */
-  tailMs(i: { zoomSettleMs: number | null; trimEndMs: number | null }): number;
+  /** How long the take runs on after its last act; `pauseMs` is the
+   *  script's closing pause. */
+  tailMs(i: {
+    zoomSettleMs: number | null;
+    trimEndMs: number | null;
+    trimAfterAction: boolean;
+    pauseMs: number;
+  }): number;
   /** Dead air after the cursor arrives, before the act. */
   arriveMs: number;
 }
@@ -871,8 +880,12 @@ export async function runWalk(
   } | null = null;
   /** What each zoom was decided on (`ReplayResult.decided`). */
   const decided = new Map<string, ZoomDecision>();
+  /** The script's pauses since the last counted step: a run that ends,
+   *  or stops, after them closes on them (`BeatRules.tailMs`). */
+  let pausedSinceCounted = 0;
   /** The beat for a step with no journey and no arrive (a wait, a key
-   *  press), marked now. */
+   *  press), marked now. Approved: `arriveMs` 0 and the approach at the
+   *  marker, since the walk sleeps no arrive before either. */
   const planUnplaced = (step: WalkStep): void => {
     if (beats === undefined) return;
     const restMs = beats.restBefore({
@@ -892,6 +905,7 @@ export async function runWalk(
     const plan = stepPlan;
     stepPlan = null;
     if (beats === undefined || plan === null) return;
+    pausedSinceCounted = 0;
     plannedBeats.push(plan.beat);
     designed = plan.markerMs + beats.actMs(action);
     if (plan.zoomed) {
@@ -2808,6 +2822,7 @@ export async function runWalk(
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
       navsAtPreviousStep = navsAtThisStep;
       navsAtThisStep = navigationsSeen;
+      pausedSinceCounted += step.pauseMs ?? 0;
       const stepStartedAt = at();
       // Unhurried beats: any step but a click begins at once, and the act
       // it follows ends where the page has got to. A click settles it once
@@ -3647,6 +3662,8 @@ export async function runWalk(
                       room.settledAfterMs(designedHeldUntil) - designed,
                     ),
               trimEndMs: config.tail?.ms ?? null,
+              trimAfterAction: config.tail?.after === "action",
+              pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
             }),
           },
         }),
