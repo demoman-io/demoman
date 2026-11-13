@@ -2,8 +2,8 @@
 // author's (internal/RELEASING.md).
 //   pnpm release <version>        e.g. 0.7.2 or 0.8.0-rc.1
 // Write both changelog entries for <version> first: the docs'
-// resources/changelog.mdx and the site's newest #changelog entry (the site
-// lives in internal/, the author's private repo cloned here). Then this sets
+// resources/changelog.mdx and the newest entry on the site's /changelog page
+// (the site lives in internal/, the author's private repo cloned here). Then this sets
 // the version everywhere, pins every earlier changelog entry as it shipped
 // (apps/cli/test/changelog-shipped.json), commits "release: demoman <version>" here and the
 // site's change in internal/, runs the gate one suite at a time, and prints
@@ -23,7 +23,10 @@ const FILES = {
   changelog: "apps/docs/resources/changelog.mdx",
   shipped: "apps/cli/test/changelog-shipped.json",
   site: "internal/site/public/index.html",
+  log: "internal/site/public/changelog.html",
 };
+// The site's two files, which commit in internal/ rather than here.
+const SITE = new Set(["site", "log"]);
 // What `npm publish` may ship (internal/RELEASING.md step 5).
 const SHIPPED = /^(dist\/|LICENSE$|THIRD_PARTY_NOTICES$|README\.md$|package\.json$)/;
 
@@ -47,9 +50,9 @@ export function preflight(version, texts) {
   const missing = [];
   if (!texts.changelog.includes(`label="${version}"`))
     missing.push(`${FILES.changelog} has no <Update label="${version}"> entry`);
-  const entry = newestSiteEntry(texts.site);
+  const entry = newestSiteEntry(texts.log);
   if (entry?.version !== version)
-    missing.push(`${FILES.site}'s newest changelog entry is ${entry ? `data-version="${entry.version}"` : "missing"}, not "${version}"`);
+    missing.push(`${FILES.log}'s newest changelog entry is ${entry ? `data-version="${entry.version}"` : "missing"}, not "${version}"`);
   return missing;
 }
 
@@ -84,7 +87,7 @@ export function authorSteps(version) {
     // The docs show the Studio as the lane draws it; a CI refresh cannot open the Studio (its entry is single-use).
     "On macOS, redraw the docs' Studio stills (the lane must pass for the copy to run):\n    pnpm --filter @demoman/studio exec vitest run test/browser/studio-shots.test.ts &&\n    node scripts/docs-studio-stills.mjs\n    Look at the stills in apps/docs/media/studio, then commit any that changed:\n    git add apps/docs/media/studio\n    git diff --cached --quiet -- apps/docs/media/studio || git commit -m \"docs: Studio stills for this release\" -- apps/docs/media/studio",
 
-    `Deploy the site, then open https://demoman.io/#changelog and check it lists ${version}:\n    (cd internal/site && npx wrangler deploy)`,
+    `Deploy the site, then open https://demoman.io/changelog and check it lists ${version}:\n    (cd internal/site && npx wrangler deploy)`,
     // A subshell: step 3's paths are the repo root's.
     `Publish npm (your security key's browser prompt):\n    ${
       rc
@@ -148,8 +151,8 @@ function main(version) {
     git("-C", repo, "commit", "-m", subject, "--", ...paths);
     console.log(`${repo}: committed "${subject}"`);
   };
-  commit(".", Object.entries(FILES).filter(([k]) => k !== "site").map(([, p]) => p));
-  commit("internal", [FILES.site.replace(/^internal\//, "")]);
+  commit(".", Object.entries(FILES).filter(([k]) => !SITE.has(k)).map(([, p]) => p));
+  commit("internal", [...SITE].map((k) => FILES[k].replace(/^internal\//, "")));
 
   run("gate", "pnpm", ["test"]);
   run("typecheck", "pnpm", ["typecheck"]);
