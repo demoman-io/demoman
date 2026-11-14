@@ -100,6 +100,10 @@ export interface RunDeps {
   /** Read the last screen for dates (DEM-79): refresh's run only, the one
    *  reader; never an MCP argument. */
   readDates?: boolean;
+  /** The size the flow's latest video was recorded at, for a script that
+   *  names no viewport or device (`flowSizeOf`); `chooseRunSize` reads it
+   *  before the screen. */
+  flowSize?: { width: number; height: number };
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;

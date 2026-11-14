@@ -71,6 +71,7 @@ export type PlayDeps = Pick<
   | "account"
   | "pinnedNow"
   | "readDates"
+  | "flowSize"
 >;
 
 export type Prepared =
@@ -144,6 +145,7 @@ export async function prepareStage(
   const sizePlan = chooseRunSize({
     scriptViewport: script.viewport,
     device: script.device === undefined ? undefined : deviceFor(script.device),
+    flow: deps.flowSize,
     setting: DEFAULT_RUN_SIZE,
     screen: await deps.session.screen(page),
   });

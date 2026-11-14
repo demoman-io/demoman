@@ -40,6 +40,7 @@ import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
+import { flowSizeOf } from "./flow-size.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -1009,6 +1010,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         : { none: repoRead.none };
       // Whatever the run did to the context's cookies, the next call starts
       // from the saved sessions again (final review 2).
+      // A flow's later runs read the size its latest video was recorded at,
+      // unless the script names a viewport or device; a first run asks the
+      // screen. An unreadable record is a first run's size, said in the log.
+      let flowSize: { width: number; height: number } | undefined;
+      if (
+        into !== null &&
+        script.viewport === undefined &&
+        script.device === undefined
+      ) {
+        const found = await flowSizeOf(videos, library, into);
+        flowSize = found.size;
+        if (found.why !== undefined)
+          log(
+            `flow "${into.name}": this run uses this screen's size instead —${found.why}`,
+          );
+      }
       const film = async () => {
         if (!loaded.ok) throw new Error("sessions were not loaded");
         return runScript(
@@ -1022,6 +1039,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               ? { pinnedNow: args.pinnedNow }
               : {}),
             ...(args.readDates === true ? { readDates: true } : {}),
+            ...(flowSize === undefined ? {} : { flowSize }),
             session,
             library,
             kits,

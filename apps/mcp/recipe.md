@@ -170,7 +170,7 @@ targets, leaving the page open. Each entry is
   `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
   at, as a run records. `from` is `screen` (this machine's screen),
-  or `device`. `from: "window"` with an `error`: Demoman could not read the
+  `flow` (the flow's recorded size) or `device`. `from: "window"` with an `error`: Demoman could not read the
   screen and listed the browser's smaller layout; tell the user the `error`.
 - `positional: true`: the target is a `treePath` (shared or no name); snapshot
   again after the page changes. `value`: a field's text, never a password's.
@@ -453,8 +453,7 @@ Studio exports go to `~/Downloads`.
 - A `click` or `drag` takes `zoom`: `false` for none, or `{ "scale": 1.5 }` (over 1, at most 2.5).
 - `scrollTo` takes `landing: { "top": <px> }`, optional: the viewport y of
   the element's top edge once scrolled; absent is centred.
-- `viewport` absent means the size the user chose: the screen's, which
-  `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
+- `viewport` absent means the flow's recorded size, or this screen's on a first run. Leave `viewport` out unless the user asked.
 - `device` is `"phone"` or `"tablet"`: the page is recorded as a phone (393x852)
   or a tablet (820x1180). Name a device or a
   `viewport`, not both. A device has no hover: a `hover` under one is

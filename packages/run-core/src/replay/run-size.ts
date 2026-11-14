@@ -33,7 +33,7 @@ interface Viewport {
  * CLI's headless browser could not read the display, so it filmed at 1x).
  */
 export interface RunSize extends Viewport {
-  from: RunSizeSetting | "script" | "device" | "window";
+  from: RunSizeSetting | "script" | "device" | "flow" | "window";
   error: string | null;
 }
 
@@ -91,12 +91,14 @@ export type RunSizePlan =
 
 /**
  * Which size a run films at: the script's own `viewport`, else its device's,
- * else the author's setting on this screen. Only a screen that cannot be read
+ * else the size its flow's latest video was recorded at (decided on the first
+ * run, then read), else the author's setting on this screen. Only a screen that cannot be read
  * leaves the window's own size — and then the reason goes with the plan.
  */
 export function chooseRunSize(input: {
   scriptViewport: Viewport | undefined;
   device: Viewport | undefined;
+  flow?: Viewport | undefined;
   setting: RunSizeSetting;
   screen: Viewport | ScreenUnknown | undefined;
 }): RunSizePlan {
@@ -112,6 +114,13 @@ export function chooseRunSize(input: {
     return {
       kind: "fixed",
       size: { width, height, from: "device", error: null },
+    };
+  }
+  if (input.flow !== undefined) {
+    const { width, height } = input.flow;
+    return {
+      kind: "fixed",
+      size: { width, height, from: "flow", error: null },
     };
   }
   const answer = viewportForScreen(input.screen, input.setting);

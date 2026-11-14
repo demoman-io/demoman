@@ -590,12 +590,18 @@ describe("the recipe on a run's size", () => {
   });
 
   it("says an absent viewport is the user's choice, and to leave it out", () => {
-    expect(recipe).toMatch(/`viewport` absent means the size the user chose/);
+    // Red if the sentence goes back to "the size the user chose": a flow's
+    // later runs read its recorded size (spec 2026-11-13 part 1).
+    expect(recipe).toMatch(
+      /`viewport` absent means the flow's recorded size, or this screen's on a first run/,
+    );
     expect(recipe).toMatch(/Leave `viewport`\s+out unless the user\s+asked/);
   });
 
   it("teaches size, and puts its error in the hand-back", () => {
     expect(recipe).toMatch(/`size` is `\{ width, height, from, error \}`/);
+    // `flow` is a value of `from`: red if the recipe stops saying so.
+    expect(recipe).toMatch(/`flow` \(the flow's recorded size\)/);
     // The hand-back names it on its one extra line.
     expect(recipe).toMatch(/Hand back[\s\S]*`size\.error`/);
   });

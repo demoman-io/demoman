@@ -147,4 +147,50 @@ describe("chooseRunSize", () => {
       }).kind,
     ).toBe("fixed");
   });
+
+  // Turns red when `chooseRunSize` ignores `input.flow` (the
+  // `if (input.flow !== undefined)` branch): the flow's row reads the screen.
+  it("reads the flow's recorded size after the script and its device, before the screen", () => {
+    const flow = { width: 1280, height: 800 };
+    const base = { setting: "screen" as const, screen: MACBOOK };
+    // Premise: the screen is a different width, so "flow" is not the screen.
+    expect(MACBOOK).toMatchObject({ width: 1512 });
+    expect(
+      chooseRunSize({
+        ...base,
+        scriptViewport: undefined,
+        device: undefined,
+        flow,
+      }),
+    ).toEqual({
+      kind: "fixed",
+      size: { width: 1280, height: 800, from: "flow", error: null },
+    });
+    expect(
+      chooseRunSize({
+        ...base,
+        scriptViewport: { width: 1000, height: 700 },
+        device: { width: 393, height: 852 },
+        flow,
+      }),
+    ).toMatchObject({ size: { width: 1000, from: "script" } });
+    expect(
+      chooseRunSize({
+        ...base,
+        scriptViewport: undefined,
+        device: { width: 393, height: 852 },
+        flow,
+      }),
+    ).toMatchObject({ size: { width: 393, from: "device" } });
+    // A flow's size needs no screen, so an unreadable one does not stop it.
+    expect(
+      chooseRunSize({
+        scriptViewport: undefined,
+        device: undefined,
+        flow,
+        setting: "screen",
+        screen: { error: "no" },
+      }).kind,
+    ).toBe("fixed");
+  });
 });
