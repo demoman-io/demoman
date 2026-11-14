@@ -65,6 +65,26 @@ describe("the parking encoder", () => {
     ]);
   });
 
+  it("does not count a flicker's frames toward motion, and keeps them parked", async () => {
+    const encoder = createParkingEncoder(store, "s1", 3);
+    encoder.openSpan(0);
+    for (const ms of [0, 30, 60]) {
+      await encoder.push({ bytes: jpeg(), ms, width: 100, height: 50 });
+    }
+    // Premise: three frames are motion when none is a flicker.
+    const control = createParkingEncoder(store, "s2", 3);
+    control.openSpan(0);
+    for (const ms of [0, 30, 60]) {
+      await control.push({ bytes: jpeg(), ms, width: 100, height: 50 });
+    }
+    expect(await control.closeSpan(310)).not.toBeNull();
+
+    expect(await encoder.closeSpan(310, 2)).toBeNull();
+    expect(encoder.spans()).toEqual([
+      expect.objectContaining({ index: 0, frames: 3, kept: false }),
+    ]);
+  });
+
   it("keeps the time each frame was painted, in park order", async () => {
     // The mux places every frame at this time. Without it the mux could
     // only spread the frames evenly to the span's end, which is the last

@@ -137,8 +137,10 @@ export interface FrameEncoder {
     width: number;
     height: number;
   }): Promise<void>;
-  /** Null when the span held too few frames to be motion. */
-  closeSpan(endMs: number): Promise<EncodedSpan | null>;
+  /** Null when the span held too few frames to be motion. `flicker` of the
+   *  frames pushed are not counted toward that (the motion recorder's
+   *  `FLICKER_FRAMES`): they stay in a span that is kept for the rest. */
+  closeSpan(endMs: number, flicker?: number): Promise<EncodedSpan | null>;
   queueDepth(): number;
   heapFraction(): number;
 }

@@ -3,7 +3,11 @@ import {
   type Degradation,
   type FrameBundle,
 } from "@demoman/compositor";
-import { CAPTURE_MOTION_BUDGET_BYTES, SPAN_MIN_FRAMES } from "./constants.js";
+import {
+  CAPTURE_MOTION_BUDGET_BYTES,
+  SPAN_MIN_FRAMES,
+  SPAN_QUIET_MS,
+} from "./constants.js";
 import { decodeBase64, jpegSize } from "./image.js";
 import {
   admitFrame,
@@ -100,6 +104,9 @@ interface OpenSpan {
   lastFrameMs: number;
   /** Frames that reached this span, admitted or not: the page painted. */
   paints: number;
+  /** Frames handed to the encoder that turned out to be a flicker
+   *  (`FLICKER_FRAMES`): in the span, and not what makes it motion. */
+  flicker: number;
   keyframeOnly: boolean;
   /** Whether this span has already reported a surface mismatch. One report
    *  per span, not one per frame: the surface stays wrong until the
@@ -123,6 +130,34 @@ interface OpenSpan {
    *  frames the span had in all — the one number that says whether 37 is a
    *  thinning or a slideshow. The counters still count frames. */
   breaches: Map<string, { entry: Degradation; skipped: number }>;
+}
+
+/**
+ * How many frames back a frame may match for the ones between to be a
+ * flicker: the picture changed and came back to exactly what it was, within
+ * `SPAN_QUIET_MS`. Measured on an ubuntu runner without a GPU, 2026-11-14
+ * (spec 2026-11-13, "Amendments made while building"): a page that did not
+ * change sent one or two frames differing in 0.2-1.5% of their blocks
+ * (every control's text at once) and then the earlier frame again, byte for
+ * byte, 25-160 ms later, several times a take; the Mac sent none. A pair of
+ * them beside a caret blink made `SPAN_MIN_FRAMES`, and a still page was
+ * kept as 300-460 ms of motion on one machine and not the other.
+ * shortcut: a page that really shows something for one or two frames and
+ * takes it back is read the same way, and so is a two- or three-picture
+ * loop faster than `SPAN_QUIET_MS` a turn; upgrade to comparing how much of
+ * the frame changed if either turns up.
+ */
+const FLICKER_FRAMES = 2;
+
+/** A frame the recorder has just seen, kept for `FLICKER_FRAMES`. */
+interface RecentFrame {
+  data: string;
+  atMs: number;
+  span: OpenSpan;
+  /** The span's `lastFrameMs` before this frame moved it. */
+  lastFrameBefore: number;
+  pushed: boolean;
+  flicker: boolean;
 }
 
 const breachNote = (skipped: number, offered: number, reason: string) =>
@@ -211,6 +246,10 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
    * panel held the pre-click marker still until the next step's, while the
    * degradation promised "stills" (review of 2026-10-03).
    */
+  /** The newest frames a span has seen, oldest first: `FLICKER_FRAMES` and
+   *  the one they may return to. */
+  const recent: RecentFrame[] = [];
+
   let spentRun: {
     startMs: number;
     lastFrameMs: number;
@@ -283,9 +322,47 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
     }
     const current = span;
     if (current === null) return;
-    current.lastFrameMs = at();
-    current.paints++;
-    if (current.paints >= SPAN_MIN_FRAMES) lastMotion = current.lastFrameMs;
+    const seen: RecentFrame = {
+      data: String(params.data ?? ""),
+      atMs: at(),
+      span: current,
+      lastFrameBefore: current.lastFrameMs,
+      pushed: false,
+      flicker: false,
+    };
+    // The newest earlier frame this one repeats, with a frame or two between
+    // that did not: those were a flicker, and so is this one's return.
+    let back = -1;
+    for (let i = recent.length - 2; i >= 0; i--) {
+      if (recent[i]?.data === seen.data) {
+        back = i;
+        break;
+      }
+    }
+    const strayed = back === -1 ? [] : recent.slice(back + 1);
+    const first = strayed[0];
+    if (
+      first !== undefined &&
+      recent.at(-1)?.data !== seen.data &&
+      seen.atMs - first.atMs < SPAN_QUIET_MS &&
+      strayed.every((f) => !f.flicker)
+    ) {
+      seen.flicker = true;
+      for (const f of strayed) {
+        f.flicker = true;
+        f.span.paints--;
+        if (f.pushed) f.span.flicker++;
+      }
+      // The span ends where it would have without them. One they opened
+      // ends where it began and holds no motion.
+      if (first.span === current) current.lastFrameMs = first.lastFrameBefore;
+    } else {
+      current.lastFrameMs = seen.atMs;
+      current.paints++;
+      if (current.paints >= SPAN_MIN_FRAMES) lastMotion = current.lastFrameMs;
+    }
+    recent.push(seen);
+    if (recent.length > FLICKER_FRAMES + 1) recent.shift();
     if (current.keyframeOnly) {
       counters.droppedMotionFrames++;
       return;
@@ -405,6 +482,8 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
     counters.motionHeight = size.height;
     counters.motionFrames++;
     current.pushed++;
+    seen.pushed = true;
+    if (seen.flicker) current.flicker++;
     current.openedOn ??= size;
     if (current.refusal !== null) {
       const r = current.refusal;
@@ -465,6 +544,7 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
       startMs: at(),
       lastFrameMs: at(),
       paints: 0,
+      flicker: 0,
       keyframeOnly: false,
       surfaceReported: false,
       refusal: null,
@@ -490,10 +570,11 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
    */
   const closeEncoderSpan = async (
     endMs: number,
+    flicker = 0,
   ): Promise<EncodedSpan | null> => {
     if (!encoderSpanOpen) return null;
     encoderSpanOpen = false;
-    return encoder.closeSpan(endMs);
+    return encoder.closeSpan(endMs, flicker);
   };
 
   const close = async (): Promise<MotionSpanEntry | null> => {
@@ -511,9 +592,11 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
     // frames — the stream keeps running — so a late frame cannot be charged
     // to a span that is already closing.
     span = null;
-    if (continuous && quiet) deps.onSettled?.(endMs, current.offered);
+    if (continuous && quiet) {
+      deps.onSettled?.(endMs, current.offered - current.flicker);
+    }
 
-    const encoded = await closeEncoderSpan(endMs);
+    const encoded = await closeEncoderSpan(endMs, current.flicker);
     if (encoded === null) return null;
     const entry: MotionSpanEntry = {
       startMs: current.startMs,

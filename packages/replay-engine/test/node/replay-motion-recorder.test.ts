@@ -669,6 +669,111 @@ describe("continuous recording", () => {
     await h.recorder.teardown();
   });
 
+  describe("a flicker", () => {
+    /** Frames that decode alike and differ in their bytes. */
+    const picture = (n: number) =>
+      Buffer.concat([
+        Buffer.from(fakeScreenshotBase64(), "base64"),
+        Buffer.from([n]),
+      ]).toString("base64");
+    const A = picture(1);
+    const B = picture(2);
+    const C = picture(3);
+    /** A recorder whose close loops wait on the test's clock, and each
+     *  encoder close as `[endMs, flicker]`. */
+    const still = () => {
+      const h = harness({
+        mode: "continuous",
+        clock: { now: () => 0, sleep: () => flush() },
+      });
+      const closes = () =>
+        h.encoder.closeSpan.mock.calls.map(([endMs, flicker]) => [
+          endMs,
+          flicker,
+        ]);
+      /** The page as it stood: one frame, long enough ago to be its own
+       *  span. */
+      const settle = async () => {
+        h.recorder.onFrame(frame(1, A));
+        h.advance(600);
+        await flush();
+        await flush();
+      };
+      return { h, closes, settle };
+    };
+
+    it("that returns to the same picture is not what makes a span motion, and does not lengthen it", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      // The runner's shape (2026-11-14): changed, back 35 ms later, then a
+      // caret blink.
+      h.recorder.onFrame(frame(2, B)); // 600
+      h.advance(35);
+      h.recorder.onFrame(frame(3, A)); // 635
+      h.advance(100);
+      h.recorder.onFrame(frame(4, C)); // 735
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // Premise: all three reached the encoder, in one span after the first.
+      expect(h.encoder.push).toHaveBeenCalledTimes(4);
+      expect(h.encoder.openSpan).toHaveBeenCalledTimes(2);
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [735 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    it("alone ends its span where a single frame would", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, A));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [600 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    it("is not a picture that changed and stayed changed", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, C));
+      h.advance(35);
+      h.recorder.onFrame(frame(4, B));
+      h.advance(35);
+      // B again, after B: the page holding still on what it changed to.
+      h.recorder.onFrame(frame(5, B));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // B, C, B: the middle C came back to B, which is a flicker of its
+      // own; the change from A to B is not.
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [705 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    it("is not a picture that comes back after the page went quiet", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(SPAN_QUIET_MS);
+      h.recorder.onFrame(frame(3, A));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes().map(([, flicker]) => flicker)).toEqual(
+        closes().map(() => 0),
+      );
+      // Premise: both frames were seen.
+      expect(h.encoder.push).toHaveBeenCalledTimes(3);
+    });
+  });
+
   // Review Focus 2: a run that stops while a background close fails.
   it("reports a background close that throws, and teardown still returns", async () => {
     const h = harness({ mode: "continuous" });

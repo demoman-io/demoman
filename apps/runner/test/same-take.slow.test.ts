@@ -199,6 +199,10 @@ async function record(lagMs: number, render: boolean): Promise<Recording> {
   const session = createBrowserSession({
     headless: true,
     log: (line) => void lines.push(line),
+    // A display, so the take records at `CAPTURE_SCALE` as a real headless
+    // run does. Until 2026-11-14 this named none and both takes recorded at
+    // 1x, a quarter of the pixels production moves.
+    readDisplay: async () => ({ width: 1440, height: 900, scale: 1 }),
     onLaunched: async ({ context }) => {
       await installResolver(context);
       await installExecutorEntry(context);
@@ -233,6 +237,10 @@ async function record(lagMs: number, render: boolean): Promise<Recording> {
     expect(report.outcome, failure()).toBe("complete");
     const takeId = report.provenance.takeId as string;
     const scene = (await library.getScene(takeId)) as SceneDocument;
+    // Premise: recorded at the scale a real headless run uses.
+    expect(scene.meta.capture.displayScale, failure()).toBe(
+      CAPTURE_SCALE.desktop,
+    );
     const store = library.frameStore(takeId);
     const bundle = (await store.getBundle(takeId)) as FrameBundle;
     const timeline = resolvePlan(planScene(scene), bundle, scene).timeline;
@@ -322,9 +330,10 @@ let slow: Recording;
 // 0.9 s (a probe browser per seam), rounded up to 2 s. CI is 6.5-7x slower,
 // not 5x: the ubuntu runner took 535 s for an old file's two four-step
 // recordings and two renders that ran 75-85 s locally (535/85 to 535/75).
-// A timeout in this shared hook fails every case in the file, so both get 7x.
-const RECORD_BOTH_MS = 40_000 * 7;
-const DECODE_MS = 2_000 * 7;
+// A timeout in this shared hook fails every case in the file, and 535/75 is
+// 7.13x, so both get 10x: the factor carries its own headroom.
+const RECORD_BOTH_MS = 40_000 * 10;
+const DECODE_MS = 2_000 * 10;
 
 beforeAll(async () => {
   fast = await record(0, true);
