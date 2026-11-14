@@ -67,6 +67,16 @@ describe("restBefore", () => {
     expect(100 - i.journeyMs - ARRIVE_MS).toBeLessThan(BASE_REST_MS); // premise
     expect(restBefore(i)).toBe(BASE_REST_MS);
   });
+
+  // Red if `+ (i.returnShortMs ?? 0)` goes: a return the room policy says
+  // is short would keep the rest that left it short.
+  it("adds what a return still lacks on top of the room it was given", () => {
+    const i = { ...plain, roomMs: 3000 };
+    expect(restBefore({ ...i, returnShortMs: 525 })).toBe(restBefore(i) + 525);
+    expect(restBefore({ ...plain, returnShortMs: 525 })).toBe(
+      BASE_REST_MS + 525,
+    );
+  });
 });
 
 describe("afterScroll", () => {
@@ -86,6 +96,14 @@ describe("afterScroll", () => {
     expect(afterScroll({ ...i, journeyMs: 0 })).toBe(3000 - ARRIVE_MS);
   });
 
+  // Red if `+ (i.returnShortMs ?? 0)` goes from `afterScroll`.
+  it("adds what a return still lacks after the scroll", () => {
+    const i = { zooms: true, roomMs: 3000, journeyMs: 400 };
+    expect(afterScroll({ ...i, returnShortMs: 525 })).toBe(
+      afterScroll(i) + 525,
+    );
+  });
+
   // Red if the floor at `ARRIVE_MS` goes: a pan's room is 0.
   it("never plans less than an arrive's worth", () => {
     expect(afterScroll({ zooms: true, roomMs: 0, journeyMs: 400 })).toBe(
@@ -101,28 +119,31 @@ describe("actMs", () => {
       expect(actMs({ kind } as unknown as SceneAction)).toBe(0);
   });
 
-  // Red if the lead or the (n - 1) gap count changes from the verb's schedule.
-  it("is the lead plus a gap between keys for short text", () => {
-    expect(actMs(typed("abc"))).toBe(TYPE_LEAD_MS + 2 * TYPE_KEY_MS);
-    expect(actMs(typed("a"))).toBe(TYPE_LEAD_MS);
-    expect(actMs(typed(null))).toBe(TYPE_LEAD_MS);
+  // Red if the (n - 1) gap count changes from the verb's schedule, or the
+  // verb's lead comes back: it is idle inside the act, which a planned take
+  // plays for 0, so counting it would widen every camera gap after a typed
+  // step by 250 ms the video never plays (final review, Important 1).
+  it("is a gap between keys for short text, without the verb's lead", () => {
+    expect(TYPE_LEAD_MS).toBeGreaterThan(0); // premise: there is a lead to leave out
+    expect(actMs(typed("abc"))).toBe(2 * TYPE_KEY_MS);
+    expect(actMs(typed("a"))).toBe(0);
+    expect(actMs(typed(null))).toBe(0);
   });
 
   // Red if the cap is dropped: the long string would run (n-1)*TYPE_KEY_MS.
   it("holds to the verb's cap for text too long to type at the key gap", () => {
     const long = "x".repeat(200);
     expect((long.length - 1) * TYPE_KEY_MS).toBeGreaterThan(TYPE_MAX_MS); // premise
-    expect(actMs(typed(long))).toBeLessThanOrEqual(TYPE_LEAD_MS + TYPE_MAX_MS);
-    expect(actMs(typed(long))).toBeGreaterThan(
-      TYPE_LEAD_MS + TYPE_MAX_MS - 200,
-    );
+    expect(actMs(typed(long))).toBeLessThanOrEqual(TYPE_MAX_MS);
+    expect(actMs(typed(long))).toBeGreaterThan(TYPE_MAX_MS - 200);
   });
 
   // Red if keys are counted as code units rather than graphemes.
   it("counts a grapheme as one key", () => {
     const emoji = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"; // one family emoji
     expect(emoji.length).toBeGreaterThan(1); // premise: many code units
-    expect(actMs(typed(emoji))).toBe(TYPE_LEAD_MS);
+    expect(actMs(typed(emoji))).toBe(0);
+    expect(actMs(typed(`${emoji}${emoji}`))).toBe(TYPE_KEY_MS);
   });
 });
 
@@ -209,6 +230,29 @@ describe("room policy arrives", () => {
     expect(policy.neededMs(near)).toBe(0);
     expect(policy.arrives(far)).toBe("return");
     expect(policy.neededMs(far)).toBeGreaterThan(0);
+  });
+
+  // Red if `returnShortMs` loses a term of the return (a plateau, the
+  // pull-out, the push-in), the margin, or the arrival's lead-in: the click
+  // it plans would then not leave a whole return plus the margin.
+  it("says what a return lacks for a whole one plus the margin, and nothing once it has it", () => {
+    const heldUntilMs = 650;
+    // The reviewer's band: a click 2500 ms after the zoomed one before it.
+    const click = { heldUntilMs, clickMs: heldUntilMs + 350 + 2500 };
+    expect(policy.arrives(click)).toBe("return"); // premise: paced as a return
+    expect(returns(heldUntilMs, click.clickMs - PAN_MARGIN_MS)).toBe(false); // premise: none fits
+    const short = policy.returnShortMs(click);
+    expect(short).toBe(2725 + PAN_MARGIN_MS - 2500);
+    const planned = { heldUntilMs, clickMs: click.clickMs + short };
+    // With it added, a return fits with the margin to spare, exactly.
+    expect(returns(heldUntilMs, planned.clickMs - 2 * PAN_MARGIN_MS)).toBe(
+      true,
+    );
+    expect(returns(heldUntilMs, planned.clickMs - 2 * PAN_MARGIN_MS - 1)).toBe(
+      false,
+    );
+    expect(policy.returnShortMs(planned)).toBe(0);
+    expect(policy.returnShortMs({ heldUntilMs: null, clickMs: 0 })).toBe(0);
   });
 
   // Red if a null hold is treated as a pan.

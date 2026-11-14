@@ -1681,6 +1681,22 @@ describe("RunReport opening, trim and zoom notes", () => {
     ]);
   });
 
+  // Red if `trimNotesOf` drops `trimPlanFailed`: the take would come back
+  // untrimmed with nothing saying the plan could not place its trim.
+  it("a trim the planned video could not place says so, with why", () => {
+    const built = opening({
+      trim: { end: { ms: 500, step: 3, after: "action" } },
+    });
+    if (!("walk" in built)) throw new Error("walked");
+    const report = buildRunReport({
+      ...built,
+      walk: { ...built.walk, trimPlanFailed: "injected" },
+    });
+    expect(report.trimNotes).toEqual([
+      "the steps could not be placed on the planned video (injected), so the script's trim and held zoom are not applied",
+    ]);
+  });
+
   it("a start trim whose step never ran says so", () => {
     const report = buildRunReport(
       opening({

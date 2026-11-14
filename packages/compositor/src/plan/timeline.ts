@@ -776,9 +776,10 @@ function plannedIdleOf(
    * one) or past `endMs` is treated as absent: the stretch then starts at
    * the marker, as before act ends were read here.
    *
-   * shortcut: typing's designed lead-in (`TYPE_LEAD_MS` of idle before the
-   * first key) is in its act and is dropped with it; if it is missed, the
-   * walk can plan it into that step's `arriveMs`.
+   * shortcut: typing's lead-in (`TYPE_LEAD_MS` of idle before the first
+   * key) is in its act and is dropped with it, and the designed clock does
+   * not count it either (run-core's `actMs`); if it is missed, the walk can
+   * plan it into that step's `arriveMs`.
    */
   const afterAct = (
     prev: { sourceTimeMs: number; actEndSourceTimeMs?: number },

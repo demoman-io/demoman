@@ -384,6 +384,10 @@ export interface AuthoredResult extends ReplayResult {
    *  films through the landing, and drops the hold silently when a run
    *  stops short of it, as it always has.) */
   trimHeldUnplaced?: true;
+  /** On a planned take: why its steps could not be placed on the video it
+   *  plans (`placeOnPlan` threw), so the take was kept without the script's
+   *  trim, a held zoom's end or the steps' video times. Absent otherwise. */
+  trimPlanFailed?: string;
 }
 
 /**
@@ -1270,6 +1274,7 @@ export function assembleAuthored(
   trimClamped?: AuthoredResult["trimClamped"];
   trimUnplaced?: AuthoredResult["trimUnplaced"];
   trimHeldUnplaced?: true;
+  trimPlanFailed?: string;
 } {
   if (args.actions.length === 0) return { document: null, error: null };
 
@@ -1355,13 +1360,31 @@ export function assembleAuthored(
   // A planned take's positions are written in output time, through its own
   // timeline; any other take's stay where the walk measured them.
   const { bundle } = args.walked;
-  const filmedThrough =
-    bundle === null
-      ? Number.NEGATIVE_INFINITY
-      : args.walked.pacing !== undefined
-        ? placeOnPlan(untrimmed, bundle, args.steps, args.settledAfterMs)
-        : sourceDurationOf(bundle);
-  const trim = trimFromScript(script, args.steps, filmedThrough);
+  let planFailed: string | undefined;
+  let filmedThrough = Number.NEGATIVE_INFINITY;
+  if (bundle !== null && args.walked.pacing === undefined) {
+    filmedThrough = sourceDurationOf(bundle);
+  } else if (bundle !== null) {
+    // Reported rather than thrown, as the schema's refusal is below: the
+    // take keeps its frames, and only what needs the planned timeline (the
+    // trim, a held zoom's end, the steps' video times) is left out and said.
+    try {
+      filmedThrough = placeOnPlan(
+        untrimmed,
+        bundle,
+        args.steps,
+        args.settledAfterMs,
+      );
+    } catch (error) {
+      planFailed = error instanceof Error ? error.message : String(error);
+      // Source ms are not video ms on a planned take: none may stand in.
+      for (const step of args.steps) delete step.outputTiming;
+    }
+  }
+  const trim: ReturnType<typeof trimFromScript> =
+    planFailed === undefined
+      ? trimFromScript(script, args.steps, filmedThrough)
+      : { unplaced: [] };
   const document: SceneDocument = {
     ...untrimmed,
     camera: holdZoomThroughCut(untrimmed.camera, args.actions, trim.held),
@@ -1384,6 +1407,7 @@ export function assembleAuthored(
       ...(trim.clamped === undefined ? {} : { trimClamped: trim.clamped }),
       ...(trim.unplaced.length === 0 ? {} : { trimUnplaced: trim.unplaced }),
       ...(trim.heldUnplaced === undefined ? {} : { trimHeldUnplaced: true }),
+      ...(planFailed === undefined ? {} : { trimPlanFailed: planFailed }),
     };
   }
   return {
@@ -1569,12 +1593,12 @@ function placeOnPlan(
     // The step's finish is its motion: the walk measures `finishMs` after
     // its settle and stills, which are this machine's waits, and the idle
     // after a step is the planned rest or tail, not the step's.
-    // shortcut: idle between the marker and the end of the motion (the
-    // page's latency) keeps a proportional share of the planned idle, so
-    // an `after: "action"` cut with `ms: 0` can land up to that share
-    // before the motion's last frame, and an end trim lands about a settle
-    // earlier than on an unplanned take; upgrade if the side-by-side in the
-    // plan's Task 9 shows a cut act.
+    // shortcut: the finish is the motion between the marker and where the
+    // walk counted the step (idle inside an act plays for 0 on a planned
+    // take), so an end trim lands about a settle earlier than on an
+    // unplanned take, and motion the page paints after the walk counted
+    // the step is not in it: an `after: "action"` cut with `ms: 0` can clip
+    // a response slower than the walk's settle; upgrade if a cut is seen to.
     const motionMs = timeline.segments
       .filter((s) => s.kind === "motion")
       .reduce(
@@ -1851,5 +1875,8 @@ export async function runAuthored(
     ...(assembled.trimHeldUnplaced === undefined
       ? {}
       : { trimHeldUnplaced: true }),
+    ...(assembled.trimPlanFailed === undefined
+      ? {}
+      : { trimPlanFailed: assembled.trimPlanFailed }),
   };
 }

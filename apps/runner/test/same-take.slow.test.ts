@@ -11,7 +11,7 @@ import {
   sourceDurationOf,
   toOutputMs,
 } from "@demoman/compositor";
-import { TYPE_KEY_MS, TYPE_LEAD_MS } from "@demoman/replay-engine";
+import { TYPE_KEY_MS } from "@demoman/replay-engine";
 import type { BrandKitsRead } from "@demoman/run-core";
 import { frameOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -371,12 +371,13 @@ describe("one script recorded fast and slowed", () => {
       })),
     );
     // Reported, not asserted: each stretch's motion by cause. The designed
-    // length of the typing is chars x TYPE_KEY_MS + TYPE_LEAD_MS; a journey's
+    // length of the typing is (chars - 1) x TYPE_KEY_MS (run-core's `actMs`:
+    // the verb's lead is idle inside the act and plays for 0); a journey's
     // designed length is not persisted (the scene and bundle carry no cursor
     // segment), so it is null here.
     const typedText = "4800";
     console.log(
-      `typing designed ${typedText.length * TYPE_KEY_MS + TYPE_LEAD_MS} ms; journey designed: not recorded in the scene or bundle`,
+      `typing designed ${(typedText.length - 1) * TYPE_KEY_MS} ms; journey designed: not recorded in the scene or bundle`,
     );
     const causeFast = motionByCause(fast);
     const causeSlow = motionByCause(slow);

@@ -63,16 +63,17 @@ const roomLeft = (roomMs: number, journeyMs: number) =>
 /** The pacing rule's shape (run-core's `beats.ts`), with numbers of its
  *  own: this package cannot import run-core. */
 const restBefore = vi.fn<BeatRules["restBefore"]>(
-  ({ first, pauseMs, roomMs, journeyMs }) =>
+  ({ first, pauseMs, roomMs, journeyMs, returnShortMs }) =>
     Math.max(
       (first ? OPENING : BASE) + pauseMs,
       roomMs > 0 ? roomLeft(roomMs, journeyMs) : roomMs - journeyMs - ARRIVE,
-    ),
+    ) + (returnShortMs ?? 0),
 );
 const RULES: BeatRules = {
   restBefore,
-  afterScroll: ({ zooms, roomMs, journeyMs }) =>
-    Math.max(ARRIVE, zooms ? roomLeft(roomMs, journeyMs) : 0),
+  afterScroll: ({ zooms, roomMs, journeyMs, returnShortMs }) =>
+    Math.max(ARRIVE, zooms ? roomLeft(roomMs, journeyMs) : 0) +
+    (returnShortMs ?? 0),
   actMs: (a: SceneAction) =>
     a.kind === "type" ? 250 + 100 * ((a.text ?? "").length - 1) : 0,
   tailMs: ({ zoomSettleMs, trimEndMs, trimAfterAction, pauseMs }) =>
@@ -107,6 +108,9 @@ function roomPolicy(zoomsWhen: (turn: number) => boolean | null): {
         asked.push(gap);
         return arrives(gap) === "pan" ? 0 : NEEDED_MS;
       },
+      // A return here is given `NEEDED_MS`, far past what one lacks; the
+      // shortfall is asked of the real policy in run-core's walk-return test.
+      returnShortMs: () => 0,
       settledAfterMs: (heldUntil) => heldUntil + PULL_OUT_MS,
       zooms: ({ unwaitedMs }) => {
         const z =
@@ -643,7 +647,11 @@ const RESPONSE_MS: Record<number, number> = { 0: 400, 1: 250, 4: 300 };
  * so without this every step's motion would be 0 and the finish's motion
  * sum would never be exercised.
  */
-function withResponse(result: AuthoredResult, trim: DemoScript["trim"]) {
+function withResponse(
+  result: AuthoredResult,
+  trim: DemoScript["trim"],
+  settledAfterMs = (heldUntilMs: number) => heldUntilMs + PULL_OUT_MS,
+) {
   const bundle = result.bundle;
   const document = result.document;
   if (bundle === null || document === null) throw new Error(evidenceOf(result));
@@ -687,7 +695,7 @@ function withResponse(result: AuthoredResult, trim: DemoScript["trim"]) {
         zoomsSkipped: [],
       },
       steps,
-      settledAfterMs: (heldUntilMs) => heldUntilMs + PULL_OUT_MS,
+      settledAfterMs,
     },
   );
   return { ...walked, ...assembled, steps };
@@ -877,6 +885,59 @@ describe("a planned take that cannot hold its zoom through the cut", () => {
       evidence,
     ).toBe(false);
     expect(short.trimHeldUnplaced, evidence).toBe(true);
+  });
+});
+
+describe("a planned take whose steps cannot be placed on its video", () => {
+  // Final review, Minor 1. Red if `assembleAuthored` lets `placeOnPlan`'s
+  // throw out (the try around it goes): the whole take, frames and all, is
+  // lost to the throw. Also red if a step keeps an `outputTiming` set
+  // before the throw, which would stand in for video ms it never was.
+  it("keeps the take without the trim and held zoom, and says why", async () => {
+    const trim = {
+      start: { ms: 400 },
+      end: { ms: 3000, after: "action" },
+    } as const;
+    const { result } = await run(PLANNED_STEPS, {
+      beats: RULES,
+      camera: gapCamera,
+      trim,
+    });
+    const evidence = evidenceOf(result);
+    // Premise: assembled whole, the take has a trim on both sides, a held
+    // zoom and the steps' video times, so each had something to lose.
+    const whole = withResponse(result, trim);
+    expect(whole.document?.edits.trim?.head, evidence).toBeDefined();
+    expect(whole.document?.edits.trim?.tail, evidence).toBeDefined();
+    expect(
+      whole.document?.camera.some((c) => c.end !== undefined),
+      evidence,
+    ).toBe(true);
+    expect(
+      whole.steps.some((s) => s.outputTiming !== undefined),
+      evidence,
+    ).toBe(true);
+    // The room policy is asked inside the placement, after earlier steps
+    // were placed: a throw there is a throw from `placeOnPlan`.
+    let asked = 0;
+    const failed = withResponse(result, trim, () => {
+      if (++asked > 1) throw new Error("the injected settle failed");
+      return 0;
+    });
+    expect(asked, evidence).toBeGreaterThan(1); // premise: it threw mid-way
+    expect(failed.document, evidence).not.toBeNull();
+    expect(failed.error, evidence).toBeNull();
+    expect(failed.trimPlanFailed, evidence).toBe("the injected settle failed");
+    expect(failed.document?.edits.trim, evidence).toBeUndefined();
+    expect(
+      failed.document?.camera.some((c) => c.end !== undefined),
+      evidence,
+    ).toBe(false);
+    expect(
+      failed.steps.filter((s) => s.outputTiming !== undefined),
+      evidence,
+    ).toEqual([]);
+    expect(failed.trimUnplaced, evidence).toBeUndefined();
   });
 });
 

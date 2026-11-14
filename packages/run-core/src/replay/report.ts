@@ -393,6 +393,7 @@ export interface WalkResultLike {
   trimClamped?: { side: "start"; askedMs: number; keptMs: number };
   trimUnplaced?: ("start" | "end")[];
   trimHeldUnplaced?: true;
+  trimPlanFailed?: string;
 }
 
 interface BuildArgsCommon {
@@ -556,6 +557,11 @@ function trimNotesOf(
     const step = (trimStepIndex(script, "start") ?? 0) + 1;
     notes.push(
       `trim.start asked for ${clamp.askedMs} ms before step ${step} and the video holds ${clamp.keptMs} ms; it starts at the beginning`,
+    );
+  }
+  if (walk.trimPlanFailed !== undefined) {
+    notes.push(
+      `the steps could not be placed on the planned video (${walk.trimPlanFailed}), so the script's trim and held zoom are not applied`,
     );
   }
   if (walk.trimHeldUnplaced === true) {

@@ -448,6 +448,14 @@ export interface RoomPolicy {
    * with nothing added.
    */
   neededMs(gap: { heldUntilMs: number | null; clickMs: number }): number;
+  /**
+   * Designed ms a click paced as a return still lacks for the camera to
+   * make one with a margin to spare: from `heldUntilMs` to this click's
+   * arrival, a full return (`returnsBetween`'s terms) plus the policy's
+   * margin. 0 when it already fits, or before the first zoom. `gap` as for
+   * `neededMs`, with `clickMs` where the click lands with its room.
+   */
+  returnShortMs(gap: { heldUntilMs: number | null; clickMs: number }): number;
   /** How the camera arrives at a click: "pan" from the zoom before it, or
    *  "return" through full frame ("return" when `heldUntilMs` is null).
    *  `gap` as for `neededMs`, in designed ms. */
@@ -483,16 +491,25 @@ export interface RoomPolicy {
  */
 export interface BeatRules {
   /** Dead air before a step's journey; `roomMs` is what the camera needs
-   *  from the last act's designed end to this click, 0 when none. */
+   *  from the last act's designed end to this click, 0 when none;
+   *  `returnShortMs` what a return still lacks (`RoomPolicy.returnShortMs`),
+   *  absent when none. */
   restBefore(i: {
     first: boolean;
     pauseMs: number;
     roomMs: number;
     journeyMs: number;
+    returnShortMs?: number;
   }): number;
   /** Dead air between a step's approach scroll and its journey; `zooms`
-   *  for a click the camera zooms to, `roomMs` as for `restBefore`. */
-  afterScroll(i: { zooms: boolean; roomMs: number; journeyMs: number }): number;
+   *  for a click the camera zooms to, `roomMs` and `returnShortMs` as for
+   *  `restBefore`. */
+  afterScroll(i: {
+    zooms: boolean;
+    roomMs: number;
+    journeyMs: number;
+    returnShortMs?: number;
+  }): number;
   /** A step's own designed length. */
   actMs(action: SceneAction): number;
   /** How long the take runs on after its last act; `pauseMs` is the
@@ -3166,7 +3183,7 @@ export async function runWalk(
       // The beat plan: this step's rest and marker on the designed clock,
       // first with no room for it (what the camera's questions are asked
       // of, as the live path asks them with the room taken out).
-      const restWith = (roomMs: number): number =>
+      const restWith = (roomMs: number, returnShortMs = 0): number =>
         beats === undefined
           ? 0
           : beats.restBefore({
@@ -3174,6 +3191,7 @@ export async function runWalk(
               pauseMs: step.pauseMs ?? 0,
               roomMs,
               journeyMs,
+              returnShortMs,
             });
       const arriveMs = beats?.arriveMs ?? 0;
       // A step the approach scrolled to rests again after the scroll, where
@@ -3223,27 +3241,43 @@ export async function runWalk(
           // and the renderer plays it, the idle frames being the same. Asked
           // of the designed act end before it, which `designed` is.
           roomHere += await quietThenFinalize();
-          if (plannedBeats.length > 0) {
-            const roomMs = room.neededMs({
-              heldUntilMs: designedHeldUntil,
-              clickMs: unroomedMs,
-            });
-            // Reached by a scroll, the camera needs its room after the page
-            // moved: the rest keeps its base and the room goes after it.
+          let roomMs = 0;
+          // Reached by a scroll, the camera needs its room after the page
+          // moved: the rest keeps its base and the room goes after it.
+          const planRoom = (returnShortMs: number): void => {
             if (scrolledTo) {
               afterScrollMs = beats.afterScroll({
                 zooms: true,
                 roomMs,
                 journeyMs,
+                returnShortMs,
               });
             } else {
-              restMs = restWith(roomMs);
+              restMs = restWith(roomMs, returnShortMs);
             }
+          };
+          if (plannedBeats.length > 0) {
+            roomMs = room.neededMs({
+              heldUntilMs: designedHeldUntil,
+              clickMs: unroomedMs,
+            });
+            planRoom(0);
           }
           const arrives = room.arrives({
             heldUntilMs: designedHeldUntil,
             clickMs: designedAt(restMs),
           });
+          // A return is the camera's record under a plan, so it is planned a
+          // whole one with the policy's margin. Added rest only widens the
+          // gap, so the answer stays "return".
+          const returnShortMs =
+            arrives === "return"
+              ? room.returnShortMs({
+                  heldUntilMs: designedHeldUntil,
+                  clickMs: designedAt(restMs),
+                })
+              : 0;
+          if (returnShortMs > 0) planRoom(returnShortMs);
           decided.set(step.action.id, {
             designedMs: unroomedMs,
             scale,

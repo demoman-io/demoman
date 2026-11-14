@@ -2529,6 +2529,7 @@ describe("continuous recording", () => {
       const asked: number[] = [];
       const room: RoomPolicy = {
         arrives: () => "return", // not asked until the walk reads it
+        returnShortMs: () => 0, // asked only under a beat plan
         neededMs: () => 0,
         zooms: () => zooms,
         settledAfterMs: (heldUntilMs) => {
@@ -3906,6 +3907,7 @@ describe("a drag, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       arrives: () => "return", // not asked until the walk reads it
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: () => 0,
       zooms: ({ actionId, rect }) => {
         asked.push({ actionId, rect });
@@ -3967,6 +3969,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       arrives: () => "return", // not asked until the walk reads it
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -4018,6 +4021,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       arrives: () => "return", // not asked until the walk reads it
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -4049,6 +4053,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       arrives,
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: (gap) => {
         asked.push(gap);
         return arrives(gap) === "pan" ? 0 : 2050;
@@ -4088,6 +4093,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const room: RoomPolicy = {
       settledAfterMs: (heldUntilMs) => heldUntilMs,
       arrives: () => "return", // not asked until the walk reads it
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: (gap) => {
         asked.push(gap);
         return 0;

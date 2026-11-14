@@ -84,8 +84,8 @@ const PANNED = [1, 1.8, 1.8, 1];
 const RETURNED = [1, 1.8, 1, 1.8, 1];
 
 describe("a zoom that records how the camera arrives", () => {
-  // Red when `arrivesOf` ignores `seed.arrives` (the line
-  // `if (seed.arrives !== null && !edited) return seed.arrives;`): the clock
+  // Red when `arrivesOf` ignores `seed.arrives` (its
+  // `if (seed.arrives !== null && !edited(before, seed))` branch): the clock
   // would return here.
   it("pans on a recorded pan where the clock would return", () => {
     expect(clockReturns(RETURN_AT)).toBe(true);
@@ -93,11 +93,50 @@ describe("a zoom that records how the camera arrives", () => {
     expect(scales(solve(RETURN_AT, "pan"))).toEqual(PANNED);
   });
 
-  // The reverse, red on the same line: the clock would pan here.
-  it("returns on a recorded return where the clock would pan", () => {
+  // Final review, Important 1: a recorded return with no room for one used
+  // to be obeyed, and the pull-out left 25 ms after the arrival, so the
+  // camera was a third of the way out at the click. Red if `arrivesOf`
+  // follows a recorded return that does not fit (its `!fits` test goes):
+  // the scales would be RETURNED and the keys the squeezed return's.
+  it("pans on a recorded return the gap has no room for, exactly as the clock does", () => {
+    // Premise: the clock pans here (a 1600 ms gap against 3250 at this
+    // smoothness), so the record and the clock disagree.
     expect(clockReturns(PAN_AT)).toBe(false);
-    expect(scales(solve(PAN_AT, undefined))).toEqual(PANNED);
-    expect(scales(solve(PAN_AT, "return"))).toEqual(RETURNED);
+    const clock = solve(PAN_AT, undefined);
+    expect(scales(clock)).toEqual(PANNED);
+    const recorded = solve(PAN_AT, "return");
+    expect(recorded.keys).toEqual(clock.keys);
+    // And the camera is settled at the first click: the pan to the second
+    // departs a plateau after the first beat has arrived and acted.
+    const [, first, second] = recorded.keys;
+    if (first === undefined || second === undefined)
+      throw new Error(JSON.stringify(recorded.keys));
+    expect(second.outputTimeMs - second.transitionMs).toBeGreaterThanOrEqual(
+      Math.max(first.outputTimeMs, 1000) + CAMERA_DEFAULTS.neutral.minPlateauMs,
+    );
+  });
+
+  // Red if the record's return is dropped where it fits (the guard turned
+  // into `return "pan"`): the scales would be PANNED. The plateaus are what
+  // a squeezed return lacked.
+  it("returns on a recorded return that fits, holding a plateau at each end", () => {
+    expect(clockReturns(RETURN_AT)).toBe(true); // premise
+    const recorded = solve(RETURN_AT, "return");
+    expect(scales(recorded)).toEqual(RETURNED);
+    const [, firstIn, pullOut, secondIn] = recorded.keys;
+    if (
+      firstIn === undefined ||
+      pullOut === undefined ||
+      secondIn === undefined
+    )
+      throw new Error(JSON.stringify(recorded.keys));
+    const { minPlateauMs } = CAMERA_DEFAULTS.neutral;
+    expect(
+      pullOut.outputTimeMs - pullOut.transitionMs - firstIn.outputTimeMs,
+    ).toBeGreaterThanOrEqual(minPlateauMs);
+    expect(
+      secondIn.outputTimeMs - secondIn.transitionMs - pullOut.outputTimeMs,
+    ).toBeGreaterThanOrEqual(minPlateauMs);
   });
 
   // Red when `arrivesOf` drops its `!edited` test: the recorded pan would

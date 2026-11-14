@@ -147,6 +147,7 @@ async function run(
     startingBranding: BRANDING_DEFAULTS,
     roomFor: () => ({
       arrives: () => "return", // not asked until the walk reads it
+      returnShortMs: () => 0, // asked only under a beat plan
       neededMs: () => 0,
       settledAfterMs: (heldUntil) =>
         heldUntil + (opts.pullOutMs ?? PULL_OUT_MS),

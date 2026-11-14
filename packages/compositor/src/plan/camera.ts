@@ -668,7 +668,8 @@ export function returnsBetween(
 /**
  * Whether the camera pans or returns on its way to `seed` from `before`: the
  * one place both `solveCamera` and `insertNeutralKeys` ask. The recording's
- * own answer (`seed.arrives`) is read when it has one, unless the author
+ * own answer (`seed.arrives`) is read when it has one (a return only where
+ * one fits, below), unless the author
  * moved the beats it was decided on between the two (`edited`: an authored
  * gap or a removed piece, `solveCamera`'s). Otherwise `returnsBetween` asks,
  * as it did before takes carried the record.
@@ -680,14 +681,20 @@ function arrivesOf(
   edited: (before: Seed, seed: Seed) => boolean,
   timings: Pick<MotionTimings, "zoomInMs" | "zoomOutMs">,
 ): "pan" | "return" {
-  if (seed.arrives !== null && !edited(before, seed)) return seed.arrives;
-  return returnsBetween(
+  const fits = returnsBetween(
     heldUntilOf(before, seed.actionMs, holds),
     seed.outputTimeMs,
     { zoomInMs: seed.plannedTransitionMs, zoomOutMs: timings.zoomOutMs },
-  )
-    ? "return"
-    : "pan";
+  );
+  // A recorded return is followed only where one fits (`insertNeutralKeys`'
+  // `latestMs >= earliestMs`, the same inequality): a take whose timing
+  // changed after the walk decided pans, as the clock would, rather than
+  // pull out through the click. The walk plans every return it records with
+  // a margin (`PAN_MARGIN_MS` in run-core's room.ts), so this is the guard.
+  if (seed.arrives !== null && !edited(before, seed)) {
+    return seed.arrives === "return" && !fits ? "pan" : seed.arrives;
+  }
+  return fits ? "return" : "pan";
 }
 
 /**

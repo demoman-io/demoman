@@ -1,7 +1,6 @@
 import {
   SETTLE_MS,
   TAKE_TAIL_MS,
-  TYPE_LEAD_MS,
   typeGapMs,
   typeKeysOf,
 } from "@demoman/replay-engine";
@@ -39,44 +38,57 @@ function roomLeft(roomMs: number, journeyMs: number): number {
 /**
  * Dead air before a step's journey. `roomMs` is what the camera needs from
  * the last act's designed end to this click, 0 when it does not zoom or pans.
+ * `returnShortMs` is what a click paced as a return still lacks for a whole
+ * one with its margin (the room policy's `returnShortMs`), added whole: that
+ * gap runs from the zoom before, which the push-in's room does not reach.
  */
 export function restBefore(i: {
   first: boolean;
   pauseMs: number;
   roomMs: number;
   journeyMs: number;
+  returnShortMs?: number;
 }): number {
-  return Math.max(
-    (i.first ? OPENING_REST_MS : BASE_REST_MS) + i.pauseMs,
-    i.roomMs > 0
-      ? roomLeft(i.roomMs, i.journeyMs)
-      : i.roomMs - i.journeyMs - ARRIVE_MS,
+  return (
+    Math.max(
+      (i.first ? OPENING_REST_MS : BASE_REST_MS) + i.pauseMs,
+      i.roomMs > 0
+        ? roomLeft(i.roomMs, i.journeyMs)
+        : i.roomMs - i.journeyMs - ARRIVE_MS,
+    ) + (i.returnShortMs ?? 0)
   );
 }
 
 /**
  * Dead air between a step's approach scroll and its journey: an arrive's
  * worth, or, before a click the camera zooms to, the room it needs after
- * the page moved (`roomMs` as for `restBefore`). The rest before the scroll
- * then keeps its base.
+ * the page moved (`roomMs` and `returnShortMs` as for `restBefore`). The
+ * rest before the scroll then keeps its base.
  */
 export function afterScroll(i: {
   zooms: boolean;
   roomMs: number;
   journeyMs: number;
+  returnShortMs?: number;
 }): number {
-  return Math.max(ARRIVE_MS, i.zooms ? roomLeft(i.roomMs, i.journeyMs) : 0);
+  return (
+    Math.max(ARRIVE_MS, i.zooms ? roomLeft(i.roomMs, i.journeyMs) : 0) +
+    (i.returnShortMs ?? 0)
+  );
 }
 
 /**
- * A step's own designed length: typing is the type verb's own schedule (the
- * lead, then a gap between keys), every other act is 0. A type with no text
- * (redacted) is the lead alone.
+ * A step's own designed length: typing is the type verb's gaps between keys
+ * (`typeGapMs`), every other act is 0. The verb's lead before the first key
+ * (`TYPE_LEAD_MS`) is idle inside the act, which a planned take plays for 0,
+ * so the designed clock does not count it: every camera decision is asked
+ * on that clock, and a lead it counted would widen gaps the video never
+ * plays. A type with no text (redacted), or of one key, is 0.
  */
 export function actMs(action: SceneAction): number {
   if (action.kind !== "type") return 0;
   const n = typeKeysOf(action.text ?? "").length;
-  return TYPE_LEAD_MS + Math.max(0, n - 1) * typeGapMs(n);
+  return Math.max(0, n - 1) * typeGapMs(n);
 }
 
 /**
