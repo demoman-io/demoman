@@ -88,6 +88,21 @@ export type FilmReport =
        *  (spec 2026-10-30 F3): false when its last move has not arrived
        *  before the last frame, the pull-out the end cut off. */
       finalFrame: { settled: boolean };
+      /**
+       * Present only on a take with a beat plan (`scene.pacing`): its pauses
+       * are planned, not measured, so the video's length is not the
+       * take's own. `plannedMs` is the video's length before any trim,
+       * `recordedMs` how long the take ran while recorded. A take with no plan carries
+       * none of these four, and its report is what it always was.
+       */
+      pacing?: "planned";
+      plannedMs?: number;
+      recordedMs?: number;
+      /** Beats that could not be placed (they play as recorded); present
+       *  only when above 0. `unplacedBeatSteps` names the step each sits
+       *  before, `null` for the planned tail. */
+      unplacedBeats?: number;
+      unplacedBeatSteps?: (string | null)[];
     };
 
 /** A target nearer an edge than this is `atEdge`: the cursor arrow and a
@@ -288,16 +303,62 @@ const inflate = (r: Rect, by: number): Rect => ({
 const contains = (r: Rect, p: Vec) =>
   p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
 
+/** True when [from, to] lies wholly inside one of `spans`: idle the beat plan
+ *  placed is never a long still. The one rule, read by the film check (on its
+ *  steps' pairs) and by the compare gate (on decoded frames). */
+export function insidePlacedIdle(
+  spans: readonly (readonly [number, number])[],
+  from: number,
+  to: number,
+): boolean {
+  return spans.some(([a, b]) => from >= a && to <= b);
+}
+
 export function filmQuality(
   givenScene: SceneDocument,
   givenBundle: FrameBundle,
   paused: ReadonlyMap<string, number> = new Map(),
 ): FilmReport {
+  return filmCheck(givenScene, givenBundle, paused).film;
+}
+
+/** Output-time spans (ms) of a take's video in which its beat plan placed the
+ *  idle: the pair before each step whose beat was placed. Empty for a take
+ *  with no plan. */
+export function placedIdleSpans(
+  scene: SceneDocument,
+  bundle: FrameBundle,
+): [number, number][] {
+  return filmCheck(scene, bundle, new Map()).placed;
+}
+
+function filmCheck(
+  givenScene: SceneDocument,
+  givenBundle: FrameBundle,
+  paused: ReadonlyMap<string, number>,
+): {
+  film: Exclude<FilmReport, { unavailable: FilmUnavailable }>;
+  placed: [number, number][];
+} {
   // The film is the screen, so its rects are read as the screen showed them
   // (`inScreenSpace`); `resolvePlan` below then has nothing left to convert.
   const { bundle, scene } = inScreenSpace(givenBundle, givenScene);
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const out = (sourceMs: number) => toOutputMs(resolved.timeline, sourceMs);
+  // A planned take (`scene.pacing`) places its idle itself: a pair whose beat
+  // was placed plays its rest and arrive at their planned length, so its idle
+  // is never a long still. The marker carries no `roomHeldMs` there (the walk
+  // no longer waits the room live) and the script's pause is part of the
+  // rest, so neither is subtracted. A pair whose beat is unplaced plays as
+  // recorded and is checked as before.
+  const planned = scene.pacing !== undefined;
+  const unplacedSteps = resolved.timeline.unplacedBeatSteps ?? [];
+  const placedBeat = new Set(
+    (scene.pacing?.beats ?? [])
+      .map((b) => b.beforeActionId)
+      .filter((id) => !unplacedSteps.includes(id)),
+  );
+  const placed: [number, number][] = [];
   const markerAt = new Map(
     bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
   );
@@ -523,9 +584,16 @@ export function filmQuality(
     if (previous !== null) {
       step.gapMs = step.outputMs - previous;
       step.stillMs = longestGap(previous, step.outputMs, busy);
-      step.longStill =
-        step.stillMs - (step.pausedMs ?? 0) - (heldAt.get(step.actionId) ?? 0) >
-        LONG_STILL_MS;
+      if (planned && placedBeat.has(step.actionId)) {
+        placed.push([previous, step.outputMs]);
+        step.longStill = false;
+      } else {
+        step.longStill =
+          step.stillMs -
+            (step.pausedMs ?? 0) -
+            (heldAt.get(step.actionId) ?? 0) >
+          LONG_STILL_MS;
+      }
     }
     previous = step.outputMs;
   }
@@ -540,7 +608,7 @@ export function filmQuality(
     if (j.detour) summary.detour++;
   }
 
-  return {
+  const film = {
     summary,
     steps,
     journeys,
@@ -552,7 +620,21 @@ export function filmQuality(
         (resolved.cameraKeys.at(-1)?.outputTimeMs ?? 0) <
         resolved.timeline.outputDurationMs,
     },
+    ...(planned
+      ? {
+          pacing: "planned" as const,
+          plannedMs: resolved.timeline.outputDurationMs,
+          recordedMs: resolved.timeline.sourceDurationMs,
+          ...(unplacedSteps.length > 0
+            ? {
+                unplacedBeats: unplacedSteps.length,
+                unplacedBeatSteps: unplacedSteps,
+              }
+            : {}),
+        }
+      : {}),
   };
+  return { film, placed };
 }
 
 export function filmForRun(args: {

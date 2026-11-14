@@ -106,6 +106,12 @@ export interface Timeline {
    */
   unplacedPaces: number;
   /**
+   * The step each unplaced PLANNED beat sits before, in plan order (`null`
+   * for the planned tail, which sits before no step). Its length is the
+   * planned part of `unplacedPaces`; absent on a timeline built by hand.
+   */
+  unplacedBeatSteps?: (string | null)[];
+  /**
    * Recorded paces whose interval runs backwards, i.e. the action log is not
    * in time order. Counted over the plan's own paces and therefore
    * independent of `bundle.source`: an out-of-order log is a fact about the
@@ -720,11 +726,18 @@ function plannedIdleOf(
   cuts: readonly ResolvedCut[],
   interruptions: readonly TimeSpan[],
   sourceDurationMs: number,
-): { regions: IdleRegion[]; freezes: PaceInstant[]; unplacedPaces: number } {
+): {
+  regions: IdleRegion[];
+  freezes: PaceInstant[];
+  unplacedPaces: number;
+  unplacedBeatSteps: (string | null)[];
+} {
   const regions: IdleRegion[] = [];
   const freezes: PaceInstant[] = [];
-  let unplacedPaces = 0;
-  if (!isRealTime(bundle)) return { regions, freezes, unplacedPaces };
+  const unplacedBeatSteps: (string | null)[] = [];
+  if (!isRealTime(bundle)) {
+    return { regions, freezes, unplacedPaces: 0, unplacedBeatSteps };
+  }
   const markerOf = new Map(bundle.markers.map((m) => [m.actionId, m]));
   /** False when the stretch's planned idle has nowhere to play. */
   const share = (
@@ -792,7 +805,7 @@ function plannedIdleOf(
       (scrollEnd !== undefined &&
         (scrollEnd < prev.sourceTimeMs || scrollEnd > approach))
     ) {
-      unplacedPaces++;
+      unplacedBeatSteps.push(pace.beforeActionId);
       continue;
     }
     // The rest runs to the scroll's end when the step scrolled: the camera
@@ -804,7 +817,8 @@ function plannedIdleOf(
         ? true
         : share(scrollEnd, approach, pace.afterScrollMs);
     const arrive = share(approach, step.sourceTimeMs, pace.arriveMs);
-    if (!rest || !scroll || !arrive) unplacedPaces++;
+    if (!rest || !scroll || !arrive)
+      unplacedBeatSteps.push(pace.beforeActionId);
   }
   if (plan.tailMs != null) {
     // The plan's last step is the last pair's second one: a plan writes a
@@ -815,10 +829,15 @@ function plannedIdleOf(
       last === undefined ||
       !share(afterAct(last, sourceDurationMs), sourceDurationMs, plan.tailMs)
     ) {
-      unplacedPaces++;
+      unplacedBeatSteps.push(null);
     }
   }
-  return { regions, freezes, unplacedPaces };
+  return {
+    regions,
+    freezes,
+    unplacedPaces: unplacedBeatSteps.length,
+    unplacedBeatSteps,
+  };
 }
 
 /**
@@ -1208,6 +1227,11 @@ export function buildTimeline(
     unplacedCuts,
     interruptions,
     unplacedPaces,
+    // Present only when a beat was unplaced, so a take with no plan builds
+    // the timeline it always did.
+    ...(planned.unplacedBeatSteps.length > 0
+      ? { unplacedBeatSteps: planned.unplacedBeatSteps }
+      : {}),
     nonMonotonicPaces,
   };
 }

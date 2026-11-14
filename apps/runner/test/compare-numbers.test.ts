@@ -108,6 +108,21 @@ describe("stills", () => {
     expect(s.longestStillMs).toBeCloseTo(250, 6);
   });
 
+  it("does not count a still the beat plan placed, and still counts one outside it", () => {
+    // Red if `stills`' `insidePlacedIdle(placed, ...)` early return goes.
+    const c = moving(120);
+    // Frames 10..39 hold: still from frame 9 (150 ms) to frame 40 (667 ms).
+    for (let i = 10; i < 40; i++) c[i] = 0;
+    // Frames 70..99 hold: still from frame 69 (1150 ms) to frame 100 (1667 ms).
+    for (let i = 70; i < 100; i++) c[i] = 0;
+    // Premise: with no plan both are long, and the fixture holds two.
+    const bare = stills(at60(120), c, 2000);
+    expect(bare.longStills).toBe(2);
+    const s = stills(at60(120), c, 2000, [[100, 700]]);
+    expect(s.longStills).toBe(1);
+    expect(s.longestStillMs).toBeCloseTo((31 * 1000) / 60, 6);
+  });
+
   it("refuses changes that do not line up with the frames", () => {
     expect(() => stills(at60(10), moving(9), 200)).toThrow(
       "the probe answered 9 picture changes for 10 frames",

@@ -152,6 +152,7 @@ describe("planned idle", () => {
     expect(idleOut(a, fast, fastAt.approach2, fastAt.s2)).toBeCloseTo(300, 6);
     expect(a.outputDurationMs).toBeCloseTo(b.outputDurationMs, 6);
     expect(a.unplacedPaces).toBe(0);
+    expect(a).not.toHaveProperty("unplacedBeatSteps");
     expect(b.unplacedPaces).toBe(0);
     expectWellFormed(a);
     expectWellFormed(b);
@@ -307,6 +308,7 @@ describe("planned idle", () => {
 
     const t = buildTimeline(plan, noApproach);
     expect(t.unplacedPaces).toBe(1);
+    expect(t.unplacedBeatSteps).toEqual(["s2"]);
     expect(toOutputMs(t, at.s2) - toOutputMs(t, at.s1)).toBeCloseTo(
       at.s2 - at.s1,
       6,
@@ -319,6 +321,7 @@ describe("planned idle", () => {
     });
     // Two: s2's beat, and the tail, which runs from s2.
     expect(missing.unplacedPaces).toBe(2);
+    expect(missing.unplacedBeatSteps).toEqual(["s2", null]);
   });
 
   it("plays the idle after the last step for the planned tail", () => {

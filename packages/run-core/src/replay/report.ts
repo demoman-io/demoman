@@ -312,6 +312,12 @@ export interface RunReport {
      * agent told to check that step in the film could not find it.
      */
     unconfirmedClicks?: { step: string; note: string }[];
+    /**
+     * Each beat of the take's plan that could not be placed (`pacingUnplaced`
+     * in `degradations`): the step it sits before, and a sentence saying
+     * what the video does instead. Absent when there were none.
+     */
+    unplacedBeats?: { step: string; note: string }[];
   };
   /** What the video looks like (film-check spec §2). Always present: a run
    *  with nothing to check says why, never omits the field. */
@@ -616,6 +622,50 @@ function unconfirmedClicksOf(
   };
 }
 
+/** A planned beat that could not be placed is a degradation of the video
+ *  like any other, though the bundle never carries it (it is a fact about the
+ *  plan read against the frames, `bundle.ts`): the film check found it, so it
+ *  joins the walk's list here, once. */
+function degradationsOf(
+  walk: WalkResultLike,
+  film: FilmReport,
+): Degradation["kind"][] {
+  const kinds = walk.degradations.map((d) => d.kind);
+  return "unplacedBeats" in film && !kinds.includes("pacingUnplaced")
+    ? [...kinds, "pacingUnplaced"]
+    : kinds;
+}
+
+/** What `pacingUnplaced` costs a take with a beat plan: its own sentence,
+ *  not the recorded-pause one (`DEGRADATION_WORDS`), which would speak of
+ *  pauses nobody recorded. */
+export function plannedUnplacedNote(step: string): string {
+  return `the planned pause before ${step} could not be placed, so that stretch plays as it was recorded and the video is not the planned length`;
+}
+
+function unplacedBeatsOf(
+  film: FilmReport,
+  steps: readonly AuthoredStep[],
+): { unplacedBeats?: { step: string; note: string }[] } {
+  if (!("unplacedBeatSteps" in film) || film.unplacedBeatSteps === undefined)
+    return {};
+  return {
+    unplacedBeats: film.unplacedBeatSteps.map((actionId) => {
+      const record =
+        actionId === null
+          ? undefined
+          : steps.find((s) => s.actionId === actionId);
+      const step =
+        actionId === null
+          ? "the end of the video"
+          : record === undefined
+            ? `action ${actionId}`
+            : `script step ${record.index + 1}: ${scriptStepLabel(record.step)}`;
+      return { step, note: plannedUnplacedNote(step) };
+    }),
+  };
+}
+
 /**
  * Why a run stopped as `clickNotDelivered`, in place of the reason's sentence:
  * where the click was sent and where its press and release arrived — the walk's
@@ -884,10 +934,11 @@ export function buildRunReport(args: BuildArgs): RunReport {
     frames: {
       spans: args.walk.bundle?.motionSpans.length ?? 0,
       keyframes: args.walk.bundle?.keyframes.length ?? 0,
-      degradations: args.walk.degradations.map((d) => d.kind),
+      degradations: degradationsOf(args.walk, args.film),
       storageRefused: args.walk.storageRefused,
       shrunkSpans: args.walk.counters.encodeShrunkSpans,
       ...unconfirmedClicksOf(args.walk, args.steps),
+      ...unplacedBeatsOf(args.film, args.steps),
     },
     video: args.film,
     recording: args.recording,
@@ -1102,7 +1153,11 @@ function framesClause(report: RunReport): string {
   const kinds = [...new Set(report.frames.degradations)].filter(
     (k) => !SCREENS_ONLY.has(k),
   );
-  const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
+  const said = kinds.map((kind) =>
+    kind === "pacingUnplaced" && report.frames.unplacedBeats !== undefined
+      ? `${report.frames.unplacedBeats.map((b) => b.note).join("; ")} (${kind})`
+      : `${DEGRADATION_WORDS[kind]} (${kind})`,
+  );
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
   }
