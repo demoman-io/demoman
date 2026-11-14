@@ -335,8 +335,12 @@ let slow: Recording;
 // not 5x: the ubuntu runner took 535 s for an old file's two four-step
 // recordings and two renders that ran 75-85 s locally (535/85 to 535/75).
 // A timeout in this shared hook fails every case in the file, and 535/75 is
-// 7.13x, so both get 10x: the factor carries its own headroom.
-const RECORD_BOTH_MS = 40_000 * 10;
+// 7.13x, so the decode gets 10x. The hook does not scale that way: since it
+// records at 2x (four times the pixels, on a runner with no GPU) it ran
+// past 400 s on ubuntu-latest and was cut off there (CI, 2026-11-14), while
+// macOS finished inside it. What it needs on ubuntu is not yet measured, so
+// it gets 15 minutes; set it from the first run that completes.
+const RECORD_BOTH_MS = 900_000;
 const DECODE_MS = 2_000 * 10;
 
 beforeAll(async () => {

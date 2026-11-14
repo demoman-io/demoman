@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Degradation } from "@demoman/compositor";
 import { describe, expect, it, vi } from "vitest";
+import { changedShare, lumaBlocks } from "../../src/frame-change.js";
 import type {
   EncodedSpan,
   FrameEncoder,
@@ -670,21 +673,42 @@ describe("continuous recording", () => {
   });
 
   describe("a flicker", () => {
-    /** Frames that decode alike and differ in their bytes. */
-    const picture = (n: number) =>
+    // Real frames, 256x160: `small-change.jpg` differs from `base.jpg` in 4
+    // of its 640 blocks (0.6%, a flicker's worth) and `big-change.jpg` in
+    // nearly half. A byte after the end of the picture makes another frame
+    // of the same picture.
+    const fixture = (name: string, extra?: number) =>
       Buffer.concat([
-        Buffer.from(fakeScreenshotBase64(), "base64"),
-        Buffer.from([n]),
+        readFileSync(
+          join(import.meta.dirname, "..", "fixtures", "frames", name),
+        ),
+        Buffer.from(extra === undefined ? [] : [extra]),
       ]).toString("base64");
-    const A = picture(1);
-    const B = picture(2);
-    const C = picture(3);
+    const A = fixture("base.jpg");
+    const B = fixture("small-change.jpg");
+    const C = fixture("small-change.jpg", 1);
+    const picture = (n: number) => fixture("base.jpg", n);
+    const BIG = fixture("big-change.jpg");
+    // Premise: the fixtures are what the cases below say they are.
+    it("is asked of frames that differ a little, a lot, and not at all", () => {
+      const read = (data: string) => {
+        const blocks = lumaBlocks(Buffer.from(data, "base64"));
+        if (blocks === null) throw new Error("a fixture did not decode");
+        return blocks;
+      };
+      expect(changedShare(read(A), read(B))).toBeCloseTo(4 / 640, 6);
+      expect(changedShare(read(B), read(C))).toBe(0);
+      expect(changedShare(read(A), read(picture(4)))).toBe(0);
+      expect(changedShare(read(A), read(BIG))).toBeGreaterThan(0.45);
+      expect(new Set([A, B, C, picture(4), BIG]).size).toBe(5);
+    });
     /** A recorder whose close loops wait on the test's clock, and each
      *  encoder close as `[endMs, flicker]`. */
     const still = () => {
       const h = harness({
         mode: "continuous",
         clock: { now: () => 0, sleep: () => flush() },
+        viewport: { width: 256, height: 160 },
       });
       const closes = () =>
         h.encoder.closeSpan.mock.calls.map(([endMs, flicker]) => [
@@ -775,6 +799,49 @@ describe("continuous recording", () => {
       expect(h.recorder.lastMotionMs()).toBeNull();
       h.advance(SPAN_QUIET_MS + 1);
       await h.recorder.teardown();
+    });
+
+    // CI, 2026-11-14: a page flashing black and white lost every frame to
+    // the rule. Red if `smallChange` is not asked.
+    it("is not a page that flashes between two pictures", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      for (const data of [BIG, A, BIG, A]) {
+        h.recorder.onFrame(frame(2, data));
+        h.advance(100);
+        // Each push lands before the next: three outstanding is a budget
+        // breach, and the frame would be skipped.
+        await flush();
+      }
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // Premise: all four arrived in one span.
+      expect(h.encoder.push).toHaveBeenCalledTimes(5);
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [900 + SPAN_QUIET_MS, 0],
+      ]);
+    });
+
+    it("is not called on frames that cannot be read", async () => {
+      const { h, closes } = still();
+      const unread = (n: number) =>
+        Buffer.concat([
+          Buffer.from(fakeScreenshotBase64(256, 160), "base64"),
+          Buffer.from([n]),
+        ]).toString("base64");
+      // Premise: the recorder's own reader refuses them.
+      expect(lumaBlocks(Buffer.from(unread(1), "base64"))).toBeNull();
+      h.recorder.onFrame(frame(1, unread(1)));
+      h.advance(600);
+      await flush();
+      await flush();
+      h.recorder.onFrame(frame(2, unread(2)));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, unread(1)));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes().map(([, flicker]) => flicker)).toEqual([0, 0]);
     });
 
     it("is not a picture that comes back after the page went quiet", async () => {

@@ -8,6 +8,7 @@ import {
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
 } from "./constants.js";
+import { changedShare, type LumaBlocks, lumaBlocks } from "./frame-change.js";
 import { decodeBase64, jpegSize } from "./image.js";
 import {
   admitFrame,
@@ -142,12 +143,22 @@ interface OpenSpan {
  * byte, 25-160 ms later, several times a take; the Mac sent none. A pair of
  * them beside a caret blink made `SPAN_MIN_FRAMES`, and a still page was
  * kept as 300-460 ms of motion on one machine and not the other.
- * shortcut: a page that really shows something for one or two frames and
- * takes it back is read the same way, and so is a two- or three-picture
- * loop faster than `SPAN_QUIET_MS` a turn; upgrade to comparing how much of
- * the frame changed if either turns up.
+ * Only a small change is one (`FLICKER_SHARE`): a page that flashes, or
+ * loops through two pictures, changes far more of itself and is motion.
+ * shortcut: something small a page really shows for one or two frames and
+ * takes back (a status dot blinking faster than `SPAN_QUIET_MS` a turn) is
+ * read the same way; upgrade by finding what makes the runner flicker.
  */
 const FLICKER_FRAMES = 2;
+
+/**
+ * The most of the frame (its 8x8 luma blocks) a flicker changes. The
+ * runner's measured 0.2-1.5%; a frame that cannot be read is not called
+ * one. Above it the frames are the page's own: `render.slow.test.ts`'s page
+ * flashing black and white every 200 ms lost all its motion to the rule
+ * before it asked this (CI, 2026-11-14).
+ */
+const FLICKER_SHARE = 0.02;
 
 /** A frame the recorder has just seen, kept for `FLICKER_FRAMES`. */
 interface RecentFrame {
@@ -160,6 +171,27 @@ interface RecentFrame {
   lastMotionBefore: number | null;
   pushed: boolean;
   flicker: boolean;
+  /** Its luma blocks, read when a flicker is suspected; null: unreadable. */
+  luma?: LumaBlocks | null;
+}
+
+function lumaOf(frame: RecentFrame): LumaBlocks | null {
+  if (frame.luma === undefined) {
+    const bytes = safeDecode(frame.data);
+    frame.luma = bytes === null ? null : lumaBlocks(bytes);
+  }
+  return frame.luma;
+}
+
+/** Whether every one of `strayed` differs from `home` by a flicker's worth
+ *  at most. False when any of them cannot be read. */
+function smallChange(home: RecentFrame, strayed: RecentFrame[]): boolean {
+  const a = lumaOf(home);
+  if (a === null) return false;
+  return strayed.every((f) => {
+    const b = lumaOf(f);
+    return b !== null && changedShare(a, b) <= FLICKER_SHARE;
+  });
 }
 
 const breachNote = (skipped: number, offered: number, reason: string) =>
@@ -348,7 +380,8 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
       first !== undefined &&
       recent.at(-1)?.data !== seen.data &&
       seen.atMs - first.atMs < SPAN_QUIET_MS &&
-      strayed.every((f) => !f.flicker)
+      strayed.every((f) => !f.flicker) &&
+      smallChange(seen, strayed)
     ) {
       seen.flicker = true;
       for (const f of strayed) {
