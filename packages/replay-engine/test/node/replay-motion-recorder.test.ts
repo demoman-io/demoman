@@ -758,6 +758,25 @@ describe("continuous recording", () => {
       ]);
     });
 
+    // Code review, 2026-11-14. Red if the rollback leaves `lastMotion` on
+    // the flicker's frame: an act would end on it.
+    it("that arrives as a span's third frame is not the page's last motion", async () => {
+      const { h, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B)); // 600
+      h.advance(50);
+      h.recorder.onFrame(frame(3, C)); // 650: two paints
+      h.advance(50);
+      h.recorder.onFrame(frame(4, picture(4))); // 700: the third
+      // Premise: a third frame is motion until it is taken back.
+      expect(h.recorder.lastMotionMs()).toBe(700);
+      h.advance(35);
+      h.recorder.onFrame(frame(5, C)); // back to the second
+      expect(h.recorder.lastMotionMs()).toBeNull();
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+    });
+
     it("is not a picture that comes back after the page went quiet", async () => {
       const { h, closes, settle } = still();
       await settle();

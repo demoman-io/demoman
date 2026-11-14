@@ -892,10 +892,16 @@ export async function runWalk(
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
+  /** Rest the plan added for the camera (room, a return's shortfall) to the
+   *  steps counted so far: on `designed`, and taken out of the time a zoom
+   *  is asked on, as the live walk takes out every room it waited. */
+  let designedRoom = 0;
   const plannedBeats: NonNullable<ReplayResult["pacing"]>["beats"] = [];
   let stepPlan: {
     beat: (typeof plannedBeats)[number];
     markerMs: number;
+    /** How much of `markerMs` is the camera's room for this step. */
+    roomMs: number;
     zoomed: boolean;
   } | null = null;
   /** What each zoom was decided on (`ReplayResult.decided`). */
@@ -917,6 +923,7 @@ export async function runWalk(
     stepPlan = {
       beat: { beforeActionId: step.action.id, restMs, arriveMs: 0 },
       markerMs: designed + restMs,
+      roomMs: 0,
       zoomed: false,
     };
   };
@@ -937,6 +944,7 @@ export async function runWalk(
     pausedSinceCounted = 0;
     plannedBeats.push(plan.beat);
     designed = plan.markerMs + beats.actMs(action);
+    designedRoom += plan.roomMs;
     if (plan.zoomed) {
       designedZoom = {
         actionMs: plan.markerMs,
@@ -3207,6 +3215,27 @@ export async function runWalk(
         designed + restMs + afterScrollMs + journeyMs + arriveMs;
       let restMs = restWith(0);
       const unroomedMs = designedAt(restMs);
+      // Whether it zooms is asked with every room taken out, earlier steps'
+      // too: `designed` holds theirs, and left in, a click 900 ms after a
+      // zoom that was given a return's room read as 2 s after it and zoomed
+      // where the gap rule skips it (code review, 2026-11-14).
+      const askedMs = unroomedMs - designedRoom;
+      let roomMs = 0;
+      // Reached by a scroll, the camera needs its room after the page
+      // moved: the rest keeps its base and the room goes after it.
+      const planRoom = (returnShortMs: number): void => {
+        if (beats === undefined) return;
+        if (scrolledTo) {
+          afterScrollMs = beats.afterScroll({
+            zooms: true,
+            roomMs,
+            journeyMs,
+            returnShortMs,
+          });
+        } else {
+          restMs = restWith(roomMs, returnShortMs);
+        }
+      };
       if (
         room !== undefined &&
         (step.action.kind === "click" || dragPlan !== null)
@@ -3218,7 +3247,7 @@ export async function runWalk(
           step.action.id,
           beats === undefined
             ? { unwaitedMs, scale }
-            : { designedMs: unroomedMs, scale },
+            : { designedMs: askedMs, scale },
         );
         const zooms = room.zooms({
           actionId: step.action.id,
@@ -3232,7 +3261,7 @@ export async function runWalk(
                   width: Math.abs(dragPlan.end.x - dragPlan.start.x),
                   height: Math.abs(dragPlan.end.y - dragPlan.start.y),
                 },
-          unwaitedMs: beats === undefined ? unwaitedMs : unroomedMs,
+          unwaitedMs: beats === undefined ? unwaitedMs : askedMs,
           scale,
         });
         if (zooms && dragPlan === null && beats !== undefined) {
@@ -3241,21 +3270,6 @@ export async function runWalk(
           // and the renderer plays it, the idle frames being the same. Asked
           // of the designed act end before it, which `designed` is.
           roomHere += await quietThenFinalize();
-          let roomMs = 0;
-          // Reached by a scroll, the camera needs its room after the page
-          // moved: the rest keeps its base and the room goes after it.
-          const planRoom = (returnShortMs: number): void => {
-            if (scrolledTo) {
-              afterScrollMs = beats.afterScroll({
-                zooms: true,
-                roomMs,
-                journeyMs,
-                returnShortMs,
-              });
-            } else {
-              restMs = restWith(roomMs, returnShortMs);
-            }
-          };
           if (plannedBeats.length > 0) {
             roomMs = room.neededMs({
               heldUntilMs: designedHeldUntil,
@@ -3279,7 +3293,7 @@ export async function runWalk(
               : 0;
           if (returnShortMs > 0) planRoom(returnShortMs);
           decided.set(step.action.id, {
-            designedMs: unroomedMs,
+            designedMs: askedMs,
             scale,
             arrives,
           });
@@ -3306,6 +3320,30 @@ export async function runWalk(
           zoomedClick = true;
         } else {
           finalizeAct();
+          if (zooms && beats !== undefined) {
+            // A zoomed drag: the camera's arrival is decided here too, or
+            // the renderer would decide it from the rendered gap, which a
+            // machine's own motion moves. No push-in room is planned (the
+            // camera holds through the drag); a return gets its margin, so
+            // it is a whole one on any machine.
+            const arrives = room.arrives({
+              heldUntilMs: designedHeldUntil,
+              clickMs: designedAt(restMs),
+            });
+            const returnShortMs =
+              arrives === "return"
+                ? room.returnShortMs({
+                    heldUntilMs: designedHeldUntil,
+                    clickMs: designedAt(restMs),
+                  })
+                : 0;
+            if (returnShortMs > 0) planRoom(returnShortMs);
+            decided.set(step.action.id, {
+              designedMs: askedMs,
+              scale,
+              arrives,
+            });
+          }
         }
         zoomedDrag = zooms && dragPlan !== null;
       }
@@ -3364,6 +3402,7 @@ export async function runWalk(
             ...(scrolledTo ? { afterScrollMs } : {}),
           },
           markerMs: designedAt(restMs),
+          roomMs: designedAt(restMs) - unroomedMs,
           zoomed: zoomedClick || zoomedDrag,
         };
       }

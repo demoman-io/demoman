@@ -150,6 +150,8 @@ async function run(
     zooms?: (turn: number) => boolean | null;
     /** The third step's click is released elsewhere. */
     missThird?: boolean;
+    /** The second step is a drag 300 px to the right, and lands. */
+    dragSecond?: boolean;
     /** The script's trim. */
     trim?: DemoScript["trim"];
     /** The take's camera: `gapCamera`, or none. */
@@ -235,6 +237,9 @@ async function run(
     onProgress: (p) => {
       if (opts.missThird === true && p.state === "running" && p.step === 2)
         cdp.click = MISSED;
+      // A drag is let go where it was sent: 300 px right of its press.
+      if (opts.dragSecond === true && p.state === "running" && p.step === 1)
+        cdp.click = { ...(cdp.click as ClickSeen), up: { x: 360, y: 40 } };
     },
     // `stableId: "gone"` is an element the page does not have.
     // `stableId: "far"` starts 2000 px below the fold, so its approach
@@ -314,10 +319,18 @@ const PLANNED_STEPS: DemoScript["steps"] = [
   { do: "type", into: { stableId: "a" }, text: "4800" },
   { do: "click", on: { stableId: "b" } },
   { do: "click", on: { stableId: "c" } },
-  { do: "pause", ms: 1500 },
+  // 600: the click after it is 2600 ms past the zoomed one on the stamps
+  // and inside its hold, a pan; the clicks 1000 ms after a zoom are skipped.
+  { do: "pause", ms: 600 },
   { do: "click", on: { stableId: "d" } },
   { do: "click", on: { stableId: "e" } },
 ];
+
+/** The script the golden take without a plan was written from: the pause
+ *  its numbers were recorded with. */
+const UNPLANNED_STEPS: DemoScript["steps"] = PLANNED_STEPS.map((s) =>
+  s.do === "pause" ? { ...s, ms: 1500 } : s,
+);
 
 /** What a take's assembly writes that is a position or a decision. */
 const positionsOf = (result: AuthoredResult) => ({
@@ -373,7 +386,10 @@ describe("the walk plans its pauses", () => {
       TYPE_A,
       click("b"),
       click("c"),
-      { do: "pause", ms: 1500 },
+      // 600: the fourth click is 2600 ms past the zoomed second on the
+      // stamps (the fake's rule zooms at 2500) and inside its hold's 3000,
+      // so the camera pans to it.
+      { do: "pause", ms: 600 },
       click("d"),
       click("e"),
     ];
@@ -503,6 +519,60 @@ describe("the walk plans its pauses", () => {
     expect(result.pacing?.beats[1]?.restMs, evidence).toBe(BASE);
   });
 
+  // Code review, 2026-11-14. Red if the time a zoom is asked on keeps an
+  // earlier step's room (`designedRoom`): the third click would read as
+  // `NEEDED_MS` further from the second than it is, and zoom.
+  it("asks whether a click zooms with every earlier room taken out", async () => {
+    const { result, journeys } = await run([TYPE_A, click("b"), click("c")], {
+      beats: RULES,
+    });
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    const [second, third] = [1, 2].map(
+      (i) => markerOf(result, i).actionId as string,
+    ) as [string, string];
+    const journey = journeys.at(-1) ?? Number.NaN;
+    // Premise: the second click zoomed and was given room well past the
+    // gap rule's 2500 ms, so room left in would carry the third over it.
+    expect(result.decided?.get(second), evidence).toMatchObject({
+      arrives: "return",
+    });
+    const room = (result.pacing?.beats[1]?.restMs ?? 0) - BASE;
+    expect(room, evidence).toBeGreaterThan(2500);
+    const stamp = (id: string) => {
+      const d = result.decided?.get(id);
+      return d !== undefined && "designedMs" in d ? d.designedMs : Number.NaN;
+    };
+    expect(stamp(third) - stamp(second), evidence).toBe(
+      BASE + journey + ARRIVE,
+    );
+    expect(result.decided?.get(third), evidence).not.toHaveProperty("arrives");
+    expect(result.pacing?.beats[2]?.restMs, evidence).toBe(BASE);
+  });
+
+  // Code review, 2026-11-14. Red if only a click's arrival is recorded:
+  // the renderer would decide a drag's pan-or-return from the rendered gap.
+  it("records how the camera arrives at a zoomed drag", async () => {
+    const { result } = await run(
+      [
+        click("a"),
+        {
+          do: "drag",
+          from: { on: { stableId: "b" } },
+          to: { by: { x: 300, y: 0 } },
+        } as never,
+      ],
+      { beats: RULES, zooms: () => true, dragSecond: true },
+    );
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    const dragged = markerOf(result, 1).actionId as string;
+    // Within the first zoom's hold on the designed clock: a pan, no room.
+    expect(result.decided?.get(dragged), evidence).toMatchObject({
+      arrives: "pan",
+    });
+  });
+
   // Ruling 3: every marker says where its cursor set off, at or after the
   // marker before it and at or before its own.
   // Red if `approachSourceTimeMs: pathFrom` is dropped from the marker.
@@ -602,11 +672,11 @@ describe("a take assembled without a plan", () => {
   // change to how a take without `pacing` writes its trim, held zoom,
   // camera or step timings (e.g. `placeOnPlan` run on every take).
   it("writes what it wrote before the plan, trim and held zoom included", async () => {
-    const zoomOut = await run(PLANNED_STEPS, {
+    const zoomOut = await run(UNPLANNED_STEPS, {
       camera: gapCamera,
       trim: { start: { ms: 400 }, end: { ms: 3000 } },
     });
-    const action = await run(PLANNED_STEPS, {
+    const action = await run(UNPLANNED_STEPS, {
       camera: gapCamera,
       trim: { start: { ms: 100000 }, end: { ms: 3000, after: "action" } },
     });
@@ -679,7 +749,7 @@ function withResponse(
       scriptVersion: 8,
       name: "plan",
       target: PAGE,
-      steps: PLANNED_STEPS,
+      steps: UNPLANNED_STEPS,
       trim,
     },
     {
@@ -775,8 +845,8 @@ describe("a planned take is written in output time", () => {
       ).toBeGreaterThan(1000);
       expect(motionInSteps(slow), evidence).toEqual(motionInSteps(fast));
       expect(motionInSteps(fast).slice(0, 2), evidence).toEqual([400, 250]);
-      // Premise: a trim on both sides, three zooms (a return and two pans),
-      // and, after the action, a zoom held through the cut.
+      // Premise: a trim on both sides, two zooms (a return and a pan), and,
+      // after the action, a zoom held through the cut.
       const positions = positionsOnPlan(fast);
       const camera = fast.document?.camera ?? [];
       expect(fast.document?.edits.trim?.head, evidence).toBeDefined();
@@ -784,7 +854,7 @@ describe("a planned take is written in output time", () => {
       expect(
         camera.map((c) => c.arrives),
         evidence,
-      ).toEqual(["return", "pan", "pan"]);
+      ).toEqual(["return", "pan"]);
       expect(
         camera.some((c) => c.end !== undefined),
         evidence,

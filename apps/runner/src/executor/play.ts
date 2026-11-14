@@ -85,6 +85,9 @@ export type Prepared =
       sessions: SessionFile[];
       size: RunSize;
       viewport: { width: number; height: number } | null;
+      /** The scale this run records at: headless's own, else the screen's
+       *  as read; absent when a visible window's screen could not be read. */
+      recordedAt?: number;
     }
   | { ok: false; reason: ReplayStopReason; detail: string };
 
@@ -211,7 +214,14 @@ export async function prepareStage(
   // (spec 2026-10-10), so it is handed no viewport.
   const viewport =
     size.from === "device" ? null : { width: size.width, height: size.height };
-  return { ok: true, stage: launched, sessions, size, viewport };
+  return {
+    ok: true,
+    stage: launched,
+    sessions,
+    size,
+    viewport,
+    ...(recordedAt === undefined ? {} : { recordedAt }),
+  };
 }
 
 export interface PlayFilm {
@@ -262,7 +272,7 @@ export async function playOnStage(
   const { log } = deps;
   const { stage: launched, sessions, viewport } = prepared;
   const { page, clock } = launched;
-  const filmScale = deps.session.filmScale();
+  const recordedScale = deps.session.filmScale() ?? prepared.recordedAt;
   const { encoder, store, sceneId } = film;
   const { startingBranding, onProgress } = options;
 
@@ -342,8 +352,11 @@ export async function playOnStage(
     // Null only for a device script, whose size runAuthored takes from
     // the device.
     ...(viewport === null ? {} : { viewport }),
-    // Decided once, at launch; the take records it for keep to read.
-    ...(filmScale === null ? {} : { displayScale: filmScale }),
+    // Decided once, at launch; the take records it for keep and the
+    // flow's next run to read. A visible window's is its screen's, as read:
+    // left out, the next run inferred it from the widest motion span to the
+    // nearest quarter and told a 1.3125x screen it had changed scale.
+    ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
     // Spec 2026-10-01 §1: the take starts as a recorded one does — the
     // author's kit and a zoom on every click.
     startingBranding,

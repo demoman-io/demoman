@@ -45,7 +45,7 @@ import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
-import { flowScaleOf, flowSizeOf } from "./flow-size.js";
+import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -915,8 +915,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // video's, else the constant for the device. A headless browser at
       // another scale is launched again at it; a visible window cannot be,
       // and its run says so (`prepareStage`).
+      // Asked once for both the scale and the size. Awaited first inside
+      // `flowScaleOf`, which says a read that failed.
+      const latest = into === null ? undefined : latestOf(videos, into);
       const flowScale =
-        into === null ? {} : await flowScaleOf(videos, library, into);
+        into === null ? {} : await flowScaleOf(videos, library, into, latest);
       const scale = captureScale(
         options.env ?? process.env,
         flowScale.scale,
@@ -1048,7 +1051,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         script.viewport === undefined &&
         script.device === undefined
       ) {
-        const found = await flowSizeOf(videos, library, into);
+        const found = await flowSizeOf(videos, library, into, latest);
         flowSize = found.size;
         flowSizeUnread = found.why;
         if (found.why !== undefined)

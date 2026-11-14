@@ -324,14 +324,6 @@ export function insidePlacedIdle(
   return spans.some(([a, b]) => from >= a - slackMs && to <= b + slackMs);
 }
 
-export function filmQuality(
-  givenScene: SceneDocument,
-  givenBundle: FrameBundle,
-  paused: ReadonlyMap<string, number> = new Map(),
-): FilmReport {
-  return filmCheck(givenScene, givenBundle, paused);
-}
-
 /** Output-time spans (ms) of a take's video that are idle its beat plan
  *  placed: the rest, after-scroll and arrive of each placed beat, the
  *  opening's and the tail's, taken from the timeline's own segments. Motion
@@ -361,11 +353,11 @@ export function placedIdleOnExport(
     .map((s): [number, number] => [s.startMs - startMs, s.endMs - startMs]);
 }
 
-function filmCheck(
+export function filmQuality(
   givenScene: SceneDocument,
   givenBundle: FrameBundle,
-  paused: ReadonlyMap<string, number>,
-): Exclude<FilmReport, { unavailable: FilmUnavailable }> {
+  paused: ReadonlyMap<string, number> = new Map(),
+): FilmReport {
   // The film is the screen, so its rects are read as the screen showed them
   // (`inScreenSpace`); `resolvePlan` below then has nothing left to convert.
   const { bundle, scene } = inScreenSpace(givenBundle, givenScene);
@@ -633,7 +625,7 @@ function filmCheck(
     if (j.detour) summary.detour++;
   }
 
-  const film = {
+  return {
     summary,
     steps,
     journeys,
@@ -659,7 +651,6 @@ function filmCheck(
         }
       : {}),
   };
-  return film;
 }
 
 export function filmForRun(args: {

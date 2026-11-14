@@ -154,8 +154,10 @@ interface RecentFrame {
   data: string;
   atMs: number;
   span: OpenSpan;
-  /** The span's `lastFrameMs` before this frame moved it. */
+  /** The span's `lastFrameMs`, and the recorder's last motion, before
+   *  this frame moved them. */
   lastFrameBefore: number;
+  lastMotionBefore: number | null;
   pushed: boolean;
   flicker: boolean;
 }
@@ -327,6 +329,7 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
       atMs: at(),
       span: current,
       lastFrameBefore: current.lastFrameMs,
+      lastMotionBefore: lastMotion,
       pushed: false,
       flicker: false,
     };
@@ -356,6 +359,8 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
       // The span ends where it would have without them. One they opened
       // ends where it began and holds no motion.
       if (first.span === current) current.lastFrameMs = first.lastFrameBefore;
+      // Nor was it the page reacting to a step (`lastMotionMs`).
+      lastMotion = first.lastMotionBefore;
     } else {
       current.lastFrameMs = seen.atMs;
       current.paints++;

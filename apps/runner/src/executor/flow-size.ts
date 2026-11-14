@@ -3,6 +3,9 @@ import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
 import type { VideoRecord, VideoStore } from "./videos.js";
 
+/** A flow's latest video, as `latestOf` answers it. */
+export type LatestVideo = Awaited<ReturnType<typeof latestOf>>;
+
 /**
  * The size a flow's later runs lay the page out at: what its latest video's
  * run reported (`report.size`), decided on the flow's first run and read here
@@ -19,9 +22,12 @@ export async function flowSizeOf(
   store: VideoStore,
   library: Library,
   video: VideoRecord,
+  /** The flow's latest video when the caller has already asked: listing a
+   *  flow's versions reads the whole library. */
+  known?: Promise<LatestVideo>,
 ): Promise<{ size?: { width: number; height: number }; why?: string }> {
   try {
-    const latest = await latestOf(store, video);
+    const latest = await (known ?? latestOf(store, video));
     if (latest === undefined) return {};
     const read = await library.getJson(latest.takeId, "report.json");
     if (!("value" in read)) {
@@ -56,9 +62,10 @@ export async function flowSizeOf(
   }
 }
 
-/** The flow's latest video: its last complete one, else its last. Both the
- *  size and the scale a later run reads come from it. */
-async function latestOf(store: VideoStore, video: VideoRecord) {
+/** The flow's latest video: its last complete one, else its last. The size
+ *  and the scale a later run reads come from it, and a re-record builds from
+ *  it (`refilmFromVideo`): one choice, made here. */
+export async function latestOf(store: VideoStore, video: VideoRecord) {
   const all = await store.versions(video.id);
   return all.filter((v) => v.complete).at(-1) ?? all.at(-1);
 }
@@ -74,9 +81,10 @@ export async function flowScaleOf(
   store: VideoStore,
   library: Library,
   video: VideoRecord,
+  known?: Promise<LatestVideo>,
 ): Promise<{ scale?: number; why?: string }> {
   try {
-    const latest = await latestOf(store, video);
+    const latest = await (known ?? latestOf(store, video));
     if (latest === undefined) return {};
     const scene = await library.getScene(latest.takeId);
     if (scene === null) return { why: `video ${latest.takeId} is missing` };

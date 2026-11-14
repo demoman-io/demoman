@@ -65,7 +65,7 @@ import {
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
-import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
+import { SETTLE_MS, WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -1441,7 +1441,20 @@ export function assembleAuthored(
  * `filmedThrough` is the take's output length: a trim measured on a slow
  * recording lands where it does on a fast one (spec 2026-11-13).
  */
-function trimFromScript(
+/**
+ * How far past a planned take's end its end trim may land and still be
+ * placed, at the end. The tail is planned on the designed clock to just hold
+ * the trim, and the video runs a little shorter than designed: each cursor
+ * journey between the zoom and the last step plays 50-73 ms under its
+ * designed length (`JOURNEY_TAIL_MS`). Without this an end trim after a
+ * zoomed click and one more journey landed 50-73 ms past the take and was
+ * dropped as "past what the run filmed" (code review, 2026-11-14). A
+ * settle's worth: a longer miss is not this, and is still said.
+ */
+const PLANNED_END_SLACK_MS = SETTLE_MS;
+
+/** Exported for its test alone. */
+export function trimFromScript(
   script: DemoScript,
   steps: AuthoredStep[],
   /** How long the take is, on the clock its steps are read on: what the
@@ -1507,7 +1520,11 @@ function trimFromScript(
         asked.end.after !== "action" && zoomOutMs !== null
           ? Math.max(finishMs, zoomOutMs)
           : finishMs;
-      const offsetMs = base + asked.end.ms;
+      const past = markerMs + base + asked.end.ms - filmedThrough;
+      const offsetMs =
+        base +
+        asked.end.ms -
+        (at.planned && past > 0 && past <= PLANNED_END_SLACK_MS ? past : 0);
       if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
       else {
         trim.tail = { actionId: at.actionId, offsetMs };

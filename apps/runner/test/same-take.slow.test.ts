@@ -73,6 +73,10 @@ const SCRIPT_STEPS = [
   { do: "click", on: { text: "Xray" }, zoom: false },
   { do: "type", into: { stableId: "amount" }, text: "4800" },
   { do: "click", on: { text: "Bravo" } },
+  // The pause puts Charlie past the zoom gap rule (about 1.6 s on the
+  // designed clock, room taken out) and inside a pan of Bravo. Without it
+  // Charlie is 0.5 s after Bravo and is not zoomed to at all.
+  { do: "pause", ms: 1200 },
   { do: "click", on: { text: "Charlie" } },
 ];
 
