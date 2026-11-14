@@ -617,3 +617,70 @@ describe("a take without a beat plan", () => {
     });
   }
 });
+
+// Ruling 2026-11-13: a keyframe-diff hint (two stills that differ with no
+// motion recorded between them) is not motion on a planned take. Only the
+// render detects one, so counting it gave the render a longer video than
+// every reader without pixels: the cap ladder, the Studio, the run report.
+describe("a keyframe-diff hint on a planned take", () => {
+  const { bundle, at } = pacedBundle(SLOW);
+  /** Two seconds of the rest between s1's act and the second journey. */
+  const hint = {
+    startMs: at.s1 + ACT_MS + 1000,
+    endMs: at.s1 + ACT_MS + 3000,
+  };
+  const outputs = (t: Timeline) => ({
+    duration: t.outputDurationMs,
+    markers: bundle.markers.map((m) => toOutputMs(t, m.sourceTimeMs)),
+  });
+
+  it("leaves the planned length and every step's place as they are", () => {
+    // Red if `buildTimeline` counts `keyframeHints` as motion on a planned
+    // plan (drop `isPlanned ? hints :` and keep the merged list).
+    // Premise: the hint lies inside the planned rest, on idle the bundle
+    // recorded, and counted as motion it would lengthen the video.
+    expect(hint.startMs).toBeGreaterThan(at.s1 + ACT_MS);
+    expect(hint.endMs).toBeLessThan(at.approach2);
+    expect(idleSrc(bundle, hint.startMs, hint.endMs)).toBe(2000);
+    const asMotion = buildTimeline(plan, bundle, [hint]);
+    const without = buildTimeline(plan, bundle);
+    // The rest still plays its 900 on the idle left, so the hint adds its
+    // whole 2 s at rate 1.0.
+    expect(asMotion.outputDurationMs - without.outputDurationMs).toBeCloseTo(
+      2000,
+      6,
+    );
+
+    const withHint = buildTimeline(plan, bundle, [], [hint]);
+    expect(outputs(withHint)).toEqual(outputs(without));
+    expect(withHint.segments.filter((s) => s.kind === "motion")).toEqual(
+      without.segments.filter((s) => s.kind === "motion"),
+    );
+    expectWellFormed(withHint);
+  });
+
+  it("is motion as before on a take without a beat plan", () => {
+    // Red if `keyframeHints` are dropped whatever the plan is.
+    const unplanned = planScene(twoStepScene());
+    // Premise: no beat plan, so nothing here is planned.
+    expect(unplanned.tailMs).toBeNull();
+    expect(unplanned.paces?.some((p) => p.origin === "planned")).toBe(false);
+    const asKeyframe = buildTimeline(unplanned, bundle, [], [hint]);
+    expect(asKeyframe).toEqual(buildTimeline(unplanned, bundle, [hint]));
+    // And it is classified motion there: a segment spans exactly the hint.
+    expect(
+      asKeyframe.segments.some(
+        (s) =>
+          s.kind === "motion" &&
+          s.srcStartMs === hint.startMs &&
+          s.srcEndMs === hint.endMs,
+      ),
+    ).toBe(true);
+    for (const c of noPacingCases()) {
+      const p = planScene(c.scene);
+      expect(buildTimeline(p, c.bundle, [], [hint]), c.name).toEqual(
+        buildTimeline(p, c.bundle, [hint]),
+      );
+    }
+  });
+});

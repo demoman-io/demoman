@@ -1033,8 +1033,22 @@ export function buildTimeline(
   plan: RenderPlan,
   bundle: FrameBundle,
   hints: TimeSpan[] = [],
+  /**
+   * Keyframe-diff motion (`detectKeyframeMotion`): two stills that differ
+   * with no motion recorded between them. Motion like `hints`, except on a
+   * planned take (`scene.pacing`, ruling 2026-11-13), where it is idle: no
+   * frames lie between the two stills, so nothing is lost, and a planned
+   * length must not depend on what only a reader with pixels detects.
+   */
+  keyframeHints: TimeSpan[] = [],
 ): Timeline {
-  const motion = motionSpansOf(bundle, hints);
+  const isPlanned =
+    plan.tailMs !== null ||
+    (plan.paces ?? []).some((pace) => pace.origin === "planned");
+  const motion = motionSpansOf(
+    bundle,
+    isPlanned ? hints : [...hints, ...keyframeHints],
+  );
   const sourceDurationMs = sourceDurationOf(bundle);
 
   const { cuts, unplacedCuts } = cutRanges(plan, bundle, sourceDurationMs);

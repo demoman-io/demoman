@@ -863,14 +863,15 @@ export function resolvePlan(
     bundle.source === "capture" ? springSettleMs(CURSOR_SPRING_TAU_MS) : 0;
   const leadMs =
     bundle.source === "capture" ? springLeadMs(CURSOR_SPRING_TAU_MS) : 0;
+  // `hints` are keyframe-diff motion; `buildTimeline` keeps them apart
+  // from the cursor's, which every reader with the cursor knows.
   const motionHints = [
-    ...hints,
     ...cursorMotionSpans(travelled).map((span) => ({
       startMs: Math.max(0, span.startMs - leadMs),
       endMs: span.endMs + settleMs,
     })),
   ];
-  let timeline = buildTimeline(plan, bundle, motionHints);
+  let timeline = buildTimeline(plan, bundle, motionHints, hints);
   // A removed piece that removed no frames (its ends are nowhere in these
   // frames) takes no steps out of the video either: the frameless plan
   // dropped their zooms, masks and holds on the document's word, and those
@@ -899,7 +900,7 @@ export function resolvePlan(
       removedSteps: kept.removedSteps,
       attachedToCuts: kept.attachedToCuts,
     };
-    timeline = buildTimeline(plan, bundle, motionHints);
+    timeline = buildTimeline(plan, bundle, motionHints, hints);
   }
 
   // After the timeline, not before it: the bridge needs the cut ranges, and
