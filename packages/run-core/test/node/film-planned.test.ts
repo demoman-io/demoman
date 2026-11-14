@@ -1,4 +1,4 @@
-import type { FrameBundle } from "@demoman/compositor";
+import { type FrameBundle, planScene, resolvePlan } from "@demoman/compositor";
 import { describe, expect, it } from "vitest";
 import {
   pacedBundle,
@@ -187,6 +187,82 @@ describe("filmQuality: a take with a beat plan", () => {
       placedIdleSpans(scene, noApproach).filter(([a, b]) => a >= s1 && b <= s2),
     ).toEqual([]);
     expect(s2Of(film)?.longStill).toBe(true);
+  });
+});
+
+describe("a recorded pause on a pair that plays as recorded", () => {
+  const unplacedPair = (rest: number) => {
+    const { bundle } = pacedBundle({ ...SLOW, rest });
+    return {
+      ...bundle,
+      markers: bundle.markers.map((m) =>
+        m.actionId === "s2"
+          ? { actionId: m.actionId, sourceTimeMs: m.sourceTimeMs }
+          : m,
+      ),
+    };
+  };
+
+  it("is forgiven when the script asked for it, and not when it is idle nobody asked for", () => {
+    // Red if `filmCheck` stops subtracting `step.pausedMs` for a take with a
+    // plan: the 2000 ms pause on s2's unplaced pair would be a long still.
+    const scene = twoStepScene(plan(900));
+    const bundle = unplacedPair(2000);
+    const asked = filmOf(scene, bundle, new Map([["s2", 2000]]));
+    const idle = filmOf(scene, bundle);
+    // Premise: the beat is unplaced, its pair holds a 2000 ms still past the
+    // line, and the pause map names it (pausedMs reaches the step).
+    expect(asked.unplacedBeatSteps).toEqual(["s2"]);
+    expect(s2Of(asked)?.stillMs as number).toBeGreaterThanOrEqual(2000);
+    expect(2000).toBeGreaterThan(LONG_STILL_MS);
+    expect(s2Of(asked)?.pausedMs).toBe(2000);
+    expect(s2Of(idle)?.pausedMs).toBeNull();
+    expect(s2Of(asked)?.longStill).toBe(false);
+    expect(s2Of(idle)?.longStill).toBe(true);
+  });
+});
+
+describe("placed idle on the exported video's axis", () => {
+  const withHeadTrim = () => {
+    const scene = twoStepScene(plan(900));
+    return {
+      ...scene,
+      edits: {
+        ...scene.edits,
+        trim: { head: { actionId: "s2", offsetMs: -1000 } },
+      },
+    };
+  };
+
+  it("moves each span back by the trim's start, and drops one wholly before it", () => {
+    // Red if `placedIdleOnExport`'s `- startMs` goes: spans would stay on
+    // the untrimmed axis, 2800 ms late.
+    const scene = withHeadTrim();
+    const bundle = slow();
+    const range = resolvePlan(planScene(scene), bundle, scene).range;
+    // Premise: the trim really starts after the first video frame, at s2's
+    // output (3800) less a second.
+    expect(range.startMs).toBe(2800);
+    expect(placedIdleSpans(twoStepScene(plan(900)), bundle)).toEqual([
+      [0, 500],
+      [1200, 1400],
+      [1900, 2800],
+      [3500, 3800],
+      [4300, 5300],
+    ]);
+    expect(placedIdleSpans(scene, bundle)).toEqual([
+      [700, 1000],
+      [1500, 2500],
+    ]);
+  });
+
+  it("leaves the spans as they are when nothing is trimmed", () => {
+    // Red if `placedIdleOnExport` shifts by anything but the range's start.
+    const scene = twoStepScene(plan(900));
+    const bundle = slow();
+    const range = resolvePlan(planScene(scene), bundle, scene).range;
+    expect(range.startMs).toBe(0);
+    expect(placedIdleSpans(scene, bundle)[0]).toEqual([0, 500]);
   });
 });
 

@@ -11,6 +11,7 @@ import {
   planScene,
   type Rect,
   type RenderTarget,
+  type ResolvedPlan,
   resolvePlan,
   toOutputMs,
   VERBS,
@@ -328,7 +329,7 @@ export function filmQuality(
   givenBundle: FrameBundle,
   paused: ReadonlyMap<string, number> = new Map(),
 ): FilmReport {
-  return filmCheck(givenScene, givenBundle, paused).film;
+  return filmCheck(givenScene, givenBundle, paused);
 }
 
 /** Output-time spans (ms) of a take's video that are idle its beat plan
@@ -339,17 +340,32 @@ export function placedIdleSpans(
   scene: SceneDocument,
   bundle: FrameBundle,
 ): [number, number][] {
-  return filmCheck(scene, bundle, new Map()).placed;
+  const { bundle: seen, scene: shown } = inScreenSpace(bundle, scene);
+  return placedIdleOnExport(resolvePlan(planScene(shown), seen, shown));
+}
+
+/**
+ * `timeline.placedIdle` on the EXPORTED video's axis: the renderer hands the
+ * encoder frame times relative to the trim's start, so the first decoded
+ * frame is `range.startMs` on the timeline. Each span moves by that; one
+ * wholly before the first frame or after the last is dropped, and one the
+ * trim cuts through is kept (the compare gate's slack takes the edge). The
+ * film check itself reads the untrimmed timeline and does not use this.
+ */
+export function placedIdleOnExport(
+  resolved: Pick<ResolvedPlan, "timeline" | "range">,
+): [number, number][] {
+  const { startMs, endMs } = resolved.range;
+  return (resolved.timeline.placedIdle ?? [])
+    .filter((s) => s.endMs > startMs && s.startMs < endMs)
+    .map((s): [number, number] => [s.startMs - startMs, s.endMs - startMs]);
 }
 
 function filmCheck(
   givenScene: SceneDocument,
   givenBundle: FrameBundle,
   paused: ReadonlyMap<string, number>,
-): {
-  film: Exclude<FilmReport, { unavailable: FilmUnavailable }>;
-  placed: [number, number][];
-} {
+): Exclude<FilmReport, { unavailable: FilmUnavailable }> {
   // The film is the screen, so its rects are read as the screen showed them
   // (`inScreenSpace`); `resolvePlan` below then has nothing left to convert.
   const { bundle, scene } = inScreenSpace(givenBundle, givenScene);
@@ -359,9 +375,9 @@ function filmCheck(
   // which stretches of output are idle the plan placed (`placedIdle`: rest,
   // after-scroll, arrive, the opening's and the tail's; never motion, never a
   // beat counted unplaced). A still wholly inside one is the plan's own
-  // pause, not a long still. The marker carries no `roomHeldMs` there (the
-  // walk no longer waits the room live) and the script's pause is part of
-  // the rest, so neither is subtracted. Any other still is checked as before.
+  // pause, not a long still, with nothing subtracted. Any other still is
+  // checked as before, `pausedMs` and `roomHeldMs` taken off: a pair that
+  // plays as recorded carries its pause as recorded.
   const planned = scene.pacing !== undefined;
   const unplacedSteps = resolved.timeline.unplacedBeatSteps ?? [];
   const placed: [number, number][] = (resolved.timeline.placedIdle ?? []).map(
@@ -594,12 +610,15 @@ function filmCheck(
       const gaps = quietGaps(previous, step.outputMs, busy);
       step.stillMs = longest(gaps);
       const unplaced = gaps.filter(([a, b]) => !insidePlacedIdle(placed, a, b));
-      step.longStill = planned
-        ? longest(unplaced) > LONG_STILL_MS
-        : step.stillMs -
-            (step.pausedMs ?? 0) -
-            (heldAt.get(step.actionId) ?? 0) >
-          LONG_STILL_MS;
+      // A gap not wholly inside placed idle is checked as an unplanned take's
+      // is: its pair plays as recorded, so the script's pause and the room
+      // the replay waited are in it and are taken off (`placed` is empty on
+      // a take with no plan, so `unplaced` is then every gap).
+      step.longStill =
+        longest(unplaced) -
+          (step.pausedMs ?? 0) -
+          (heldAt.get(step.actionId) ?? 0) >
+        LONG_STILL_MS;
     }
     previous = step.outputMs;
   }
@@ -640,7 +659,7 @@ function filmCheck(
         }
       : {}),
   };
-  return { film, placed };
+  return film;
 }
 
 export function filmForRun(args: {
