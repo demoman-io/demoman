@@ -72,6 +72,7 @@ export type PlayDeps = Pick<
   | "pinnedNow"
   | "readDates"
   | "flowSize"
+  | "flowSizeUnread"
 >;
 
 export type Prepared =
@@ -157,19 +158,26 @@ export async function prepareStage(
   // then it is measured, never defaulted: this lands in
   // `meta.capture.viewport`, which is what the compositor composes every
   // frame against. The reason rides on `size.error`.
+  // The flow's recorded size could not be read, so this run asked the screen:
+  // said first on `size.error`, ahead of any reason the screen's own read
+  // carries, or the run would look like a flow's first.
+  const flowUnread =
+    deps.flowSizeUnread === undefined
+      ? null
+      : `The flow's recorded size could not be read (${deps.flowSizeUnread}), so this run used this screen's.`;
+  const said = (reason: string | null) =>
+    [flowUnread, reason].filter((r) => r !== null).join(" ") || null;
   let size: RunSize;
   if (sizePlan.kind === "fixed") {
-    size =
-      scaleLost !== null && sizePlan.size.error === null
-        ? { ...sizePlan.size, error: scaleLost }
-        : sizePlan.size;
+    const error = said(sizePlan.size.error ?? scaleLost);
+    size = error === null ? sizePlan.size : { ...sizePlan.size, error };
   } else {
     log(`${sizePlan.error}; recording at the window's own size`);
     try {
       size = {
         ...(await measureViewport(page)),
         from: "window",
-        error: sizePlan.error,
+        error: said(sizePlan.error),
       };
     } catch (error) {
       return {

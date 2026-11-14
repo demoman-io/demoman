@@ -104,6 +104,9 @@ export interface RunDeps {
    *  names no viewport or device (`flowSizeOf`); `chooseRunSize` reads it
    *  before the screen. */
   flowSize?: { width: number; height: number };
+  /** Why the flow's recorded size could not be read (`flowSizeOf`'s `why`):
+   *  the run asked the screen instead, and says so on `size.error`. */
+  flowSizeUnread?: string;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;

@@ -1012,8 +1012,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // from the saved sessions again (final review 2).
       // A flow's later runs read the size its latest video was recorded at,
       // unless the script names a viewport or device; a first run asks the
-      // screen. An unreadable record is a first run's size, said in the log.
+      // screen. An unreadable record asks the screen too, and says so on the
+      // report's `size.error` (and in the log).
       let flowSize: { width: number; height: number } | undefined;
+      let flowSizeUnread: string | undefined;
       if (
         into !== null &&
         script.viewport === undefined &&
@@ -1021,9 +1023,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       ) {
         const found = await flowSizeOf(videos, library, into);
         flowSize = found.size;
+        flowSizeUnread = found.why;
         if (found.why !== undefined)
           log(
-            `flow "${into.name}": this run uses this screen's size instead —${found.why}`,
+            `flow "${into.name}": this run uses this screen's size instead: ${found.why}`,
           );
       }
       const film = async () => {
@@ -1040,6 +1043,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               : {}),
             ...(args.readDates === true ? { readDates: true } : {}),
             ...(flowSize === undefined ? {} : { flowSize }),
+            ...(flowSizeUnread === undefined ? {} : { flowSizeUnread }),
             session,
             library,
             kits,

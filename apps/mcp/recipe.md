@@ -141,14 +141,14 @@ The file, with one account:
 
 `snapshot(url)` opens `url` in Demoman's browser and lists the page's
 targets, leaving the page open. Each entry is
-`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to that element.
+`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
   are not Chrome's.
 - `landedElsewhere: true` - the app redirected, often to its sign-in page;
   `landedUrl` says where. If it is a sign-in page,
-  see `session` below and spend no run. If it is not a sign-in page (a
+  see `session` below. If it is not a sign-in page (a
   trailing slash, `https`, a locale prefix), use `landedUrl` as the
   script's `target`; this snapshot stands.
   `landedElsewhere: null`: the address could not be read; not an
@@ -169,9 +169,9 @@ targets, leaving the page open. Each entry is
   `waitFor … until: "visible"` target after the step that opens it.
   `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
-  at, as a run records. `from` is `screen` (this machine's screen),
+  at. `snapshot` measures it and `inFirstViewport` at this screen, a run its own: `from` is `screen`,
   `flow` (the flow's recorded size) or `device`. `from: "window"` with an `error`: Demoman could not read the
-  screen and listed the browser's smaller layout; tell the user the `error`.
+  screen and listed the browser's smaller layout; tell the user any `error`.
 - `positional: true`: the target is a `treePath` (shared or no name); snapshot
   again after the page changes. `value`: a field's text, never a password's.
   `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`

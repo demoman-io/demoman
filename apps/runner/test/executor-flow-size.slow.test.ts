@@ -118,4 +118,46 @@ describe("a flow's later runs read its size", () => {
     });
     expect(after.size).toMatchObject({ width: 1000, from: "flow" });
   }, 400_000);
+
+  // Turns red when `prepareStage` stops carrying `deps.flowSizeUnread` onto
+  // `size.error` (play.ts `said`), or `runJob` stops passing it: the run
+  // would read as a first run at the screen's size, `error: null`.
+  it("says on size.error that the flow's recorded size could not be read", async () => {
+    const small = onDisplay("1280x800@2");
+    const large = onDisplay("1600x1000@2");
+    const first = await runOn(small, {
+      callId: "flow-unread-1",
+      video: { new: "Unread flow" },
+      script: script(),
+    });
+    const flowId = first.videoVersion?.id;
+    // Premise: with a readable report the same flow records at its size.
+    const readable = await runOn(large, {
+      callId: "flow-unread-2",
+      video: { id: flowId },
+      script: script(),
+    });
+    expect(readable.size, JSON.stringify(readable.size)).toMatchObject({
+      width: 1280,
+      from: "flow",
+      error: null,
+    });
+    // Premise: the screen is 1600 wide, so a size of 1600 came from it.
+    const latest = readable.provenance.takeId as string;
+    await createLibrary(home).putJson(latest, "report.json", {
+      size: { width: "wide", height: 800, from: "screen" },
+    });
+    const unread = await runOn(large, {
+      callId: "flow-unread-3",
+      video: { id: flowId },
+      script: script(),
+    });
+    expect(unread.size, JSON.stringify(unread.size)).toMatchObject({
+      width: 1600,
+      from: "screen",
+    });
+    expect(unread.size?.error).toBe(
+      `The flow's recorded size could not be read (video ${latest}'s run report names a size that is not one ({"width":"wide","height":800,"from":"screen"})), so this run used this screen's.`,
+    );
+  }, 400_000);
 });

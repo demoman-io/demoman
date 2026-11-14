@@ -26,7 +26,7 @@ export async function flowSizeOf(
     const read = await library.getJson(latest.takeId, "report.json");
     if (!("value" in read)) {
       return {
-        why: `video ${latest.takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}, so its size is not known`,
+        why: `video ${latest.takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
       };
     }
     const size = (read.value as { size?: unknown } | null)?.size as

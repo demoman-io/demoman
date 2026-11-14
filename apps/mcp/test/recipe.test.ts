@@ -600,6 +600,11 @@ describe("the recipe on a run's size", () => {
 
   it("teaches size, and puts its error in the hand-back", () => {
     expect(recipe).toMatch(/`size` is `\{ width, height, from, error \}`/);
+    // A snapshot's size and `inFirstViewport` are this screen's, which a
+    // run of an existing flow need not use: red if the recipe stops saying so.
+    expect(recipe).toMatch(
+      /`snapshot` measures it and `inFirstViewport` at this screen, a run its own/,
+    );
     // `flow` is a value of `from`: red if the recipe stops saying so.
     expect(recipe).toMatch(/`flow` \(the flow's recorded size\)/);
     // The hand-back names it on its one extra line.
