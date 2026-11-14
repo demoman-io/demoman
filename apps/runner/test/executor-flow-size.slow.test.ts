@@ -70,10 +70,11 @@ afterAll(async () => {
 });
 
 // Timeouts: each case's local time on Apple silicon, 2026-11-13 (one run,
-// `--reporter=verbose`), rounded up to the next 5 s, times 7: the ubuntu
-// runner is 6.5-7x slower, as `same-take.slow.test.ts`'s timeouts record
-// (535 s there for a file that ran 75-85 s here). Each case records several
-// takes through real Chromium, so a timeout is a lost case, not a slow one.
+// `--reporter=verbose`), rounded up to the next 5 s, times 10: the ubuntu
+// runner has measured up to 7.13x slower (535 s for a file that ran 75-85 s
+// here), and x7 on one local measurement left the first case 3% of
+// headroom, so the factor carries its own. Each case records several takes
+// through real Chromium, so a timeout is a lost case, not a slow one.
 
 describe("a flow's later runs read its size", () => {
   // Turns red when `chooseRunSize` ignores `flow` (run-size.ts): the second
@@ -128,7 +129,7 @@ describe("a flow's later runs read its size", () => {
       script: script(),
     });
     expect(after.size).toMatchObject({ width: 1000, from: "flow" });
-  }, 210_000); // measured 28.5 s: 30 s x 7
+  }, 300_000); // measured 28.5 s: 30 s x 10
 
   // Turns red when `prepareStage` stops carrying `deps.flowSizeUnread` onto
   // `size.error` (play.ts `said`), or `runJob` stops passing it: the run
@@ -170,7 +171,7 @@ describe("a flow's later runs read its size", () => {
     expect(unread.size?.error).toBe(
       `The flow's recorded size could not be read (video ${latest}'s run report names a size that is not one ({"width":"wide","height":800,"from":"screen"})), so this run used this screen's.`,
     );
-  }, 140_000); // measured 17.8 s: 20 s x 7
+  }, 200_000); // measured 17.8 s: 20 s x 10
 });
 
 // Spec 2026-11-13 part 2: a headless run's scale is DEMOMAN_DISPLAY's, else
@@ -262,7 +263,7 @@ describe("a flow's later runs read its scale", () => {
     expect(lines, JSON.stringify(lines)).toEqual(
       expect.arrayContaining([relaunched(2, 3), relaunched(3, 1)]),
     );
-  }, 210_000); // measured 25.6 s: 30 s x 7
+  }, 300_000); // measured 25.6 s: 30 s x 10
 
   // The relaunch for scale happens at the door, before the run's saved
   // sessions load, so the new browser has them (and a relaunch after the
@@ -310,5 +311,5 @@ describe("a flow's later runs read its scale", () => {
       await app.close();
       await rm(at, { recursive: true, force: true });
     }
-  }, 105_000); // measured 11.2 s: 15 s x 7
+  }, 150_000); // measured 11.2 s: 15 s x 10
 });

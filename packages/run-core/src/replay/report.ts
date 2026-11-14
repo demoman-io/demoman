@@ -561,7 +561,7 @@ function trimNotesOf(
   }
   if (walk.trimPlanFailed !== undefined) {
     notes.push(
-      `the steps could not be placed on the planned video (${walk.trimPlanFailed}), so the script's trim and held zoom are not applied`,
+      `Demoman could not place the steps on the planned video (${walk.trimPlanFailed}), so any trim or held zoom the script asked for is not applied; the script is not at fault`,
     );
   }
   if (walk.trimHeldUnplaced === true) {

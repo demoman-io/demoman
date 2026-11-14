@@ -557,7 +557,7 @@ export function applyCommand(
 
 // Smoothness sets the push-in and the pull-out, so the gap a return needs:
 // a pan or return decided at the old one may not fit the new.
-function smoothnessChanged(
+export function smoothnessChanged(
   before: SceneDocument,
   after: SceneDocument,
 ): boolean {
@@ -576,7 +576,7 @@ const ZOOM_SET_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
   "removeZoom",
 ]);
 
-function decideCameraAgain(scene: SceneDocument): SceneDocument {
+export function decideCameraAgain(scene: SceneDocument): SceneDocument {
   return {
     ...scene,
     camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),

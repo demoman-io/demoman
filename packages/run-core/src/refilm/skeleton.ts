@@ -106,7 +106,14 @@ export function skeletonOf(
     steps: script.steps.map((step, index): SkeletonStep => {
       if (step.do === "pause") return { do: "pause", ms: step.ms };
       const done = walked.get(index);
-      const timing = done?.outputTiming ?? done?.timing;
+      // A planned take's timings are output ms or nothing: after a failed
+      // placement there is no `outputTiming`, and the walk's source ms
+      // would put a re-recorded end trim a settle early without a word. With
+      // none, the tail is reported as not carried (`notCarriedOf`).
+      const timing =
+        scene.pacing === undefined
+          ? (done?.outputTiming ?? done?.timing)
+          : done?.outputTiming;
       const actionId = done?.actionId ?? null;
       const anchorId =
         actionId === null ? null : (actions.get(actionId)?.anchorId ?? null);
