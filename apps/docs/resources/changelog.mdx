@@ -3,10 +3,12 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
-<Update label="Unreleased" description="Uploads ask first">
-  - `attach` and `ci` ask before each run in Claude Code, Codex, Cursor's agent CLI and OpenCode, since they act on GitHub under your account. For unattended runs, `npx demoman setup --no-ask attach` lets it upload without asking.
-  - Run `npx demoman setup` again to apply it to the agents you already connected.
-  - Setup run by your agent, or without a terminal, updates only the agents Demoman is connected to and connects no new one.
+<Update label="Unreleased" description="The same take on any machine, and uploads ask first">
+  - A scripted video's pauses are planned, not measured: one script gets the same pauses, zoom and pan on a laptop and on CI. A script's `pause` is kept as written.
+  - Motion is recorded at a fixed scale (2x, 3x for a phone), and a flow keeps the size it was first recorded at.
+  - A run report shows `pacing: "planned"`, `plannedMs` (before trim) beside `recordedMs`, and `unplacedBeats` when a pause could not be placed.
+  - Motion still plays as captured, so a slow machine can run longer. Saved videos keep their pacing until recorded again; videos from a fast Mac come out somewhat shorter.
+  - `attach` and `ci` ask before each run; `npx demoman setup --no-ask attach` lets unattended runs upload. Rerun `npx demoman setup` to apply it.
 </Update>
 
 <Update label="0.9.5" description="Refresh compares the settled page">
