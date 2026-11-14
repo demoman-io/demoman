@@ -11,10 +11,10 @@ import type { SceneAction } from "@demoman/scene-schema";
 // never from a measurement, so the same script gets the same pauses on any
 // machine. No I/O, no clock.
 
-/** Dead air before a step's journey. Provisional: a later task replaces it from measurement. */
-export const BASE_REST_MS = 700;
-/** Dead air before the first step's journey. Provisional, as `BASE_REST_MS`. */
-export const OPENING_REST_MS = 800;
+/** Dead air before a step's journey. Fitted 2026-11-13 (`compare/beat-fit.mjs`) from 443 pairs in 139 of the author's Mac takes: median 183 ms, to the nearest 50. */
+export const BASE_REST_MS = 200;
+/** Dead air before the first step's journey. Same fit, 139 first steps: median 255 ms, to the nearest 50. */
+export const OPENING_REST_MS = 250;
 /** Dead air after the cursor arrives. */
 export const ARRIVE_MS = SETTLE_MS;
 

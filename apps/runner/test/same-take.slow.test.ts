@@ -564,9 +564,13 @@ describe("one script recorded fast and slowed", () => {
         const still = diffOf(idleFrame, frameAt(settled), pointer);
         const where = `${JSON.stringify({ still, motion })} seam at ${Math.round(seam.atMs)} ms (${seam.idleBefore ? "idle to motion" : "motion to idle"}), frames ${read.map((r) => r.frameSec)}: ${said}`;
         // Premise: what moved is pointer-sized, so the mask hides no page.
+        // The box holds the pointer at both frames: its own ~22 px plus its
+        // travel in the up-to-2 frames between them (62 px at 1.2 px/ms, with
+        // the fitted rests of 2026-11-13; 40 was tight at the old phase). A
+        // page change is hundreds.
         expect(motion.n, where).toBeGreaterThan(0);
-        expect(x1 - x0, where).toBeLessThan(40);
-        expect(y1 - y0, where).toBeLessThan(40);
+        expect(x1 - x0, where).toBeLessThan(80);
+        expect(y1 - y0, where).toBeLessThan(80);
         expect(still.n, where).toBe(0);
       }
     },
