@@ -300,11 +300,11 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
      actions, and a `pause` makes no action. Match `steps[k].actionId` to
      `video.steps[i].actionId`; `steps[k].index` is its 0-based position.
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
-     `checkFailed` with `error`): not a clean bill; say so, do not retry. Likewise
+     `checkFailed` with `error`): not a clean bill; say so, no retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
-   - `video.pacing: "planned"`: `plannedMs` is the video's length, `recordedMs`
-     how long it ran. `video.unplacedBeats`: pauses played as recorded, named
-     in `frames.unplacedBeats[].step`.
+   - `video.pacing: "planned"`: `plannedMs` is the video's length before any
+     trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played
+     as recorded, named in `frames.unplacedBeats[].step`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
      the video a derived script came from.

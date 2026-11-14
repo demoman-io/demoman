@@ -239,24 +239,29 @@ interface TimedPoint {
 /** A stretch of video longer than this with nothing moving is `longStill`. */
 export const LONG_STILL_MS = 1500;
 
-/** The longest part of [from, to] that no interval in `busy` covers. */
-function longestGap(
+/** The parts of [from, to] that no interval in `busy` covers, each a
+ *  [start, end] stretch where nothing moves. */
+function quietGaps(
   from: number,
   to: number,
   busy: [number, number][],
-): number {
+): [number, number][] {
   const clipped = busy
     .map(([a, b]) => [Math.max(a, from), Math.min(b, to)] as [number, number])
     .filter(([a, b]) => b > a)
     .sort((x, y) => x[0] - y[0]);
-  let longest = 0;
+  const gaps: [number, number][] = [];
   let cursor = from;
   for (const [a, b] of clipped) {
-    if (a > cursor) longest = Math.max(longest, a - cursor);
+    if (a > cursor) gaps.push([cursor, a]);
     cursor = Math.max(cursor, b);
   }
-  return Math.max(longest, to - cursor);
+  if (to > cursor) gaps.push([cursor, to]);
+  return gaps;
 }
+
+const longest = (gaps: readonly [number, number][]): number =>
+  Math.max(0, ...gaps.map(([a, b]) => b - a));
 
 const dist = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -303,15 +308,19 @@ const inflate = (r: Rect, by: number): Rect => ({
 const contains = (r: Rect, p: Vec) =>
   p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
 
-/** True when [from, to] lies wholly inside one of `spans`: idle the beat plan
- *  placed is never a long still. The one rule, read by the film check (on its
- *  steps' pairs) and by the compare gate (on decoded frames). */
+/** True when [from, to] lies wholly inside one of `spans` (the idle a beat
+ *  plan placed, `placedIdleSpans`): such a still is never a long still. The
+ *  one rule, read by the film check (on the timeline's own quiet gaps) and by
+ *  the compare gate (on decoded frames, whose still ends on the frame that
+ *  changes, up to a frame after the idle did: that gate passes its frame
+ *  period as `slackMs`). */
 export function insidePlacedIdle(
   spans: readonly (readonly [number, number])[],
   from: number,
   to: number,
+  slackMs = 1,
 ): boolean {
-  return spans.some(([a, b]) => from >= a && to <= b);
+  return spans.some(([a, b]) => from >= a - slackMs && to <= b + slackMs);
 }
 
 export function filmQuality(
@@ -322,9 +331,10 @@ export function filmQuality(
   return filmCheck(givenScene, givenBundle, paused).film;
 }
 
-/** Output-time spans (ms) of a take's video in which its beat plan placed the
- *  idle: the pair before each step whose beat was placed. Empty for a take
- *  with no plan. */
+/** Output-time spans (ms) of a take's video that are idle its beat plan
+ *  placed: the rest, after-scroll and arrive of each placed beat, the
+ *  opening's and the tail's, taken from the timeline's own segments. Motion
+ *  is never inside one. Empty for a take with no plan. */
 export function placedIdleSpans(
   scene: SceneDocument,
   bundle: FrameBundle,
@@ -345,20 +355,18 @@ function filmCheck(
   const { bundle, scene } = inScreenSpace(givenBundle, givenScene);
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const out = (sourceMs: number) => toOutputMs(resolved.timeline, sourceMs);
-  // A planned take (`scene.pacing`) places its idle itself: a pair whose beat
-  // was placed plays its rest and arrive at their planned length, so its idle
-  // is never a long still. The marker carries no `roomHeldMs` there (the walk
-  // no longer waits the room live) and the script's pause is part of the
-  // rest, so neither is subtracted. A pair whose beat is unplaced plays as
-  // recorded and is checked as before.
+  // A planned take (`scene.pacing`) places its idle itself: the timeline says
+  // which stretches of output are idle the plan placed (`placedIdle`: rest,
+  // after-scroll, arrive, the opening's and the tail's; never motion, never a
+  // beat counted unplaced). A still wholly inside one is the plan's own
+  // pause, not a long still. The marker carries no `roomHeldMs` there (the
+  // walk no longer waits the room live) and the script's pause is part of
+  // the rest, so neither is subtracted. Any other still is checked as before.
   const planned = scene.pacing !== undefined;
   const unplacedSteps = resolved.timeline.unplacedBeatSteps ?? [];
-  const placedBeat = new Set(
-    (scene.pacing?.beats ?? [])
-      .map((b) => b.beforeActionId)
-      .filter((id) => !unplacedSteps.includes(id)),
+  const placed: [number, number][] = (resolved.timeline.placedIdle ?? []).map(
+    (s) => [s.startMs, s.endMs],
   );
-  const placed: [number, number][] = [];
   const markerAt = new Map(
     bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
   );
@@ -583,17 +591,15 @@ function filmCheck(
     if (step.outputMs === null) continue;
     if (previous !== null) {
       step.gapMs = step.outputMs - previous;
-      step.stillMs = longestGap(previous, step.outputMs, busy);
-      if (planned && placedBeat.has(step.actionId)) {
-        placed.push([previous, step.outputMs]);
-        step.longStill = false;
-      } else {
-        step.longStill =
-          step.stillMs -
+      const gaps = quietGaps(previous, step.outputMs, busy);
+      step.stillMs = longest(gaps);
+      const unplaced = gaps.filter(([a, b]) => !insidePlacedIdle(placed, a, b));
+      step.longStill = planned
+        ? longest(unplaced) > LONG_STILL_MS
+        : step.stillMs -
             (step.pausedMs ?? 0) -
             (heldAt.get(step.actionId) ?? 0) >
           LONG_STILL_MS;
-      }
     }
     previous = step.outputMs;
   }

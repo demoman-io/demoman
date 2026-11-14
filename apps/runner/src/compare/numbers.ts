@@ -86,13 +86,14 @@ export function stills(
       `the probe answered ${changes.length} picture changes for ${timesMs.length} frames`,
     );
   }
+  const framePeriodMs = durationMs / Math.max(1, timesMs.length);
   let longestStillMs = 0;
   let longStills = 0;
   let from: number | null = null;
   const close = (untilMs: number) => {
     if (from === null) return;
     const startMs = timesMs[from] as number;
-    if (insidePlacedIdle(placed, startMs, untilMs)) {
+    if (insidePlacedIdle(placed, startMs, untilMs, 2 * framePeriodMs)) {
       from = null;
       return;
     }

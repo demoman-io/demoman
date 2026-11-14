@@ -112,6 +112,14 @@ export interface Timeline {
    */
   unplacedBeatSteps?: (string | null)[];
   /**
+   * The output-time stretches of IDLE a beat plan placed: the idle segments
+   * and freezes of each placed beat's rest, after-scroll and arrive, the
+   * opening's and the tail's, touching ones joined. Motion between two steps
+   * is never inside one, and a beat counted unplaced contributes none. Present
+   * only on a planned take that placed any; the film check reads it.
+   */
+  placedIdle?: TimeSpan[];
+  /**
    * Recorded paces whose interval runs backwards, i.e. the action log is not
    * in time order. Counted over the plan's own paces and therefore
    * independent of `bundle.source`: an out-of-order log is a fact about the
@@ -1219,6 +1227,28 @@ export function buildTimeline(
   emitHoldsAt(sourceDurationMs);
   emitPacesAt(sourceDurationMs);
 
+  // The idle `plannedIdleOf` retimed (an idle segment inside one of its
+  // regions) or froze (a pace segment at one of its freezes), in output time.
+  const placedIdle: TimeSpan[] = [];
+  for (const seg of segments) {
+    const isPlaced =
+      seg.kind === "idle"
+        ? planned.regions.some(
+            (r) => seg.srcStartMs >= r.srcStartMs && seg.srcEndMs <= r.srcEndMs,
+          )
+        : seg.kind === "pace" &&
+          planned.freezes.some(
+            (f) => Math.abs(f.sourceTimeMs - seg.srcStartMs) <= HOLD_EPSILON_MS,
+          );
+    if (!isPlaced || seg.outEndMs <= seg.outStartMs) continue;
+    const last = placedIdle.at(-1);
+    if (last && seg.outStartMs - last.endMs <= HOLD_EPSILON_MS) {
+      last.endMs = seg.outEndMs;
+    } else {
+      placedIdle.push({ startMs: seg.outStartMs, endMs: seg.outEndMs });
+    }
+  }
+
   return {
     segments,
     outputDurationMs: outCursor,
@@ -1232,6 +1262,7 @@ export function buildTimeline(
     ...(planned.unplacedBeatSteps.length > 0
       ? { unplacedBeatSteps: planned.unplacedBeatSteps }
       : {}),
+    ...(placedIdle.length > 0 ? { placedIdle } : {}),
     nonMonotonicPaces,
   };
 }

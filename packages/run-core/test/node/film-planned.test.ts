@@ -114,17 +114,79 @@ describe("filmQuality: a take with a beat plan", () => {
     expect(film.unplacedBeats).toBe(2);
   });
 
-  it("lists the placed pair's output span, which insidePlacedIdle reads", () => {
-    // Red if `filmCheck` stops pushing to `placed`.
+  it("lists only the idle the plan placed: rest, arrive, the opening and the tail, never the motion between", () => {
+    // Red if `buildTimeline`'s `placedIdle` loop (or its `kind === "idle"`
+    // test) goes: spans would be missing, or would cover journeys and acts.
     const scene = twoStepScene(plan(900));
     const bundle = slow();
     const spans = placedIdleSpans(scene, bundle);
+    // The fixture's output geometry: opening rest 500, journey 700, arrive
+    // 200, s1, act 500, rest 900, journey 700, arrive 300, s2, act 500, tail
+    // 1000. Premise: the film's steps sit where that geometry says.
     const film = filmOf(scene, bundle);
-    expect(spans).toEqual([[film.steps[0]?.outputMs, film.steps[1]?.outputMs]]);
-    const [from, to] = spans[0] as [number, number];
-    expect(insidePlacedIdle(spans, from + 10, to - 10)).toBe(true);
-    expect(insidePlacedIdle(spans, from - 10, to - 10)).toBe(false);
+    expect(film.steps.map((st) => st.outputMs)).toEqual([1400, 3800]);
+    expect(spans).toEqual([
+      [0, 500],
+      [1200, 1400],
+      [1900, 2800],
+      [3500, 3800],
+      [4300, 5300],
+    ]);
+    expect(insidePlacedIdle(spans, 1900, 2800)).toBe(true);
+    // A stretch that runs on into the journey is not wholly inside.
+    expect(insidePlacedIdle(spans, 1900, 3000)).toBe(false);
     expect(placedIdleSpans(twoStepScene(), bundle)).toEqual([]);
+  });
+
+  it("counts a long planned opening rest and a long planned tail as placed idle", () => {
+    // Red if `plannedIdleOf` stops making regions for the opening or the tail.
+    const long = {
+      beats: [
+        { beforeActionId: "s1", restMs: 2000, arriveMs: 200 },
+        { beforeActionId: "s2", restMs: 900, arriveMs: 300 },
+      ],
+      tailMs: 2500,
+    };
+    const scene = twoStepScene(long);
+    const bundle = slow();
+    const film = filmOf(scene, bundle);
+    const spans = placedIdleSpans(scene, bundle);
+    // Premise: both really are past the line.
+    expect(spans[0]).toEqual([0, 2000]);
+    expect(2000).toBeGreaterThan(LONG_STILL_MS);
+    expect(spans.at(-1)).toEqual([
+      (film.plannedMs as number) - 2500,
+      film.plannedMs,
+    ]);
+    expect(2500).toBeGreaterThan(LONG_STILL_MS);
+    expect(film.summary.longStill).toBe(0);
+  });
+
+  it("gives a beat counted unplaced no span, and its long idle is still reported", () => {
+    // Red if an unplaced beat's idle is exempted: s2's pair plays as recorded.
+    const bundle = slow();
+    const noApproach: FrameBundle = {
+      ...bundle,
+      markers: bundle.markers.map((m) =>
+        m.actionId === "s2"
+          ? { actionId: m.actionId, sourceTimeMs: m.sourceTimeMs }
+          : m,
+      ),
+    };
+    const scene = twoStepScene(plan(900));
+    const film = filmOf(scene, noApproach);
+    const [s1, s2] = film.steps.map((st) => st.outputMs as number) as [
+      number,
+      number,
+    ];
+    // Premise: the beat is unplaced, the pair's idle is long, and no span
+    // lies between the two steps.
+    expect(film.unplacedBeatSteps).toEqual(["s2"]);
+    expect(s2Of(film)?.stillMs as number).toBeGreaterThan(LONG_STILL_MS);
+    expect(
+      placedIdleSpans(scene, noApproach).filter(([a, b]) => a >= s1 && b <= s2),
+    ).toEqual([]);
+    expect(s2Of(film)?.longStill).toBe(true);
   });
 });
 
