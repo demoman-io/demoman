@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { authorSteps, bump, newestSiteEntry, preflight, shippedEntries, strays } from "./release.mjs";
 
 // The real files, so a reworded version line fails here, not mid-release.
 // The site lives in internal/, which CI has no copy of: its version lines and
 // /changelog's newest entry are copied here as the pages write them (the hero's
-// class line, the Premise drawing's two versions, an entry whose <time> carries a class),
-// and bump still names the real file if the page stops matching.
+// class line, an entry whose <time> carries a class), and bump still names the real file
+// if the page stops matching. Where internal/ is cloned, the real page is bumped too, below.
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const current = JSON.parse(read("apps/cli/package.json")).version;
 const at = (v) => new RegExp(`v${v.replace(/\./g, "\\.")}<`, "g");
@@ -17,9 +17,7 @@ const texts = {
   license: read("apps/docs/resources/license.mdx"),
   changelog: read("apps/docs/resources/changelog.mdx"),
   shipped: read("apps/cli/test/changelog-shipped.json"),
-  site: `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
-<svg class="el" id="sync-code" viewBox="0 0 80 124"><text class="ver" x="40" y="18" text-anchor="middle">v${current}</text></svg>
-<svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>`,
+  site: `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>`,
   log: `<article class="entry" data-version="${current}">
   <p class="v label">${current}</p>
   <time class="label" datetime="2026-11-07">Nov 7, 2026</time>
@@ -30,19 +28,28 @@ const texts = {
 
 test("bump sets the version in every file that carries it", () => {
   assert.equal((texts.license.match(/demoman@[^/\s)]+\//g) ?? []).length, 2, "premise: the License page links two files");
-  assert.equal((texts.site.match(at(current)) ?? []).length, 3, "premise: the site names the version three times");
+  assert.equal((texts.site.match(at(current)) ?? []).length, 1, "premise: the site names the version once, on the class line");
   assert.ok(current !== "9.9.9", "premise: the tree is not already at the test's version");
   const next = bump("9.9.9", texts);
   assert.equal(JSON.parse(next.pkg).version, "9.9.9");
   assert.match(next.version, /VERSION = "9\.9\.9"/);
   assert.deepEqual(next.license.match(/demoman@[^/\s)]+\//g), ["demoman@9.9.9/", "demoman@9.9.9/"]);
   assert.match(next.site, /<div class="class-line label"><b>v9\.9\.9<\/b>/);
-  assert.equal((next.site.match(/<text class="ver"[^>]*>v9\.9\.9<\/text>/g) ?? []).length, 2, next.site);
+
   assert.doesNotMatch(next.site, at(current), "a version line was left behind");
   assert.deepEqual(bump("9.9.9", { ...texts, ...next }), next, "a second bump changes nothing");
 });
 
 // The docs test fails on a pinned entry that changed; pnpm release takes each pin.
+// The fixture above cannot notice the page moving on (the Premise drawing's version lines
+// left it on 2026-11-13 while this fixture still carried them), so the real page is bumped too
+// wherever it is cloned. CI has no internal/: the skip says so rather than passing.
+const sitePage = new URL("../internal/site/public/index.html", import.meta.url);
+test("bump sets the version on the real homepage", { skip: !existsSync(sitePage) && "internal/ is not cloned here" }, () => {
+  const next = bump("9.9.9", { ...texts, site: readFileSync(sitePage, "utf8") });
+  assert.match(next.site, /<div class="class-line[^"]*"><b>v9\.9\.9<\/b>/);
+});
+
 test("a release pins the entry before it, and never retakes or drops a pin", () => {
   const log = (v, words) =>
     v.map((l) => `<Update description="a -> b" label="${l}">\n  - ${words[l]}\n</Update>`).join("\n\n");
