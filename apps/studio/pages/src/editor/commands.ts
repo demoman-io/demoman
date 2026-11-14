@@ -549,7 +549,21 @@ export function applyCommand(
 ): SceneDocument {
   const next = reduce(scene, command, newId);
   return SceneDocumentSchema.parse(
-    ZOOM_SET_EDITS.has(command.kind) ? decideCameraAgain(next) : next,
+    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next)
+      ? decideCameraAgain(next)
+      : next,
+  );
+}
+
+// Smoothness sets the push-in and the pull-out, so the gap a return needs:
+// a pan or return decided at the old one may not fit the new.
+function smoothnessChanged(
+  before: SceneDocument,
+  after: SceneDocument,
+): boolean {
+  return (
+    (before.motion ?? MOTION_DEFAULTS).smoothness !==
+    (after.motion ?? MOTION_DEFAULTS).smoothness
   );
 }
 

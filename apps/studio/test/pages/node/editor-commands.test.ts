@@ -808,6 +808,40 @@ describe("a zoom edit makes the renderer decide each arrival again", () => {
     expect(carries(after).every((has) => !has)).toBe(true);
   });
 
+  // Final review, Important 2: smoothness sets the push-in and pull-out, so
+  // the gap a return needs. Red if `applyCommand` stops asking
+  // `smoothnessChanged`: every arrival would keep the old smoothness's answer.
+  it("a smoothness change leaves no zoom carrying arrives", () => {
+    const scene = planned();
+    // Premise: the edit really moves smoothness off what the take has.
+    expect((scene.motion ?? MOTION_DEFAULTS).smoothness).not.toBe(1);
+    const after = applyCommand(
+      scene,
+      { kind: "setMotion", patch: { smoothness: 1 } },
+      () => "z-new",
+    );
+    expect(after.motion?.smoothness).toBe(1);
+    expect(carries(after)).toEqual([false, false, false]);
+  });
+
+  // Red if every `setMotion` clears them (asked of the command's kind
+  // rather than of smoothness), or if writing the first motion block (the
+  // defaults, smoothness included) reads as a change.
+  it("a motion edit that keeps smoothness leaves arrives where it was", () => {
+    const scene = planned();
+    // Premise: the take has no motion block, so this edit writes one whole,
+    // and blur really changes.
+    expect(scene.motion).toBeUndefined();
+    expect(MOTION_DEFAULTS.blur).not.toBe(0);
+    const after = applyCommand(
+      scene,
+      { kind: "setMotion", patch: { blur: 0 } },
+      () => "z-new",
+    );
+    expect(after.motion).toEqual({ ...MOTION_DEFAULTS, blur: 0 });
+    expect(carries(after)).toEqual([true, true, true]);
+  });
+
   it("a gap edit leaves arrives where it was", () => {
     // Red if `setGap` joined `ZOOM_SET_EDITS`.
     const after = applyCommand(
