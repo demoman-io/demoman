@@ -25,6 +25,7 @@ import {
   type RunReport,
   type RunSize,
   restBefore,
+  screenScaleNote,
   scrubUrl,
   tailMs,
   zoomsForClicks,
@@ -73,6 +74,8 @@ export type PlayDeps = Pick<
   | "readDates"
   | "flowSize"
   | "flowSizeUnread"
+  | "flowScale"
+  | "flowScaleUnread"
 >;
 
 export type Prepared =
@@ -143,17 +146,14 @@ export async function prepareStage(
   // the default. A headless screen that is Chrome's stand-in is not read as
   // the author's (`BrowserSession.screen`): the run films at its window and
   // says why.
+  const screen = await deps.session.screen(page);
   const sizePlan = chooseRunSize({
     scriptViewport: script.viewport,
     device: script.device === undefined ? undefined : deviceFor(script.device),
     flow: deps.flowSize,
     setting: DEFAULT_RUN_SIZE,
-    screen: await deps.session.screen(page),
+    screen,
   });
-  // A size the script or its device chose is still filmed at 1x when
-  // headless could not read the display, or assumed its scale (DEM-70), so
-  // the reason rides on it too: the size is right and the scale may not be.
-  const scaleLost = deps.session.screenUnknown() ?? deps.session.scaleAssumed();
   // Only a screen that could not be read leaves the window's own size, and
   // then it is measured, never defaulted: this lands in
   // `meta.capture.viewport`, which is what the compositor composes every
@@ -165,11 +165,31 @@ export async function prepareStage(
     deps.flowSizeUnread === undefined
       ? null
       : `The flow's recorded size could not be read (${deps.flowSizeUnread}), so this run used this screen's.`;
+  // The scale, likewise: headless asked for it at the door (`captureScale`),
+  // so what it records at is `filmScale`; a visible window records at its
+  // screen's, which it cannot be told otherwise.
+  const filmScale = deps.session.filmScale();
+  const screenScale =
+    screen !== undefined && "scale" in screen ? screen.scale : undefined;
+  const recordedAt = filmScale ?? screenScale;
+  const scaleUnread =
+    deps.flowScaleUnread === undefined
+      ? null
+      : `The flow's recorded scale could not be read (${deps.flowScaleUnread}), so this run recorded at ${recordedAt === undefined ? "its screen's scale" : `${recordedAt}x`}.`;
+  const headedScale =
+    filmScale === null &&
+    screenScale !== undefined &&
+    deps.flowScale !== undefined &&
+    screenScale !== deps.flowScale
+      ? screenScaleNote(screenScale, deps.flowScale)
+      : null;
   const said = (reason: string | null) =>
-    [flowUnread, reason].filter((r) => r !== null).join(" ") || null;
+    [flowUnread, scaleUnread, headedScale, reason]
+      .filter((r) => r !== null)
+      .join(" ") || null;
   let size: RunSize;
   if (sizePlan.kind === "fixed") {
-    const error = said(sizePlan.size.error ?? scaleLost);
+    const error = said(sizePlan.size.error);
     size = error === null ? sizePlan.size : { ...sizePlan.size, error };
   } else {
     log(`${sizePlan.error}; recording at the window's own size`);

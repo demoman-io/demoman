@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { displayUnreadSentence, readDisplay } from "../src/display.js";
+import {
+  CAPTURE_SCALE,
+  captureScale,
+  displayUnreadSentence,
+  readDisplay,
+} from "../src/display.js";
 
 describe("readDisplay", () => {
   it("takes DEMOMAN_DISPLAY outright, in CSS px and a scale", async () => {
@@ -247,5 +252,25 @@ DP-1 disconnected (normal left inverted right x axis y axis)
       ),
     ).toEqual({ width: 1920, height: 1080, scale: 1 });
     expect(x.calls).toEqual([]);
+  });
+});
+
+// Spec 2026-11-13 part 2: the one place a headless run's scale is decided.
+describe("captureScale", () => {
+  it("pins the constants the spec names", () => {
+    expect(CAPTURE_SCALE).toEqual({ desktop: 2, tablet: 2, phone: 3 });
+  });
+
+  // Turns red when the order in `captureScale` changes: DEMOMAN_DISPLAY
+  // (refresh's kept scale, a test's display, an opt-out), then the flow's
+  // recorded scale, then the device's constant.
+  it("takes DEMOMAN_DISPLAY's scale, else the flow's recorded one, else the device's constant", () => {
+    expect(captureScale({ DEMOMAN_DISPLAY: "1280x800@1" }, 2, "phone")).toBe(1);
+    expect(captureScale({}, 1, "phone")).toBe(1);
+    expect(captureScale({}, undefined, "phone")).toBe(3);
+    expect(captureScale({}, undefined, "tablet")).toBe(2);
+    expect(captureScale({})).toBe(2);
+    // A setting that does not read names no scale (`readDisplay` says why).
+    expect(captureScale({ DEMOMAN_DISPLAY: "wide" }, 1)).toBe(1);
   });
 });

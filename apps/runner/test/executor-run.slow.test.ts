@@ -36,7 +36,7 @@ import {
 import type { RunnerStore } from "../src/frame-store.js";
 import { installResolver } from "../src/page-agent.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
-import { sampleImage } from "./mp4-probe.js";
+import { sampleImage, sampleMp4 } from "./mp4-probe.js";
 
 const lines: string[] = [];
 const log = (line: string) => void lines.push(line);
@@ -77,6 +77,24 @@ const script = () => ({
     { do: "click" as const, on: { text: "Place order" } },
   ],
 });
+
+/** The widest motion span's width as its mp4 decodes, not as the bundle
+ *  records it: the scale the motion was recorded at, in pixels. */
+async function decodedMotionWidth(
+  library: ReturnType<typeof createLibrary>,
+  takeId: string,
+): Promise<number> {
+  const store = library.frameStore(takeId);
+  const spans = (await store.getBundle(takeId))?.motionSpans ?? [];
+  // Premise: the take has motion to decode.
+  expect(spans.length, JSON.stringify(spans)).toBeGreaterThan(0);
+  const widest = spans.reduce((a, b) => (b.width > a.width ? b : a));
+  const decoded = await sampleMp4(await store.load(widest.ref), {
+    colors: [],
+  });
+  expect(decoded.width, JSON.stringify({ widest, decoded })).toBe(widest.width);
+  return decoded.width;
+}
 
 /** The take's first keyframe on disk, decoded in the browser: its pixel
  *  size and how many distinct colours a sparse sample of it holds. */
@@ -404,8 +422,11 @@ describe("runScript", () => {
       );
       expect(report.size?.error).toContain("DEMOMAN_DISPLAY");
 
-      // A script that names its own viewport films at that size, but still
-      // at 1x, and says so: the size is right and the scale is not.
+      // Ruling 3 (spec 2026-11-13 part 2): a script that names its own
+      // viewport records at that size and at the constant's scale, with no
+      // screen size guessed: Chrome's own stand-in is given the scale alone
+      // (`launch`'s `scale`). Turns red when `start` stops passing it: the
+      // motion decodes at 1280 wide.
       const sized = await runScript(
         script() as never,
         {
@@ -429,17 +450,25 @@ describe("runScript", () => {
         height: 800,
         from: "script",
       });
-      expect(sized.size?.error).toContain(
-        `Demoman could not read this computer's display (${why}), so headless recorded at 1x`,
+      // The size and the scale are both right, so nothing is said.
+      expect(sized.size?.error).toBeNull();
+      const takeId = sized.provenance.takeId as string;
+      const library = createLibrary(home);
+      expect((await library.getScene(takeId))?.meta.capture.displayScale).toBe(
+        2,
       );
+      const width = await decodedMotionWidth(library, takeId);
+      expect(width, JSON.stringify({ width, lines })).toBe(1280 * 2);
     } finally {
       await blind.close();
     }
   }, 180_000);
 
-  // Decide once, record it: the scale the launch put the browser on is the
+  // Decide once, record it: the scale the run asked the launch for is the
   // one the take records, so keep never has to guess it from the frames.
-  it("records the display scale it filmed at on the take", async () => {
+  // Turns red when `start` launches at the display's own scale (2 here)
+  // instead of the one asked for.
+  it("records the scale it asked for on the take", async () => {
     const placed = createBrowserSession({
       headless: true,
       log,
@@ -450,6 +479,10 @@ describe("runScript", () => {
       },
     });
     try {
+      // Asked before the run, as `runJob` asks at the door; the run's own
+      // `stage()` names none and keeps it.
+      const asked = await placed.ensure({ scale: 1 });
+      if (!asked.ok) throw new Error(JSON.stringify(asked));
       const library = createLibrary(home);
       const report = await runScript(
         script() as never,
@@ -471,15 +504,10 @@ describe("runScript", () => {
       );
       const takeId = report.provenance.takeId as string;
       const doc = await library.getScene(takeId);
-      expect(doc?.meta.capture.displayScale).toBe(2);
-      // The record agrees with the picture: the motion was filmed at 2x.
-      const spans =
-        (await library.frameStore(takeId).getBundle(takeId))?.motionSpans ?? [];
-      expect(spans.length, JSON.stringify(spans)).toBeGreaterThan(0);
-      expect(
-        Math.max(...spans.map((s) => s.width)),
-        JSON.stringify(spans),
-      ).toBeGreaterThan(1280 * 1.5);
+      expect(doc?.meta.capture.displayScale).toBe(1);
+      // The record agrees with the picture: the motion decodes at 1x, not
+      // at the screen's 2 nor the default 2.
+      expect(await decodedMotionWidth(library, takeId)).toBe(1280);
     } finally {
       await placed.close();
     }

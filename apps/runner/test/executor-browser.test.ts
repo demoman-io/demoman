@@ -400,41 +400,131 @@ function fakeLaunched(options: { closeRejects?: boolean } = {}): Fake {
 }
 
 describe("createBrowserSession bookkeeping (fake launcher)", () => {
-  // DEM-70: play reads this onto the run's size, so the report says it.
-  it("says why a display's scale was assumed, and clears it once one is read", async () => {
-    const said = "recorded at 1x: this desktop's scale could not be read";
-    const reads = [
-      { width: 2560, height: 1440, scale: 1, scaleAssumed: said },
-      { width: 1280, height: 720, scale: 2 },
-    ];
+  // Spec 2026-11-13 part 2: headless no longer takes the screen's scale, so
+  // DEM-70's "1x is assumed" says nothing about it and is not logged. Turns
+  // red when `start` takes `read.scale` (or logs `read.scaleAssumed`) again.
+  it("does not say a desktop's scale was assumed: headless records at the asked scale", async () => {
+    const said = "1x is assumed: this desktop's scale could not be read";
+    const launchedWith: Parameters<typeof launch>[0][] = [];
+    const lines: string[] = [];
+    let reads = 0;
+    const session = createBrowserSession({
+      headless: true,
+      log: (l: string) => lines.push(l),
+      launchFn: async (o) => {
+        launchedWith.push(o);
+        return fakeLaunched().launched;
+      },
+      readDisplay: async () => {
+        reads++;
+        return { width: 2560, height: 1440, scale: 1, scaleAssumed: said };
+      },
+    });
+    expect((await session.ensure()).ok).toBe(true);
+    // Premise: the display was read, and it said its scale was assumed.
+    expect(reads).toBe(1);
+    expect(launchedWith[0]?.display).toEqual({
+      width: 2560,
+      height: 1440,
+      scale: 2,
+    });
+    expect(session.filmScale()).toBe(2);
+    expect(lines.join("\n")).not.toContain("1x is assumed");
+    await session.close();
+  });
+
+  // Ruling 4: a run that wants another scale relaunches the headless
+  // browser at it, through `ensure`'s one relaunch path. Turns red when
+  // `ensure` drops `rescale`: the browser stays at 2 and `filmScale` says 2.
+  it("launches a headless browser again at the scale a call asks for, and keeps it", async () => {
+    const launchedWith: Parameters<typeof launch>[0][] = [];
+    const fakes: Fake[] = [];
     const lines: string[] = [];
     const session = createBrowserSession({
       headless: true,
       log: (l: string) => lines.push(l),
-      launchFn: async () => {
+      launchFn: async (o) => {
+        launchedWith.push(o);
         const fake = fakeLaunched();
-        setTimeout(() => fake.page.emit("close"), 0);
+        fakes.push(fake);
         return fake.launched;
       },
-      readDisplay: async () =>
-        reads.shift() ?? { width: 1, height: 1, scale: 1 },
+      readDisplay: async () => ({ width: 1440, height: 900, scale: 1 }),
     });
+    // A call that names no scale (a snapshot) launches at the default.
     expect((await session.ensure()).ok).toBe(true);
-    expect(session.scaleAssumed()).toBe(said);
-    expect(session.screenUnknown()).toBeNull();
-    expect(lines).toContain(said);
-    await vi.waitFor(() => {
-      expect(session.closedSinceEnsure()).toBe(true);
-    });
+    expect(session.filmScale()).toBe(2);
+    // The same scale reuses the live browser.
+    expect((await session.ensure({ scale: 2 })).ok).toBe(true);
+    expect(launchedWith).toHaveLength(1);
+    const phone = await session.ensure({ scale: 3 });
+    expect(phone.ok).toBe(true);
+    expect(fakes[0]?.closeCalls()).toBe(1);
+    expect(launchedWith.map((o) => o?.display)).toEqual([
+      { width: 1440, height: 900, scale: 2 },
+      { width: 1440, height: 900, scale: 3 },
+    ]);
+    expect(session.filmScale()).toBe(3);
+    expect(lines).toContain(
+      "the headless browser records at 2x and this call records at 3x; starting a new one",
+    );
+    // A later call that names none uses the browser as it is.
     expect((await session.ensure()).ok).toBe(true);
-    // Premise: both reads were taken, so the second launch read the 2x one.
-    expect(reads).toEqual([]);
-    expect(session.scaleAssumed()).toBeNull();
+    expect(launchedWith).toHaveLength(2);
     await session.close();
   });
 
-  it("launches headless on the display it reads, and says when it cannot read one", async () => {
-    const display = { width: 1710, height: 1107, scale: 2 };
+  // Report before you forgive: a relaunch for scale that fails answers the
+  // launch's failure, as a first launch does, never the old browser.
+  it("answers a relaunch for scale that fails with the launch's reason", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: true,
+      log,
+      launchFn: async () => {
+        launches++;
+        if (launches === 2) throw new Error("Executable doesn't exist at /x");
+        return fakeLaunched().launched;
+      },
+      readDisplay: async () => ({ width: 1440, height: 900, scale: 2 }),
+    });
+    expect((await session.ensure({ scale: 2 })).ok).toBe(true);
+    const failed = await session.ensure({ scale: 1 });
+    expect(launches).toBe(2);
+    expect(failed).toMatchObject({ ok: false, reason: "browserMissing" });
+    expect(session.running()).toBe(false);
+    await session.close();
+  });
+
+  // Ruling 6: a visible window cannot be given a scale, so asking for one
+  // never relaunches it. Turns red when `rescale` ignores `headless`.
+  it("never relaunches a visible window for a scale", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: false,
+      log,
+      launchFn: async () => {
+        launches++;
+        return fakeLaunched().launched;
+      },
+      readDisplay: async () => ({ width: 1440, height: 900, scale: 2 }),
+    });
+    expect((await session.ensure({ scale: 2 })).ok).toBe(true);
+    expect((await session.ensure({ scale: 3 })).ok).toBe(true);
+    expect(launches).toBe(1);
+    expect(session.filmScale()).toBeNull();
+    await session.close();
+  });
+
+  // Spec 2026-11-13 part 2: the display's size as read, at the scale asked
+  // for (here the default, 2), never the screen's (1 in every read below).
+  it("launches headless at the size of the display it reads, and says when it cannot read one", async () => {
+    const display = { width: 1710, height: 1107, scale: 1 };
+    const at2 = (d: { width: number; height: number }) => ({
+      width: d.width,
+      height: d.height,
+      scale: 2,
+    });
     const launchedWith: Parameters<typeof launch>[0][] = [];
     const launchFn = async (o?: (typeof launchedWith)[number]) => {
       launchedWith.push(o);
@@ -447,7 +537,7 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
       readDisplay: async () => display,
     });
     expect((await read.ensure()).ok).toBe(true);
-    expect(launchedWith[0]?.display).toEqual(display);
+    expect(launchedWith[0]?.display).toEqual(at2(display));
     await read.close();
 
     expect(read.screenUnknown()).toBeNull();
@@ -476,8 +566,8 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
     });
     await counted.ensure();
     expect(launchedWith.slice(1).map((o) => o?.display)).toEqual([
-      display,
-      docked,
+      at2(display),
+      at2(docked),
     ]);
     expect(reads).toBe(2);
     await counted.close();
@@ -493,9 +583,14 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
     expect(refused.screenUnknown()).toBeNull();
     expect((await refused.ensure()).ok).toBe(true);
     expect(launchedWith[1]).not.toHaveProperty("display");
+    // Ruling 3: no screen size is guessed, and Chrome's own stand-in is
+    // still given the scale. Turns red when `start` stops passing `scale`
+    // to a launch with no display.
+    expect(launchedWith[1]?.scale).toBe(2);
+    expect(refused.filmScale()).toBe(2);
     // The reason a size report carries, not only a log line.
     const why =
-      "Demoman could not read this computer's display (osascript refused: no), so headless recorded at 1x, and at its own window size unless the script or its device named one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2), or start Demoman with --headed";
+      "Demoman could not read this computer's display (osascript refused: no), so headless recorded at its own window size unless the script or its device named one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2), or start Demoman with --headed";
     expect(refused.screenUnknown()).toBe(why);
     expect(logs).toEqual([why]);
     await refused.close();
@@ -530,7 +625,7 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
     });
     expect((await throwing.ensure()).ok).toBe(true);
     expect(attempts).toBe(2);
-    expect(launchedWith.at(-1)?.display).toEqual(display);
+    expect(launchedWith.at(-1)?.display).toEqual(at2(display));
     expect(throwing.screenUnknown()).toBeNull();
     await throwing.close();
     launchedWith.length = 2;
@@ -549,6 +644,7 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
     expect((await visible.ensure()).ok).toBe(true);
     expect(reads).toBe(0);
     expect(launchedWith[2]).not.toHaveProperty("display");
+    expect(launchedWith[2]).not.toHaveProperty("scale");
     await visible.close();
   });
 

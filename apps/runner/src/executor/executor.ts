@@ -24,7 +24,11 @@ import {
 } from "@demoman/run-core";
 import type { SceneBranding } from "@demoman/scene-schema";
 import { chromium } from "playwright";
-import { displayUnreadSentence, readDisplay } from "../display.js";
+import {
+  captureScale,
+  displayUnreadSentence,
+  readDisplay,
+} from "../display.js";
 import { installResolver } from "../page-agent.js";
 import { RUNNER_VERSION } from "../version.js";
 import { signInAccount } from "./account-signin.js";
@@ -40,7 +44,7 @@ import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
-import { flowSizeOf } from "./flow-size.js";
+import { flowScaleOf, flowSizeOf } from "./flow-size.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -431,7 +435,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   const session = createBrowserSession({
     headless: options.headless,
     ...(options.standInDisplay === true
-      ? { readDisplay: () => readDisplay(options.env ?? process.env) }
+      ? {
+          readDisplay: () => readDisplay(options.env ?? process.env),
+          // A snapshot or probe with no browser up: no flow, no device.
+          defaultScale: captureScale(options.env ?? process.env),
+        }
       : {}),
     ...(options.executablePath === undefined
       ? {}
@@ -900,7 +908,24 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       }
       await learnSecrets(choice);
       const chosen = choice.kind === "account" ? choice : null;
-      const browser = await session.ensure();
+      // The scale this run records motion at, decided here once (spec
+      // 2026-11-13 part 2): DEMOMAN_DISPLAY's, else the flow's latest
+      // video's, else the constant for the device. A headless browser at
+      // another scale is launched again at it; a visible window cannot be,
+      // and its run says so (`prepareStage`).
+      const flowScale =
+        into === null ? {} : await flowScaleOf(videos, library, into);
+      const scale = captureScale(
+        options.env ?? process.env,
+        flowScale.scale,
+        script.device,
+      );
+      if (flowScale.why !== undefined && into !== null) {
+        log(
+          `flow "${into.name}": this run records at ${options.headless ? `${scale}x` : "its screen's scale"} instead: ${flowScale.why}`,
+        );
+      }
+      const browser = await session.ensure({ scale });
       if (!browser.ok) {
         const out = refusal(browser.reason, browser.detail);
         job.final = out;
@@ -1044,6 +1069,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(args.readDates === true ? { readDates: true } : {}),
             ...(flowSize === undefined ? {} : { flowSize }),
             ...(flowSizeUnread === undefined ? {} : { flowSizeUnread }),
+            ...(flowScale.scale === undefined
+              ? {}
+              : { flowScale: flowScale.scale }),
+            ...(flowScale.why === undefined
+              ? {}
+              : { flowScaleUnread: flowScale.why }),
             session,
             library,
             kits,
@@ -1369,7 +1400,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                 secretsFile: await secretsFileForStatus(),
                 // Headless standing in for a display only: the screen it
                 // films as, read now (a laptop may have docked since), or
-                // why it cannot be read — before anything is filmed at 1x.
+                // why it cannot be read — before anything is recorded at
+                // its window's size.
                 ...(options.headless && options.standInDisplay === true
                   ? { display: await displayForStatus() }
                   : {}),

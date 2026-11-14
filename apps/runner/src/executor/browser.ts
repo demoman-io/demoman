@@ -7,7 +7,11 @@ import {
   withAnswerDeadline,
 } from "@demoman/replay-engine";
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { type DisplayUnread, displayUnreadSentence } from "../display.js";
+import {
+  CAPTURE_SCALE,
+  type DisplayUnread,
+  displayUnreadSentence,
+} from "../display.js";
 import {
   chromiumDepsCommand,
   chromiumInstallCommand,
@@ -157,8 +161,17 @@ export type WorkWindow = "tab" | "background" | "minimized";
 export const DEFAULT_WORK_WINDOW: WorkWindow = "background";
 
 export interface BrowserSession {
-  /** The live browser, launching or relaunching it as needed. */
-  ensure(): Promise<{ ok: true; launched: Launched } | BrowserFailure>;
+  /**
+   * The live browser, launching or relaunching it as needed. `scale` is the
+   * scale a run records motion at (`captureScale`): a headless browser that
+   * stands in for a display at another one is closed and launched again at
+   * it, and later launches keep it until a call asks for another. Without
+   * it, the live browser is used at whatever scale it has. Ignored by a
+   * visible window, whose scale is its screen's.
+   */
+  ensure(options?: {
+    scale?: number;
+  }): Promise<{ ok: true; launched: Launched } | BrowserFailure>;
   /**
    * A page for one call (a snapshot, a run) that carries nothing from any
    * earlier call: the live browser's first page if no call has had it yet,
@@ -217,27 +230,28 @@ export interface BrowserSession {
    * real, or before any launch.
    */
   screenUnknown(): string | null;
-  /** Why the live headless browser's display scale is 1 by assumption, not
-   *  read (`Display.scaleAssumed`); null when it was read, or not headless. */
-  scaleAssumed(): string | null;
   /**
-   * The scale the live browser films motion at, as its launch decided it
-   * (`meta.capture.displayScale`): headless, the display it stands in for,
-   * else 1 (an unplaced headless screencast films at 1x). Null for a visible
-   * window, whose scale is the OS's and never read here, and before any
-   * launch.
+   * The scale the live browser records motion at, as its launch decided it
+   * (`meta.capture.displayScale`): headless standing in for a display, the
+   * scale it was asked for (`ensure`), else 1 (an unplaced headless
+   * screencast records at 1x). Null for a visible window, whose scale is its
+   * screen's (`screen`'s `scale`), and before any launch.
    */
   filmScale(): number | null;
   /**
    * The screen `page` is on, as a run or a snapshot chooses its size from:
-   * the page's own `screen`, or, when that is Chrome's stand-in for a
-   * display headless could not read, the reason (`screenUnknown`) instead,
-   * so no caller reports the stand-in as the author's. Undefined when the
-   * page could not answer (said in the log).
+   * the page's own `screen` and `devicePixelRatio`, or, when that is
+   * Chrome's stand-in for a display headless could not read, the reason
+   * (`screenUnknown`) instead, so no caller reports the stand-in as the
+   * author's. Undefined when the page could not answer (said in the log).
    */
   screen(
     page: Page,
-  ): Promise<{ width: number; height: number } | { error: string } | undefined>;
+  ): Promise<
+    | { width: number; height: number; scale: number }
+    | { error: string }
+    | undefined
+  >;
   /** Whether this session's browser is headless: no window anyone can see,
    *  so a page that goes away was not closed by a person. */
   readonly headless: boolean;
@@ -259,10 +273,12 @@ export function fullChromiumPath(): string {
 /**
  * One Chromium per executor, launched on the first call that needs a page,
  * reused after, and relaunched when the author closed its window (with
- * `--headed`). Headless stands in for this computer's display when
- * `readDisplay` is given, so it films motion at the display's scale as a
- * visible window does; without one, a headless screencast films at 1x
- * (measured 2026-09-21, and again 2026-10-20).
+ * `--headed`), or when a call asks for another scale. Headless stands in
+ * for a display of this computer's size when `readDisplay` is given, at the
+ * scale the run asked for (spec 2026-11-13 part 2), so it records motion at
+ * that scale as a visible window does at its screen's; without one, a
+ * headless screencast records at 1x (measured 2026-09-21, and again
+ * 2026-10-20).
  *
  * `close()` is terminal: after it, `ensure()` answers windowDidNotOpen and
  * launches nothing, so an executor that is shutting down cannot leave a
@@ -286,9 +302,15 @@ export function createBrowserSession(options: {
    *  from (`readDisplay` in production). Read on every launch: a laptop
    *  docked or undocked between two launches is on another screen, and a
    *  relaunch after a crash films at the one it is on now. A read that
-   *  throws counts as one that failed. Absent, headless launches with no
-   *  display, as the runner's lanes measure it. */
+   *  throws counts as one that failed. Only its size is used: the scale is
+   *  the one asked for (`ensure`), else `defaultScale` (spec 2026-11-13
+   *  part 2). Absent, headless launches with no display, as the runner's
+   *  lanes measure it. */
   readDisplay?: () => Promise<Display | DisplayUnread>;
+  /** With `readDisplay`: the scale a headless launch stands in at before any
+   *  call asks for one (`captureScale` with no flow); `CAPTURE_SCALE`'s
+   *  desktop one when absent. */
+  defaultScale?: number;
   /** The machine this records on; `process` unless a test stands in. */
   host?: { platform: string; arch: string };
 }): BrowserSession {
@@ -313,8 +335,11 @@ export function createBrowserSession(options: {
     { ok: true; launched: Launched } | BrowserFailure
   > | null = null;
   let screenUnknown: string | null = null;
-  let scaleAssumed: string | null = null;
   let filmScale: number | null = null;
+  /** Headless standing in for a display: the only browser a scale reaches. */
+  const readDisplay = options.headless ? options.readDisplay : undefined;
+  /** The scale the next stand-in launch is at: the latest one asked for. */
+  let wantScale: number = options.defaultScale ?? CAPTURE_SCALE.desktop;
 
   /** The display this launch stands in for, or why there is none. Never
    *  throws: a read that throws is a read that failed, and says what threw. */
@@ -354,23 +379,22 @@ export function createBrowserSession(options: {
     }
     let launched: Launched;
     let display: Display | undefined;
-    if (options.headless && options.readDisplay !== undefined) {
-      const read = await readDisplayNow(options.readDisplay);
+    const scale = wantScale;
+    if (readDisplay !== undefined) {
+      const read = await readDisplayNow(readDisplay);
       if ("failed" in read) {
-        // Headless still films, at Chrome's stand-in screen and a 1x
-        // screencast. Said here when the reason is new, and on every size
-        // the snapshot and run report (`screenUnknown`), so the film's size
-        // and scale have their reason.
+        // Headless still records, on Chrome's stand-in screen given the
+        // scale alone (`launch`'s `scale`). Said here when the reason is new,
+        // and on every size the snapshot and run measure off the window
+        // (`screenUnknown`), so that size has its reason.
         const why = displayUnreadSentence(read, "recorded");
         if (why !== screenUnknown) options.log(why);
         screenUnknown = why;
-        scaleAssumed = null;
       } else {
-        display = read;
+        // The screen's size, never its scale, so its `scaleAssumed` says
+        // nothing about what headless records.
+        display = { width: read.width, height: read.height, scale };
         screenUnknown = null;
-        const assumed = read.scaleAssumed ?? null;
-        if (assumed !== null && assumed !== scaleAssumed) options.log(assumed);
-        scaleAssumed = assumed;
       }
     }
     try {
@@ -378,6 +402,9 @@ export function createBrowserSession(options: {
         headless: options.headless,
         log: options.log,
         ...(display === undefined ? {} : { display }),
+        ...(readDisplay !== undefined && display === undefined
+          ? { scale }
+          : {}),
         ...(options.executablePath === undefined
           ? {}
           : { executablePath: options.executablePath }),
@@ -423,7 +450,11 @@ export function createBrowserSession(options: {
       }
     }
     live = launched;
-    filmScale = options.headless ? (display?.scale ?? 1) : null;
+    filmScale = options.headless
+      ? readDisplay === undefined
+        ? 1
+        : scale
+      : null;
     pageClosed = false;
     current = { page: launched.page, cdp: launched.cdp, taken: false };
     watch(launched, launched.page);
@@ -599,12 +630,25 @@ export function createBrowserSession(options: {
     });
   }
 
-  async function ensure(): Promise<
-    { ok: true; launched: Launched } | BrowserFailure
-  > {
+  async function ensure(
+    asked: { scale?: number } = {},
+  ): Promise<{ ok: true; launched: Launched } | BrowserFailure> {
     if (closed) return SESSION_CLOSED;
-    if (live !== null && (pageClosed || !live.browser.isConnected())) {
+    // One launch at a time: a call that arrives during one waits for it and
+    // asks again, so the scale it wants is not lost to the other's launch.
+    if (starting !== null) {
+      const other = await starting;
+      return other.ok ? ensure(asked) : other;
+    }
+    if (readDisplay !== undefined && asked.scale !== undefined) {
+      wantScale = asked.scale;
+    }
+    const lost = live !== null && (pageClosed || !live.browser.isConnected());
+    const rescale =
+      readDisplay !== undefined && live !== null && filmScale !== wantScale;
+    if (live !== null && (lost || rescale)) {
       const was = live;
+      const wasScale = filmScale;
       live = null;
       current = null;
       pageClosed = false;
@@ -613,9 +657,11 @@ export function createBrowserSession(options: {
         options.log(
           crashed
             ? "the browser had died; starting a new one"
-            : options.headless
-              ? "the headless browser's page closed; starting a new one"
-              : "the browser window was closed; starting a new one",
+            : !lost
+              ? `the headless browser records at ${wasScale}x and this call records at ${wantScale}x; starting a new one`
+              : options.headless
+                ? "the headless browser's page closed; starting a new one"
+                : "the browser window was closed; starting a new one",
         );
       } catch (error) {
         options.log(
@@ -750,7 +796,6 @@ export function createBrowserSession(options: {
     version: () =>
       live?.browser.isConnected() ? live.browser.version() : null,
     screenUnknown: () => screenUnknown,
-    scaleAssumed: () => scaleAssumed,
     filmScale: () => filmScale,
     async close() {
       closed = true;

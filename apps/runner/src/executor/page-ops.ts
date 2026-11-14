@@ -202,16 +202,18 @@ export function measureViewport(
 }
 
 /** The screen the run's window is on, for `chooseRunSize`'s `screen`
- *  setting; undefined when it cannot be read, and said here first. */
+ *  setting, and its scale, which a visible window records motion at;
+ *  undefined when it cannot be read, and said here first. */
 export async function readScreen(
   page: Page,
   log: (line: string) => void,
-): Promise<{ width: number; height: number } | undefined> {
+): Promise<{ width: number; height: number; scale: number } | undefined> {
   try {
     return await withinDeadline(
       page.evaluate(() => ({
         width: screen.width,
         height: screen.height,
+        scale: devicePixelRatio,
       })),
       "reading the screen's size",
     );

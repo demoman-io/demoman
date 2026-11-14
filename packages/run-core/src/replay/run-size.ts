@@ -29,8 +29,8 @@ interface Viewport {
  * so an agent can tell which layout its targets and its video describe.
  * `error` is set for `window`, the fallback when the screen could not be
  * read, which films at a size nobody chose and has to say so; and for a
- * size the script or its device chose when the film's scale was lost (the
- * CLI's headless browser could not read the display, so it filmed at 1x).
+ * scale that is not the flow's (a visible window records at its screen's,
+ * `screenScaleNote`) or a flow's size or scale that could not be read.
  */
 export interface RunSize extends Viewport {
   from: RunSizeSetting | "script" | "device" | "flow" | "window";

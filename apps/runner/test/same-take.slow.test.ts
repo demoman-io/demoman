@@ -17,6 +17,7 @@ import { frameOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CAPTURE_SCALE } from "../src/display.js";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
@@ -27,7 +28,7 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
 import { lagCdp } from "./lag.js";
-import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
+import { mp4FrameTimes, readMp4Crops, sampleMp4 } from "./mp4-probe.js";
 
 // Spec 2026-11-13 (same take on any machine), Part 4 tests 1 to 3. One
 // script is recorded twice in this process, the second time with every CDP
@@ -584,5 +585,77 @@ describe("one script recorded fast and slowed", () => {
       }
     },
     DECODE_MS,
+  );
+});
+
+// Spec 2026-11-13 part 2: a headless first run records motion at
+// CAPTURE_SCALE, never the screen's, so a 1x desktop records what a Retina
+// Mac does. Turns red when browser.ts's `start` launches at the display's
+// own scale (`read.scale`) again: the take records 1 and decodes 1280 wide.
+describe("a first run on a 1x screen", () => {
+  it(
+    "records the desktop constant, and its motion decodes at twice the viewport",
+    async () => {
+      const lines: string[] = [];
+      const reads: number[] = [];
+      const session = createBrowserSession({
+        headless: true,
+        log: (line) => void lines.push(line),
+        readDisplay: async () => {
+          reads.push(1);
+          return { width: 1440, height: 900, scale: 1 };
+        },
+        onLaunched: async ({ context }) => {
+          await installResolver(context);
+          await installExecutorEntry(context);
+        },
+      });
+      try {
+        const library = createLibrary(home);
+        const viewport = { width: 1280, height: 800 };
+        const report = await runScript(
+          {
+            scriptVersion: 8,
+            name: "same take, a 1x screen",
+            target: url,
+            viewport,
+            steps: SCRIPT_STEPS,
+          } as never,
+          {
+            session,
+            library,
+            kits,
+            log: (line) => void lines.push(line),
+            sessions: [],
+            sessionStore: createSessionStore(home),
+            signinCommand: "npx demoman signin",
+            loadSessions: async () => ({ ok: true as const, files: [] }),
+            sessionsContext: {} as BrowserContext,
+          },
+          () => undefined,
+        );
+        const failure = JSON.stringify({ report, lines: lines.slice(-20) });
+        expect(report.outcome, failure).toBe("complete");
+        // Premise: the screen really was read, and read as 1x.
+        expect(reads, failure).toEqual([1]);
+        const takeId = report.provenance.takeId as string;
+        const scene = (await library.getScene(takeId)) as SceneDocument;
+        expect(scene.meta.capture.displayScale).toBe(CAPTURE_SCALE.desktop);
+        const store = library.frameStore(takeId);
+        const spans = (await store.getBundle(takeId))?.motionSpans ?? [];
+        // Premise: there is motion to decode.
+        expect(spans.length, failure).toBeGreaterThan(0);
+        const widest = spans.reduce((a, b) => (b.width > a.width ? b : a));
+        const decoded = await sampleMp4(await store.load(widest.ref), {
+          colors: [],
+        });
+        expect(decoded.width, JSON.stringify({ widest, decoded })).toBe(
+          viewport.width * CAPTURE_SCALE.desktop,
+        );
+      } finally {
+        await session.close();
+      }
+    },
+    RECORD_BOTH_MS,
   );
 });

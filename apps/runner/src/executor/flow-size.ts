@@ -1,3 +1,4 @@
+import type { FrameBundle } from "@demoman/compositor";
 import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
 import type { VideoRecord, VideoStore } from "./videos.js";
@@ -20,8 +21,7 @@ export async function flowSizeOf(
   video: VideoRecord,
 ): Promise<{ size?: { width: number; height: number }; why?: string }> {
   try {
-    const all = await store.versions(video.id);
-    const latest = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
+    const latest = await latestOf(store, video);
     if (latest === undefined) return {};
     const read = await library.getJson(latest.takeId, "report.json");
     if (!("value" in read)) {
@@ -54,4 +54,68 @@ export async function flowSizeOf(
       why: `the flow's latest video could not be read (${messageOf(error)})`,
     };
   }
+}
+
+/** The flow's latest video: its last complete one, else its last. Both the
+ *  size and the scale a later run reads come from it. */
+async function latestOf(store: VideoStore, video: VideoRecord) {
+  const all = await store.versions(video.id);
+  return all.filter((v) => v.complete).at(-1) ?? all.at(-1);
+}
+
+/**
+ * The scale a flow's later headless runs record motion at: what its latest
+ * video recorded (`meta.capture.displayScale`, as `keep` reads it), so a flow
+ * first recorded at 1x stays 1x when the constant says 2 (spec 2026-11-13
+ * part 2). Absent with no video yet. A video that does not say, or cannot be
+ * read, is `why`, for the run to say where it records at the constant.
+ */
+export async function flowScaleOf(
+  store: VideoStore,
+  library: Library,
+  video: VideoRecord,
+): Promise<{ scale?: number; why?: string }> {
+  try {
+    const latest = await latestOf(store, video);
+    if (latest === undefined) return {};
+    const scene = await library.getScene(latest.takeId);
+    if (scene === null) return { why: `video ${latest.takeId} is missing` };
+    const { displayScale, viewport } = scene.meta.capture;
+    const scale =
+      displayScale ??
+      filmedScale(
+        await library.frameStore(latest.takeId).getBundle(latest.takeId),
+        viewport.width,
+      );
+    return scale === null
+      ? {
+          why: `video ${latest.takeId} does not say the scale it was recorded at and has no motion frames to read one from`,
+        }
+      : { scale };
+  } catch (error) {
+    return {
+      why: `the flow's latest video could not be read (${messageOf(error)})`,
+    };
+  }
+}
+
+/**
+ * The scale the take's motion was filmed at, or null with no motion frames:
+ * for takes filmed before `meta.capture.displayScale` was recorded.
+ * Screencast spans follow the display's DPR; `meta.capture.dpr` is
+ * REPLAY_DPR on every authored take, the stills' scale, not the display's.
+ * The widest span, since the encoder may keep a span smaller than it
+ * arrived; to the nearest quarter, since an encoder's even-pixel width is
+ * not another display and displays come at 1, 1.25, 1.5, 2; never under 1.
+ */
+export function filmedScale(
+  bundle: FrameBundle | null,
+  viewportWidth: number,
+): number | null {
+  const widest = Math.max(
+    0,
+    ...(bundle?.motionSpans ?? []).map((s) => s.width),
+  );
+  if (widest === 0) return null;
+  return Math.max(1, Math.round((widest / viewportWidth) * 4) / 4);
 }

@@ -204,8 +204,8 @@ describe("createLocalExecutor", () => {
   });
 
   // Before the first film, not after it: a headless server that cannot read
-  // the display films every take at 1x, and the first call an agent makes
-  // is where it can tell the user how to fix that.
+  // the display records every take at its window's size, and the first call
+  // an agent makes is where it can tell the user how to fix that.
   it("says, in status, the display headless films as, or why it cannot read one", async () => {
     const blind = createLocalExecutor({
       wallpapersDir: WALLPAPERS_DIR,

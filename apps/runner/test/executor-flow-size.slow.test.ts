@@ -161,3 +161,62 @@ describe("a flow's later runs read its size", () => {
     );
   }, 400_000);
 });
+
+// Spec 2026-11-13 part 2: a headless run's scale is DEMOMAN_DISPLAY's, else
+// the flow's recorded one, else CAPTURE_SCALE for its device; never the
+// screen's. One executor with no DEMOMAN_DISPLAY records the cases after
+// the first, so each run that wants another scale relaunches its browser
+// (ruling 4) and reloads its sessions into the new context.
+describe("a flow's later runs read its scale", () => {
+  const recordedScale = async (report: RunReport) => {
+    const takeId = report.provenance.takeId as string;
+    const doc = await createLibrary(home).getScene(takeId);
+    return doc?.meta.capture.displayScale;
+  };
+
+  // Turns red when `runJob` stops passing `flowScaleOf`'s scale to
+  // `captureScale` (executor.ts): the flow's second run records at 2.
+  it("records a flow first recorded at 1x at 1x, a new flow at 2, and a phone at 3", async () => {
+    const at1 = onDisplay("1280x800@1");
+    const first = await runOn(at1, {
+      callId: "flow-scale-1",
+      video: { new: "Flow at 1x" },
+      script: script(),
+    });
+    // DEMOMAN_DISPLAY's scale wins, and is what the take records.
+    expect(await recordedScale(first)).toBe(1);
+
+    const unset = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home,
+      headless: true,
+      standInDisplay: true,
+      env: {},
+      outDir: join(home, "out"),
+      log: () => undefined,
+    });
+    executors.push(unset);
+    // Premise: a new flow on this executor records at the constant.
+    const fresh = await runOn(unset, {
+      callId: "flow-scale-premise",
+      video: { new: "Flow at the constant" },
+      script: script(),
+    });
+    expect(await recordedScale(fresh)).toBe(2);
+
+    const phone = await runOn(unset, {
+      callId: "flow-scale-phone",
+      video: { new: "Phone flow" },
+      script: script({ device: "phone" }),
+    });
+    expect(await recordedScale(phone)).toBe(3);
+
+    const again = await runOn(unset, {
+      callId: "flow-scale-2",
+      video: { id: first.videoVersion?.id },
+      script: script(),
+    });
+    expect(await recordedScale(again)).toBe(1);
+    expect(again.size?.error ?? null).toBeNull();
+  }, 600_000);
+});

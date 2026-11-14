@@ -21,7 +21,7 @@ import {
   resolve,
   sep,
 } from "node:path";
-import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
+import { wallpaperShape } from "@demoman/compositor";
 import {
   type FilmedCode,
   FLOWS_DIR,
@@ -56,6 +56,7 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { type AccountsFound, chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { filmedScale } from "./flow-size.js";
 import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
@@ -1568,27 +1569,6 @@ export async function repoPath(
   return {
     outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who === "keep" ? "add" : "refresh"} writes only into the repo the flow is in`,
   };
-}
-
-/**
- * The scale the take's motion was filmed at, or null with no motion frames:
- * for takes filmed before `meta.capture.displayScale` was recorded.
- * Screencast spans follow the display's DPR; `meta.capture.dpr` is
- * REPLAY_DPR on every authored take, the stills' scale, not the display's.
- * The widest span, since the encoder may keep a span smaller than it
- * arrived; to the nearest quarter, since an encoder's even-pixel width is
- * not another display and displays come at 1, 1.25, 1.5, 2; never under 1.
- */
-function filmedScale(
-  bundle: FrameBundle | null,
-  viewportWidth: number,
-): number | null {
-  const widest = Math.max(
-    0,
-    ...(bundle?.motionSpans ?? []).map((s) => s.width),
-  );
-  if (widest === 0) return null;
-  return Math.max(1, Math.round((widest / viewportWidth) * 4) / 4);
 }
 
 /** Where `abs` really is: the deepest part that exists, links followed,

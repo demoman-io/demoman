@@ -643,6 +643,13 @@ export function plannedUnplacedNote(step: string): string {
   return `the planned pause before ${step} could not be placed, so that stretch plays as it was recorded and the video is not the planned length`;
 }
 
+/** A visible window cannot be given a scale (spec 2026-11-13 part 2): its
+ *  motion is recorded at its screen's, said on `size.error` when that is
+ *  not the scale the flow was recorded at. */
+export function screenScaleNote(screen: number, flow: number): string {
+  return `This window's screen is at ${screen}x, so its motion was recorded at ${screen}x where the flow was recorded at ${flow}x — run it headless to record it at ${flow}x again.`;
+}
+
 function unplacedBeatsOf(
   film: FilmReport,
   steps: readonly AuthoredStep[],
