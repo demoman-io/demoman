@@ -28,7 +28,7 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
 import { lagCdp } from "./lag.js";
-import { mp4FrameTimes, readMp4Crops, sampleMp4 } from "./mp4-probe.js";
+import { mp4FirstFrameSize, mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 // Spec 2026-11-13 (same take on any machine), Part 4 tests 1 to 3. One
 // script is recorded twice in this process, the second time with every CDP
@@ -646,9 +646,7 @@ describe("a first run on a 1x screen", () => {
         // Premise: there is motion to decode.
         expect(spans.length, failure).toBeGreaterThan(0);
         const widest = spans.reduce((a, b) => (b.width > a.width ? b : a));
-        const decoded = await sampleMp4(await store.load(widest.ref), {
-          colors: [],
-        });
+        const decoded = await mp4FirstFrameSize(await store.load(widest.ref));
         expect(decoded.width, JSON.stringify({ widest, decoded })).toBe(
           viewport.width * CAPTURE_SCALE.desktop,
         );

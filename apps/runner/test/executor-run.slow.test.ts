@@ -36,7 +36,7 @@ import {
 import type { RunnerStore } from "../src/frame-store.js";
 import { installResolver } from "../src/page-agent.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
-import { sampleImage, sampleMp4 } from "./mp4-probe.js";
+import { mp4FirstFrameSize, sampleImage } from "./mp4-probe.js";
 
 const lines: string[] = [];
 const log = (line: string) => void lines.push(line);
@@ -89,9 +89,7 @@ async function decodedMotionWidth(
   // Premise: the take has motion to decode.
   expect(spans.length, JSON.stringify(spans)).toBeGreaterThan(0);
   const widest = spans.reduce((a, b) => (b.width > a.width ? b : a));
-  const decoded = await sampleMp4(await store.load(widest.ref), {
-    colors: [],
-  });
+  const decoded = await mp4FirstFrameSize(await store.load(widest.ref));
   expect(decoded.width, JSON.stringify({ widest, decoded })).toBe(widest.width);
   return decoded.width;
 }

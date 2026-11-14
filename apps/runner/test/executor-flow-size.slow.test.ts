@@ -1,12 +1,17 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fitH264Frame } from "@demoman/compositor";
 import type { RunReport } from "@demoman/run-core";
+import { DEVICES } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
+import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
+import { serveLoginApp, sessionFor } from "./login-app.js";
+import { mp4FirstFrameSize } from "./mp4-probe.js";
 
 // A flow's later runs read the size its latest video was recorded at (spec
 // 2026-11-13 part 1). Two executors on one home stand for one library on two
@@ -165,13 +170,29 @@ describe("a flow's later runs read its size", () => {
 // Spec 2026-11-13 part 2: a headless run's scale is DEMOMAN_DISPLAY's, else
 // the flow's recorded one, else CAPTURE_SCALE for its device; never the
 // screen's. One executor with no DEMOMAN_DISPLAY records the cases after
-// the first, so each run that wants another scale relaunches its browser
-// (ruling 4) and reloads its sessions into the new context.
+// the first, so a run that wants another scale than the one before it
+// launches the browser again (ruling 4): asserted on the session's own log
+// line for each change.
 describe("a flow's later runs read its scale", () => {
-  const recordedScale = async (report: RunReport) => {
+  const recordedScale = async (report: RunReport, at = home) => {
     const takeId = report.provenance.takeId as string;
-    const doc = await createLibrary(home).getScene(takeId);
+    const doc = await createLibrary(at).getScene(takeId);
     return doc?.meta.capture.displayScale;
+  };
+  const relaunched = (from: number, to: number) =>
+    `the headless browser records at ${from}x and this call records at ${to}x; starting a new one`;
+  const unsetOn = (at: string, lines: string[]) => {
+    const executor = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home: at,
+      headless: true,
+      standInDisplay: true,
+      env: {},
+      outDir: join(at, "out"),
+      log: (line) => void lines.push(line),
+    });
+    executors.push(executor);
+    return executor;
   };
 
   // Turns red when `runJob` stops passing `flowScaleOf`'s scale to
@@ -186,16 +207,8 @@ describe("a flow's later runs read its scale", () => {
     // DEMOMAN_DISPLAY's scale wins, and is what the take records.
     expect(await recordedScale(first)).toBe(1);
 
-    const unset = createLocalExecutor({
-      wallpapersDir: WALLPAPERS_DIR,
-      home,
-      headless: true,
-      standInDisplay: true,
-      env: {},
-      outDir: join(home, "out"),
-      log: () => undefined,
-    });
-    executors.push(unset);
+    const lines: string[] = [];
+    const unset = unsetOn(home, lines);
     // Premise: a new flow on this executor records at the constant.
     const fresh = await runOn(unset, {
       callId: "flow-scale-premise",
@@ -210,6 +223,25 @@ describe("a flow's later runs read its scale", () => {
       script: script({ device: "phone" }),
     });
     expect(await recordedScale(phone)).toBe(3);
+    // The picture, not the record: the phone's motion decodes at its width
+    // times 3, evened for H.264 (`fitH264Frame`: 393 x 3 = 1179 is cropped
+    // to 1178, DEM-124). Turns red when the phone run is not launched again
+    // at 3 (browser.ts `rescale`): the span decodes at 786 (393 x 2).
+    const phoneTake = phone.provenance.takeId as string;
+    const store = createLibrary(home).frameStore(phoneTake);
+    const spans = (await store.getBundle(phoneTake))?.motionSpans ?? [];
+    // Premise: the phone run has motion to decode (the click's response).
+    expect(spans.length, JSON.stringify(spans)).toBeGreaterThan(0);
+    const widest = spans.reduce((a, b) => (b.width > a.width ? b : a));
+    const decoded = await mp4FirstFrameSize(await store.load(widest.ref));
+    const wanted = fitH264Frame(
+      DEVICES.phone.width * 3,
+      DEVICES.phone.height * 3,
+    );
+    expect(decoded, JSON.stringify({ widest, decoded, wanted })).toMatchObject({
+      width: wanted.width,
+      height: wanted.height,
+    });
 
     const again = await runOn(unset, {
       callId: "flow-scale-2",
@@ -218,5 +250,59 @@ describe("a flow's later runs read its scale", () => {
     });
     expect(await recordedScale(again)).toBe(1);
     expect(again.size?.error ?? null).toBeNull();
+    // Each change of scale between consecutive runs (2, 3, 1: asserted
+    // above) launched the browser again, and said so. Turns red when
+    // `ensure` drops `rescale`: no such line, and the scales above go too.
+    expect(lines, JSON.stringify(lines)).toEqual(
+      expect.arrayContaining([relaunched(2, 3), relaunched(3, 1)]),
+    );
+  }, 600_000);
+
+  // The relaunch for scale happens at the door, before the run's saved
+  // sessions load, so the new browser has them (and a relaunch after the
+  // door is `prepareStage`'s reload). Turns red when the saved sessions do
+  // not reach the browser launched for this scale: measured by relaunching
+  // after `sessions.load` with that reload switched off, when the desk run
+  // (relaunched from the premise's 3x to 2x) stops as signedOut.
+  it("is still signed in after a relaunch for scale", async () => {
+    const app = await serveLoginApp();
+    const at = await mkdtemp(join(tmpdir(), "demoman-flow-scale-signin-"));
+    const lines: string[] = [];
+    const unset = unsetOn(at, lines);
+    const behind = (callId: string, name: string, device?: "phone") =>
+      unset.request("run", {
+        callId,
+        video: { new: name },
+        script: {
+          scriptVersion: device === undefined ? 1 : 4,
+          name,
+          target: `${app.url}/app`,
+          ...(device === undefined
+            ? { viewport: { width: 1024, height: 640 } }
+            : { device }),
+          steps: [{ do: "waitForLoad" }, { do: "click", on: { text: "Next" } }],
+        },
+      }) as Promise<{ ok: boolean; value: RunReport & { outcome: string } }>;
+    try {
+      // Premise: the same phone run with no saved session is signed out.
+      const out = await behind("signin-premise", "Phone signed out", "phone");
+      expect(out.value.stopped?.reason, JSON.stringify(out)).toBe("signedOut");
+
+      await createSessionStore(at).save(sessionFor(app, app.validCookie()));
+      const desk = await behind("signin-desk", "Desk signed in");
+      expect(desk.value.outcome, JSON.stringify(desk)).toBe("complete");
+      expect(await recordedScale(desk.value, at)).toBe(2);
+      const phone = await behind("signin-phone", "Phone signed in", "phone");
+      expect(phone.value.outcome, JSON.stringify(phone)).toBe("complete");
+      expect(await recordedScale(phone.value, at)).toBe(3);
+      // Premise: both signed-in runs came after a relaunch for their scale
+      // (the premise run left the browser at 3).
+      expect(lines, JSON.stringify(lines)).toEqual(
+        expect.arrayContaining([relaunched(3, 2), relaunched(2, 3)]),
+      );
+    } finally {
+      await app.close();
+      await rm(at, { recursive: true, force: true });
+    }
   }, 600_000);
 });
