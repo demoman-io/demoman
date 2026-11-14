@@ -1677,7 +1677,7 @@ describe("RunReport opening, trim and zoom notes", () => {
       walk: { ...built.walk, trimHeldUnplaced: true },
     });
     expect(report.trimNotes).toEqual([
-      "trim.end's zoom lands after the end of the recording, so it is not held through the cut and pulls out before it",
+      "trim.end's zoom lands after the video's last frame, so it is not held through the cut and pulls out before it",
     ]);
   });
 

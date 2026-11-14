@@ -554,7 +554,7 @@ function trimNotesOf(
   }
   if (walk.trimHeldUnplaced === true) {
     notes.push(
-      "trim.end's zoom lands after the end of the recording, so it is not held through the cut and pulls out before it",
+      "trim.end's zoom lands after the video's last frame, so it is not held through the cut and pulls out before it",
     );
   }
   for (const side of walk.trimUnplaced ?? []) {
