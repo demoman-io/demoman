@@ -74,95 +74,101 @@ let noJourney = 0;
 const home = homedir();
 
 for (const id of readdirSync(resolve(dir)).sort()) {
-  const take = join(resolve(dir), id);
-  const scenePath = join(take, "scene.json");
-  const bundles = join(take, "frames", "bundles");
-  if (!existsSync(scenePath) || !existsSync(bundles)) continue;
-  const bundleFile = readdirSync(bundles).find((f) => f.endsWith(".json"));
-  if (!existsSync(join(take, "script.json"))) {
-    skip("no script.json");
-    continue;
-  }
-  if (bundleFile === undefined) {
-    skip("no bundle");
-    continue;
-  }
-  // Keyed on video.json's `made`: only the author's own door ("mcp") with a
-  // repo root under this home. "migration" takes record no origin; a CI run
-  // would carry a root outside this home (/home/runner, /Users/runner).
-  const video = existsSync(join(take, "video.json"))
-    ? readJson(join(take, "video.json"))
-    : null;
-  const made = video?.made;
-  if (made?.door !== "mcp") {
-    skip(`made via door "${made?.door ?? "unknown"}" (origin not recorded)`);
-    continue;
-  }
-  if (made.repo?.root !== undefined && !made.repo.root.startsWith(home)) {
-    skip("repo root outside this home (CI or another machine)");
-    continue;
-  }
-  const scene = readJson(scenePath);
-  if (scene.pacing !== undefined) {
-    skip("carries scene.pacing (this branch's)");
-    continue;
-  }
-  const bundle = readJson(join(bundles, bundleFile));
-  if (!isRealTime(bundle)) {
-    skip("bundle not real-time");
-    continue;
-  }
-  const markers = [...bundle.markers].sort(
-    (a, b) => a.sourceTimeMs - b.sourceTimeMs,
-  );
-  if (markers.length === 0) {
-    skip("no markers");
-    continue;
-  }
-  // A script pause belongs to the next step that has an action.
-  const pauseOf = new Map();
-  let pending = 0;
-  for (const s of readJson(join(take, "script.json")).steps ?? []) {
-    if (s.do === "pause") pending += s.ms ?? 0;
-    else if (s.actionId) {
-      pauseOf.set(s.actionId, pending);
-      pending = 0;
+  try {
+    const take = join(resolve(dir), id);
+    const scenePath = join(take, "scene.json");
+    const bundles = join(take, "frames", "bundles");
+    if (!existsSync(scenePath) || !existsSync(bundles)) continue;
+    const bundleFile = readdirSync(bundles).find((f) => f.endsWith(".json"));
+    if (!existsSync(join(take, "script.json"))) {
+      skip("no script.json");
+      continue;
     }
-  }
-  const screen = inScreenSpace(bundle, undefined).bundle;
-  const travel = cursorMotionSpans(screen.cursorSamples);
-  const motion = merge([...motionSpansOf(bundle), ...travel]);
-  const pres = [];
-  // The walk's "first" is the first step that plans a beat, i.e. the first
-  // one with a journey; a leading waitFor marker is only where its window starts.
-  let seenJourney = false;
-  markers.forEach((m, i) => {
-    const start = i === 0 ? 0 : markers[i - 1].sourceTimeMs;
-    const end = m.sourceTimeMs;
-    const inPair = travel.filter((t) => t.endMs > start && t.startMs < end);
-    if (inPair.length === 0) {
-      noJourney++;
-      return;
+    if (bundleFile === undefined) {
+      skip("no bundle");
+      continue;
     }
-    // The last journey: walk back over travel spans less than 150 ms apart.
-    let j0 = inPair.length - 1;
-    while (j0 > 0 && inPair[j0].startMs - inPair[j0 - 1].endMs < 150) j0--;
-    const jStart = inPair[j0].startMs;
-    const jEnd = inPair.at(-1).endMs;
-    const room = m.roomMs ?? 0;
-    if (room > 0) rooms.push(room);
-    const pause = pauseOf.get(m.actionId) ?? 0;
-    const pre = Math.max(0, idleIn(start, jStart, motion) - room - pause);
-    const post = idleIn(jEnd, end, motion);
-    (seenJourney ? preRest : preFirst).push(pre);
-    (seenJourney ? postRest : postFirst).push(post);
-    seenJourney = true;
-    pres.push(pre);
-  });
-  read++;
-  console.info(
-    `${id}  steps=${markers.length}  median pre-journey idle=${pct(pres, 0.5)} ms  length=${Math.round(sourceDurationOf(bundle))} ms`,
-  );
+    // Keyed on video.json's `made`: only the author's own door ("mcp") with a
+    // repo root under this home. "migration" takes record no origin; a CI run
+    // would carry a root outside this home (/home/runner, /Users/runner).
+    const video = existsSync(join(take, "video.json"))
+      ? readJson(join(take, "video.json"))
+      : null;
+    const made = video?.made;
+    if (made?.door !== "mcp") {
+      skip(`made via door "${made?.door ?? "unknown"}" (origin not recorded)`);
+      continue;
+    }
+    if (made.repo?.root !== undefined && !made.repo.root.startsWith(home)) {
+      skip("repo root outside this home (CI or another machine)");
+      continue;
+    }
+    const scene = readJson(scenePath);
+    if (scene.pacing !== undefined) {
+      skip("carries scene.pacing (this branch's)");
+      continue;
+    }
+    const bundle = readJson(join(bundles, bundleFile));
+    if (!isRealTime(bundle)) {
+      skip("bundle not real-time");
+      continue;
+    }
+    const markers = [...bundle.markers].sort(
+      (a, b) => a.sourceTimeMs - b.sourceTimeMs,
+    );
+    if (markers.length === 0) {
+      skip("no markers");
+      continue;
+    }
+    // A script pause belongs to the next step that has an action.
+    const pauseOf = new Map();
+    let pending = 0;
+    for (const s of readJson(join(take, "script.json")).steps ?? []) {
+      if (s.do === "pause") pending += s.ms ?? 0;
+      else if (s.actionId) {
+        pauseOf.set(s.actionId, pending);
+        pending = 0;
+      }
+    }
+    const screen = inScreenSpace(bundle, undefined).bundle;
+    const travel = cursorMotionSpans(screen.cursorSamples);
+    const motion = merge([...motionSpansOf(bundle), ...travel]);
+    const pres = [];
+    // The walk's "first" is the first step that plans a beat, i.e. the first
+    // one with a journey; a leading waitFor marker is only where its window starts.
+    let seenJourney = false;
+    markers.forEach((m, i) => {
+      const start = i === 0 ? 0 : markers[i - 1].sourceTimeMs;
+      const end = m.sourceTimeMs;
+      const inPair = travel.filter((t) => t.endMs > start && t.startMs < end);
+      if (inPair.length === 0) {
+        noJourney++;
+        return;
+      }
+      // The last journey: walk back over travel spans less than 150 ms apart.
+      let j0 = inPair.length - 1;
+      while (j0 > 0 && inPair[j0].startMs - inPair[j0 - 1].endMs < 150) j0--;
+      const jStart = inPair[j0].startMs;
+      const jEnd = inPair.at(-1).endMs;
+      const room = m.roomMs ?? 0;
+      if (room > 0) rooms.push(room);
+      const pause = pauseOf.get(m.actionId) ?? 0;
+      const pre = Math.max(0, idleIn(start, jStart, motion) - room - pause);
+      const post = idleIn(jEnd, end, motion);
+      (seenJourney ? preRest : preFirst).push(pre);
+      (seenJourney ? postRest : postFirst).push(post);
+      seenJourney = true;
+      pres.push(pre);
+    });
+    read++;
+    console.info(
+      `${id}  steps=${markers.length}  median pre-journey idle=${pct(pres, 0.5)} ms  length=${Math.round(sourceDurationOf(bundle))} ms`,
+    );
+  } catch {
+    // Take id only: a corrupt file must not print its path or text.
+    skip("unreadable (corrupt or unreadable file)");
+    console.info(`${id}  unreadable`);
+  }
 }
 
 console.info(

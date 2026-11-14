@@ -563,11 +563,20 @@ describe("one script recorded fast and slowed", () => {
         // creeps there by a pixel (2026-11-13; Task 7 report).
         const still = diffOf(idleFrame, frameAt(settled), pointer);
         const where = `${JSON.stringify({ still, motion })} seam at ${Math.round(seam.atMs)} ms (${seam.idleBefore ? "idle to motion" : "motion to idle"}), frames ${read.map((r) => r.frameSec)}: ${said}`;
-        // Premise: what moved is pointer-sized, so the mask hides no page.
-        // The box holds the pointer at both frames: its own ~22 px plus its
-        // travel in the up-to-2 frames between them (62 px at 1.2 px/ms, with
-        // the fitted rests of 2026-11-13; 40 was tight at the old phase). A
-        // page change is hundreds.
+        // Premise: what moved is pointer-sized, so the mask below (`pointer`,
+        // the box of what changed, plus 12 px) hides no page. It guards
+        // `still.n === 0` from reading the pointer's own creep as a page
+        // change. The box holds the pointer at both frames, so its size is
+        // the pointer's plus its travel between them, and the travel
+        // depends on where the seam falls against the 60 fps frames, which
+        // moves with the planned rests (`BASE_REST_MS`/`OPENING_REST_MS`).
+        // The bound is NOT derived: the pointer's drawn size and the
+        // page-to-film scale are not reachable from this test (they are
+        // the compositor's cursor art and its window layout; only
+        // `fast.bundle.cursorSamples`, in page px, is). Measured: 62 px
+        // wide, 50 px tall at 200/250 on 2026-11-13, 40 px passed at the
+        // old 700/800 phase. 80 clears the measured box and is far under
+        // a page change, which spans hundreds.
         expect(motion.n, where).toBeGreaterThan(0);
         expect(x1 - x0, where).toBeLessThan(80);
         expect(y1 - y0, where).toBeLessThan(80);

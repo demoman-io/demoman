@@ -2,7 +2,7 @@
 // One recording and export per script, headless, with a checkout's built
 // runner: the old/new pairs of the pacing fit (README, "Pacing pairs").
 //
-//   node apps/runner/compare/pacing-pairs.mjs --repo <checkout> --out <dir> [--sample <index.html>] <script.json>...
+//   node apps/runner/compare/pacing-pairs.mjs --repo <checkout> --out <dir> [--side <label>] [--sample <index.html>] <script.json>...
 //
 // Run it once per checkout (`main` is today's pacing, a branch with
 // `scene.pacing` is the planned one) into different --out folders. `{sample}`
@@ -35,7 +35,7 @@ const { values, positionals } = parseArgs({
 });
 if (!values.repo || !values.out || positionals.length === 0) {
   say(
-    "usage: pacing-pairs.mjs --repo <checkout> --out <dir> [--sample <index.html>] <script.json>...",
+    "usage: pacing-pairs.mjs --repo <checkout> --out <dir> [--side <label>] [--sample <index.html>] <script.json>...",
   );
   process.exit(2);
 }
@@ -102,8 +102,23 @@ for (const scriptPath of positionals) {
       callId: `pacing-pairs-run-${name}`,
     });
     const wallMs = Date.now() - t0;
-    if (!run.ok || run.value.outcome === "refused") {
-      throw new Error(`run refused: ${JSON.stringify(run).slice(0, 500)}`);
+    // The run's own answer: RunReport.outcome is "complete" | "stopped" |
+    // "refused", the door's is "refusedBeforeRun", and the executor's op
+    // answers "threw" with an error. Only "complete" is a finished take.
+    if (!run.ok) {
+      throw new Error(`run not answered: ${JSON.stringify(run).slice(0, 500)}`);
+    }
+    const outcome = run.value.outcome;
+    if (outcome !== "complete") {
+      const why =
+        run.value.stopped?.detail ??
+        run.value.stopped?.sentence ??
+        run.value.detail ??
+        run.value.error ??
+        run.value.reason ??
+        run.value.summary ??
+        "no reason given";
+      throw new Error(`run outcome "${outcome}": ${why}`);
     }
     const takeId = run.value.provenance?.takeId;
     if (typeof takeId !== "string") {
@@ -150,10 +165,17 @@ for (const scriptPath of positionals) {
         arrives: c.arrives ?? null,
       }));
     const film = report.video;
+    // A scripted run on a branch with beat plans always plans.
+    if (side === "new" && film?.pacing !== "planned") {
+      throw new Error(
+        `side "new" but the report carries no planned pacing (pacing: ${JSON.stringify(film?.pacing ?? null)})`,
+      );
+    }
     console.info(
       JSON.stringify({
         name,
         side,
+        outcome,
         mp4,
         videoMs: mp4DurationMs(mp4),
         wallMs,
