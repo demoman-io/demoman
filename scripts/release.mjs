@@ -67,13 +67,9 @@ export function bump(version, texts) {
     version: swap("version", texts.version, /VERSION = "[^"]+"/, `VERSION = "${version}"`),
     license: swap("license", texts.license, /demoman@[^/\s)]+\//g, `demoman@${version}/`),
     shipped: shippedEntries(version, texts.changelog, texts.shipped),
-    // The hero's class line, and the Premise drawing, which ends on it (site/test/sync.test.mjs).
-    site: swap(
-      "site",
-      swap("site", texts.site, /(<div class="class-line[^"]*"><b>v)[^<]+/, `$1${version}`),
-      /(<text class="ver"[^>]*>v)[^<]+/g,
-      `$1${version}`,
-    ),
+    // The hero's class line. (The Premise drawing that also carried it left the page with
+    // internal feat/site-pitch, 2026-11-13; release.test.mjs runs this on the real page.)
+    site: swap("site", texts.site, /(<div class="class-line[^"]*"><b>v)[^<]+/, `$1${version}`),
   };
 }
 
