@@ -3,8 +3,31 @@ import {
   CAPTURE_SCALE,
   captureScale,
   displayUnreadSentence,
+  headlessDisplay,
   readDisplay,
 } from "../src/display.js";
+
+describe("headlessDisplay", () => {
+  // Final review, deferred Task 11: status showed the screen's scale and,
+  // on Linux, "1x is assumed … set DEMOMAN_DISPLAY to …@2", though headless
+  // records at its own scale whatever the screen's. Red if it passes the
+  // read through (its scale or its `scaleAssumed`).
+  it("reports the scale headless records at, and no advice about the screen's", () => {
+    const read = {
+      width: 1280,
+      height: 800,
+      scale: 1,
+      scaleAssumed: "1x is assumed: this desktop's scale could not be read",
+    };
+    // Premise: the screen's scale is not the one headless records at.
+    expect(captureScale({})).not.toBe(read.scale);
+    expect(headlessDisplay(read, {})).toEqual({
+      width: 1280,
+      height: 800,
+      scale: CAPTURE_SCALE.desktop,
+    });
+  });
+});
 
 describe("readDisplay", () => {
   it("takes DEMOMAN_DISPLAY outright, in CSS px and a scale", async () => {

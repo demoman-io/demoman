@@ -52,6 +52,16 @@ export function captureScale(
   return named > 0 ? named : (recorded ?? CAPTURE_SCALE[device]);
 }
 
+/** The screen as headless records at it, for `status`: its size, at the
+ *  scale headless records at (`captureScale`, no flow named), never the
+ *  screen's, and so with no `scaleAssumed` advice about the screen's. */
+export function headlessDisplay(
+  read: Display,
+  env: NodeJS.ProcessEnv,
+): { width: number; height: number; scale: number } {
+  return { width: read.width, height: read.height, scale: captureScale(env) };
+}
+
 /** Why the display could not be read; `noWindow` where there is no display
  *  for any window (`noDisplay`). */
 export type DisplayUnread = { failed: string; noWindow?: true };

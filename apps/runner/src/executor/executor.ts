@@ -27,6 +27,7 @@ import { chromium } from "playwright";
 import {
   captureScale,
   displayUnreadSentence,
+  headlessDisplay,
   readDisplay,
 } from "../display.js";
 import { installResolver } from "../page-agent.js";
@@ -419,10 +420,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     { width: number; height: number; scale: number } | { unreadable: string }
   > {
     try {
-      const read = await readDisplay(options.env ?? process.env);
+      const env = options.env ?? process.env;
+      const read = await readDisplay(env);
       return "failed" in read
         ? { unreadable: displayUnreadSentence(read, "records") }
-        : read;
+        : headlessDisplay(read, env);
     } catch (error) {
       return {
         unreadable: displayUnreadSentence(

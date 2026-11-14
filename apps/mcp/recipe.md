@@ -169,8 +169,7 @@ targets, leaving the page open. Each entry is
   `waitFor … until: "visible"` target after the step that opens it.
   `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
-  at. `snapshot` measures it and `inFirstViewport` at this screen, a run its own: `from` is `screen`,
-  `flow` (the flow's recorded size) or `device`. `from: "window"` with an `error`: Demoman could not read the
+  at. `snapshot` measures it and `inFirstViewport` at this screen, a run its own: `from` is `screen`, `flow` (the flow's recorded size) or `device`. `from: "window"` with an `error`: Demoman could not read the
   screen and listed the browser's smaller layout; tell the user any `error`.
 - `positional: true`: the target is a `treePath` (shared or no name); snapshot
   again after the page changes. `value`: a field's text, never a password's.
@@ -302,9 +301,7 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
      `checkFailed` with `error`): not a clean bill; say so, no retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
-   - `video.pacing: "planned"`: `plannedMs` is the video's length before any
-     trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played
-     as recorded, named in `frames.unplacedBeats[].step`.
+   - `video.pacing: "planned"`: `plannedMs` is its length before any trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played as recorded, named in `frames.unplacedBeats[].step`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
      the video a derived script came from.
@@ -320,8 +317,8 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    | stray arrival, `detour` | Demoman | leave it |
    | drift from the earlier video | the app | report it |
 
-   A finding that is Demoman's earns no run; the user can change
-   it in the Studio. A step's `roomMs` is pacing, not a stall.
+   A finding that is Demoman's earns no run and is not passed on (the
+   user can change it in the Studio). A step's `roomMs` is pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
    than the target you named.
 
