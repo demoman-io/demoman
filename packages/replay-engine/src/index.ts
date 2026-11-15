@@ -146,6 +146,13 @@ export {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
+export {
+  createHeldClock,
+  HELD_FRAME_MS,
+  type HeldClock,
+  type HeldFrame,
+  PIN_ANIMATIONS,
+} from "./held-clock.js";
 export { decodeBase64, jpegSize, pngSize } from "./image.js";
 // Test-only, see header: the runner lane drives it against real Chromium.
 export { createInputGate, type InputGate } from "./input-gate.js";

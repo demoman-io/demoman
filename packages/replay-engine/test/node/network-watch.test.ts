@@ -136,6 +136,21 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(false);
   });
 
+  it("labels the connections counted now, not the dropped or ended ones", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    emit("Network.requestWillBeSent", start("2", "http://app.test/api/chat"));
+    emit("Network.requestWillBeSent", start("3", "http://app.test/done"));
+    emit("Network.loadingFinished", { requestId: "3" });
+    expect(w.labels()).toEqual(["GET /poll", "GET /api/chat"]);
+    now = 5000;
+    emit("Network.dataReceived", { requestId: "2" });
+    now = 10_001;
+    expect(w.labels()).toEqual(["GET /api/chat"]);
+  });
+
   it("a failed request stops counting", async () => {
     const { cdp, emit } = setup();
     const w = await createNetworkWatch(cdp, () => 0);

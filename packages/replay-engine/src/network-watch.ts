@@ -6,6 +6,8 @@ export const IDLE_CONNECTION_MS = 10_000;
 export interface NetworkWatch {
   /** Whether the page is waiting on the server right now (the spec's rule). */
   waiting(): boolean;
+  /** The connections counted right now, in the order they began. */
+  labels(): string[];
   /** Connections dropped from the count after IDLE_CONNECTION_MS with no data, in order. */
   ignored(): string[];
   stop(): void;
@@ -94,6 +96,10 @@ export async function createNetworkWatch(
     waiting() {
       sweep();
       return live.size > 0;
+    },
+    labels() {
+      sweep();
+      return [...live.values()].map((c) => c.label);
     },
     ignored() {
       sweep();
