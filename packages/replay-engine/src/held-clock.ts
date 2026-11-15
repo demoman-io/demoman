@@ -160,17 +160,29 @@ export function createHeldClock(deps: {
   realNow: () => number;
   capture: () => Promise<{ bytes: Uint8Array; width: number; height: number }>;
   evaluate: (source: string, arg: number) => Promise<unknown>;
+  /** Waits real time (default: a timer). */
+  wait?: (ms: number) => Promise<void>;
 }): HeldClock {
   const { cdp, network, realNow } = deps;
+  const wait =
+    deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  /** The frame of the grid at or after `ms`, or at or before it. */
+  const frameFrom = (ms: number) =>
+    Math.ceil(ms / HELD_FRAME_MS - EPS) * HELD_FRAME_MS;
+  const frameTo = (ms: number) =>
+    Math.floor(ms / HELD_FRAME_MS + EPS) * HELD_FRAME_MS;
   let startEpochMs: number | null = null;
   let held = 0;
-  let grantEnded = 0;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const spans: { startMs: number; endMs: number; labels: Set<string> }[] = [];
   let span: (typeof spans)[number] | null = null;
   /** Where the open stretch began, in real and in held time: by its end it
    *  has followed all the real time between. */
   let stretchFrom = { real: 0, held: 0 };
+  /** When the page last stopped at `held`, in real time. */
+  let pausedAt = 0;
+  /** The last look at the network, in real and held time. */
+  let lookedAt = { real: 0, held: 0 };
   const unpinned: { atMs: number; what: string }[] = [];
 
   const pause = async (initialVirtualTime: number) => {
@@ -205,7 +217,7 @@ export function createHeldClock(deps: {
         if (error) reject(error);
         else {
           held = to;
-          grantEnded = realNow();
+          pausedAt = realNow();
           resolve();
         }
       };
@@ -259,6 +271,7 @@ export function createHeldClock(deps: {
       await pause(epochMs / 1000);
       startEpochMs = epochMs;
       held = 0;
+      lookedAt = { real: realNow(), held };
     },
     async rehold() {
       if (startEpochMs === null) throw new Error("rehold before hold");
@@ -280,16 +293,32 @@ export function createHeldClock(deps: {
       if (!(ms >= 0)) throw new Error(`cannot sleep ${ms} ms of page time`);
       const end = held + ms;
       while (end - held > EPS) {
+        const looked = lookedAt;
+        lookedAt = { real: realNow(), held };
         if (network.waiting()) {
-          // The server's pace: page time follows the real time since the last
-          // grant. Not for a stretch's first: the real time before it was the
-          // walk's own work, which takes no time in the video.
+          // The server's pace: page time catches up with all the real time
+          // since the stretch began, past the sleep's end if real time is
+          // there, as a real clock's sleep overruns (cut at the end, a
+          // 1800 ms stream played in 839 ms, then jumped; 2026-11-15). The
+          // stretch begins when the page began waiting, or when it last
+          // stopped at this held time if later: real time before either was
+          // the walk's own work, or is in a frame already. Frames stay on
+          // the grid, so the page's timers keep one phase however long the
+          // server took (off it, the load's wait made "the same video
+          // twice" differ), at most a frame behind real time and never
+          // ahead: a machine that captures faster than a frame waits.
           const continues = span?.endMs === held;
-          if (!continues) stretchFrom = { real: realNow(), held };
-          const realMs = continues ? realNow() - grantEnded : 0;
+          if (!continues)
+            stretchFrom = {
+              real: Math.max(network.lastWait()?.from ?? realNow(), pausedAt),
+              held,
+            };
+          const due = stretchFrom.held + (realNow() - stretchFrom.real);
           const labels = network.labels();
           const from = held;
-          await grant(Math.min(end, held + Math.max(1, realMs)));
+          const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
+          if (to > due) await wait(to - due);
+          await grant(to);
           if (!continues || !span) {
             span = { startMs: from, endMs: held, labels: new Set() };
             spans.push(span);
@@ -304,12 +333,25 @@ export function createHeldClock(deps: {
         // page answers neither until the new one commits (measured
         // 2026-11-15: a 1 ms grant took 227 ms, the server's 200).
         const quiet = network.quietSince();
+        // A wait can also begin and end between two looks, inside one
+        // grant (a cross-site click's whole wait, 1 of 20 times on
+        // 2026-11-15): followed the same way, from the look before it.
+        const last = network.lastWait();
+        if (quiet !== null && last !== null && last.from > looked.real) {
+          stretchFrom = { real: last.from, held: looked.held };
+          span = {
+            startMs: looked.held,
+            endMs: held,
+            labels: new Set(last.labels),
+          };
+          spans.push(span);
+        }
         const owed =
           span?.endMs === held && quiet !== null
             ? stretchFrom.held + (quiet - stretchFrom.real) - held
             : 0;
         if (span !== null && owed > EPS) {
-          await grant(Math.min(end, held + owed));
+          await grant(frameFrom(held + owed));
           span.endMs = held;
           await shoot();
           continue;

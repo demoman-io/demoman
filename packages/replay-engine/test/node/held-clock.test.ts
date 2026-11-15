@@ -28,6 +28,8 @@ function setup(
     ignored?: string[];
     /** The real time the wait ended, once it has (`NetworkWatch.quietSince`). */
     quietSince?: (real: number) => number | null;
+    /** The latest wait, also once over (`NetworkWatch.lastWait`). */
+    lastWait?: (real: number) => { from: number; labels: string[] } | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -66,6 +68,7 @@ function setup(
     labels: () => ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
     quietSince: () => o.quietSince?.(real) ?? null,
+    lastWait: () => o.lastWait?.(real) ?? null,
     stop() {},
   };
   const clock = createHeldClock({
@@ -76,6 +79,10 @@ function setup(
       log.push("capture");
       real += o.captureMs ?? 0;
       return { bytes: new Uint8Array([++shots]), width: 2, height: 1 };
+    },
+    wait: async (ms) => {
+      log.push(`wait ${ms}`);
+      real += ms;
     },
     evaluate: async (source, arg) => {
       log.push(`pin ${arg}`);
@@ -101,6 +108,9 @@ function setup(
 }
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
+/** Times in frames of the grid, to six places. */
+const inFrames = (list: number[]) =>
+  list.map((ms) => Number((ms / HELD_FRAME_MS).toFixed(6)));
 const onGrid = (ms: number) =>
   Math.abs(ms / HELD_FRAME_MS - Math.round(ms / HELD_FRAME_MS)) < 1e-6;
 
@@ -195,14 +205,42 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await clock.sleep(1000);
-    // The stretch's first grant takes the 1 ms floor; each after is the 200 ms
-    // the capture before it took, the last cut at 1000.
-    expect(times(frames)).toEqual([1, 201, 401, 601, 801, 1000]);
-    expect(budgets()).toEqual([1, 200, 200, 200, 200, 199]);
-    expect(clock.now()).toBe(1000);
+    // The stretch's first frame is the next of the grid, its real time
+    // waited; each after is the frame where real time is, 200 ms (six
+    // frames) a capture, the last past the sleep's end as real time is.
+    expect(inFrames(times(frames))).toEqual([1, 7, 13, 19, 25, 31]);
+    expect(inFrames(budgets())).toEqual([1, 6, 6, 6, 6, 6]);
+    expect(inFrames([clock.now()])).toEqual([31]);
     expect(clock.networkSpans()).toEqual([
-      { startMs: 0, endMs: 1000, label: "POST /api/chat" },
+      { startMs: 0, endMs: clock.now(), label: "POST /api/chat" },
     ]);
+  });
+
+  // Task 9: a stretch the walk sleeps through a frame at a time, each frame
+  // taking longer to capture than the sleep, played the server's 1800 ms
+  // stream in 839 ms when every sleep stopped at its own end.
+  it("keeps up with real time across sleeps shorter than a capture", async () => {
+    const { clock, frames } = setup({ waiting: () => true, captureMs: 50 });
+    await clock.hold(START);
+    for (let i = 0; i < 30; i++) await clock.sleep(HELD_FRAME_MS);
+    // A frame a sleep, each the frame of the grid at or before the real
+    // time: 50 ms captures are one frame, then two. Thirty sleeps of a
+    // frame are 44 frames of page time, the real time less one capture.
+    expect(frames).toHaveLength(30);
+    expect(inFrames(times(frames)).slice(0, 4)).toEqual([1, 2, 4, 5]);
+    expect(inFrames([clock.now()])).toEqual([44]);
+  });
+
+  it("never stamps a frame before its real time", async () => {
+    const { clock, frames, log } = setup({
+      waiting: () => true,
+      captureMs: 10,
+    });
+    await clock.hold(START);
+    await clock.sleep(200);
+    // Captures of 10 ms: each frame of the grid waits for its real time.
+    expect(inFrames(times(frames))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(log.filter((l) => l.startsWith("wait"))).toHaveLength(6);
   });
 
   it("credits no real time from before a stretch's first grant", async () => {
@@ -216,8 +254,47 @@ describe("createHeldClock", () => {
     advance(5000); // the walk's own work: finding a target, a click
     await clock.sleep(1000);
     expect(budgets()).toHaveLength(3 + 6); // premise: three held grants first
-    expect(budgets().slice(3, 5)).toEqual([1, 200]);
-    expect(times(frames).slice(3, 5)).toEqual([101, 301]);
+    expect(inFrames(budgets().slice(3, 5))).toEqual([1, 6]);
+    expect(inFrames(times(frames).slice(3, 5))).toEqual([4, 10]);
+  });
+
+  // Task 9: a click's request was open while the walk finished the click,
+  // and the stream's first chunk landed in that time; the next one came
+  // 100 ms early in the video.
+  it("begins a stretch when the page began waiting, not when the walk saw it", async () => {
+    const { clock, frames, budgets, advance } = setup({
+      waiting: (real) => real >= 5500,
+      lastWait: (real) =>
+        real >= 5500 ? { from: 5500, labels: ["POST /api/chat"] } : null,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    expect(frames).toHaveLength(3); // premise: held frames before the wait
+    advance(5000); // the walk's own work; the page waits from its last 100 ms
+    // A sleep of a frame, as the walk's are: the stretch's first frame is
+    // still where real time is.
+    await clock.sleep(HELD_FRAME_MS);
+    await clock.sleep(1000);
+    expect(inFrames(budgets().slice(3, 5))).toEqual([3, 6]);
+    expect(inFrames(times(frames).slice(3, 5))).toEqual([6, 12]);
+  });
+
+  it("credits no real time a held frame already played", async () => {
+    // The page began waiting at real 300, before the third grant (real
+    // 400) played that time as held.
+    const { clock, budgets } = setup({
+      waiting: (real) => real >= 600,
+      lastWait: (real) =>
+        real >= 600 ? { from: 300, labels: ["POST /api/chat"] } : null,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    expect(budgets()).toHaveLength(3); // premise: three held grants first
+    await clock.sleep(1000);
+    // Real 600 now, the page last stopped at real 400: six frames.
+    expect(inFrames(budgets()).slice(3, 4)).toEqual([6]);
   });
 
   it("keeps one stretch for a wait that runs across sleeps", async () => {
@@ -239,18 +316,18 @@ describe("createHeldClock", () => {
     await clock.hold(START);
     await clock.sleep(1000);
     // Premise: the page waited for the first two frames, then not.
-    expect(times(frames).slice(0, 2)).toEqual([1, 201]);
+    expect(inFrames(times(frames).slice(0, 2))).toEqual([1, 7]);
     const held = frames.slice(2);
-    expect(held).toHaveLength(24); // frames 7..30 of the grid
+    expect(held).toHaveLength(23); // frames 8..30 of the grid
     expect(held.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
-    expect(held[0]?.sourceTimeMs).toBeCloseTo(7 * HELD_FRAME_MS, 6);
+    expect(held[0]?.sourceTimeMs).toBeCloseTo(8 * HELD_FRAME_MS, 6);
     expect(
       budgets()
         .slice(2)
         .every((b) => b <= HELD_FRAME_MS + 1e-9),
     ).toBe(true);
     expect(clock.networkSpans()).toEqual([
-      { startMs: 0, endMs: 201, label: "POST /api/chat" },
+      { startMs: 0, endMs: 7 * HELD_FRAME_MS, label: "POST /api/chat" },
     ]);
   });
 
@@ -265,17 +342,41 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await clock.sleep(1000);
-    // Premise: the wait ended during the second frame's capture (real 200-400).
-    expect(times(frames).slice(0, 2)).toEqual([1, 201]);
-    // The stretch lasts the wait's 300 ms of real time, the 1 ms floor in it.
-    expect(budgets().slice(0, 3)).toEqual([1, 200, 99]);
-    expect(clock.networkSpans()).toEqual([
-      { startMs: 0, endMs: 300, label: "POST /api/chat" },
-    ]);
+    // Premise: the wait ended during the second frame's capture (real 233-433).
+    expect(inFrames(times(frames).slice(0, 2))).toEqual([1, 7]);
+    // The stretch lasts the wait's 300 ms of real time: nine frames.
+    expect(inFrames(budgets().slice(0, 3))).toEqual([1, 6, 2]);
+    expect(inFrames(clock.networkSpans().map((s) => s.endMs))).toEqual([9]);
     // Then the held grid again.
     const after = frames.slice(3);
     expect(after.length).toBeGreaterThan(0);
     expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
+  });
+
+  // Task 9: the whole wait of a click to another site fell inside the one
+  // grant after the click, between two looks, and was not in the video.
+  it("follows a wait that began and ended between two looks", async () => {
+    const { clock, frames } = setup({
+      waiting: () => false,
+      // It began at real 250 and ended at 340, both inside the second
+      // frame's grant and capture (real 200-400), so no look saw it.
+      lastWait: (real) =>
+        real >= 250 ? { from: 250, labels: ["GET /there"] } : null,
+      quietSince: (real) => (real >= 340 ? 340 : null),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(1000);
+    // Premise: two held frames first.
+    expect(inFrames(times(frames).slice(0, 2))).toEqual([1, 2]);
+    // The stretch runs from the look before the wait (frame 1) for its
+    // 90 ms of real time, to the frame of the grid at or after it.
+    expect(
+      clock
+        .networkSpans()
+        .map((s) => [...inFrames([s.startMs, s.endMs]), s.label]),
+    ).toEqual([[1, 4, "GET /there"]]);
+    expect(frames.slice(3).every((f) => onGrid(f.sourceTimeMs))).toBe(true);
   });
 
   it("names the connections the network watch stopped counting", () => {

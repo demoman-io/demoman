@@ -61,6 +61,26 @@ describe("createNetworkWatch", () => {
     expect(w.quietSince()).toBe(210);
   });
 
+  it("says when the latest wait began and what it waited on, also after it", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    expect(w.lastWait()).toBeNull();
+    now = 100;
+    emit("Network.requestWillBeSent", start("1", "http://app.test/a"));
+    now = 150;
+    emit("Network.requestWillBeSent", start("2", "http://app.test/b"));
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(w.waiting()).toBe(true); // premise: "2" still open
+    expect(w.lastWait()).toEqual({ from: 100, labels: ["GET /a", "GET /b"] });
+    emit("Network.loadingFinished", { requestId: "2" });
+    expect(w.waiting()).toBe(false);
+    expect(w.lastWait()).toEqual({ from: 100, labels: ["GET /a", "GET /b"] });
+    now = 300;
+    emit("Network.requestWillBeSent", start("3", "http://app.test/c"));
+    expect(w.lastWait()).toEqual({ from: 300, labels: ["GET /c"] });
+  });
+
   it("keeps waiting while a stream's data arrives", async () => {
     const { cdp, emit } = setup();
     let now = 0;

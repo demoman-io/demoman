@@ -13,6 +13,9 @@ export interface NetworkWatch {
   /** When the page stopped waiting (real ms), while it is not; null while
    *  it is, or before it ever waited. */
   quietSince(): number | null;
+  /** The latest wait, also once it is over: when it began (real ms) and
+   *  the connections it counted; null before the page ever waited. */
+  lastWait(): { from: number; labels: string[] } | null;
   stop(): void;
 }
 
@@ -32,10 +35,16 @@ export async function createNetworkWatch(
   const live = new Map<string, { label: string; lastAt: number }>();
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
+  let last: { from: number; labels: string[] } | null = null;
   const dropped: string[] = []; // each label named once
   const id = (p: Record<string, unknown>) => String(p.requestId);
+  const count = (p: Record<string, unknown>, label: string, now: number) => {
+    if (live.size === 0 || last === null) last = { from: now, labels: [] };
+    if (!last.labels.includes(label)) last.labels.push(label);
+    live.set(id(p), { label, lastAt: now });
+  };
   const begin = (p: Record<string, unknown>, label: string) =>
-    live.set(id(p), { label, lastAt: realNow() });
+    count(p, label, realNow());
   const name = (label: string) => {
     if (!dropped.includes(label)) dropped.push(label);
   };
@@ -50,7 +59,7 @@ export async function createNetworkWatch(
     const label = idle.get(id(p));
     if (label === undefined) return;
     idle.delete(id(p));
-    live.set(id(p), { label, lastAt: now });
+    count(p, label, now);
   };
   const end = (p: Record<string, unknown>) => {
     const was = live.size;
@@ -115,6 +124,10 @@ export async function createNetworkWatch(
     quietSince() {
       sweep();
       return live.size > 0 ? null : quietAt;
+    },
+    lastWait() {
+      sweep();
+      return last && { from: last.from, labels: [...last.labels] };
     },
     stop,
   };
