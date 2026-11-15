@@ -94,7 +94,7 @@ import {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
-import { HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
+import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
 import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
@@ -917,9 +917,18 @@ export async function runWalk(
   let heldActEnd = 0;
   /** A held plan's rest or tail, slept as what is left of it since the last
    *  act ended: page time the step's settle played counts toward it, as the
-   *  renderer folds that idle into the rest. */
-  const sinceActEnd = (plannedMs: number): number =>
-    Math.max(0, plannedMs - (at() - heldActEnd));
+   *  renderer folds that idle into the rest. Network time does not: it is
+   *  the server's, played on top of the designed clock (spec §2), or a
+   *  slower server would leave a different rest on another machine. */
+  const sinceActEnd = (plannedMs: number): number => {
+    const now = at();
+    let networkMs = 0;
+    for (const s of held?.networkSpans() ?? []) {
+      const from = Math.max(s.startMs - started, heldActEnd);
+      networkMs += Math.max(0, Math.min(s.endMs - started, now) - from);
+    }
+    return Math.max(0, plannedMs - (now - heldActEnd - networkMs));
+  };
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
@@ -2305,8 +2314,12 @@ export async function runWalk(
         await send(pathPointAt(segment, elapsed));
         answered = elapsed;
         const now = at();
-        // Held: page-time sums carry float error, so "reached" is loose.
-        if (elapsed >= segment.durationMs - (held === undefined ? 0 : 1e-6))
+        // Held: within the clock's own tolerance, or a remainder it will not
+        // move would spin here.
+        if (
+          elapsed >=
+          segment.durationMs - (held === undefined ? 0 : HELD_EPS_MS)
+        )
           break;
         // Held: one move per frame of page time, the last at the path's end.
         const wait =

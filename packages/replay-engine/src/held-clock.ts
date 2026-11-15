@@ -10,8 +10,11 @@ export const HELD_FRAME_MS = 1000 / 30;
  *  own long task, short enough to say what happened. */
 export const GRANT_EXPIRY_TIMEOUT_MS = 15_000;
 
-/** 30 · (1000/30) is 1000.0000000000001: frame times are compared this loosely. */
-const EPS = 1e-6;
+/** 30 · (1000/30) is 1000.0000000000001: held times are compared this
+ *  loosely, so a sleep of no more than this moves no page time, and a caller
+ *  looping until a held time is reached must stop within it. */
+export const HELD_EPS_MS = 1e-6;
+const EPS = HELD_EPS_MS;
 
 /** Page script: pins every animation in the document to the held time (ms),
  *  and answers the ones it could not pin, each named once.

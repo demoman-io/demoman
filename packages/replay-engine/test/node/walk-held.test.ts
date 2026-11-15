@@ -85,7 +85,11 @@ const frameBytes = (n: number): Uint8Array => {
  *  files one frame per `HELD_FRAME_MS` on the grid, as the real one does.
  *  `look` is what the page shows (default: a new picture every frame);
  *  `moved` is told the time after every frame and every sleep. */
-function fakeHeld(o: { look?: () => number; moved?: (now: number) => void }) {
+function fakeHeld(o: {
+  look?: () => number;
+  moved?: (now: number) => void;
+  network: { startMs: number; endMs: number; label: string }[];
+}) {
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const frames: HeldFrame[] = [];
@@ -96,7 +100,7 @@ function fakeHeld(o: { look?: () => number; moved?: (now: number) => void }) {
     onFrame: (listener) => {
       listeners.push(listener);
     },
-    networkSpans: () => NETWORK.map((s) => ({ ...s })),
+    networkSpans: () => o.network.map((s) => ({ ...s })),
     unpinned: () => UNPINNED.map((u) => ({ ...u })),
     ignoredConnections: () => [...IGNORED],
     sleep: async (ms) => {
@@ -153,15 +157,26 @@ async function run(
     /** The first click starts a load that runs this long in page time: the
      *  step's settle waits it out. */
     loadAfterFirstClickMs?: number;
+    /** That load waits on the server: the clock reports it as network time,
+     *  as a real held clock does for a stretch it followed real time. */
+    loadIsNetwork?: boolean;
+    /** Network stretches the clock reports, on its own time. */
+    network?: { startMs: number; endMs: number; label: string }[];
   } = {},
 ) {
   const cdp = createCdpFake();
   let clicks = 0;
   let loadingUntil: number | null = null;
+  const network = [...(opts.network ?? [])];
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
+    network,
     moved: (now) => {
-      if (loadingUntil !== null && now >= loadingUntil) {
+      if (loadingUntil === null) return;
+      const open = network.at(-1);
+      if (opts.loadIsNetwork === true && open !== undefined)
+        open.endMs = Math.min(now, loadingUntil);
+      if (now >= loadingUntil) {
         loadingUntil = null;
         cdp.emit("Page.frameStoppedLoading", { frameId: "top" });
       }
@@ -191,7 +206,10 @@ async function run(
     ) {
       clicks++;
       if (clicks === 1 && opts.loadAfterFirstClickMs !== undefined) {
-        loadingUntil = held.clock.now() + opts.loadAfterFirstClickMs;
+        const from = held.clock.now();
+        loadingUntil = from + opts.loadAfterFirstClickMs;
+        if (opts.loadIsNetwork === true)
+          network.push({ startMs: from, endMs: from, label: "GET /slow" });
         cdp.emit("Page.frameStartedLoading", { frameId: "top" });
       }
     }
@@ -432,6 +450,90 @@ describe("the walk on a held clock", () => {
     );
   });
 
+  // Red if the source sleeps the pause (authored.ts): a settle longer than
+  // the pause leaves the rest's remainder to tell the two apart. The load
+  // is page time here, not network time, so it counts toward the rest.
+  it("plays a scripted pause once after a settle longer than it", async () => {
+    const { result, progress } = await run(
+      [click("a"), { do: "pause", ms: 500 }, click("b")],
+      { loadAfterFirstClickMs: 1000 },
+    );
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    // Premise: the settle after the first click played 1000 ms of page time.
+    const screen = result.bundle?.pageScreens?.[1]?.sourceTimeMs ?? 0;
+    expect(screen - actEnd, evidence).toBeGreaterThanOrEqual(1000);
+    expect(
+      (markerOf(result, 1).approachSourceTimeMs ?? 0) - actEnd,
+      evidence,
+    ).toBeCloseTo(BASE + 500, 6);
+  });
+
+  // As above, for a closing pause: the load (page time) runs past the tail.
+  it("plays a closing pause once after a settle longer than the tail", async () => {
+    const { result, progress } = await run(
+      [click("a"), { do: "pause", ms: 500 }],
+      {
+        loadAfterFirstClickMs: 2000,
+      },
+    );
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    // Premise: the settle played more than the tail.
+    const screen = result.bundle?.pageScreens?.[1]?.sourceTimeMs ?? 0;
+    expect(screen - actEnd, evidence).toBeGreaterThan(TAIL);
+    expect(
+      (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) - actEnd,
+      evidence,
+    ).toBeCloseTo(TAIL + 500, 6);
+  });
+
+  // Network time is the server's, played on top of the plan (spec §2): a
+  // rest is counted only on page time. Red if the rest absorbs it.
+  it.each([
+    ["shorter", 300],
+    ["longer", 1000],
+  ])("plays the whole rest after a network wait %s than it", async (_, n) => {
+    const { result, journeys, progress } = await run([click("a"), click("b")], {
+      loadAfterFirstClickMs: n,
+      loadIsNetwork: true,
+    });
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(journeys)}`;
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    // Premise: the clock reports the wait as network time, from the act on.
+    expect(result.bundle?.networkSpans, evidence).toEqual([
+      { startMs: actEnd, endMs: actEnd + n, label: "GET /slow" },
+    ]);
+    const journeyMs = journeys.at(-1) ?? 0;
+    const second = markerOf(result, 1);
+    expect((second.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
+      BASE + n,
+      6,
+    );
+    expect(second.sourceTimeMs - actEnd, evidence).toBeCloseTo(
+      BASE + n + journeyMs + ARRIVE,
+      6,
+    );
+  });
+
+  it("plays the whole tail after a network wait", async () => {
+    const { result, progress } = await run([click("a")], {
+      loadAfterFirstClickMs: 1000,
+      loadIsNetwork: true,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    expect(result.bundle?.networkSpans?.length, evidence).toBe(1);
+    expect(
+      (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) - actEnd,
+      evidence,
+    ).toBeCloseTo(1000 + TAIL, 6);
+  });
+
   // Red if the rest of a step reached by scrolling is played after the
   // scroll, or the after-scroll before it.
   it("rests before the scroll and plays the after-scroll after it", async () => {
@@ -455,7 +557,7 @@ describe("the walk on a held clock", () => {
   });
 
   it("returns no pacing plan and a held bundle", async () => {
-    const { result, progress } = await run([click("a")]);
+    const { result, progress } = await run([click("a")], { network: NETWORK });
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");
     expect(result.pacing).toBeUndefined();
