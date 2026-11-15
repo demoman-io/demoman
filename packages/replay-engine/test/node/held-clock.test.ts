@@ -35,6 +35,9 @@ function setup(
     async send(method, params = {}) {
       if (method !== "Emulation.setVirtualTimePolicy") return {};
       policies.push(params);
+      // As Chrome answers (measured 2026-11-15, apps/runner/compare/held-probe-basics.mjs).
+      if (params.policy === "pause" && params.budget !== undefined)
+        throw new Error("Can only specify budget for non-Pause policy");
       const answer = o.policy?.(params) ?? "expire";
       if (answer === "refuse") throw new Error("Target closed");
       if (answer === "expire" && params.budget !== undefined)
@@ -116,7 +119,45 @@ describe("createHeldClock", () => {
     });
     expect(clock.now()).toBe(1000);
     expect(budgets().reduce((a, b) => a + b, 0)).toBeCloseTo(1000, 6);
-    expect(policies.every((p) => p.policy === "pause")).toBe(true);
+    expect(
+      policies.filter((p) => p.budget !== undefined).map((p) => p.policy),
+    ).toEqual(Array(30).fill("advance"));
+  });
+
+  // A new renderer (a navigation to another site) takes Chrome's last
+  // policy: paused at the held time, never a grant's (measured 2026-11-15).
+  it("leaves the clock paused at the held time after every grant", async () => {
+    const { clock, policies } = setup();
+    await clock.hold(START);
+    await clock.sleep(100);
+    const grants = policies.flatMap((p, i) =>
+      p.budget === undefined ? [] : [i],
+    );
+    expect(grants).toHaveLength(3); // premise: three grants
+    let heldMs = 0;
+    for (const i of grants) {
+      heldMs += policies[i]?.budget as number;
+      expect(policies[i + 1]?.policy).toBe("pause");
+      expect(policies[i + 1]?.initialVirtualTime).toBeCloseTo(
+        (START + heldMs) / 1000,
+        9,
+      );
+    }
+  });
+
+  it("says so when Chrome refuses to pause after a grant", async () => {
+    const { clock, frames } = setup({
+      policy: (p) =>
+        p.initialVirtualTime !== undefined &&
+        p.initialVirtualTime !== START / 1000
+          ? "refuse"
+          : "expire",
+    });
+    await clock.hold(START);
+    await expect(clock.sleep(100)).rejects.toThrow(
+      /could not hold the page's clock.*Target closed/,
+    );
+    expect(frames).toHaveLength(0);
   });
 
   it("carries fractions between sleeps", async () => {

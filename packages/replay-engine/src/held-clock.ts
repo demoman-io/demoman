@@ -107,8 +107,17 @@ export function createHeldClock(deps: {
     }
   };
 
-  /** Grants the page time up to `to` (source ms). */
-  const grant = (to: number) =>
+  /** Grants the page time up to `to` (source ms), then pauses it there:
+   *  Chrome refuses a budget on `pause`, and a renderer a navigation starts
+   *  takes the last policy sent, so it must be the pause at the held time
+   *  (measured 2026-11-15, apps/runner/compare/held-probe-navigation.mjs). */
+  const grant = async (to: number) => {
+    if (startEpochMs === null) throw new Error("grant before hold");
+    const epochMs = startEpochMs;
+    await advance(to);
+    await pause((epochMs + to) / 1000);
+  };
+  const advance = (to: number) =>
     new Promise<void>((resolve, reject) => {
       const budget = to - held;
       const settle = (error?: Error) => {
@@ -133,7 +142,7 @@ export function createHeldClock(deps: {
       // Listening before the send: the event can come before the answer.
       const off = cdp.on("Emulation.virtualTimeBudgetExpired", () => settle());
       cdp
-        .send("Emulation.setVirtualTimePolicy", { policy: "pause", budget })
+        .send("Emulation.setVirtualTimePolicy", { policy: "advance", budget })
         .catch((e: Error) =>
           settle(
             new Error(
