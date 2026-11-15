@@ -53,7 +53,11 @@ const kits: BrandKitsRead = {
 };
 /** The crop the frames are read at: the whole frame, scaled down. */
 const READ = { width: 640, height: 360 };
-const DARK = 40;
+/** The page is white and light grey (232); a frame whose darkest pixel is
+ *  lighter than this shows no cursor. */
+const DARKEST_MAX = 160;
+/** How far above the darkest pixel a cursor's pixels may read. */
+const NEAR_DARKEST = 40;
 
 let url: string;
 let server: ReturnType<typeof createServer>;
@@ -104,6 +108,9 @@ describe("a take whose pointer moves the page answers unevenly", () => {
     const session = createBrowserSession({
       headless: true,
       log: (line) => void lines.push(line),
+      // A display, so the take records at one scale on any machine, as
+      // same-take.slow.test.ts pins it: headless with none reads no screen.
+      readDisplay: async () => ({ width: 1440, height: 900, scale: 1 }),
       onLaunched: async ({ context }) => {
         await installResolver(context);
         await installExecutorEntry(context);
@@ -185,13 +192,19 @@ describe("a take whose pointer moves the page answers unevenly", () => {
     const toSecAt = toOutputMs(timeline, second as number) / 1000;
     const times = timesSec.filter((t) => t >= fromSec && t <= toSecAt);
     const crops = await readMp4Crops(bytes, times, [0, 0, 1, 1], READ, true);
+    // The cursor is what is near the frame's darkest pixel, when that pixel
+    // is dark: no fixed level, since how dark a shrunk cursor reads depends
+    // on its size in the film (ubuntu-latest found nothing under 40 on
+    // 2026-11-15 where the Mac found 6-19 px).
     const found = crops.map((c) => {
       const grey = Buffer.from(c.grey ?? "", "base64");
+      const darkest = grey.reduce((m, g) => Math.min(m, g), 255);
+      const below = darkest < DARKEST_MAX ? darkest + NEAR_DARKEST : -1;
       let n = 0;
       let sx = 0;
       let sy = 0;
       for (let i = 0; i < grey.length; i++) {
-        if ((grey[i] as number) < DARK) {
+        if ((grey[i] as number) < below) {
           n++;
           sx += i % READ.width;
           sy += Math.floor(i / READ.width);
@@ -199,6 +212,7 @@ describe("a take whose pointer moves the page answers unevenly", () => {
       }
       return {
         sec: c.frameSec,
+        darkest,
         n,
         x: n ? sx / n : Number.NaN,
         y: n ? sy / n : Number.NaN,
@@ -214,7 +228,7 @@ describe("a take whose pointer moves the page answers unevenly", () => {
           ),
         ),
       );
-    const evidence = `${moves()} moves; ${found.length} frames; dark px ${found.map((f) => f.n).join(",")}; steps ${steps.join(",")}`;
+    const evidence = `${moves()} moves; ${found.length} frames; darkest ${found.map((f) => f.darkest).join(",")}; dark px ${found.map((f) => f.n).join(",")}; steps ${steps.join(",")}`;
     // The premise: the cursor is found in every frame, alone (a cursor's
     // worth of dark pixels), and it travelled most of the frame between the
     // buttons over many frames.
