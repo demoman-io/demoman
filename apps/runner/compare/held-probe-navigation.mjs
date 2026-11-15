@@ -87,6 +87,15 @@ var hold = (ms) =>
     initialVirtualTime: (PIN + ms) / 1000,
   });
 await s.send("Page.enable");
+// NET=1: which requests the page session's Network domain reports.
+const net = [];
+if (process.env.NET === "1") {
+  await s.send("Network.enable");
+  for (const e of ["requestWillBeSent", "loadingFinished"])
+    s.on(`Network.${e}`, (p) =>
+      net.push(`${e} ${p.request?.url ?? p.requestId}`),
+    );
+}
 await hold(0);
 await s.send("Page.navigate", { url: urlA });
 console.log(
@@ -134,6 +143,8 @@ for (const [label, url, expect] of [
     `${label}: frames ${n}, t0 - pin = ${t0 - PIN}, held before ${before.toFixed(1)}, held now ${held.toFixed(1)} ${location0(await ev("location.href"))}`,
   );
   await drift(`  after ${label}`);
+  if (process.env.NET === "1")
+    console.log(`  network: ${net.splice(0).join(" | ")}`);
 }
 console.log(reheld.join(" | "));
 function location0(h) {
