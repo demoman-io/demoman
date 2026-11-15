@@ -80,19 +80,17 @@ let ticks = 0;
 setInterval(() => { timer.textContent = String(++ticks); }, 100);
 document.getElementById("open").addEventListener("click", () => document.getElementById("dialog").classList.add("open"));
 const ctx = document.getElementById("canvas").getContext("2d");
-// Moved by the frames counted since the first, not by the timestamp's
-// value: Chrome reads performance.now() to 100 µs with a jitter of its own
-// each run, so a held time can read 0.1 ms either side (measured
-// 2026-11-15, compare/held-probe-timestamps.mjs) and a position rounded
-// from it moves a pixel on some frames and not others.
-let first = null;
+// Moved by the time since the first frame, at fractional positions, as most
+// animations are: Chrome's own performance.now() jitters 0.1 ms each run,
+// so this is the same twice only if the frames' timestamp does not.
+let start = null;
 function frame(t) {
-  if (first === null) first = t;
-  const n = Math.round((t - first) / (1000 / 30));
-  box.style.left = 300 + ((n * 6) % 300) + "px";
+  if (start === null) start = t;
+  const ms = t - start;
+  box.style.left = (300 + ((ms / 5.3) % 300)).toFixed(3) + "px";
   ctx.clearRect(0, 0, 400, 60);
   ctx.fillStyle = "#808";
-  ctx.fillRect((n * 9) % 360, 10, 40, 40);
+  ctx.fillRect((ms / 3.7) % 360, 10.5, 40, 40);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

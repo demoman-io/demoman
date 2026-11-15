@@ -294,6 +294,11 @@ export async function prepareStage(
  * requests this clock cannot reach: each such origin is said once, with
  * what the clock could not pin.
  */
+/** The origin a frame's sentence names ("a frame from <origin> ..."), or
+ *  null for any other sentence. */
+const originOf = (what: string): string | null =>
+  /^a frame from (\S+) /.exec(what)?.[1] ?? null;
+
 async function holdClock(
   cdp: CdpSession,
   pinnedNow: string | undefined,
@@ -370,7 +375,19 @@ async function holdClock(
     pinnedNow === undefined ? Date.now() : Date.parse(pinnedNow),
   );
   return {
-    clock: { ...clock, unpinned: () => [...clock.unpinned(), ...framesSaid()] },
+    clock: {
+      ...clock,
+      // A frame from another site the page also names (it could not reach
+      // it) is said once, in the target's words, which say more.
+      unpinned: () => {
+        const targets = framesSaid();
+        const named = new Set(targets.map((t) => originOf(t.what)));
+        return [
+          ...clock.unpinned().filter((u) => !named.has(originOf(u.what) ?? "")),
+          ...targets,
+        ];
+      },
+    },
     network,
   };
 }

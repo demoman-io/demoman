@@ -428,10 +428,19 @@ describe("PIN_ANIMATIONS", () => {
         order.push("pin");
       },
     });
-    pinner([fade], {
-      __demomanFlushFrames: () => order.push("frames"),
-    })(0);
-    expect(order).toEqual(["frames", "pin"]);
+    const said = pinner([fade], {
+      __demomanFlushFrames: (v: number) => {
+        order.push(`frames at ${v}`);
+        return [
+          "a frame from https://x.example runs its animations on its own clock: they were not held",
+        ];
+      },
+    })(40);
+    expect(order).toEqual(["frames at 40", "pin"]);
+    // What the frames could not hold is answered with what the pin could not.
+    expect(said).toEqual([
+      "a frame from https://x.example runs its animations on its own clock: they were not held",
+    ]);
   });
 
   it("starts an animation at the held time it is first seen, and finishes it at its end", () => {
@@ -507,10 +516,20 @@ describe("PIN_ANIMATIONS", () => {
 });
 
 describe("HELD_FRAMES_SCRIPT", () => {
-  /** A window with the browser's own animation frames, which never fire
-   *  here: the script must stop the page using them. */
-  function page(o: { frames?: object[] } = {}) {
-    let now = 0;
+  const F = 1000 / 30;
+  /** A document started at held time `startMs`, with Chrome's own animation
+   *  frames (which never fire here) and `performance.now()` read `jitter` ms
+   *  off, as Chrome's 100 µs clamp does differently each run. */
+  function page(
+    o: {
+      startMs?: number;
+      jitter?: number;
+      frames?: object[];
+      elements?: object[];
+      parent?: object;
+    } = {},
+  ) {
+    let heldMs = 0;
     const native: unknown[] = [];
     const reported: unknown[] = [];
     const window: Record<string, unknown> = {
@@ -518,34 +537,65 @@ describe("HELD_FRAMES_SCRIPT", () => {
       cancelAnimationFrame: () => undefined,
       frames: o.frames ?? [],
     };
-    new Function("window", "performance", "reportError", HELD_FRAMES_SCRIPT)(
+    window.parent = o.parent ?? window;
+    new Function(
+      "window",
+      "performance",
+      "reportError",
+      "document",
+      "location",
+      HELD_FRAMES_SCRIPT,
+    )(
       window,
-      { now: () => now },
+      { now: () => heldMs - (o.startMs ?? 0) + (o.jitter ?? 0) },
       (e: unknown) => reported.push(e),
+      { querySelectorAll: () => o.elements ?? [] },
+      { href: "http://127.0.0.1:3000/" },
     );
     const raf = window.requestAnimationFrame as (
       cb: (t: number) => void,
     ) => number;
     const cancel = window.cancelAnimationFrame as (id: number) => void;
-    const flush = window.__demomanFlushFrames as () => void;
-    const at = (ms: number) => {
-      now = ms;
+    const flushAt = (v: number) => {
+      heldMs = v;
+      return (window.__demomanFlushFrames as (v: number) => string[])(v);
     };
-    return { window, raf, cancel, flush, at, native, reported };
+    return { window, raf, cancel, flushAt, native, reported };
   }
 
-  it("runs the page's frame callbacks once per frame, at the held time", () => {
-    const p = page();
+  it("runs the page's frame callbacks once per frame, on the document's held clock", () => {
+    const p = page({ startMs: 10 * F });
     const seen: number[] = [];
     p.raf((t) => seen.push(t));
     p.raf((t) => seen.push(t + 0.5));
     expect(seen).toEqual([]);
-    p.at(33.3);
-    p.flush();
-    expect(seen).toEqual([33.3, 33.8]);
-    p.flush();
+    p.flushAt(11 * F);
+    expect(seen[0]).toBeCloseTo(F, 9);
+    expect(seen[1]).toBeCloseTo(F + 0.5, 9);
+    p.flushAt(12 * F);
     expect(seen).toHaveLength(2);
     expect(p.native).toEqual([]); // premise: Chrome's own was never asked
+  });
+
+  // Fix round 1, finding 5: a callback's timestamp is the same number in
+  // every run, whatever Chrome's clamp read for performance.now().
+  it("hands every run the same timestamps, however performance.now() jitters", () => {
+    const run = (jitter: number) => {
+      const p = page({ startMs: 10 * F, jitter });
+      const seen: number[] = [];
+      const loop = (t: number) => {
+        seen.push(t);
+        p.raf(loop);
+      };
+      p.raf(loop);
+      for (let k = 11; k <= 40; k++) p.flushAt(k * F);
+      return seen;
+    };
+    const one = run(0.1);
+    const two = run(-0.1);
+    expect(one).toHaveLength(30); // premise: thirty frames ran
+    expect(two).toEqual(one);
+    expect(one[29]).toBeCloseTo(30 * F, 9);
   });
 
   it("runs a frame a callback asks for on the next frame, not this one", () => {
@@ -556,11 +606,10 @@ describe("HELD_FRAMES_SCRIPT", () => {
       p.raf(loop);
     };
     p.raf(loop);
-    p.at(10);
-    p.flush();
-    p.at(20);
-    p.flush();
-    expect(seen).toEqual([10, 20]);
+    p.flushAt(F);
+    p.flushAt(2 * F);
+    expect(seen).toHaveLength(2);
+    expect((seen[1] ?? 0) - (seen[0] ?? 0)).toBeCloseTo(F, 9);
   });
 
   it("cancels a frame, also one due in the frame being run", () => {
@@ -574,7 +623,7 @@ describe("HELD_FRAMES_SCRIPT", () => {
     second = p.raf(() => seen.push("b"));
     const third = p.raf(() => seen.push("c"));
     p.cancel(third);
-    p.flush();
+    p.flushAt(F);
     expect(seen).toEqual(["a"]);
   });
 
@@ -586,23 +635,66 @@ describe("HELD_FRAMES_SCRIPT", () => {
       throw boom;
     });
     p.raf(() => seen.push("after"));
-    p.flush();
+    p.flushAt(F);
     expect(seen).toEqual(["after"]);
     expect(p.reported).toEqual([boom]);
   });
 
-  it("runs the frames of the page's own frames it can reach", () => {
-    const seen: string[] = [];
-    const child = { __demomanFlushFrames: () => seen.push("child") };
+  it("runs its own frames' frames at the same held time", () => {
+    const ran: number[] = [];
+    const child = {
+      __demomanFlushFrames: (v: number) => {
+        ran.push(v);
+        return [];
+      },
+    };
+    const p = page({ frames: [child] });
+    expect(p.flushAt(3 * F)).toEqual([]);
+    expect(ran).toEqual([3 * F]);
+  });
+
+  // Fix round 1, finding 1: a frame of another origin kept in this renderer
+  // is said, once, by the address its element names.
+  it("names a frame it cannot reach, once", () => {
     const foreign = {
       get __demomanFlushFrames(): never {
         throw new Error("SecurityError: cross-origin");
       },
     };
-    const p = page({ frames: [foreign, child] });
-    p.raf(() => seen.push("top"));
-    p.flush();
-    expect(seen).toEqual(["top", "child"]);
+    const sandboxed = {
+      get __demomanFlushFrames(): never {
+        throw new Error("SecurityError: sandboxed");
+      },
+    };
+    const p = page({
+      frames: [foreign, sandboxed],
+      elements: [
+        {
+          contentWindow: foreign,
+          getAttribute: () => "http://127.0.0.1:6006/chart",
+        },
+        { contentWindow: sandboxed, getAttribute: () => null },
+      ],
+    });
+    expect(p.flushAt(F)).toEqual([
+      "a frame from http://127.0.0.1:6006 runs its animations on its own clock: they were not held",
+      "a sandboxed frame runs its animations on its own clock: they were not held",
+    ]);
+    expect(p.flushAt(2 * F)).toEqual([]);
+  });
+
+  // Fix round 1, finding 1: no one would run such a frame's queue, so it
+  // keeps Chrome's own frames rather than freezing.
+  it("leaves Chrome's own frames to a frame whose parent it cannot reach", () => {
+    const parent = {
+      get document(): never {
+        throw new Error("SecurityError: cross-origin");
+      },
+    };
+    const p = page({ parent });
+    expect(p.window.__demomanFlushFrames).toBeUndefined();
+    p.raf(() => undefined);
+    expect(p.native).toHaveLength(1);
   });
 
   it("keeps Chrome's own frames for Demoman's probes", () => {
@@ -614,11 +706,14 @@ describe("HELD_FRAMES_SCRIPT", () => {
   it("installs once a document", () => {
     const p = page();
     const raf = p.window.requestAnimationFrame;
-    new Function("window", "performance", "reportError", HELD_FRAMES_SCRIPT)(
-      p.window,
-      { now: () => 0 },
-      () => undefined,
-    );
+    new Function(
+      "window",
+      "performance",
+      "reportError",
+      "document",
+      "location",
+      HELD_FRAMES_SCRIPT,
+    )(p.window, { now: () => 0 }, () => undefined, {}, {});
     expect(p.window.requestAnimationFrame).toBe(raf);
   });
 });

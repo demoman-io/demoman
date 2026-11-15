@@ -26,8 +26,8 @@ const EPS = HELD_EPS_MS;
  *  shortcut: an animation at a playbackRate other than 1 plays at rate 1 under
  *  the pin; upgrade if an app shows it. */
 export const PIN_ANIMATIONS = `(v) => {
-  if (typeof window.__demomanFlushFrames === "function") window.__demomanFlushFrames();
-  const unpinned = [];
+  const unpinned =
+    typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v) : [];
   for (const a of document.getAnimations()) {
     if (a.__unpinned) continue;
     if (a.timeline && !(a.timeline instanceof DocumentTimeline)) continue;
@@ -61,15 +61,33 @@ export const PIN_ANIMATIONS = `(v) => {
  *  animation frames on its real clock even while page time is held
  *  (measured 2026-11-15, apps/runner/compare/held-probe-matrix.mjs), so the
  *  page's `requestAnimationFrame` queues instead, and `PIN_ANIMATIONS` runs
- *  the queue once per captured frame at the held `performance.now()`, as a
+ *  the queue once per captured frame (`__demomanFlushFrames(heldMs)`), as a
  *  browser runs one frame's callbacks. A callback asked for inside a frame
- *  runs on the next. Chrome's own stays at `__demomanRaf` for Demoman's
- *  probes that must not wait on a captured frame. */
+ *  runs on the next.
+ *
+ *  The callbacks' timestamp is the held time on this document's clock, not a
+ *  read of `performance.now()`, which Chrome clamps to 100 µs with a jitter
+ *  of its own each run (measured 2026-11-15, compare/held-probe-timestamps.mjs):
+ *  the document's start is read once against the held time and put on the
+ *  frame grid, which the jitter cannot move it off. A document started on a
+ *  frame (any the walk starts) reads its own clock to within that jitter.
+ *
+ *  A frame this document cannot reach (another origin kept in this renderer,
+ *  a sandboxed one) is never run by it: such a frame keeps Chrome's own
+ *  animation frames, and is answered once by name, with what the pin could
+ *  not hold. Chrome's own stays at `__demomanRaf` for Demoman's probes that
+ *  must not wait on a captured frame. */
 export const HELD_FRAMES_SCRIPT = `(() => {
   if (window.__demomanFlushFrames) return;
+  if (window !== window.parent) {
+    try { void window.parent.document; } catch (e) { return; } // run by no one: Chrome's own frames
+  }
   const request = window.requestAnimationFrame.bind(window);
+  const FRAME = 1000 / 30;
   const queue = new Map();
+  const said = new Set();
   let last = 0;
+  let origin = null;
   window.requestAnimationFrame = function requestAnimationFrame(callback) {
     if (typeof callback !== "function") return request(callback);
     queue.set(++last, callback);
@@ -78,18 +96,34 @@ export const HELD_FRAMES_SCRIPT = `(() => {
   window.cancelAnimationFrame = function cancelAnimationFrame(id) {
     queue.delete(id);
   };
-  const flush = () => {
+  const named = (el) => {
+    let o = "null";
+    try { o = new URL(el.getAttribute("src") || "about:srcdoc", location.href).origin; } catch (e) {} // an address it never named: said as sandboxed
+    return o === "null" ? "a sandboxed frame" : "a frame from " + o;
+  };
+  const flush = (v) => {
+    if (origin === null) origin = FRAME * Math.round((v - performance.now()) / FRAME);
     const due = [...queue.keys()];
-    const t = performance.now();
+    const t = v - origin;
     for (const id of due) {
       const callback = queue.get(id);
       if (callback === undefined) continue;
       queue.delete(id);
       try { callback(t); } catch (e) { reportError(e); }
     }
+    const out = [];
     for (let i = 0; i < window.frames.length; i++) {
-      try { const f = window.frames[i].__demomanFlushFrames; if (f) f(); } catch (e) {} // another origin's: not ours to run
+      const w = window.frames[i];
+      let run;
+      try { run = w.__demomanFlushFrames; } catch (e) {
+        const el = [...document.querySelectorAll("iframe, frame")].find((f) => f.contentWindow === w);
+        const what = (el ? named(el) : "a frame from another origin") + " runs its animations on its own clock: they were not held";
+        if (!said.has(what)) { said.add(what); out.push(what); }
+        continue;
+      }
+      if (run) for (const what of run(v)) if (!said.has(what)) { said.add(what); out.push(what); }
     }
+    return out;
   };
   Object.defineProperty(window, "__demomanRaf", { value: request });
   Object.defineProperty(window, "__demomanFlushFrames", { value: flush });
