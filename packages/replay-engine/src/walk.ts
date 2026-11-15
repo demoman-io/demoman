@@ -1631,18 +1631,10 @@ export async function runWalk(
               : cdp.send(method, params, options),
         };
 
-  /**
-   * The page-side half of a step's settle (`step-settle.ts`), within
-   * `deadline`. Answers the conditions that never held, in words.
-   *
-   * A step that navigated is asked about the new document: a load still
-   * running is waited out first, and an answer from a document that began
-   * to leave while it was asked (or that was destroyed under the question)
-   * is asked again. Without that, a navigating click's screen was the old
-   * page mid-unload (Review Focus 2).
-   */
-  /** Whether the top document says it is still loading. Not asked of a
-   *  page that cannot answer (one leaving): it counts as loaded. */
+  /** Whether the top document says it is still loading. A page that
+   *  cannot answer (one leaving, or not yet there) counts as loading: the
+   *  caller keeps playing frames within its cap rather than racing a move
+   *  into Chrome's hold on the next document. */
   const documentLoading = async (): Promise<boolean> => {
     try {
       const state = evaluatedValue(
@@ -1653,10 +1645,20 @@ export async function runWalk(
       );
       return state === "loading" || state === "interactive";
     } catch {
-      return false;
+      return true;
     }
   };
 
+  /**
+   * The page-side half of a step's settle (`step-settle.ts`), within
+   * `deadline`. Answers the conditions that never held, in words.
+   *
+   * A step that navigated is asked about the new document: a load still
+   * running is waited out first, and an answer from a document that began
+   * to leave while it was asked (or that was destroyed under the question)
+   * is asked again. Without that, a navigating click's screen was the old
+   * page mid-unload (Review Focus 2).
+   */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
     for (;;) {
       while (topLoading && at() < deadline) await clock.sleep(50);
@@ -1904,8 +1906,10 @@ export async function runWalk(
       // own 30 s), so the load is played first, within the settle's cap:
       // while the top frame is loading, or its document says it is not yet
       // complete (a load no frameStartedLoading announced, review of Task 9
-      // round 1, finding C). Asked of the page between frames, so the frame
-      // it ends on is the same on any machine.
+      // round 1, finding C). The document is asked between frames, so where
+      // it decides, the frame the loop ends on is the same on any machine;
+      // while the top frame is said to be loading (a browser event, which
+      // the frames do not order) the loop goes on without asking.
       if (held !== undefined) {
         const loadBy = at() + STEP_SETTLE_CAP_MS;
         while ((topLoading || (await documentLoading())) && at() < loadBy)

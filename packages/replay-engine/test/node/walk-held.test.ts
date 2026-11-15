@@ -187,6 +187,9 @@ async function run(
      *  announces, this long in page time: the document says "loading", and
      *  Chrome holds a pointer move sent meanwhile until it has loaded. */
     unannouncedLoadMs?: number;
+    /** While that load runs, asking the document fails (it is leaving, or
+     *  the next one is not there yet). */
+    documentUnreachableWhileLoading?: boolean;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -278,6 +281,8 @@ async function run(
       return { result: { type: "undefined" } };
     }
     if (method === "Runtime.evaluate" && expression === "document.readyState") {
+      if (loading() && opts.documentUnreachableWhileLoading === true)
+        throw new Error("Cannot find context with specified id");
       return {
         result: { type: "string", value: loading() ? "loading" : "complete" },
       };
@@ -1008,21 +1013,29 @@ describe("a click's read on a held clock", () => {
   // played. The load is played first, until the document says it is
   // complete, then the move is sent. Red if it is sent while the document
   // loads: it never answers.
-  it("plays a load no frameStartedLoading announced before the hover renewal", async () => {
-    const { result, progress } = await run([click("a"), click("b")], {
-      unannouncedLoadMs: 400,
-    });
-    const evidence = evidenceOf(result, progress);
-    expect(result.outcome, evidence).toBe("complete");
-    // Nothing said of the hover: it was renewed (the fake's standing
-    // degradations are the clock's, from its fixtures).
-    expect(
-      (result.bundle?.degradations ?? []).filter((d) =>
-        d.note.includes("hover"),
-      ),
-      evidence,
-    ).toEqual([]);
-  }, 10_000);
+  it.each([
+    ["says it is loading", false],
+    ["cannot be asked", true],
+  ])(
+    "plays a load no frameStartedLoading announced before the hover renewal, while the document %s",
+    async (_, unreachable) => {
+      const { result, progress } = await run([click("a"), click("b")], {
+        unannouncedLoadMs: 400,
+        documentUnreachableWhileLoading: unreachable,
+      });
+      const evidence = evidenceOf(result, progress);
+      expect(result.outcome, evidence).toBe("complete");
+      // Nothing said of the hover: it was renewed (the fake's standing
+      // degradations are the clock's, from its fixtures).
+      expect(
+        (result.bundle?.degradations ?? []).filter((d) =>
+          d.note.includes("hover"),
+        ),
+        evidence,
+      ).toEqual([]);
+    },
+    10_000,
+  );
 
   // Fix round 1, finding 3: a click that navigates to another site is read
   // only once the new page commits; that wait is played as page time, so a
