@@ -333,7 +333,19 @@ export function createHeldClock(deps: {
       const end = held + ms;
       // Not past a frame skipped at the sleep's last grant: the walk would
       // change the page before it was taken (review of Task 9 round 3).
-      while (end - held > EPS || unshot) {
+      // Nor owing a stretch whose wait it has heard end: the walk would ask
+      // the page next, and a settle's 200 ms quiet window ran inside the
+      // owed network time on one machine and after it on another, a frame
+      // apart (the two-machines test, 2026-11-15).
+      const owing = () => {
+        const quiet = network.quietSince();
+        return (
+          quiet !== null &&
+          span?.endMs === held &&
+          stretchFrom.held + (quiet - stretchFrom.real) - held > EPS
+        );
+      };
+      while (end - held > EPS || unshot || owing()) {
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
         if (network.waiting()) {

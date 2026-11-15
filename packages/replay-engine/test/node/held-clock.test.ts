@@ -568,6 +568,25 @@ describe("createHeldClock", () => {
     expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
   });
 
+  // The two-machines test, 2026-11-15: a sleep returned owing the stretch
+  // whose wait had ended in its last frame's capture, and the settle asked
+  // the page inside that owed network time, by as much as real time made it.
+  it("plays a stretch whose wait it heard end before it returns", async () => {
+    const { clock } = setup({
+      waiting: (real) => real < 300,
+      quietSince: (real) => (real >= 300 ? 300 : null),
+      captureMs: 400,
+    });
+    await clock.hold(START);
+    // One frame, the stretch's first; its capture ends past the wait's end.
+    await clock.sleep(HELD_FRAME_MS);
+    // The wait's 300 ms of real time: 9 frames, all played before it returns.
+    expect(inFrames([clock.now()])).toEqual([9]);
+    expect(
+      clock.networkSpans().map((s) => inFrames([s.startMs, s.endMs])),
+    ).toEqual([[0, 9]]);
+  });
+
   // Task 9: the whole wait of a click to another site fell inside the one
   // grant after the click, between two looks, and was not in the video.
   it("follows a wait that began and ended between two looks", async () => {
