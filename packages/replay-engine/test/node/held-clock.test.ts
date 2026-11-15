@@ -21,6 +21,8 @@ function setup(
     listen?: boolean;
     /** What the page answers the pin with (default: nothing it could not pin). */
     pin?: (heldMs: number) => unknown;
+    /** What the network watch says it stopped counting. */
+    ignored?: string[];
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -54,7 +56,7 @@ function setup(
   const network: NetworkWatch = {
     waiting: () => o.waiting?.(real) ?? false,
     labels: () => ["POST /api/chat"],
-    ignored: () => [],
+    ignored: () => o.ignored ?? [],
     stop() {},
   };
   const clock = createHeldClock({
@@ -203,6 +205,11 @@ describe("createHeldClock", () => {
     expect(clock.networkSpans()).toEqual([
       { startMs: 0, endMs: 201, label: "POST /api/chat" },
     ]);
+  });
+
+  it("names the connections the network watch stopped counting", () => {
+    const { clock } = setup({ ignored: ["GET /poll"] });
+    expect(clock.ignoredConnections()).toEqual(["GET /poll"]);
   });
 
   it("rehold continues the same time", async () => {

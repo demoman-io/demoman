@@ -69,6 +69,8 @@ export interface HeldClock extends Clock {
   networkSpans(): { startMs: number; endMs: number; label: string }[];
   /** Page animations the pin could not hold, at the held time first seen. */
   unpinned(): { atMs: number; what: string }[];
+  /** Connections that stopped counting as waiting on the server (`NetworkWatch.ignored`). */
+  ignoredConnections(): string[];
   /** Re-applies the hold to a new document, continuing the same time. */
   rehold(): Promise<void>;
 }
@@ -181,6 +183,7 @@ export function createHeldClock(deps: {
         label: [...s.labels].join(", "),
       })),
     unpinned: () => [...unpinned],
+    ignoredConnections: () => network.ignored(),
     async sleep(ms) {
       if (startEpochMs === null) throw new Error("sleep before hold");
       if (!(ms >= 0)) throw new Error(`cannot sleep ${ms} ms of page time`);

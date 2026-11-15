@@ -1787,7 +1787,12 @@ export async function runAuthored(
       "runAuthored: the script names no device and no viewport, and the caller measured none",
     );
   }
-  const run = createAuthoredRun(script, deps, viewport);
+  // A held take's pauses, stamps and capture waits are page time, as the walk's are.
+  const run = createAuthoredRun(
+    script,
+    deps.held === undefined ? deps : { ...deps, clock: deps.held },
+    viewport,
+  );
 
   // Each click's zoom is decided once, by the walk; the take is handed what
   // it was decided on (`ReplayResult.decided`, `cameraInputs`).

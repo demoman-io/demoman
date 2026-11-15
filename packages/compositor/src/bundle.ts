@@ -293,12 +293,14 @@ const DegradationSchema = z.object({
     // caret and frozen spinners. About the video, so not forgiven.
     "pageHoldNotReleased",
     // A held take only: a connection with no data for IDLE_CONNECTION_MS
-    // stopped counting as waiting on the server. One per run; the note names
-    // the connection. The video is right, so refresh forgives it.
+    // stopped counting as waiting on the server. One per connection; the
+    // note is its label ("GET /poll"). The video is right, so refresh
+    // forgives it.
     "connectionIgnored",
     // A held take only: a page animation the held clock could not pin (one
-    // in a cross-origin frame, say) ran on real time. One per run; the note
-    // says how many. The video is right, so refresh forgives it.
+    // in a cross-origin frame, say) ran on real time. One per animation, at
+    // the held time first seen; the note names it. The video is right, so
+    // refresh forgives it.
     "animationUnpinned",
   ]),
   note: z.string(),

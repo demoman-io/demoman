@@ -549,8 +549,9 @@ export interface ReplayResult {
   /**
    * The beat plan (spec 2026-11-13 Part 3): one beat per step the run
    * counted, in order, and the tail after the last of them. Set only when
-   * the walk was given `EngineDeps.beats` and recorded continuously; absent
-   * means the take was not planned, never that it planned nothing. A run
+   * the walk was given `EngineDeps.beats` and recorded continuously, on no
+   * held clock (which plays the plan as page time instead); absent means
+   * the take was not planned for the renderer, never that it planned nothing. A run
    * that stopped early plans the steps it counted and no others.
    */
   pacing?: NonNullable<SceneDocument["pacing"]>;
