@@ -13,24 +13,44 @@ export const GRANT_EXPIRY_TIMEOUT_MS = 15_000;
 /** 30 · (1000/30) is 1000.0000000000001: frame times are compared this loosely. */
 const EPS = 1e-6;
 
-/** Page script: pins every animation in the document to the held time (ms).
+/** Page script: pins every animation in the document to the held time (ms),
+ *  and answers the ones it could not pin, each named once.
  *  An animation's own currentTime runs on Chrome's real clock, so it starts at
  *  the held time it is first seen at; it is finished at its end, so a library
- *  waiting for `animationend` still hears it. */
+ *  waiting for `animationend` still hears it, and pinned again from the frame
+ *  the page is seen playing it again. A scroll-driven animation follows the
+ *  scroll, which the walk moves, so it is left alone.
+ *  shortcut: an animation at a playbackRate other than 1 plays at rate 1 under
+ *  the pin; upgrade if an app shows it. */
 export const PIN_ANIMATIONS = `(v) => {
+  const unpinned = [];
   for (const a of document.getAnimations()) {
-    if (a.__done) continue;
-    a.__v0 ??= v;
-    const t = v - a.__v0;
-    const end = a.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY;
-    if (Number.isFinite(end) && t >= end) {
-      a.__done = true;
-      a.finish();
-    } else {
-      a.pause();
-      a.currentTime = t;
+    if (a.__unpinned) continue;
+    if (a.timeline && !(a.timeline instanceof DocumentTimeline)) continue;
+    if (a.__done) {
+      if (a.playState !== "running") continue;
+      a.__done = false;
+      a.__v0 = v;
+    }
+    try {
+      a.__v0 ??= v;
+      const t = v - a.__v0;
+      const end = a.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY;
+      if (Number.isFinite(end) && t >= end) {
+        a.finish();
+        a.__done = true;
+      } else {
+        a.pause();
+        a.currentTime = t;
+      }
+    } catch (e) {
+      a.__unpinned = true;
+      const name = a.animationName || a.transitionProperty || a.id || "an animation";
+      const tag = a.effect?.target?.tagName?.toLowerCase() ?? "no element";
+      unpinned.push(name + " on " + tag + ": " + (e && e.message ? e.message : String(e)));
     }
   }
+  return unpinned;
 }`;
 
 export interface HeldFrame {
@@ -47,6 +67,8 @@ export interface HeldClock extends Clock {
   onFrame(listener: (frame: HeldFrame) => Promise<void>): void;
   /** Source-ms stretches spent waiting on the server. */
   networkSpans(): { startMs: number; endMs: number; label: string }[];
+  /** Page animations the pin could not hold, at the held time first seen. */
+  unpinned(): { atMs: number; what: string }[];
   /** Re-applies the hold to a new document, continuing the same time. */
   rehold(): Promise<void>;
 }
@@ -65,6 +87,7 @@ export function createHeldClock(deps: {
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const spans: { startMs: number; endMs: number; labels: Set<string> }[] = [];
   let span: (typeof spans)[number] | null = null;
+  const unpinned: { atMs: number; what: string }[] = [];
 
   const pause = async (initialVirtualTime: number) => {
     try {
@@ -116,7 +139,20 @@ export function createHeldClock(deps: {
     });
 
   const shoot = async () => {
-    await deps.evaluate(PIN_ANIMATIONS, held);
+    let failed: unknown;
+    try {
+      failed = await deps.evaluate(PIN_ANIMATIONS, held);
+    } catch (e) {
+      throw new Error(
+        `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
+      );
+    }
+    if (!Array.isArray(failed))
+      throw new Error(
+        `the animation pin at ${held} ms answered ${String(failed)}, not a list of the animations it could not pin`,
+      );
+    for (const what of failed)
+      unpinned.push({ atMs: held, what: String(what) });
     const shot = await deps.capture();
     if (listeners.length === 0)
       throw new Error("a frame was captured with no frame listener to file it");
@@ -130,7 +166,6 @@ export function createHeldClock(deps: {
       await pause(epochMs / 1000);
       startEpochMs = epochMs;
       held = 0;
-      grantEnded = realNow();
     },
     async rehold() {
       if (startEpochMs === null) throw new Error("rehold before hold");
@@ -145,19 +180,22 @@ export function createHeldClock(deps: {
         endMs: s.endMs,
         label: [...s.labels].join(", "),
       })),
+    unpinned: () => [...unpinned],
     async sleep(ms) {
       if (startEpochMs === null) throw new Error("sleep before hold");
       if (!(ms >= 0)) throw new Error(`cannot sleep ${ms} ms of page time`);
       const end = held + ms;
       while (end - held > EPS) {
         if (network.waiting()) {
-          // The server's pace: page time follows the real time since the last grant.
+          // The server's pace: page time follows the real time since the last
+          // grant. Not for a stretch's first: the real time before it was the
+          // walk's own work, which takes no time in the video.
+          const continues = span?.endMs === held;
+          const realMs = continues ? realNow() - grantEnded : 0;
           const labels = network.labels();
           const from = held;
-          await grant(
-            Math.min(end, held + Math.max(1, realNow() - grantEnded)),
-          );
-          if (!span || span.endMs !== from) {
+          await grant(Math.min(end, held + Math.max(1, realMs)));
+          if (!continues || !span) {
             span = { startMs: from, endMs: held, labels: new Set() };
             spans.push(span);
           }

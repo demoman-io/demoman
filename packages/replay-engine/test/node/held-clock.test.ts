@@ -19,6 +19,8 @@ function setup(
       params: Record<string, unknown>,
     ) => "expire" | "silent" | "refuse";
     listen?: boolean;
+    /** What the page answers the pin with (default: nothing it could not pin). */
+    pin?: (heldMs: number) => unknown;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -67,6 +69,7 @@ function setup(
     evaluate: async (source, arg) => {
       log.push(`pin ${arg}`);
       pins.push({ source, arg });
+      return o.pin ? o.pin(arg) : [];
     },
   });
   const frames: HeldFrame[] = [];
@@ -80,7 +83,10 @@ function setup(
     );
   const listeners = () =>
     [...handlers.values()].reduce((n, s) => n + s.size, 0);
-  return { clock, frames, policies, budgets, log, pins, listeners };
+  const advance = (ms: number) => {
+    real += ms;
+  };
+  return { clock, frames, policies, budgets, log, pins, listeners, advance };
 }
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
@@ -140,14 +146,29 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await clock.sleep(1000);
-    // The first grant has no real time behind it yet (the 1 ms floor); each
-    // after is the 200 ms the capture before it took, the last cut at 1000.
+    // The stretch's first grant takes the 1 ms floor; each after is the 200 ms
+    // the capture before it took, the last cut at 1000.
     expect(times(frames)).toEqual([1, 201, 401, 601, 801, 1000]);
     expect(budgets()).toEqual([1, 200, 200, 200, 200, 199]);
     expect(clock.now()).toBe(1000);
     expect(clock.networkSpans()).toEqual([
       { startMs: 0, endMs: 1000, label: "POST /api/chat" },
     ]);
+  });
+
+  it("credits no real time from before a stretch's first grant", async () => {
+    const { clock, frames, budgets, advance } = setup({
+      waiting: (real) => real >= 5000,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    expect(frames).toHaveLength(3); // premise: held frames before the wait
+    advance(5000); // the walk's own work: finding a target, a click
+    await clock.sleep(1000);
+    expect(budgets()).toHaveLength(3 + 6); // premise: three held grants first
+    expect(budgets().slice(3, 5)).toEqual([1, 200]);
+    expect(times(frames).slice(3, 5)).toEqual([101, 301]);
   });
 
   it("keeps one stretch for a wait that runs across sleeps", async () => {
@@ -248,6 +269,37 @@ describe("createHeldClock", () => {
     expect(log).toContain("capture"); // premise: a frame was taken
   });
 
+  it("records an animation the page could not pin, at its held time", async () => {
+    const { clock, frames } = setup({
+      pin: (heldMs) => (heldMs < 34 ? ["fade on div: boom"] : []),
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    expect(frames).toHaveLength(3); // premise: the pin ran three times
+    expect(clock.unpinned()).toEqual([
+      { atMs: frames[0]?.sourceTimeMs, what: "fade on div: boom" },
+    ]);
+  });
+
+  it("says so when the pin cannot run at all", async () => {
+    const { clock, frames } = setup({
+      pin: () => {
+        throw new Error("Execution context was destroyed");
+      },
+    });
+    await clock.hold(START);
+    await expect(clock.sleep(100)).rejects.toThrow(
+      /could not pin the page's animations at 33\.3\d* ms.*Execution context was destroyed/,
+    );
+    expect(frames).toHaveLength(0);
+  });
+
+  it("says so when the pin answers no list", async () => {
+    const { clock } = setup({ pin: () => undefined });
+    await clock.hold(START);
+    await expect(clock.sleep(100)).rejects.toThrow(/not a list/);
+  });
+
   it("refuses to move a clock it has not held", async () => {
     const { clock, policies } = setup();
     await expect(clock.sleep(100)).rejects.toThrow(/before hold/);
@@ -256,28 +308,43 @@ describe("createHeldClock", () => {
 });
 
 describe("PIN_ANIMATIONS", () => {
-  const animation = (endTime: number) => ({
+  class DocumentTimeline {}
+  const animation = (
+    endTime: unknown,
+    extra: Record<string, unknown> = {},
+  ) => ({
     currentTime: null as number | null,
+    playState: "running",
     paused: false,
     finishes: 0,
-    effect: { getComputedTiming: () => ({ endTime }) },
+    timeline: new DocumentTimeline() as object,
+    effect: {
+      getComputedTiming: () => ({ endTime }),
+      target: { tagName: "DIV" },
+    },
     pause() {
       this.paused = true;
+      this.playState = "paused";
     },
     finish() {
       this.finishes++;
+      this.playState = "finished";
     },
+    ...extra,
   });
+  const pinner = (list: unknown[]) =>
+    new Function("document", "DocumentTimeline", `return (${PIN_ANIMATIONS})`)(
+      { getAnimations: () => list },
+      DocumentTimeline,
+    ) as (heldMs: number) => string[];
 
   it("starts an animation at the held time it is first seen, and finishes it at its end", () => {
     const list: ReturnType<typeof animation>[] = [];
-    const pin = new Function("document", `return (${PIN_ANIMATIONS})`)({
-      getAnimations: () => list,
-    }) as (heldMs: number) => void;
+    const pin = pinner(list);
     const fade = animation(300);
     const spinner = animation(Number.POSITIVE_INFINITY);
     list.push(fade);
-    pin(100);
+    expect(pin(100)).toEqual([]);
     expect([fade.paused, fade.currentTime]).toEqual([true, 0]);
     list.push(spinner);
     pin(200);
@@ -285,8 +352,60 @@ describe("PIN_ANIMATIONS", () => {
     pin(400);
     expect(fade.finishes).toBe(1);
     expect(spinner.currentTime).toBe(200);
-    pin(500);
+    expect(pin(500)).toEqual([]);
     expect(fade.finishes).toBe(1);
     expect(spinner.currentTime).toBe(300);
+  });
+
+  it("pins a finished animation again when the page plays it again", () => {
+    const fade = animation(300);
+    const pin = pinner([fade]);
+    pin(100);
+    pin(400);
+    expect([fade.finishes, fade.playState]).toEqual([1, "finished"]);
+    fade.playState = "running"; // the page's play(): back to its start
+    fade.currentTime = 0;
+    pin(600);
+    expect([fade.playState, fade.currentTime]).toEqual(["paused", 0]);
+    pin(700);
+    expect(fade.currentTime).toBe(100);
+    pin(1000);
+    expect(fade.finishes).toBe(2);
+  });
+
+  it("leaves a scroll-driven animation to the scroll", () => {
+    const scrolled = animation({ unit: "percent" }, { timeline: {} });
+    expect(pinner([scrolled])(100)).toEqual([]);
+    expect([scrolled.paused, scrolled.currentTime, scrolled.finishes]).toEqual([
+      false,
+      null,
+      0,
+    ]);
+  });
+
+  it("names an animation it cannot pin, once, and pins the rest", () => {
+    const bad = animation(300, { animationName: "fade" });
+    Object.defineProperty(bad, "currentTime", {
+      set() {
+        throw new TypeError("currentTime must be a percentage");
+      },
+    });
+    const stuck = animation(100, {
+      id: "rate0",
+      finish() {
+        throw new Error("InvalidStateError: playbackRate is 0");
+      },
+    });
+    const good = animation(Number.POSITIVE_INFINITY, {
+      transitionProperty: "opacity",
+    });
+    const pin = pinner([bad, stuck, good]);
+    expect(pin(0)).toEqual(["fade on div: currentTime must be a percentage"]);
+    expect(good.currentTime).toBe(0);
+    expect(pin(200)).toEqual([
+      "rate0 on div: InvalidStateError: playbackRate is 0",
+    ]);
+    expect(pin(300)).toEqual([]);
+    expect(good.currentTime).toBe(300);
   });
 });
