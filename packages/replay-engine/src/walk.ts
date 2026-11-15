@@ -936,6 +936,10 @@ export async function runWalk(
    *  renderer folds that idle into the rest. Network time does not: it is
    *  the server's, played on top of the designed clock (spec §2), or a
    *  slower server would leave a different rest on another machine. */
+  /** Real time a held hover renewal's move is given to answer before page
+   *  time is played for it: moves answer in milliseconds unless Chrome holds
+   *  them for a loading document. */
+  const HOVER_HELD_MS = 1000;
   const sinceActEnd = (plannedMs: number, since = heldActEnd): number => {
     const now = at();
     let networkMs = 0;
@@ -1895,18 +1899,28 @@ export async function runWalk(
         // stopped painting never ends.
         if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
         const move = { type: "mouseMoved", x: cursor.x, y: cursor.y };
-        // Held: answered as page time moves, as the click's read is; a
-        // document loading that no frameStartedLoading announced held this
-        // move until its 30 s deadline, no page time played (review of Task 9
-        // round 1, finding C).
-        await gate.section(() =>
-          held === undefined
-            ? cdp.send("Input.dispatchMouseEvent", move)
-            : answered(
-                cdp.send("Input.dispatchMouseEvent", move, heldProbe),
-                NAVIGATE_TIMEOUT_MS,
-              ),
-        );
+        await gate.section(async () => {
+          if (held === undefined)
+            return cdp.send("Input.dispatchMouseEvent", move);
+          // Held: a move Chrome holds for a document still loading that no
+          // frameStartedLoading announced waited out its 30 s deadline, no
+          // page time played (review of Task 9 round 1, finding C); so one
+          // not answered in a moment is answered as page time moves. Not
+          // every move: its answer comes from the browser, which a frame's
+          // page call does not order, and played frames would land on one
+          // frame or the next by machine (measured 2026-11-15).
+          const sent = cdp.send("Input.dispatchMouseEvent", move, heldProbe);
+          const soon = await Promise.race([
+            sent.then(
+              () => true,
+              () => true,
+            ),
+            new Promise<false>((r) =>
+              setTimeout(() => r(false), HOVER_HELD_MS),
+            ),
+          ]);
+          return soon ? sent : answered(sent, NAVIGATE_TIMEOUT_MS);
+        });
       } catch (error) {
         moved.push(
           machineMade(
