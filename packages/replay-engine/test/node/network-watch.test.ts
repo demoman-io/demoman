@@ -89,6 +89,21 @@ describe("createNetworkWatch", () => {
     expect(w.waitsSince(300)).toBeNull();
   });
 
+  // Review of Task 9 round 1 (CI ubuntu): a request's word can come late;
+  // its wait began when the browser sent it.
+  it("dates a wait by when the browser sent its request, found by when it was heard", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    now = 1450;
+    emit("Network.requestWillBeSent", {
+      ...start("1", "http://app.test/there"),
+      wallTime: 1.3, // sent at 1300, heard at 1450
+    });
+    expect(w.waitsSince(1400)).toEqual({ from: 1300, labels: ["GET /there"] });
+    expect(w.waitsSince(1450)).toBeNull();
+  });
+
   // Review of Task 9, M4: a connection gone quiet is dropped before a new
   // wait is dated, or the new wait takes the old one's start.
   it("dates a new wait after a silent connection, from its own start", async () => {

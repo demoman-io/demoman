@@ -342,12 +342,15 @@ export function createHeldClock(deps: {
           const due =
             stretchFrom.held + (realNow() + shotLatency - stretchFrom.real);
           const labels = [...(since?.labels ?? []), ...network.labels()];
-          const from = held;
           const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
           if (to > due) await wait(to - due);
           await grant(to);
           if (!continues || !span) {
-            span = { startMs: from, endMs: held, labels: new Set() };
+            span = {
+              startMs: stretchFrom.held,
+              endMs: held,
+              labels: new Set(),
+            };
             spans.push(span);
           }
           span.endMs = held;

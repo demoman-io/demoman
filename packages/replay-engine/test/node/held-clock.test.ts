@@ -121,15 +121,20 @@ function setup(
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
 /** A network watch's waits for `waitsSince`: each began at `from`, and is
- *  known from `at` (default `from`). */
+ *  heard of at `at` (default `from`). */
 const waitsOf =
   (...list: { from: number; at?: number; labels: string[] }[]) =>
   (since: number, real: number) => {
-    const w = list.filter((x) => x.from > since && real >= (x.at ?? x.from));
+    const w = list.filter(
+      (x) => (x.at ?? x.from) > since && real >= (x.at ?? x.from),
+    );
     const [first] = w;
     return first === undefined
       ? null
-      : { from: first.from, labels: w.flatMap((x) => x.labels) };
+      : {
+          from: Math.min(...w.map((x) => x.from)),
+          labels: w.flatMap((x) => x.labels),
+        };
   };
 /** Times in frames of the grid, to six places. */
 const inFrames = (list: number[]) =>
@@ -362,6 +367,25 @@ describe("createHeldClock", () => {
     // No frame at 4 (real 1400, the grant's end): the stretch's first is
     // taken at real 1800, 500 ms after the wait began at frame 3: frame 18.
     expect(inFrames(times(frames)).slice(0, 4)).toEqual([1, 2, 3, 18]);
+  });
+
+  // CI ubuntu (fix round 2): the request was sent inside the click's
+  // grant, its word heard after it; dated by when it was heard, that
+  // grant's frame counted as held.
+  it("dates a wait heard after a grant by when it was sent, inside it", async () => {
+    const { clock } = setup({
+      // The fourth grant runs real 1200-1400 from frame 3; the request is
+      // sent at 1300 and heard at 1450, after the grant, during its capture.
+      waiting: (real) => real >= 1450,
+      waitsSince: waitsOf({ from: 1300, at: 1450, labels: ["GET /there"] }),
+      captureMs: 200,
+      grantMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    await clock.sleep(1000);
+    // The stretch begins at frame 3, where the grant it was sent in began.
+    expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
   });
 
   it("keeps one stretch for a wait that runs across sleeps", async () => {
