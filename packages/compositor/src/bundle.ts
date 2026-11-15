@@ -267,6 +267,11 @@ const DegradationSchema = z.object({
     // the page named for it was gone, or copying it threw). The drag still
     // ran; the film shows the card jump to its drop instead of travelling.
     "dragPictureMissing",
+    // A pointer move reached the page more than `POINTER_LATE_MS` after its
+    // plan (a slow machine). The drawn cursor follows the plan, so it
+    // arrives before the page's hover shows; the note counts the moves and
+    // names the worst. One per run.
+    "pointerLate",
     // A step's page had not settled when the cap ran out (requests in
     // flight, an animation running, the DOM still changing) or showed a
     // caret it would not hide: the page's own doing. The video is

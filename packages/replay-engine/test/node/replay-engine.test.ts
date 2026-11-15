@@ -1371,57 +1371,119 @@ describe("runReplay", () => {
   // Nylon's create-invoice on ubuntu-latest, 2026-11-15: Chrome answered a
   // `mouseMoved` in up to ~480 ms, the walk drew one sample per answer, and
   // the move to "Create invoice" was four samples, one 400 px apart from the
-  // next 3 ms later. The drawn cursor jumped. The fake answers after 300 ms.
-  it("draws a move as its planned curve when moves are slow to land", async () => {
+  // next 3 ms later. The drawn cursor jumped.
+  describe("a pointer move the page takes slowly", () => {
     const FAR = { x: 1150, y: 720 };
-    const expected = segmentDurationMs(TARGET, FAR);
-    const d = deps();
-    const send = d.cdp.send.bind(d.cdp);
-    let moves = 0;
-    d.cdp.send = async (method, params) => {
-      if (
-        method === "DOM.getBoxModel" &&
-        String(params?.objectId ?? "").includes(":second-btn:")
-      ) {
-        const [l, t, r, b] = [FAR.x - 50, FAR.y - 20, FAR.x + 50, FAR.y + 20];
-        const quad = [l, t, r, t, r, b, l, b];
-        return { model: { border: quad, content: quad } };
-      }
-      const reply = await send(method, params);
-      if (
-        method === "Input.dispatchMouseEvent" &&
-        params?.type === "mouseMoved"
-      ) {
-        moves++;
-        await d.clock.sleep(300);
-      }
-      return reply;
-    };
-    const result = await runReplay(scene(), d);
+    /** Puts the second target across the viewport and holds every
+     *  `mouseMoved` answer `answerMs`; `failOn` throws on that move (1-based,
+     *  counted from the first move of the travel to the second target). */
+    function slowMoves(answerMs: number, failOn?: number) {
+      const d = deps();
+      const send = d.cdp.send.bind(d.cdp);
+      const counted = { moves: 0, toFar: 0 };
+      let towardFar = false;
+      d.cdp.send = async (method, params) => {
+        if (
+          method === "DOM.getBoxModel" &&
+          String(params?.objectId ?? "").includes(":second-btn:")
+        ) {
+          towardFar = true;
+          const [l, t, r, b] = [FAR.x - 50, FAR.y - 20, FAR.x + 50, FAR.y + 20];
+          const quad = [l, t, r, t, r, b, l, b];
+          return { model: { border: quad, content: quad } };
+        }
+        if (
+          method === "Input.dispatchMouseEvent" &&
+          params?.type === "mouseMoved"
+        ) {
+          counted.moves++;
+          if (towardFar) counted.toFar++;
+          if (towardFar && counted.toFar === failOn) {
+            throw new Error("the session went away");
+          }
+        }
+        const reply = await send(method, params);
+        if (
+          method === "Input.dispatchMouseEvent" &&
+          params?.type === "mouseMoved"
+        ) {
+          await d.clock.sleep(answerMs);
+        }
+        return reply;
+      };
+      return { d, counted };
+    }
+    /** The samples after the first click, and their gaps. */
+    function pathOf(bundle: FrameBundle) {
+      const firstAt = bundle.markers.find((m) => m.actionId === "act-1")
+        ?.sourceTimeMs as number;
+      const path = bundle.cursorSamples.filter((c) => c.sourceTimeMs > firstAt);
+      const gaps = path
+        .slice(1)
+        .map(
+          (c, i) =>
+            c.sourceTimeMs - (path[i] as { sourceTimeMs: number }).sourceTimeMs,
+        );
+      return { path, gaps };
+    }
 
-    expect(result.outcome).toBe("complete");
-    const bundle = result.bundle as FrameBundle;
-    const firstAt = bundle.markers.find((m) => m.actionId === "act-1")
-      ?.sourceTimeMs as number;
-    const path = bundle.cursorSamples.filter((c) => c.sourceTimeMs > firstAt);
-    const gaps = path
-      .slice(1)
-      .map(
-        (c, i) =>
-          c.sourceTimeMs - (path[i] as { sourceTimeMs: number }).sourceTimeMs,
-      );
-    const evidence = `${moves} moves sent; ${path.length} samples, gaps ${gaps.join(", ")} ms`;
-    // The premise: the move ran to the far target, and the slow answers left
-    // only a handful of moves for a move planned to take this long.
-    expect(path.at(-1), evidence).toMatchObject(FAR);
-    expect(expected).toBeGreaterThanOrEqual(600);
-    expect(moves, evidence).toBeLessThanOrEqual(8);
-    // The curve on its own grid, however few moves were sent.
-    expect(Math.max(...gaps), evidence).toBeLessThanOrEqual(20);
-    expect(
-      gaps.every((g) => g >= 0),
-      evidence,
-    ).toBe(true);
+    it("draws the move as its planned curve, and says the page took it late", async () => {
+      const { d, counted } = slowMoves(300);
+      const result = await runReplay(scene(), d);
+
+      expect(result.outcome).toBe("complete");
+      const bundle = result.bundle as FrameBundle;
+      const { path, gaps } = pathOf(bundle);
+      const evidence = `${counted.toFar} moves sent; ${path.length} samples, gaps ${gaps.join(", ")} ms`;
+      // The premise: the move drawn ran to the far target over a long plan,
+      // and the slow answers left only a handful of moves for it.
+      expect(path.at(-1), evidence).toMatchObject(FAR);
+      const drawnMs =
+        (path.at(-1)?.sourceTimeMs ?? 0) - (path[0]?.sourceTimeMs ?? 0);
+      expect(drawnMs, evidence).toBeGreaterThanOrEqual(600);
+      expect(counted.toFar, evidence).toBeLessThanOrEqual(5);
+      // The curve on its own grid, however few moves were sent.
+      expect(Math.max(...gaps), evidence).toBeLessThanOrEqual(20);
+      expect(
+        gaps.every((g) => g >= 0),
+        evidence,
+      ).toBe(true);
+      // Forgiven, and said: once for the run, with the worst lateness.
+      const late = bundle.degradations.filter((g) => g.kind === "pointerLate");
+      expect(late, JSON.stringify(bundle.degradations)).toHaveLength(1);
+      expect(late[0]?.note).toMatch(/up to \d{3} ms after the drawn cursor/);
+    });
+
+    it("says nothing when the moves land on time", async () => {
+      const { d, counted } = slowMoves(9);
+      const result = await runReplay(scene(), d);
+
+      expect(result.outcome).toBe("complete");
+      const bundle = result.bundle as FrameBundle;
+      // The premise: the far move ran, through many moves.
+      expect(counted.toFar).toBeGreaterThan(20);
+      expect(pathOf(bundle).path.at(-1)).toMatchObject(FAR);
+      expect(
+        bundle.degradations.filter((g) => g.kind === "pointerLate"),
+        JSON.stringify(bundle.degradations),
+      ).toEqual([]);
+    });
+
+    it("keeps the trail a move made before its send failed", async () => {
+      const { d, counted } = slowMoves(30, 4);
+      const result = await runReplay(scene(), d);
+
+      const bundle = result.bundle as FrameBundle;
+      const { path, gaps } = pathOf(bundle);
+      const evidence = `${result.outcome} ${result.reason ?? ""}; ${counted.toFar} moves; ${path.length} samples, gaps ${gaps.join(", ")}`;
+      // The premise: the travel failed on its fourth move, after three went in.
+      expect(counted.toFar, evidence).toBe(4);
+      expect(result.outcome, evidence).not.toBe("complete");
+      // Drawn as far as the third move, on the grid, and no further.
+      expect(path.length, evidence).toBeGreaterThan(3);
+      expect(Math.max(...gaps), evidence).toBeLessThanOrEqual(20);
+      expect(path.at(-1), evidence).not.toMatchObject(FAR);
+    });
   });
 
   it("acknowledges a frame that arrives with no span open", async () => {
@@ -3742,6 +3804,69 @@ describe("a click the browser did not deliver", () => {
     expect(result.degradations.some((x) => x.kind === "clickUnconfirmed")).toBe(
       false,
     );
+  });
+
+  // As a move's, on the runner of 2026-11-15: the held path was one
+  // sample per answered move, and the dragged item's cursor jumped.
+  it("draws a drag's held path as its planned curve", async () => {
+    const dragScene = (): SceneDocument => {
+      const doc = scene();
+      const [a, b] = doc.actions as [
+        (typeof doc.actions)[number],
+        (typeof doc.actions)[number],
+      ];
+      return {
+        ...doc,
+        actions: [
+          a,
+          {
+            ...b,
+            kind: "drag",
+            toAnchorId: null,
+            to: { by: { x: 600, y: 0 } },
+          },
+        ],
+      } as SceneDocument;
+    };
+    const d = deps();
+    missFromStepTwo(d, { ...MISSED, up: { x: 660, y: 40 } }, []);
+    const send = d.cdp.send.bind(d.cdp);
+    let held = 0;
+    d.cdp.send = async (method, params) => {
+      const reply = await send(method, params);
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        params?.type === "mouseMoved" &&
+        params?.buttons === 1
+      ) {
+        held++;
+        await d.clock.sleep(300);
+      }
+      return reply;
+    };
+    const result = await runReplay(dragScene(), d);
+
+    expect(result.outcome, result.reason ?? "").toBe("complete");
+    const bundle = result.bundle as FrameBundle;
+    const press = bundle.heldPresses?.[0];
+    const during = bundle.cursorSamples.filter(
+      (c) =>
+        press !== undefined &&
+        c.sourceTimeMs > press.pressMs &&
+        c.sourceTimeMs < press.releaseMs,
+    );
+    const steps = during.slice(1).map((c, i) => {
+      const from = during[i] as { x: number; y: number };
+      return Math.round(Math.hypot(c.x - from.x, c.y - from.y));
+    });
+    const evidence = `${held} held moves; ${during.length} samples, steps ${steps.join(", ")} px; ${JSON.stringify(press)}`;
+    // The premise: a held path 600 px long, through few slow moves.
+    expect(press, evidence).toBeDefined();
+    expect(during.at(-1)?.x ?? 0, evidence).toBeGreaterThan(600);
+    expect(held, evidence).toBeLessThanOrEqual(12);
+    // Drawn without a jump: the lead moves are a few px each, and the curve
+    // after them is on its 8 ms grid, never 40 px a sample.
+    expect(Math.max(...steps), evidence).toBeLessThanOrEqual(40);
   });
 });
 
