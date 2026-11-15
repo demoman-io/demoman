@@ -344,8 +344,9 @@ export function createHeldClock(deps: {
           // the walk's own work, or is in a frame already. Frames stay on
           // the grid, so the page's timers keep one phase however long the
           // server took (off it, the load's wait made "the same video
-          // twice" differ), at most a frame behind real time and never
-          // ahead: a machine that captures faster than a frame waits.
+          // twice" differ): a frame of the grid at or before where real
+          // time is expected at the frame's capture, and a machine that
+          // captures faster than a frame waits for it.
           const continues = span?.endMs === held;
           // Waits since the last look, also one already over: a cross-site
           // click's whole wait can fall inside one grant, and the new
@@ -360,10 +361,12 @@ export function createHeldClock(deps: {
               held: stretchFrom.held,
             };
           // Where real time will be when this frame is taken, a grant and a
-          // capture from now (the last one's): what the page shows then is
-          // what the frame's time must say. Stamped at the look instead,
-          // every frame of a stream was one capture early on a slow machine,
-          // where that is about 240 ms (2026-11-15).
+          // capture from now, as the last one took: what the page shows then
+          // is what the frame's time must say. A capture faster than the last
+          // is stamped ahead of when it was taken by the difference, at most
+          // the last one's length; one slower, behind. Stamped at the look
+          // instead, every frame of a stream was one capture early on a slow
+          // machine, where that is about 240 ms (2026-11-15).
           const due =
             stretchFrom.held + (realNow() + shotLatency - stretchFrom.real);
           const labels = [...(since?.labels ?? []), ...network.labels()];
