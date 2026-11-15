@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { stoppedWhere } from "@demoman/run-core";
+import { placedIdleSpans, stoppedWhere } from "@demoman/run-core";
 import { createLibrary } from "../executor/library.js";
 import { messageOf } from "../report.js";
 import {
@@ -56,6 +56,7 @@ const RUNS = 2;
 const say = (line: string) => console.info(`[demoman] film:compare: ${line}`);
 
 type Failed = { failed: string };
+type Placed = [number, number][];
 interface BundleFacts {
   degradations: { kind: string }[];
   keyframe: [number, number] | null;
@@ -100,7 +101,9 @@ async function filmOnce(args: {
   evidence: { report: string; export: string };
   bundleFacts: (takeId: string) => Promise<BundleFacts | Failed>;
   sceneFacts: (takeId: string) => Promise<SceneFacts | Failed>;
-}): Promise<{ facts: RunFacts; mp4: string | null }> {
+  /** The video time a beat plan placed idle in (`placedIdleSpans`). */
+  placedIdle: (takeId: string) => Promise<Placed | Failed>;
+}): Promise<{ facts: RunFacts; mp4: string | null; placed: Placed }> {
   const { mcp, executor, run, script } = args;
   const who = `${script.name} ${executor} ${run}`;
   const snap = await settle(
@@ -194,7 +197,15 @@ async function filmOnce(args: {
     say(`${who}: the bundle could not be read (${bundle.failed})`);
   if (scene !== null && "failed" in scene)
     say(`${who}: the scene could not be read (${scene.failed})`);
+  // A plan that cannot be read leaves the long-still count without it: said,
+  // so a count that includes the plan's own pauses is not read as a fault.
+  const readPlaced = takeId === null ? [] : await args.placedIdle(takeId);
+  if ("failed" in readPlaced)
+    say(
+      `${who}: the beat plan's placed idle could not be read (${readPlaced.failed}), so its stills are counted without it`,
+    );
   return {
+    placed: "failed" in readPlaced ? [] : readPlaced,
     mp4,
     facts: factsFromRun({
       executor,
@@ -238,6 +249,7 @@ function clearEvidence(out: string, name: string): void {
 interface Filmed {
   facts: RunFacts;
   mp4: string | null;
+  placed: Placed;
 }
 
 async function main(): Promise<number> {
@@ -406,6 +418,21 @@ async function main(): Promise<number> {
               return { failed: messageOf(error) };
             }
           };
+          const placedIdle = async (id: string): Promise<Placed | Failed> => {
+            try {
+              const [scene, bundle] = await Promise.all([
+                library.getScene(id),
+                library.frameStore(id).getBundle(id),
+              ]);
+              if (scene === null || bundle === null)
+                return {
+                  failed: `no scene or bundle under ${library.takeDir(id)}`,
+                };
+              return placedIdleSpans(scene, bundle);
+            } catch (error) {
+              return { failed: messageOf(error) };
+            }
+          };
           for (let run = 1; run <= RUNS; run++) {
             const got = await filmOnce({
               mcp: client,
@@ -416,6 +443,7 @@ async function main(): Promise<number> {
               evidence: evidence(side, run),
               bundleFacts,
               sceneFacts,
+              placedIdle,
             });
             entry.runs.push(got);
             say(
@@ -470,7 +498,7 @@ async function main(): Promise<number> {
         try {
           for (const r of toMeasure) {
             try {
-              r.facts.film = await measurer.measure(r.mp4 as string);
+              r.facts.film = await measurer.measure(r.mp4 as string, r.placed);
             } catch (error) {
               r.facts.exportOutcome = `decodeFailed: ${messageOf(error)}`;
             }

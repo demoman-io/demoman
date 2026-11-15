@@ -1,0 +1,18 @@
+{
+  "scriptVersion": 1,
+  "name": "Pacing fixture",
+  "target": "{fixture}/index.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    {
+      "do": "type",
+      "into": { "role": "textbox", "name": "Name" },
+      "text": "Hollis and Grant"
+    },
+    { "do": "click", "on": { "role": "button", "name": "Save" } },
+    { "do": "click", "on": { "role": "button", "name": "One" } },
+    { "do": "click", "on": { "role": "button", "name": "Two" } },
+    { "do": "click", "on": { "role": "button", "name": "Archive" } },
+    { "do": "pause", "ms": 1000 }
+  ]
+}

@@ -524,8 +524,12 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
   const unplacedPaces = resolved?.timeline.unplacedPaces ?? 0;
   if (unplacedPaces > 0) {
     const pauses = unplacedPaces === 1 ? "pause" : "pauses";
+    // A take with a beat plan has no recorded pauses: what was lost is
+    // planned time, and the stretch plays as it was recorded instead.
     notices.push(
-      `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this export is shorter than the video by however long those ${pauses} were. ${advise("to restore them")}`,
+      scene.pacing !== undefined
+        ? `pacingUnplaced: ${unplacedPaces} planned ${pauses} could not be placed. The last render carried no marker for the steps they sit before, so ${unplacedPaces === 1 ? "that stretch plays" : "those stretches play"} as recorded, not at the planned length. ${advise("to restore them")}`
+        : `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this export is shorter than the video by however long those ${pauses} were. ${advise("to restore them")}`,
     );
   }
 

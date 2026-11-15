@@ -138,6 +138,11 @@ const MarkerSchema = z
      *  room, not a wait for the page to go quiet): what the film check may
      *  take for Demoman's pacing inside one still stretch. */
     roomHeldMs: z.number().nonnegative().optional(),
+    /** Where the walk set off for this step, in source time. */
+    approachSourceTimeMs: z.number().min(0).optional(),
+    /** When this step's approach scroll ended, in source time: continuous
+     *  recording, and only when the approach scrolled. */
+    scrollEndSourceTimeMs: z.number().min(0).optional(),
   })
   .superRefine((marker, ctx) => {
     if (

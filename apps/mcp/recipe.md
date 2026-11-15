@@ -141,14 +141,14 @@ The file, with one account:
 
 `snapshot(url)` opens `url` in Demoman's browser and lists the page's
 targets, leaving the page open. Each entry is
-`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to that element.
+`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
   are not Chrome's.
 - `landedElsewhere: true` - the app redirected, often to its sign-in page;
   `landedUrl` says where. If it is a sign-in page,
-  see `session` below and spend no run. If it is not a sign-in page (a
+  see `session` below. If it is not a sign-in page (a
   trailing slash, `https`, a locale prefix), use `landedUrl` as the
   script's `target`; this snapshot stands.
   `landedElsewhere: null`: the address could not be read; not an
@@ -169,9 +169,8 @@ targets, leaving the page open. Each entry is
   `waitFor … until: "visible"` target after the step that opens it.
   `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
-  at, as a run records. `from` is `screen` (this machine's screen),
-  or `device`. `from: "window"` with an `error`: Demoman could not read the
-  screen and listed the browser's smaller layout; tell the user the `error`.
+  at. `snapshot` measures it and `inFirstViewport` at this screen, a run its own: `from` is `screen`, `flow` (the flow's recorded size) or `device`. `from: "window"` with an `error`: Demoman could not read the
+  screen and listed the browser's smaller layout; tell the user any `error`.
 - `positional: true`: the target is a `treePath` (shared or no name); snapshot
   again after the page changes. `value`: a field's text, never a password's.
   `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
@@ -273,18 +272,17 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
      not say): its text is kept nowhere. Re-filming or deriving that video
-     asks for a demo value. `landing.startedElsewhere` names where the start URL went; `landing.unchecked`: the page could not be checked for a
-     sign-in page. `notStored` with `what: "session"` means the saved
+     asks for a demo value. `landing.startedElsewhere`: where the start URL went; `landing.unchecked`: no sign-in check. `notStored` with `what: "session"` means the saved
      session could not be refreshed: name it to the user.
    - `threw` - a fault in the run; report its `error`.
    - Then read `frames.degradations` and `frames.storageRefused`, about the
      video (`surfaceMismatch`: wrong-size frames; `dragPictureMissing`: a
      drag's item jumps) or refresh screens (`step*`, `requestNotWaited`), not
      the script. `notDragged`: a drag did nothing; `verdict.diverged` lists
-     it. Name them to the user; spend no run. `clickUnconfirmed` is about a step: a click
+     it. Name them to the user; spend no run. `clickUnconfirmed`: a click
      could not be confirmed to have reached its target, and
-     `frames.unconfirmedClicks` names each such step and says why; check in
-     the video that the step did what it should before saying so.
+     `frames.unconfirmedClicks` names each such step and says why; check the video
+     before saying so.
    - A re-film's report carries `rerecord`: `from` (the old video), `notes`
      (as `report.skeleton` above, `stepDropped` with `why` `actionGone` or
      `neverPerformed`; `migrated`, `trimClampedToStep`, `zoomNotWritten`: a `sentence`) and `notCarried` (each `removed`, `split`,
@@ -293,20 +291,20 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
      from clicks). Name each
      to the user; a mask not carried may show what the old video hid.
 3. **Read the video.** The report carries `video` and `recording`. Read
-   `video.summary` first (a count per label: `inside`, `atEdge`, `cutOff`,
+   `video.summary` first (counts: `inside`, `atEdge`, `cutOff`,
    `outOfFrame`, `strayArrival`, `detour`, `longStill`), then
    `video.steps[i].framing.label`, and `video.journeys[j].arrival` /
    `video.journeys[j].detour` for the cursor.
    - **Which script step a video step is:** `video.steps` lists the video's
-     actions, and a `pause` makes no action. Find the report's `steps[k]`
-     whose `actionId` equals `video.steps[i].actionId`; `steps[k].index` is
-     its 0-based position in your script.
+     actions, and a `pause` makes no action. Match `steps[k].actionId` to
+     `video.steps[i].actionId`; `steps[k].index` is its 0-based position.
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
-     `checkFailed` with `error`): not a clean bill; say so, do not retry. Likewise
+     `checkFailed` with `error`): not a clean bill; say so, no retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
+   - `video.pacing: "planned"`: `plannedMs` is its length before any trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played as recorded, named in `frames.unplacedBeats[].step`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
-     the video a derived script came from. `unavailable` is again an answer.
+     the video a derived script came from.
 
    | Finding | Whose | The move |
    | --- | --- | --- |
@@ -452,8 +450,7 @@ Studio exports go to `~/Downloads`.
 - A `click` or `drag` takes `zoom`: `false` for none, or `{ "scale": 1.5 }` (over 1, at most 2.5).
 - `scrollTo` takes `landing: { "top": <px> }`, optional: the viewport y of
   the element's top edge once scrolled; absent is centred.
-- `viewport` absent means the size the user chose: the screen's, which
-  `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
+- `viewport` absent means the flow's recorded size, or this screen's on a first run. Leave `viewport` out unless the user asked.
 - `device` is `"phone"` or `"tablet"`: the page is recorded as a phone (393x852)
   or a tablet (820x1180). Name a device or a
   `viewport`, not both. A device has no hover: a `hover` under one is

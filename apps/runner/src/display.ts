@@ -12,9 +12,10 @@ const JXA = `ObjC["import"]("AppKit");
 const s = $.NSScreen.screens.objectAtIndex(0);
 JSON.stringify({ width: s.frame.size.width, height: s.frame.size.height, scale: s.backingScaleFactor });`;
 
-/** Why headless films at 1x, and how to fix it: said in `status` before
- *  anything is filmed ("films") and on every size filmed without it
- *  ("filmed"), in the same words. */
+/** Why headless records at its own window's size, and how to fix it: said
+ *  in `status` before anything is recorded ("records") and on every size
+ *  measured off the window ("recorded"), in the same words. The scale is not
+ *  the screen's either way (`CAPTURE_SCALE`), so it is not said here. */
 export function displayUnreadSentence(
   read: DisplayUnread,
   tense: "records" | "recorded",
@@ -23,7 +24,42 @@ export function displayUnreadSentence(
   // --headed is refused where no window can open (`headlessFrom`).
   const headed =
     read.noWindow === true ? "" : ", or start Demoman with --headed";
-  return `Demoman could not read this computer's display (${read.failed}), so headless ${tense} at 1x, and at its own window size unless the script or its device ${names} one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2)${headed}`;
+  return `Demoman could not read this computer's display (${read.failed}), so headless ${tense} at its own window size unless the script or its device ${names} one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2)${headed}`;
+}
+
+/**
+ * The scale a headless run records motion at when nothing recorded names one
+ * (spec 2026-11-13 part 2), never the screen's: the same script records the
+ * same motion on a Retina Mac and on a runner with no display. A phone at 2x
+ * is 786 px wide, under a portrait export's width.
+ */
+export const CAPTURE_SCALE = { desktop: 2, tablet: 2, phone: 3 } as const;
+
+/**
+ * The one place a headless run's scale is decided: `DEMOMAN_DISPLAY`'s when
+ * it is set and reads (how refresh passes a kept flow's scale, how a test
+ * names a display, how someone opts out), else the flow's recorded scale,
+ * else `CAPTURE_SCALE` for the script's device. The take records what this
+ * answers (`meta.capture.displayScale`), and the flow's next run reads it.
+ */
+export function captureScale(
+  env: NodeJS.ProcessEnv,
+  recorded?: number,
+  device: keyof typeof CAPTURE_SCALE = "desktop",
+): number {
+  const m = DISPLAY_SETTING.exec(env.DEMOMAN_DISPLAY?.trim() ?? "");
+  const named = m === null ? 0 : Number(m[3]);
+  return named > 0 ? named : (recorded ?? CAPTURE_SCALE[device]);
+}
+
+/** The screen as headless records at it, for `status`: its size, at the
+ *  scale headless records at (`captureScale`, no flow named), never the
+ *  screen's, and so with no `scaleAssumed` advice about the screen's. */
+export function headlessDisplay(
+  read: Display,
+  env: NodeJS.ProcessEnv,
+): { width: number; height: number; scale: number } {
+  return { width: read.width, height: read.height, scale: captureScale(env) };
 }
 
 /** Why the display could not be read; `noWindow` where there is no display

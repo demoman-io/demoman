@@ -218,7 +218,7 @@ function renderStepPanel(
   };
 
   // Why an authored pause would not play on this step, or null when it
-  // would. `BeatView.canPace` is the same question `authoredPaceCovering`
+  // would. `BeatView.canPace` is the same question `authoredRegions`
   // asks in the compositor, so the control and the render agree about what
   // an authored number does.
   const inertReason = beat.isLast

@@ -16,7 +16,8 @@ export type SkeletonStep =
       do: Exclude<Verb, "pause">;
       actionId: string | null;
       anchorDigest: string | null;
-      /** Where the step's own beat ended, in ms after its marker; null when
+      /** Where the step's own beat ended, in ms after its marker (output ms
+       *  on a planned take: its motion); null when
        *  the run never performed it, or the file is a v1. */
       finishMs: number | null;
       /** When the camera was back at full frame after the latest zoom at or
@@ -85,6 +86,9 @@ export function skeletonOf(
     index: number;
     actionId: string | null;
     timing?: { finishMs: number; zoomOutMs: number | null };
+    /** A planned take's step in output ms (`AuthoredStep.outputTiming`),
+     *  which wins: a refilm writes these back as output offsets. */
+    outputTiming?: { finishMs: number; zoomOutMs: number | null };
   }[],
   scene: SceneDocument,
 ): ScriptSkeleton {
@@ -102,6 +106,14 @@ export function skeletonOf(
     steps: script.steps.map((step, index): SkeletonStep => {
       if (step.do === "pause") return { do: "pause", ms: step.ms };
       const done = walked.get(index);
+      // A planned take's timings are output ms or nothing: after a failed
+      // placement there is no `outputTiming`, and the walk's source ms
+      // would put a re-recorded end trim a settle early without a word. With
+      // none, the tail is reported as not carried (`notCarriedOf`).
+      const timing =
+        scene.pacing === undefined
+          ? (done?.outputTiming ?? done?.timing)
+          : done?.outputTiming;
       const actionId = done?.actionId ?? null;
       const anchorId =
         actionId === null ? null : (actions.get(actionId)?.anchorId ?? null);
@@ -111,8 +123,8 @@ export function skeletonOf(
         actionId,
         anchorDigest:
           anchor === undefined ? null : anchorDigest(anchor.fingerprint),
-        finishMs: done?.timing?.finishMs ?? null,
-        zoomOutMs: done?.timing?.zoomOutMs ?? null,
+        finishMs: timing?.finishMs ?? null,
+        zoomOutMs: timing?.zoomOutMs ?? null,
       };
     }),
   };

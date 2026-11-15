@@ -238,6 +238,15 @@ export async function launch(options?: {
    * viewport the runner's lanes measure.
    */
   display?: Display;
+  /**
+   * Headless only, without `display`: the scale Chrome's own stand-in screen
+   * is given (`--screen-info={devicePixelRatio=S}`, no size), so a machine
+   * whose display cannot be read still records motion at it. The screen's
+   * size stays Chrome's own, which callers never read as the author's
+   * (`BrowserSession.screenUnknown`), and nothing else about the launch
+   * changes.
+   */
+  scale?: number;
   /** Where a launch that went on past a cosmetic failure says so. */
   log?: (line: string) => void;
   /** Tests only: stands in for reading the browser's user agent. */
@@ -251,7 +260,11 @@ export async function launch(options?: {
       ? {}
       : { executablePath: options.executablePath }),
     args: [
-      ...(display === undefined ? [] : displayArgs(display)),
+      ...(display !== undefined
+        ? displayArgs(display)
+        : headless && options?.scale !== undefined
+          ? [`--screen-info={devicePixelRatio=${options.scale}}`]
+          : []),
       ...(headless ? HEADLESS_GPU_ARGS : []),
     ],
   });

@@ -1,6 +1,10 @@
 import type { Degradation, FrameBundle } from "@demoman/compositor";
 import type { AnchorIntent } from "@demoman/resolver";
-import type { FailureReasonName, StrategyName } from "@demoman/scene-schema";
+import type {
+  FailureReasonName,
+  SceneDocument,
+  StrategyName,
+} from "@demoman/scene-schema";
 
 export interface Rect {
   x: number;
@@ -133,8 +137,10 @@ export interface FrameEncoder {
     width: number;
     height: number;
   }): Promise<void>;
-  /** Null when the span held too few frames to be motion. */
-  closeSpan(endMs: number): Promise<EncodedSpan | null>;
+  /** Null when the span held too few frames to be motion. `flicker` of the
+   *  frames pushed are not counted toward that (the motion recorder's
+   *  `FLICKER_FRAMES`): they stay in a span that is kept for the rest. */
+  closeSpan(endMs: number, flicker?: number): Promise<EncodedSpan | null>;
   queueDepth(): number;
   heapFraction(): number;
 }
@@ -540,4 +546,28 @@ export interface ReplayResult {
    *  seen sensitivity this run did not. */
   hoverSensitive: boolean;
   counters: ReplayCounters;
+  /**
+   * The beat plan (spec 2026-11-13 Part 3): one beat per step the run
+   * counted, in order, and the tail after the last of them. Set only when
+   * the walk was given `EngineDeps.beats` and recorded continuously; absent
+   * means the take was not planned, never that it planned nothing. A run
+   * that stopped early plans the steps it counted and no others.
+   */
+  pacing?: NonNullable<SceneDocument["pacing"]>;
+  /**
+   * What each click and drag's zoom was decided on (`RoomPolicy.zooms`), by
+   * action id. Set when the walk was given a room policy.
+   */
+  decided?: ReadonlyMap<string, ZoomDecision>;
 }
+
+/**
+ * The time and page zoom a zoom was decided on. Without a beat plan, on
+ * source time with the room the walk added taken out (`unwaitedMs`). With
+ * one, on the designed clock (`designedMs`): the step's marker as planned
+ * before any room for it. `arrives`, for a click the camera zooms to, is how
+ * the camera reaches it, asked on the designed clock where it lands.
+ */
+export type ZoomDecision =
+  | { unwaitedMs: number; scale: number }
+  | { designedMs: number; scale: number; arrives?: "pan" | "return" };

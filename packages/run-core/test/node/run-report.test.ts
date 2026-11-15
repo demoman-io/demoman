@@ -1665,6 +1665,38 @@ describe("RunReport opening, trim and zoom notes", () => {
     ]);
   });
 
+  // Red if `trimNotesOf` drops `trimHeldUnplaced`: the zoom then pulls out
+  // before the cut with nothing in the report saying why.
+  it("an end trim whose zoom cannot be held through the cut says so", () => {
+    const built = opening({
+      trim: { end: { ms: 500, step: 3, after: "action" } },
+    });
+    if (!("walk" in built)) throw new Error("walked");
+    const report = buildRunReport({
+      ...built,
+      walk: { ...built.walk, trimHeldUnplaced: true },
+    });
+    expect(report.trimNotes).toEqual([
+      "trim.end's zoom lands after the video's last frame, so it is not held through the cut and pulls out before it",
+    ]);
+  });
+
+  // Red if `trimNotesOf` drops `trimPlanFailed`: the take would come back
+  // untrimmed with nothing saying the plan could not place its trim.
+  it("a trim the planned video could not place says so, with why", () => {
+    const built = opening({
+      trim: { end: { ms: 500, step: 3, after: "action" } },
+    });
+    if (!("walk" in built)) throw new Error("walked");
+    const report = buildRunReport({
+      ...built,
+      walk: { ...built.walk, trimPlanFailed: "injected" },
+    });
+    expect(report.trimNotes).toEqual([
+      "Demoman could not place the steps on the planned video (injected), so any trim or held zoom the script asked for is not applied; the script is not at fault",
+    ]);
+  });
+
   it("a start trim whose step never ran says so", () => {
     const report = buildRunReport(
       opening({

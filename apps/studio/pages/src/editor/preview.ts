@@ -12,6 +12,7 @@ import type {
   SceneMotion,
 } from "@demoman/scene-schema";
 import { sameBackground } from "./branding.js";
+import { decideCameraAgain, smoothnessChanged } from "./commands.js";
 
 /**
  * The preview bitmap's height DURING PLAYBACK, and the floor everywhere.
@@ -809,12 +810,18 @@ export function previewScene(
     motion === stored.motion
   )
     return stored;
-  return {
+  const layered = {
     ...stored,
     cursor,
     branding,
     ...(motion === undefined ? {} : { motion }),
   };
+  // As releasing the drag will (`applyCommand`): a smoothness the pans and
+  // returns were not decided at decides them again, so the preview shows the
+  // camera the edit ends on.
+  return smoothnessChanged(stored, layered)
+    ? decideCameraAgain(layered)
+    : layered;
 }
 
 /**

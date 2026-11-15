@@ -820,6 +820,26 @@ describe("previewScene", () => {
     expect("motion" in withCursor).toBe(false);
   });
 
+  // Red if `previewScene` keeps the stored `arrives` under a dragged
+  // smoothness: the preview would pan where releasing the drag returns.
+  it("decides each arrival again under a dragged smoothness, and only then", () => {
+    const base = zoomed();
+    const stored: SceneDocument = {
+      ...base,
+      camera: base.camera.map((c) => ({ ...c, arrives: "pan" as const })),
+    };
+    const dragged = layered(stored, { ...MOTION_DEFAULTS, smoothness: 1 });
+    // Premise: the drag is a different smoothness from the stored one.
+    expect((stored.motion ?? MOTION_DEFAULTS).smoothness).not.toBe(1);
+    expect(dragged.camera.map((c) => "arrives" in c)).toEqual([false]);
+    const cursorOnly = previewScene(stored, {
+      cursor: { ...stored.cursor, scale: 1.5 },
+      branding: stored.branding,
+      motion: stored.motion,
+    });
+    expect(cursorOnly.camera.map((c) => c.arrives)).toEqual(["pan"]);
+  });
+
   // The camera preview re-solves the camera: a smoothness drag layered here
   // lengthens the zoom's pull-out in the keys the canvas is composed from.
   it("re-solves the camera from a dragged smoothness", () => {

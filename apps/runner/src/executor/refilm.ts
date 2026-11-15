@@ -4,6 +4,7 @@ import {
   refilmScript,
 } from "@demoman/run-core";
 import { messageOf } from "../report.js";
+import { latestOf } from "./flow-size.js";
 import { type Library, LibraryError } from "./library.js";
 import type { VideoRecord, VideoStore } from "./videos.js";
 
@@ -89,8 +90,7 @@ export async function refilmFromVideo(
     }
   | { ok: false; refusal: RefusedBeforeRun }
 > {
-  const all = await store.versions(video.id);
-  const from = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
+  const from = await latestOf(store, video);
   if (from === undefined && leftOut.length > 0) {
     return {
       ok: false,

@@ -100,6 +100,20 @@ export interface RunDeps {
   /** Read the last screen for dates (DEM-79): refresh's run only, the one
    *  reader; never an MCP argument. */
   readDates?: boolean;
+  /** The size the flow's latest video was recorded at, for a script that
+   *  names no viewport or device (`flowSizeOf`); `chooseRunSize` reads it
+   *  before the screen. */
+  flowSize?: { width: number; height: number };
+  /** Why the flow's recorded size could not be read (`flowSizeOf`'s `why`):
+   *  the run asked the screen instead, and says so on `size.error`. */
+  flowSizeUnread?: string;
+  /** The scale the flow's latest video recorded motion at (`flowScaleOf`):
+   *  a headless run already asked for it (`captureScale`); a visible window,
+   *  which cannot be, says so on `size.error` when its screen's differs. */
+  flowScale?: number;
+  /** Why the flow's recorded scale could not be read (`flowScaleOf`'s
+   *  `why`): the run recorded at the constant, and says so on `size.error`. */
+  flowScaleUnread?: string;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;

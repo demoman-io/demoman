@@ -4,6 +4,7 @@
  * broken films looks clean, so `judge` asserts the premise before `table`
  * prints anything — the fixture check CLAUDE.md asks of every test.
  */
+import { insidePlacedIdle } from "@demoman/run-core";
 import type { FilmMeasure } from "./measure.js";
 
 export interface Cadence {
@@ -68,23 +69,35 @@ export interface Stills {
  * against the one before (`changes[i]`, aligned with `timesMs[i]`). A
  * stretch runs from the frame that first showed the picture to the frame
  * that next changes it — or to `durationMs`, when nothing does.
+ *
+ * `placed` is the video time (ms) a beat plan placed idle in
+ * (`placedIdleSpans`): a still wholly inside one is the plan's own pause, as
+ * the film check reads it, and is neither counted nor measured. Absent for a
+ * take with no plan.
  */
 export function stills(
   timesMs: number[],
   changes: number[],
   durationMs: number,
+  placed: readonly (readonly [number, number])[] = [],
 ): Stills {
   if (changes.length !== timesMs.length) {
     throw new Error(
       `the probe answered ${changes.length} picture changes for ${timesMs.length} frames`,
     );
   }
+  const framePeriodMs = durationMs / Math.max(1, timesMs.length);
   let longestStillMs = 0;
   let longStills = 0;
   let from: number | null = null;
   const close = (untilMs: number) => {
     if (from === null) return;
-    const held = untilMs - (timesMs[from] as number);
+    const startMs = timesMs[from] as number;
+    if (insidePlacedIdle(placed, startMs, untilMs, 2 * framePeriodMs)) {
+      from = null;
+      return;
+    }
+    const held = untilMs - startMs;
     longestStillMs = Math.max(longestStillMs, held);
     if (held >= LONG_STILL_MS) longStills++;
     from = null;

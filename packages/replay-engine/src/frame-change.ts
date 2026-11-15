@@ -246,6 +246,22 @@ export function changedShare(a: LumaBlocks, b: LumaBlocks): number {
   return a.dc.length === 0 ? 0 : changed / a.dc.length;
 }
 
+/**
+ * The largest change in any one block's brightness between two frames, in
+ * the blocks' own units (about seven to a grey level); 0 for the same
+ * picture. Two frames of different sizes are a surface that changed:
+ * Infinity.
+ */
+export function strongestChange(a: LumaBlocks, b: LumaBlocks): number {
+  if (a.width !== b.width || a.height !== b.height) return Infinity;
+  let most = 0;
+  for (let i = 0; i < a.dc.length; i++) {
+    const d = Math.abs((a.dc[i] as number) - (b.dc[i] as number));
+    if (d > most) most = d;
+  }
+  return most;
+}
+
 /** A screencast frame as the walk keeps it: CDP's base64, and when it came. */
 export interface SeenFrame {
   data: string;

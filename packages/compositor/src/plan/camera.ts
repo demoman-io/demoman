@@ -216,6 +216,7 @@ export function planCameraIntents(
         offsetMs: event.marker.offsetMs,
         scale: clamp(event.scale ?? 1, 1, CAMERA_DEFAULTS.maxScale),
         end: event.end ?? null,
+        ...(event.arrives === undefined ? {} : { arrives: event.arrives }),
         ...fitOf(event),
       }))
       // Every scene edited before auto-zoom was removed carries `scale: 1`
@@ -300,6 +301,8 @@ interface Seed extends CameraKey {
    *  to its target and returns, so it keeps its pull-out and its segment. */
   zoom: boolean;
   authoredEndMs: number | null;
+  /** How the recording said the camera reaches this zoom (`arrivesOf`). */
+  arrives: "pan" | "return" | null;
   /** `intent.end` was set but `markerOutputMs` could not place it. Distinct
    *  from `authoredEndMs === null` meaning "no end was authored at all" —
    *  see `CameraSegment.endUnplaced`. */
@@ -316,6 +319,9 @@ interface Seed extends CameraKey {
    * `leadInMs`. 0 on the opening key, which is not a zoom and is never read.
    */
   actionMs: number;
+  /** The zoom's step's marker in source time, where the author's removed
+   *  pieces are resolved (`arrivesOf`). 0 on the opening key. */
+  sourceMs: number;
   /**
    * The move's length before any earlier act shortened it (`actEnds` in
    * `solveCamera`). Where the previous zoom must be back at full frame is
@@ -370,8 +376,31 @@ export function solveCamera(
    * a rectangle was still being drawn). Empty: today's behaviour.
    */
   holds: readonly { startMs: number; endMs: number }[] = [],
+  /**
+   * The steps an authored gap follows (`edits.gaps[].afterActionId`). A
+   * recorded `arrives` is dropped across one, as across any of the
+   * timeline's `cuts`: the author moved the beats the recording decided it
+   * on (`arrivesOf`).
+   */
+  gapAfterActionIds: readonly string[] = [],
 ): { keys: CameraKey[]; segments: CameraSegment[] } {
   const timings = motionTimings(motion.smoothness);
+  const gaps = gapAfterActionIds.flatMap((id) => {
+    const at = markerSourceMs.get(id);
+    return at === undefined ? [] : [toOutputMs(timeline, at)];
+  });
+  /**
+   * Whether the author moved the beats between two zooms: an authored gap
+   * after a step in `[before, seed)`, or a removed piece reaching into
+   * `(before, seed)` in source time (one that removes `before`'s own step
+   * included). Removed pieces are compared in source time: in output time a
+   * cut that ends on `seed`'s marker collapses onto it.
+   */
+  const edited = (before: Seed, seed: Seed): boolean =>
+    gaps.some((ms) => ms >= before.actionMs && ms < seed.actionMs) ||
+    timeline.cuts.some(
+      (cut) => cut.srcEndMs > before.sourceMs && cut.srcStartMs < seed.sourceMs,
+    );
   const neutral: Vec = { x: viewport.width / 2, y: viewport.height / 2 };
   const seeds: Seed[] = [];
   /** Each seed's latest earlier act end, in output ms; settled below. */
@@ -427,6 +456,7 @@ export function solveCamera(
       stiffness: timings.stiffness,
       zoom: true,
       authoredEndMs: resolvedEndMs,
+      arrives: intent.arrives ?? null,
       endUnplaced: intent.end !== null && resolvedEndMs === null,
       fitted:
         scale < requested
@@ -437,6 +467,7 @@ export function solveCamera(
             }
           : null,
       actionMs,
+      sourceMs,
       plannedTransitionMs: timings.zoomInMs,
     };
     seeds.push(seed);
@@ -454,11 +485,7 @@ export function solveCamera(
     const before = seeds[i - 1];
     const pans =
       before !== undefined &&
-      !returnsBetween(
-        heldUntilOf(before, seed.actionMs, holds),
-        seed.outputTimeMs,
-        timings,
-      );
+      arrivesOf(seed, before, holds, edited, timings) === "pan";
     const notBeforeMs =
       (actEndOf.get(seed) ?? Number.NEGATIVE_INFINITY) +
       (pans ? 0 : CAMERA_DEFAULTS.actSettleMs);
@@ -483,9 +510,11 @@ export function solveCamera(
         stiffness: timings.stiffness,
         zoom: false,
         authoredEndMs: null,
+        arrives: null,
         endUnplaced: false,
         fitted: null,
         actionMs: 0,
+        sourceMs: 0,
         plannedTransitionMs: 0,
       },
       ...seeds,
@@ -493,6 +522,7 @@ export function solveCamera(
     timeline.outputDurationMs,
     timings,
     holds,
+    edited,
   );
 }
 
@@ -595,10 +625,11 @@ export const MIN_PAN_MS = 150;
  * back out, before the next zoom's action. The return counts from here, not
  * from the arrival. A drag pressed after the zoom would have gone out holds
  * nothing (final review, finding 1: one 20 s later kept the camera in on a
- * button).
+ * button). Exported because a planned take places its trim from it
+ * (`@demoman/replay-engine`'s assembly), so the two answer alike.
  */
-function heldUntilOf(
-  seed: Seed,
+export function heldUntilOf(
+  seed: { outputTimeMs: number; actionMs: number },
   nextActionMs: number,
   holds: readonly { startMs: number; endMs: number }[],
 ): number {
@@ -632,6 +663,38 @@ export function returnsBetween(
     nextArrivalMs - timings.zoomInMs - minPlateauMs >=
     heldUntilMs + minPlateauMs + timings.zoomOutMs
   );
+}
+
+/**
+ * Whether the camera pans or returns on its way to `seed` from `before`: the
+ * one place both `solveCamera` and `insertNeutralKeys` ask. The recording's
+ * own answer (`seed.arrives`) is read when it has one (a return only where
+ * one fits, below), unless the author
+ * moved the beats it was decided on between the two (`edited`: an authored
+ * gap or a removed piece, `solveCamera`'s). Otherwise `returnsBetween` asks,
+ * as it did before takes carried the record.
+ */
+function arrivesOf(
+  seed: Seed,
+  before: Seed,
+  holds: readonly { startMs: number; endMs: number }[],
+  edited: (before: Seed, seed: Seed) => boolean,
+  timings: Pick<MotionTimings, "zoomInMs" | "zoomOutMs">,
+): "pan" | "return" {
+  const fits = returnsBetween(
+    heldUntilOf(before, seed.actionMs, holds),
+    seed.outputTimeMs,
+    { zoomInMs: seed.plannedTransitionMs, zoomOutMs: timings.zoomOutMs },
+  );
+  // A recorded return is followed only where one fits (`insertNeutralKeys`'
+  // `latestMs >= earliestMs`, the same inequality): a take whose timing
+  // changed after the walk decided pans, as the clock would, rather than
+  // pull out through the click. The walk plans every return it records with
+  // a margin (`PAN_MARGIN_MS` in run-core's room.ts), so this is the guard.
+  if (seed.arrives !== null && !edited(before, seed)) {
+    return seed.arrives === "return" && !fits ? "pan" : seed.arrives;
+  }
+  return fits ? "return" : "pan";
 }
 
 /**
@@ -671,6 +734,7 @@ function insertNeutralKeys(
   outputDurationMs: number,
   timings: MotionTimings,
   holds: readonly { startMs: number; endMs: number }[] = [],
+  edited: (before: Seed, seed: Seed) => boolean = () => false,
 ): { keys: CameraKey[]; segments: CameraSegment[] } {
   const { neutral } = CAMERA_DEFAULTS;
   const { zoomOutMs } = timings;
@@ -770,12 +834,7 @@ function insertNeutralKeys(
     // the opening key is a zoom, stamped `zoomInMs` by `solveCamera`.
     const latestMs =
       next.outputTimeMs - next.plannedTransitionMs - neutral.minPlateauMs;
-    if (
-      !returnsBetween(heldUntil, next.outputTimeMs, {
-        zoomInMs: next.plannedTransitionMs,
-        zoomOutMs,
-      })
-    ) {
+    if (arrivesOf(next, seed, holds, edited, timings) === "pan") {
       // No room to return: the camera pans straight to the next beat. That
       // pan is the next key's move, and it used to keep the push-in's
       // `zoomInMs` — 1300ms at the default smoothness — so on two clicks a

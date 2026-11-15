@@ -24,7 +24,12 @@ import {
 } from "@demoman/run-core";
 import type { SceneBranding } from "@demoman/scene-schema";
 import { chromium } from "playwright";
-import { displayUnreadSentence, readDisplay } from "../display.js";
+import {
+  captureScale,
+  displayUnreadSentence,
+  headlessDisplay,
+  readDisplay,
+} from "../display.js";
 import { installResolver } from "../page-agent.js";
 import { RUNNER_VERSION } from "../version.js";
 import { signInAccount } from "./account-signin.js";
@@ -40,6 +45,7 @@ import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
+import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -414,10 +420,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     { width: number; height: number; scale: number } | { unreadable: string }
   > {
     try {
-      const read = await readDisplay(options.env ?? process.env);
+      const env = options.env ?? process.env;
+      const read = await readDisplay(env);
       return "failed" in read
         ? { unreadable: displayUnreadSentence(read, "records") }
-        : read;
+        : headlessDisplay(read, env);
     } catch (error) {
       return {
         unreadable: displayUnreadSentence(
@@ -430,7 +437,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   const session = createBrowserSession({
     headless: options.headless,
     ...(options.standInDisplay === true
-      ? { readDisplay: () => readDisplay(options.env ?? process.env) }
+      ? {
+          readDisplay: () => readDisplay(options.env ?? process.env),
+          // A snapshot or probe with no browser up: no flow, no device.
+          defaultScale: captureScale(options.env ?? process.env),
+        }
       : {}),
     ...(options.executablePath === undefined
       ? {}
@@ -899,7 +910,27 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       }
       await learnSecrets(choice);
       const chosen = choice.kind === "account" ? choice : null;
-      const browser = await session.ensure();
+      // The scale this run records motion at, decided here once (spec
+      // 2026-11-13 part 2): DEMOMAN_DISPLAY's, else the flow's latest
+      // video's, else the constant for the device. A headless browser at
+      // another scale is launched again at it; a visible window cannot be,
+      // and its run says so (`prepareStage`).
+      // Asked once for both the scale and the size. Awaited first inside
+      // `flowScaleOf`, which says a read that failed.
+      const latest = into === null ? undefined : latestOf(videos, into);
+      const flowScale =
+        into === null ? {} : await flowScaleOf(videos, library, into, latest);
+      const scale = captureScale(
+        options.env ?? process.env,
+        flowScale.scale,
+        script.device,
+      );
+      if (flowScale.why !== undefined && into !== null) {
+        log(
+          `flow "${into.name}": this run records at ${options.headless ? `${scale}x` : "its screen's scale"} instead: ${flowScale.why}`,
+        );
+      }
+      const browser = await session.ensure({ scale });
       if (!browser.ok) {
         const out = refusal(browser.reason, browser.detail);
         job.final = out;
@@ -1009,6 +1040,25 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         : { none: repoRead.none };
       // Whatever the run did to the context's cookies, the next call starts
       // from the saved sessions again (final review 2).
+      // A flow's later runs read the size its latest video was recorded at,
+      // unless the script names a viewport or device; a first run asks the
+      // screen. An unreadable record asks the screen too, and says so on the
+      // report's `size.error` (and in the log).
+      let flowSize: { width: number; height: number } | undefined;
+      let flowSizeUnread: string | undefined;
+      if (
+        into !== null &&
+        script.viewport === undefined &&
+        script.device === undefined
+      ) {
+        const found = await flowSizeOf(videos, library, into, latest);
+        flowSize = found.size;
+        flowSizeUnread = found.why;
+        if (found.why !== undefined)
+          log(
+            `flow "${into.name}": this run uses this screen's size instead: ${found.why}`,
+          );
+      }
       const film = async () => {
         if (!loaded.ok) throw new Error("sessions were not loaded");
         return runScript(
@@ -1022,6 +1072,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               ? { pinnedNow: args.pinnedNow }
               : {}),
             ...(args.readDates === true ? { readDates: true } : {}),
+            ...(flowSize === undefined ? {} : { flowSize }),
+            ...(flowSizeUnread === undefined ? {} : { flowSizeUnread }),
+            ...(flowScale.scale === undefined
+              ? {}
+              : { flowScale: flowScale.scale }),
+            ...(flowScale.why === undefined
+              ? {}
+              : { flowScaleUnread: flowScale.why }),
             session,
             library,
             kits,
@@ -1347,7 +1405,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                 secretsFile: await secretsFileForStatus(),
                 // Headless standing in for a display only: the screen it
                 // films as, read now (a laptop may have docked since), or
-                // why it cannot be read — before anything is filmed at 1x.
+                // why it cannot be read — before anything is recorded at
+                // its window's size.
                 ...(options.headless && options.standInDisplay === true
                   ? { display: await displayForStatus() }
                   : {}),

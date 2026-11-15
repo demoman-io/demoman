@@ -83,6 +83,55 @@ describe("skeletonOf", () => {
     });
   });
 
+  // A planned take (spec 2026-11-13): the step's output timing is what a
+  // refilm writes back as output offsets, so it wins over the walk's source
+  // timing. Red if `skeletonOf` reads `done?.timing` alone.
+  it("keeps a planned take's step timings in output ms", () => {
+    const timed = [
+      {
+        index: 0,
+        actionId: "ac-load",
+        timing: { finishMs: 900, zoomOutMs: null },
+      },
+      {
+        index: 2,
+        actionId: "ac-type",
+        timing: { finishMs: 3450, zoomOutMs: 4650 },
+        outputTiming: { finishMs: 400, zoomOutMs: 4300 },
+      },
+    ];
+    // Premise: the two clocks disagree, so the test can tell them apart.
+    expect(timed[1]?.outputTiming?.finishMs).not.toBe(
+      timed[1]?.timing.finishMs,
+    );
+    const sk = skeletonOf(script, timed, scene);
+    expect(sk.steps[0]).toMatchObject({ finishMs: 900, zoomOutMs: null });
+    expect(sk.steps[2]).toMatchObject({ finishMs: 400, zoomOutMs: 4300 });
+  });
+
+  // Red if `skeletonOf` falls back to the walk's source timing on a
+  // planned take: a refilm would write an end trim from the wrong clock.
+  it("keeps no timing for a planned take's step that was never placed", () => {
+    const unplaced = [
+      {
+        index: 2,
+        actionId: "ac-type",
+        timing: { finishMs: 3450, zoomOutMs: 4650 },
+      },
+    ];
+    const planned = { ...scene, pacing: { beats: [], tailMs: 1000 } };
+    expect(skeletonOf(script, unplaced, planned).steps[2]).toMatchObject({
+      actionId: "ac-type",
+      finishMs: null,
+      zoomOutMs: null,
+    });
+    // Premise: the same step on a take without a plan keeps its timing.
+    expect(skeletonOf(script, unplaced, scene).steps[2]).toMatchObject({
+      finishMs: 3450,
+      zoomOutMs: 4650,
+    });
+  });
+
   it("keeps the script's account, and reads a skeleton without one", () => {
     const sk = skeletonOf(
       { ...script, scriptVersion: 5, account: "seller" },

@@ -6,6 +6,11 @@ import {
 } from "@demoman/compositor";
 import { describe, expect, it } from "vitest";
 import {
+  pacedBundle,
+  SLOW,
+  twoStepScene,
+} from "../../../../../packages/compositor/test/fixtures/beats";
+import {
   compressionBundle,
   proceduralBundle,
 } from "../../../../../packages/replay-engine/test/helpers/bundles";
@@ -909,6 +914,66 @@ describe("a removed piece that removed no frames", () => {
     expect(resolved.timeline.unplacedCuts).toHaveLength(1);
     expect(model.clip.ticks.find((t) => t.actionId === "act-2")?.cut).toBe(
       false,
+    );
+  });
+});
+
+describe("the pacingUnplaced notice", () => {
+  const PLAN = {
+    beats: [
+      { beforeActionId: "s1", restMs: 500, arriveMs: 200 },
+      { beforeActionId: "s2", restMs: 900, arriveMs: 300 },
+    ],
+    tailMs: 1000,
+  };
+  // s2 without its approach, or (a sampled replay's recorded pause needs
+  // it) without any marker.
+  const withoutS2 = (timing: "real" | undefined, dropMarker: boolean) => {
+    const { bundle } = pacedBundle(SLOW);
+    return {
+      ...bundle,
+      timing,
+      markers: dropMarker
+        ? bundle.markers.filter((m) => m.actionId !== "s2")
+        : bundle.markers.map((m) =>
+            m.actionId === "s2"
+              ? { actionId: m.actionId, sourceTimeMs: m.sourceTimeMs }
+              : m,
+          ),
+    };
+  };
+
+  it("speaks of planned pauses on a take with a beat plan, not recorded ones", () => {
+    // Red if the `scene.pacing !== undefined` branch in `buildLaneModel`'s
+    // pacingUnplaced notice goes: the recorded-pause sentence would show.
+    const scene = twoStepScene(PLAN);
+    const { model, resolved } = modelOf(scene, withoutS2("real", false));
+    // Premise: the take is planned, and its s2 beat was left unplaced.
+    expect(scene.pacing).toBeDefined();
+    expect(resolved.timeline.unplacedPaces).toBe(1);
+    const notice = model.notices.find((n) => n.startsWith("pacingUnplaced:"));
+    expect(notice).toMatch(
+      /^pacingUnplaced: 1 planned pause could not be placed\. /,
+    );
+    expect(notice).toContain(
+      "so that stretch plays as recorded, not at the planned length",
+    );
+    expect(notice).not.toContain("recorded pause");
+  });
+
+  it("keeps the recorded-pause sentence for a take with no plan", () => {
+    // Red if the planned sentence is made the only one.
+    const scene = twoStepScene();
+    const { model, resolved } = modelOf(scene, withoutS2(undefined, true));
+    // Premise: no plan, and a recorded pace was left unplaced.
+    expect(scene.pacing).toBeUndefined();
+    expect(resolved.timeline.unplacedPaces).toBe(1);
+    const notice = model.notices.find((n) => n.startsWith("pacingUnplaced:"));
+    expect(notice).toMatch(
+      /^pacingUnplaced: 1 recorded pause could not be placed\. /,
+    );
+    expect(notice).toContain(
+      "so this export is shorter than the video by however long those pause were",
     );
   });
 });

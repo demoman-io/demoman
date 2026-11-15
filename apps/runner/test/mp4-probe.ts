@@ -198,6 +198,40 @@ export async function mp4FrameTimes(bytes: Uint8Array): Promise<FrameTimes> {
   );
 }
 
+/**
+ * The size of an mp4's first frame as it decodes, asked at that frame's own
+ * timestamp. Not `sampleMp4`, which asks at 0: a motion span's first frame
+ * can sit 1 ms in (`muxSpans` stamps each frame at its painted time), and a
+ * request before it decodes nothing (measured 2026-11-13: 4 of 8 3x spans
+ * started at 0.001 s and every one of them failed `sampleMp4`).
+ */
+export async function mp4FirstFrameSize(
+  bytes: Uint8Array,
+): Promise<{ atSec: number; width: number; height: number }> {
+  const { timesSec } = await mp4FrameTimes(bytes);
+  const atSec = timesSec[0];
+  if (atSec === undefined) throw new Error("this mp4 has no frame to decode");
+  const base64 = Buffer.from(bytes).toString("base64");
+  const decoded = await inProbePage((page) =>
+    page.evaluate(
+      ([globalName, data, at]) => {
+        const entry = (
+          globalThis as unknown as Record<string, DecodeProbeEntry | undefined>
+        )[globalName as string];
+        if (entry === undefined) {
+          throw new Error(`${globalName} is not installed on this page`);
+        }
+        return entry.decodeFrame(data as string, at as number);
+      },
+      [DECODE_PROBE_GLOBAL, base64, atSec] as const,
+    ),
+  );
+  if (!decoded.decoded) {
+    throw new Error(`the frame at ${atSec}s of this mp4 did not decode`);
+  }
+  return { atSec, width: decoded.width, height: decoded.height };
+}
+
 async function inProbePage<T>(
   fn: (page: Page) => Promise<T>,
   film?: Uint8Array,

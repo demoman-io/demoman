@@ -127,3 +127,7 @@ problem has more than one walk line; the first is the comparable one. Measured
 on 2026-11-10 for the step settle (`STEP_QUIET_MS`, spec 2026-11-10
 refresh-settled-screens, decision 7): helpdesk, nylon, sublime and the chatbot
 sample, ten flows, two runs per build per flow.
+
+## Pacing fit
+
+`beat-fit.mjs <takes-dir>` measures what today's pacing does on the author's own scripted Mac takes (door `mcp`, repo root under this home, real-time bundle, no `scene.pacing`): per marker pair, the idle before and after the cursor's last journey, as medians and quartiles. It set `BASE_REST_MS` and `OPENING_REST_MS` on 2026-11-13. `pacing-pairs.mjs --repo <checkout> --out <dir> [--sample <index.html>] <script>...` records and exports each script headless with that checkout's built runner and prints one JSON line each; run it on `main` and on a branch into different `--out` folders for old/new videos. `pacing-fixture.json` (outside `scripts/`, which `film:compare` fills only for `{sample}`) runs against `pacing-fixture.html` (`{fixture}`): a typed field then a click, two zoomed clicks close together, a click below the fold, a closing pause.

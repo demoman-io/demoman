@@ -547,5 +547,38 @@ export function applyCommand(
   command: EditCommand,
   newId: IdSource,
 ): SceneDocument {
-  return SceneDocumentSchema.parse(reduce(scene, command, newId));
+  const next = reduce(scene, command, newId);
+  return SceneDocumentSchema.parse(
+    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next)
+      ? decideCameraAgain(next)
+      : next,
+  );
+}
+
+// Smoothness sets the push-in and the pull-out, so the gap a return needs:
+// a pan or return decided at the old one may not fit the new.
+export function smoothnessChanged(
+  before: SceneDocument,
+  after: SceneDocument,
+): boolean {
+  return (
+    (before.motion ?? MOTION_DEFAULTS).smoothness !==
+    (after.motion ?? MOTION_DEFAULTS).smoothness
+  );
+}
+
+// A zoom's `arrives` is the decision about the zoom BEFORE it, so adding,
+// moving, re-timing or removing a zoom can make any of them stale. The
+// renderer follows a stored one, so drop them all and let it decide again.
+const ZOOM_SET_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
+  "addZoom",
+  "setZoomRange",
+  "removeZoom",
+]);
+
+export function decideCameraAgain(scene: SceneDocument): SceneDocument {
+  return {
+    ...scene,
+    camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
+  };
 }

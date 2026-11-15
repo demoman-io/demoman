@@ -123,13 +123,13 @@ export function createParkingEncoder(
       return parked;
     },
 
-    async closeSpan(endMs): Promise<EncodedSpan | null> {
+    async closeSpan(endMs, flicker = 0): Promise<EncodedSpan | null> {
       const span = open;
       open = null;
       if (span === null) return null;
       // Its frames still in line land before it is counted.
       await parking;
-      const kept = spanIsMotion(span.frameCount, minFrames);
+      const kept = spanIsMotion(span.frameCount - flicker, minFrames);
       const ref = `span:${sceneId}:${span.index}`;
       closed.push({
         index: span.index,

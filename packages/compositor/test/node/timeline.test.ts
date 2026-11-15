@@ -363,7 +363,7 @@ describe("buildTimeline", () => {
   it("realizes an authored gap exactly even when a caller-supplied hint narrows the idle stretch", () => {
     // buildTimeline's own motion set is bundle spans + degradations + hints
     // (see motionSpansOf), and that merged set is what segments idle vs
-    // motion here. idleMsBetweenMarkers's denominator must agree with it, or
+    // motion here. idleMsIn's denominator must agree with it, or
     // an authored target gets diluted against a stale, hint-less idle total.
     // This mirrors resolvePlan's real call shape (resolve.ts), which always
     // passes `cursorMotionSpans(cursor)` as hints — the cursor moving toward
@@ -394,7 +394,7 @@ describe("buildTimeline", () => {
     // "ignores a recorded pace in recording mode" above uses targetMs: 6000,
     // which equals the bundle's own gap — so it cannot tell a working
     // origin==="authored" filter apart from a missing one (both produce
-    // 6000). This target (500) can: if the filter in authoredPaceCovering
+    // 6000). This target (500) can: if the filter in authoredRegions
     // were ever dropped, this would come out to 500, not 6000.
     const captured = twoActionBundle(6000, { source: "capture" });
     const planWithRecordedPace: RenderPlan = {

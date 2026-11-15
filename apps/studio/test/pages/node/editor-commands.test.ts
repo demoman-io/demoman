@@ -42,6 +42,64 @@ describe("applyCommand", () => {
   // it.
 });
 
+describe("a planned take's record survives the editor", () => {
+  // Spec 2026-11-13: a planned take carries `pacing` and each zoom's
+  // `arrives`, and the server saves what the editor hands it through the
+  // schema (`migrateToCurrent`), which keeps both. Red if a command
+  // rebuilds the document or a zoom field by field and leaves either out
+  // (e.g. `setZoomScale` writing `{ id, kind, marker, scale }`).
+  it("keeps pacing and each zoom's arrives through every kind of edit", () => {
+    const base = applyCommand(
+      readonlyScene(),
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-3", offsetMs: 0 },
+        target: { kind: "element", anchorId: "a-checkout" },
+        scale: 1.8,
+      },
+      ids(),
+    );
+    const pacing = {
+      beats: base.actions.map((a) => ({
+        beforeActionId: a.id,
+        restMs: 700,
+        arriveMs: 300,
+      })),
+      tailMs: 1000,
+    };
+    const planned = SceneDocumentSchema.parse({
+      ...base,
+      pacing,
+      camera: base.camera.map((c) => ({ ...c, arrives: "return" as const })),
+    });
+    // Premise: the take carries both, on a zoom the edits below touch.
+    expect(planned.pacing).toEqual(pacing);
+    const zoomId = planned.camera[0]?.id as string;
+    expect(planned.camera[0]?.arrives).toBe("return");
+    const edits = [
+      { kind: "rename", name: "Planned" },
+      { kind: "setZoomScale", id: zoomId, scale: 2.2 },
+      { kind: "setZoomTarget", id: zoomId, point: { x: 40, y: 50 } },
+      { kind: "setTrim", tail: { actionId: "act-3", offsetMs: 500 } },
+      { kind: "setGap", afterActionId: "act-1", durationMs: 900 },
+      { kind: "setMotion", patch: { smoothness: 0.5 } },
+      {
+        kind: "addMask",
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-3", sourceOffsetMs: 0 },
+      },
+    ] as const;
+    const next = ids();
+    let scene = planned;
+    for (const edit of edits) {
+      scene = applyCommand(scene, edit, next);
+      expect(scene.pacing, edit.kind).toEqual(pacing);
+      expect(scene.camera[0]?.arrives, edit.kind).toBe("return");
+    }
+  });
+});
+
 describe("action-track semantics", () => {
   // This used to author `scale: 1` rather than delete, because deleting handed
   // the beat straight back to the auto-camera that filled every click no
@@ -688,5 +746,109 @@ describe("zoom edits are recorded for the script", () => {
     const back = undo(removed);
     expect(back.scene.camera.map((c) => c.id)).toEqual(["cam-1"]);
     expect(back.scene.zoomsSkipped).toBeUndefined();
+  });
+});
+
+describe("a zoom edit makes the renderer decide each arrival again", () => {
+  // A zoom's `arrives` is about the zoom before it, so these edits can make
+  // every stored one stale. Red if the command's kind leaves
+  // `ZOOM_SET_EDITS` in commands.ts (the line that drops `arrives`).
+  const planned = () => {
+    let n = 0;
+    const next = () => `z-${++n}`;
+    let scene = readonlyScene();
+    for (const actionId of ["act-1", "act-2", "act-3"]) {
+      scene = applyCommand(
+        scene,
+        {
+          kind: "addZoom",
+          marker: { actionId, offsetMs: 0 },
+          target: { kind: "point", x: 10, y: 10 },
+          scale: 1.8,
+        },
+        next,
+      );
+    }
+    return SceneDocumentSchema.parse({
+      ...scene,
+      camera: scene.camera.map((c) => ({ ...c, arrives: "pan" as const })),
+    });
+  };
+  const carries = (s: SceneDocument) => s.camera.map((c) => "arrives" in c);
+
+  it("the fixture's zooms carry arrives (the premise)", () => {
+    const scene = planned();
+    expect(scene.camera.length).toBe(3);
+    expect(carries(scene)).toEqual([true, true, true]);
+  });
+
+  it.each([
+    [
+      "addZoom",
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-1", offsetMs: 100 },
+        target: { kind: "point", x: 20, y: 20 },
+        scale: 2,
+      },
+    ],
+    [
+      "setZoomRange",
+      {
+        kind: "setZoomRange",
+        id: "z-2",
+        start: { actionId: "act-2", offsetMs: 200 },
+        end: null,
+      },
+    ],
+    ["removeZoom", { kind: "removeZoom", id: "z-2" }],
+  ] as const)("%s leaves no zoom carrying arrives", (_name, command) => {
+    const after = applyCommand(planned(), command, () => "z-new");
+    expect(after.camera.length).toBeGreaterThan(0);
+    expect(carries(after).every((has) => !has)).toBe(true);
+  });
+
+  // Final review, Important 2: smoothness sets the push-in and pull-out, so
+  // the gap a return needs. Red if `applyCommand` stops asking
+  // `smoothnessChanged`: every arrival would keep the old smoothness's answer.
+  it("a smoothness change leaves no zoom carrying arrives", () => {
+    const scene = planned();
+    // Premise: the edit really moves smoothness off what the take has.
+    expect((scene.motion ?? MOTION_DEFAULTS).smoothness).not.toBe(1);
+    const after = applyCommand(
+      scene,
+      { kind: "setMotion", patch: { smoothness: 1 } },
+      () => "z-new",
+    );
+    expect(after.motion?.smoothness).toBe(1);
+    expect(carries(after)).toEqual([false, false, false]);
+  });
+
+  // Red if every `setMotion` clears them (asked of the command's kind
+  // rather than of smoothness), or if writing the first motion block (the
+  // defaults, smoothness included) reads as a change.
+  it("a motion edit that keeps smoothness leaves arrives where it was", () => {
+    const scene = planned();
+    // Premise: the take has no motion block, so this edit writes one whole,
+    // and blur really changes.
+    expect(scene.motion).toBeUndefined();
+    expect(MOTION_DEFAULTS.blur).not.toBe(0);
+    const after = applyCommand(
+      scene,
+      { kind: "setMotion", patch: { blur: 0 } },
+      () => "z-new",
+    );
+    expect(after.motion).toEqual({ ...MOTION_DEFAULTS, blur: 0 });
+    expect(carries(after)).toEqual([true, true, true]);
+  });
+
+  it("a gap edit leaves arrives where it was", () => {
+    // Red if `setGap` joined `ZOOM_SET_EDITS`.
+    const after = applyCommand(
+      planned(),
+      { kind: "setGap", afterActionId: "act-1", durationMs: 900 },
+      () => "z-new",
+    );
+    expect(carries(after)).toEqual([true, true, true]);
   });
 });

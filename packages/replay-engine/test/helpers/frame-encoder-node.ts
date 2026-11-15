@@ -79,11 +79,11 @@ export function createNodeFrameEncoder(
       span.height = frame.height;
     },
 
-    async closeSpan(endMs): Promise<EncodedSpan | null> {
+    async closeSpan(endMs, flicker = 0): Promise<EncodedSpan | null> {
       const span = open;
       open = null;
       if (span === null) return null;
-      const kept = spanIsMotion(span.frames.length, minFrames);
+      const kept = spanIsMotion(span.frames.length - flicker, minFrames);
       closed.push({
         frames: span.frames.length,
         kept,

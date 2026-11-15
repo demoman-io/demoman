@@ -312,6 +312,12 @@ export interface RunReport {
      * agent told to check that step in the film could not find it.
      */
     unconfirmedClicks?: { step: string; note: string }[];
+    /**
+     * Each beat of the take's plan that could not be placed (`pacingUnplaced`
+     * in `degradations`): the step it sits before, and a sentence saying
+     * what the video does instead. Absent when there were none.
+     */
+    unplacedBeats?: { step: string; note: string }[];
   };
   /** What the video looks like (film-check spec §2). Always present: a run
    *  with nothing to check says why, never omits the field. */
@@ -386,6 +392,8 @@ export interface WalkResultLike {
   /** `AuthoredResult`'s own, carried for `trimNotes`. */
   trimClamped?: { side: "start"; askedMs: number; keptMs: number };
   trimUnplaced?: ("start" | "end")[];
+  trimHeldUnplaced?: true;
+  trimPlanFailed?: string;
 }
 
 interface BuildArgsCommon {
@@ -551,6 +559,16 @@ function trimNotesOf(
       `trim.start asked for ${clamp.askedMs} ms before step ${step} and the video holds ${clamp.keptMs} ms; it starts at the beginning`,
     );
   }
+  if (walk.trimPlanFailed !== undefined) {
+    notes.push(
+      `Demoman could not place the steps on the planned video (${walk.trimPlanFailed}), so any trim or held zoom the script asked for is not applied; the script is not at fault`,
+    );
+  }
+  if (walk.trimHeldUnplaced === true) {
+    notes.push(
+      "trim.end's zoom lands after the video's last frame, so it is not held through the cut and pulls out before it",
+    );
+  }
   for (const side of walk.trimUnplaced ?? []) {
     const index = trimStepIndex(script, side);
     const ran = steps.some((s) => s.index === index && s.timing !== undefined);
@@ -606,6 +624,57 @@ function unconfirmedClicksOf(
             : `script step ${record.index + 1}: ${scriptStepLabel(record.step)}`,
         note,
       };
+    }),
+  };
+}
+
+/** A planned beat that could not be placed is a degradation of the video
+ *  like any other, though the bundle never carries it (it is a fact about the
+ *  plan read against the frames, `bundle.ts`): the film check found it, so it
+ *  joins the walk's list here, once. */
+function degradationsOf(
+  walk: WalkResultLike,
+  film: FilmReport,
+): Degradation["kind"][] {
+  const kinds = walk.degradations.map((d) => d.kind);
+  return "unplacedBeats" in film && !kinds.includes("pacingUnplaced")
+    ? [...kinds, "pacingUnplaced"]
+    : kinds;
+}
+
+/** What `pacingUnplaced` costs a take with a beat plan: its own sentence,
+ *  not the recorded-pause one (`DEGRADATION_WORDS`), which would speak of
+ *  pauses nobody recorded. */
+export function plannedUnplacedNote(step: string): string {
+  return `the planned pause before ${step} could not be placed, so that stretch plays as it was recorded and the video is not the planned length`;
+}
+
+/** A visible window cannot be given a scale (spec 2026-11-13 part 2): its
+ *  motion is recorded at its screen's, said on `size.error` when that is
+ *  not the scale the flow was recorded at. */
+export function screenScaleNote(screen: number, flow: number): string {
+  return `This window's screen is at ${screen}x, so its motion was recorded at ${screen}x where the flow was recorded at ${flow}x — run it headless to record it at ${flow}x again.`;
+}
+
+function unplacedBeatsOf(
+  film: FilmReport,
+  steps: readonly AuthoredStep[],
+): { unplacedBeats?: { step: string; note: string }[] } {
+  if (!("unplacedBeatSteps" in film) || film.unplacedBeatSteps === undefined)
+    return {};
+  return {
+    unplacedBeats: film.unplacedBeatSteps.map((actionId) => {
+      const record =
+        actionId === null
+          ? undefined
+          : steps.find((s) => s.actionId === actionId);
+      const step =
+        actionId === null
+          ? "the end of the video"
+          : record === undefined
+            ? `action ${actionId}`
+            : `script step ${record.index + 1}: ${scriptStepLabel(record.step)}`;
+      return { step, note: plannedUnplacedNote(step) };
     }),
   };
 }
@@ -878,10 +947,11 @@ export function buildRunReport(args: BuildArgs): RunReport {
     frames: {
       spans: args.walk.bundle?.motionSpans.length ?? 0,
       keyframes: args.walk.bundle?.keyframes.length ?? 0,
-      degradations: args.walk.degradations.map((d) => d.kind),
+      degradations: degradationsOf(args.walk, args.film),
       storageRefused: args.walk.storageRefused,
       shrunkSpans: args.walk.counters.encodeShrunkSpans,
       ...unconfirmedClicksOf(args.walk, args.steps),
+      ...unplacedBeatsOf(args.film, args.steps),
     },
     video: args.film,
     recording: args.recording,
@@ -1096,7 +1166,11 @@ function framesClause(report: RunReport): string {
   const kinds = [...new Set(report.frames.degradations)].filter(
     (k) => !SCREENS_ONLY.has(k),
   );
-  const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
+  const said = kinds.map((kind) =>
+    kind === "pacingUnplaced" && report.frames.unplacedBeats !== undefined
+      ? `${report.frames.unplacedBeats.map((b) => b.note).join("; ")} (${kind})`
+      : `${DEGRADATION_WORDS[kind]} (${kind})`,
+  );
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
   }

@@ -124,7 +124,7 @@ describe("buildTimelineView", () => {
   describe("canPace — where a pause is worth offering", () => {
     // Spec §1: "a pair of steps with no idle between them has no gap to
     // author, and the editor offers no handle there rather than offering one
-    // that silently does nothing." On a capture bundle `authoredPaceCovering`
+    // that silently does nothing." On a capture bundle `authoredRegions`
     // only matches IDLE segments, so a stretch that is motion end to end
     // never has the authored target applied to it.
     const allMotionCapture = () => ({

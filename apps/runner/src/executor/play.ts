@@ -12,6 +12,9 @@ import {
   runAuthored,
 } from "@demoman/replay-engine";
 import {
+  ARRIVE_MS,
+  actMs,
+  afterScroll,
   attributeClosedWindow,
   chooseRunSize,
   clickNotDeliveredDetail,
@@ -21,7 +24,10 @@ import {
   newId,
   type RunReport,
   type RunSize,
+  restBefore,
+  screenScaleNote,
   scrubUrl,
+  tailMs,
   zoomsForClicks,
 } from "@demoman/run-core";
 import {
@@ -66,6 +72,10 @@ export type PlayDeps = Pick<
   | "account"
   | "pinnedNow"
   | "readDates"
+  | "flowSize"
+  | "flowSizeUnread"
+  | "flowScale"
+  | "flowScaleUnread"
 >;
 
 export type Prepared =
@@ -75,6 +85,9 @@ export type Prepared =
       sessions: SessionFile[];
       size: RunSize;
       viewport: { width: number; height: number } | null;
+      /** The scale this run records at: headless's own, else the screen's
+       *  as read; absent when a visible window's screen could not be read. */
+      recordedAt?: number;
     }
   | { ok: false; reason: ReplayStopReason; detail: string };
 
@@ -136,33 +149,58 @@ export async function prepareStage(
   // the default. A headless screen that is Chrome's stand-in is not read as
   // the author's (`BrowserSession.screen`): the run films at its window and
   // says why.
+  const screen = await deps.session.screen(page);
   const sizePlan = chooseRunSize({
     scriptViewport: script.viewport,
     device: script.device === undefined ? undefined : deviceFor(script.device),
+    flow: deps.flowSize,
     setting: DEFAULT_RUN_SIZE,
-    screen: await deps.session.screen(page),
+    screen,
   });
-  // A size the script or its device chose is still filmed at 1x when
-  // headless could not read the display, or assumed its scale (DEM-70), so
-  // the reason rides on it too: the size is right and the scale may not be.
-  const scaleLost = deps.session.screenUnknown() ?? deps.session.scaleAssumed();
   // Only a screen that could not be read leaves the window's own size, and
   // then it is measured, never defaulted: this lands in
   // `meta.capture.viewport`, which is what the compositor composes every
   // frame against. The reason rides on `size.error`.
+  // The flow's recorded size could not be read, so this run asked the screen:
+  // said first on `size.error`, ahead of any reason the screen's own read
+  // carries, or the run would look like a flow's first.
+  const flowUnread =
+    deps.flowSizeUnread === undefined
+      ? null
+      : `The flow's recorded size could not be read (${deps.flowSizeUnread}), so this run used this screen's.`;
+  // The scale, likewise: headless asked for it at the door (`captureScale`),
+  // so what it records at is `filmScale`; a visible window records at its
+  // screen's, which it cannot be told otherwise.
+  const filmScale = deps.session.filmScale();
+  const screenScale =
+    screen !== undefined && "scale" in screen ? screen.scale : undefined;
+  const recordedAt = filmScale ?? screenScale;
+  const scaleUnread =
+    deps.flowScaleUnread === undefined
+      ? null
+      : `The flow's recorded scale could not be read (${deps.flowScaleUnread}), so this run recorded at ${recordedAt === undefined ? "its screen's scale" : `${recordedAt}x`}.`;
+  const headedScale =
+    filmScale === null &&
+    screenScale !== undefined &&
+    deps.flowScale !== undefined &&
+    screenScale !== deps.flowScale
+      ? screenScaleNote(screenScale, deps.flowScale)
+      : null;
+  const said = (reason: string | null) =>
+    [flowUnread, scaleUnread, headedScale, reason]
+      .filter((r) => r !== null)
+      .join(" ") || null;
   let size: RunSize;
   if (sizePlan.kind === "fixed") {
-    size =
-      scaleLost !== null && sizePlan.size.error === null
-        ? { ...sizePlan.size, error: scaleLost }
-        : sizePlan.size;
+    const error = said(sizePlan.size.error);
+    size = error === null ? sizePlan.size : { ...sizePlan.size, error };
   } else {
     log(`${sizePlan.error}; recording at the window's own size`);
     try {
       size = {
         ...(await measureViewport(page)),
         from: "window",
-        error: sizePlan.error,
+        error: said(sizePlan.error),
       };
     } catch (error) {
       return {
@@ -176,7 +214,14 @@ export async function prepareStage(
   // (spec 2026-10-10), so it is handed no viewport.
   const viewport =
     size.from === "device" ? null : { width: size.width, height: size.height };
-  return { ok: true, stage: launched, sessions, size, viewport };
+  return {
+    ok: true,
+    stage: launched,
+    sessions,
+    size,
+    viewport,
+    ...(recordedAt === undefined ? {} : { recordedAt }),
+  };
 }
 
 export interface PlayFilm {
@@ -227,7 +272,7 @@ export async function playOnStage(
   const { log } = deps;
   const { stage: launched, sessions, viewport } = prepared;
   const { page, clock } = launched;
-  const filmScale = deps.session.filmScale();
+  const recordedScale = deps.session.filmScale() ?? prepared.recordedAt;
   const { encoder, store, sceneId } = film;
   const { startingBranding, onProgress } = options;
 
@@ -307,8 +352,11 @@ export async function playOnStage(
     // Null only for a device script, whose size runAuthored takes from
     // the device.
     ...(viewport === null ? {} : { viewport }),
-    // Decided once, at launch; the take records it for keep to read.
-    ...(filmScale === null ? {} : { displayScale: filmScale }),
+    // Decided once, at launch; the take records it for keep and the
+    // flow's next run to read. A visible window's is its screen's, as read:
+    // left out, the next run inferred it from the widest motion span to the
+    // nearest quarter and told a 1.3125x screen it had changed scale.
+    ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
     // Spec 2026-10-01 §1: the take starts as a recorded one does — the
     // author's kit and a zoom on every click.
     startingBranding,
@@ -317,6 +365,9 @@ export async function playOnStage(
     // earlier step is still acting; the replay waits for room instead.
     roomFor: (vp, intentOf) =>
       createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
+    // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
+    // instead of waiting the camera's room out live.
+    beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
   });
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop

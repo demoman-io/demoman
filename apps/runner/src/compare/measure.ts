@@ -38,7 +38,11 @@ export interface FilmMeasure {
   longStills: number;
 }
 export interface Measurer {
-  measure(path: string): Promise<FilmMeasure>;
+  /** `placed`: video spans a beat plan placed idle in (`stills`). */
+  measure(
+    path: string,
+    placed?: readonly (readonly [number, number])[],
+  ): Promise<FilmMeasure>;
   close(): Promise<void>;
 }
 
@@ -113,7 +117,7 @@ export async function createMeasurer(options?: {
     );
   }
   return {
-    async measure(path) {
+    async measure(path, placed) {
       await stat(path); // a missing file is named here, not as a 404 in the page
       served = path;
       serveFailed = null;
@@ -157,7 +161,7 @@ export async function createMeasurer(options?: {
         durationMs,
         timesMs,
         changes: read.changes,
-        ...stills(timesMs, read.changes, durationMs),
+        ...stills(timesMs, read.changes, durationMs, placed),
       };
     },
     async close() {

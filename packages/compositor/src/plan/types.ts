@@ -97,6 +97,8 @@ export interface CameraIntent {
   fit?: Rect;
   /** Where the camera is back at full frame. Null: the compositor's own return timing. */
   end: PlannedMarker | null;
+  /** How the recording said the camera reaches this zoom (`arrivesOf`). */
+  arrives?: "pan" | "return";
 }
 
 /** A mask: an opaque fill over `rect`, the one cosmetic the editor keeps. */
@@ -210,11 +212,42 @@ export interface RecordedPace extends PaceAnchors {
  * field with two meanings is a seam, and this is what a reader falling
  * through it costs. Distinct names make picking the wrong one a type error.
  *
- * Both variants are turned into ONE number — the idle duration the pair
- * should end up with, against a particular bundle — by `idleTargetMsFor` in
- * `plan/timeline.ts`, which is the only place the conversion happens.
+ * The authored and recorded variants are turned into ONE number — the idle
+ * duration the pair should end up with, against a particular bundle — by
+ * `idleTargetMsFor` in `plan/timeline.ts`, the only place that conversion
+ * happens. A planned beat is two numbers, rest and arrive, and is applied
+ * by `plannedIdleOf` there instead.
  */
-export type PlannedPace = AuthoredPace | RecordedPace;
+export type PlannedPace = AuthoredPace | RecordedPace | PlannedBeat;
+
+/**
+ * A pace the take's BEAT PLAN set (`scene.pacing`, spec 2026-11-13 Part 3):
+ * designed idle, not measured idle. On a real-time bundle the idle between
+ * `afterActionId`'s act end (its marker when it has none) and
+ * `beforeActionId`'s `approachSourceTimeMs` (where the cursor set off) plays
+ * for `restMs` in all, or up to its approach scroll's end when the step
+ * scrolled and the rest after it for `afterScrollMs`; the idle from the
+ * approach to the step plays for `arriveMs`. Idle inside the previous act
+ * plays for 0, and motion at rate 1.0 throughout (`plannedIdleOf`).
+ *
+ * `afterActionId` is `null` for the opening beat, which runs from source 0.
+ * Only the opening can carry `null`; `AuthoredPace` and `RecordedPace` keep
+ * `string`, since a pair always has a step before it.
+ *
+ * On a sampled replay it is ignored and the pair renders as recorded: a
+ * scripted take, the only kind that writes a plan, is always real time.
+ */
+export interface PlannedBeat extends Omit<PaceAnchors, "afterActionId"> {
+  afterActionId: string | null;
+  origin: "planned";
+  restMs: number;
+  arriveMs: number;
+  /** Idle from the step's approach scroll's end (the marker's
+   *  `scrollEndSourceTimeMs`) to where the cursor set off. Absent on a step
+   *  whose approach did not scroll, and on every plan before 2026-11-13's
+   *  Task 7b. */
+  afterScrollMs?: number;
+}
 
 export interface RenderPlan {
   planVersion: 1;
@@ -235,6 +268,11 @@ export interface RenderPlan {
    * though that were the recorded pace.
    */
   paces: PlannedPace[] | null;
+  /**
+   * The beat plan's idle after the last step, or `null` when the take has
+   * no beat plan (the tail then plays as recorded).
+   */
+  tailMs: number | null;
   /**
    * Pieces the author removed. Resolved to SOURCE ranges by `buildTimeline`
    * (it needs `bundle.markers`) and dropped from the output axis there.

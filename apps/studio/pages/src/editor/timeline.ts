@@ -263,7 +263,7 @@ export function buildTimelineView(args: {
   /**
    * Whether the stretch from `action` to the one after it carries dead air.
    *
-   * Asked the same way `authoredPaceCovering` (compositor plan/timeline.ts)
+   * Asked the same way `authoredRegions` (compositor plan/timeline.ts)
    * asks it — is there an idle segment inside the two markers' bracket —
    * because that function is what decides whether an authored gap does
    * anything, and two different answers to one question would offer a

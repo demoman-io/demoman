@@ -1,5 +1,6 @@
 export * from "./app/file.js";
 export * from "./auto-zoom.js";
+export * from "./beats.js";
 export * from "./brand-kit.js";
 export type {
   CaptureForIntentResult,

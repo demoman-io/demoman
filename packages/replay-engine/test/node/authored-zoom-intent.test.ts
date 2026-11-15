@@ -108,6 +108,8 @@ describe("runAuthored: the script's zoom intent", () => {
       roomFor: (_vp, intentOf) => {
         roomIntentOf = intentOf;
         return {
+          arrives: () => "return", // not asked until the walk reads it
+          returnShortMs: () => 0, // asked only under a beat plan
           neededMs: () => 0,
           settledAfterMs: () => 0,
           zooms: (click) => {

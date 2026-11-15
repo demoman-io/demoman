@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { displayUnreadSentence, readDisplay } from "../src/display.js";
+import {
+  CAPTURE_SCALE,
+  captureScale,
+  displayUnreadSentence,
+  headlessDisplay,
+  readDisplay,
+} from "../src/display.js";
+
+describe("headlessDisplay", () => {
+  // Final review, deferred Task 11: status showed the screen's scale and,
+  // on Linux, "1x is assumed … set DEMOMAN_DISPLAY to …@2", though headless
+  // records at its own scale whatever the screen's. Red if it passes the
+  // read through (its scale or its `scaleAssumed`).
+  it("reports the scale headless records at, and no advice about the screen's", () => {
+    const read = {
+      width: 1280,
+      height: 800,
+      scale: 1,
+      scaleAssumed: "1x is assumed: this desktop's scale could not be read",
+    };
+    // Premise: the screen's scale is not the one headless records at.
+    expect(captureScale({})).not.toBe(read.scale);
+    expect(headlessDisplay(read, {})).toEqual({
+      width: 1280,
+      height: 800,
+      scale: CAPTURE_SCALE.desktop,
+    });
+  });
+});
 
 describe("readDisplay", () => {
   it("takes DEMOMAN_DISPLAY outright, in CSS px and a scale", async () => {
@@ -247,5 +275,25 @@ DP-1 disconnected (normal left inverted right x axis y axis)
       ),
     ).toEqual({ width: 1920, height: 1080, scale: 1 });
     expect(x.calls).toEqual([]);
+  });
+});
+
+// Spec 2026-11-13 part 2: the one place a headless run's scale is decided.
+describe("captureScale", () => {
+  it("pins the constants the spec names", () => {
+    expect(CAPTURE_SCALE).toEqual({ desktop: 2, tablet: 2, phone: 3 });
+  });
+
+  // Turns red when the order in `captureScale` changes: DEMOMAN_DISPLAY
+  // (refresh's kept scale, a test's display, an opt-out), then the flow's
+  // recorded scale, then the device's constant.
+  it("takes DEMOMAN_DISPLAY's scale, else the flow's recorded one, else the device's constant", () => {
+    expect(captureScale({ DEMOMAN_DISPLAY: "1280x800@1" }, 2, "phone")).toBe(1);
+    expect(captureScale({}, 1, "phone")).toBe(1);
+    expect(captureScale({}, undefined, "phone")).toBe(3);
+    expect(captureScale({}, undefined, "tablet")).toBe(2);
+    expect(captureScale({})).toBe(2);
+    // A setting that does not read names no scale (`readDisplay` says why).
+    expect(captureScale({ DEMOMAN_DISPLAY: "wide" }, 1)).toBe(1);
   });
 });

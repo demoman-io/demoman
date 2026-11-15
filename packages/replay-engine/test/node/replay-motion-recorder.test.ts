@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Degradation } from "@demoman/compositor";
 import { describe, expect, it, vi } from "vitest";
+import {
+  changedShare,
+  lumaBlocks,
+  strongestChange,
+} from "../../src/frame-change.js";
 import type {
   EncodedSpan,
   FrameEncoder,
@@ -667,6 +674,208 @@ describe("continuous recording", () => {
     expect(h.encoder.push).toHaveBeenCalledTimes(2);
     release();
     await h.recorder.teardown();
+  });
+
+  describe("a flicker", () => {
+    // Real frames, 256x160. `flicker-faint.jpg` is `flicker-home.jpg` with
+    // its text a shade lighter: a sixth of its blocks change, none by more
+    // than 30 (the runner's flicker on a page of text). `small-change.jpg`
+    // changes 4 of `base.jpg`'s 640 blocks by 750 (a spinner, a caret), and
+    // `big-change.jpg` nearly half of them. A byte after the end of the
+    // picture makes another frame of the same picture.
+    const fixture = (name: string, extra?: number) =>
+      Buffer.concat([
+        readFileSync(
+          join(import.meta.dirname, "..", "fixtures", "frames", name),
+        ),
+        Buffer.from(extra === undefined ? [] : [extra]),
+      ]).toString("base64");
+    const A = fixture("flicker-home.jpg");
+    const B = fixture("flicker-faint.jpg");
+    const C = fixture("flicker-faint.jpg", 1);
+    const picture = (n: number) => fixture("flicker-home.jpg", n);
+    const BASE = fixture("base.jpg");
+    const SMALL = fixture("small-change.jpg");
+    const BIG = fixture("big-change.jpg");
+    // Premise: the fixtures are what the cases below say they are.
+    it("is asked of frames that differ faintly, strongly, and not at all", () => {
+      const read = (data: string) => {
+        const blocks = lumaBlocks(Buffer.from(data, "base64"));
+        if (blocks === null) throw new Error("a fixture did not decode");
+        return blocks;
+      };
+      // Faint and widespread: how much of the frame changed is not the test.
+      expect(changedShare(read(A), read(B))).toBeGreaterThan(0.1);
+      expect(strongestChange(read(A), read(B))).toBeGreaterThan(0);
+      expect(strongestChange(read(A), read(B))).toBeLessThan(100);
+      expect(strongestChange(read(B), read(C))).toBe(0);
+      expect(strongestChange(read(A), read(picture(4)))).toBe(0);
+      // Strong, on a hundredth of the frame and on half of it.
+      expect(changedShare(read(BASE), read(SMALL))).toBeLessThan(0.01);
+      expect(strongestChange(read(BASE), read(SMALL))).toBeGreaterThan(600);
+      expect(strongestChange(read(BASE), read(BIG))).toBeGreaterThan(600);
+      expect(new Set([A, B, C, picture(4), BASE, SMALL, BIG]).size).toBe(7);
+    });
+    /** A recorder whose close loops wait on the test's clock, and each
+     *  encoder close as `[endMs, flicker]`. */
+    const still = () => {
+      const h = harness({
+        mode: "continuous",
+        clock: { now: () => 0, sleep: () => flush() },
+        viewport: { width: 256, height: 160 },
+      });
+      const closes = () =>
+        h.encoder.closeSpan.mock.calls.map(([endMs, flicker]) => [
+          endMs,
+          flicker,
+        ]);
+      /** The page as it stood: one frame, long enough ago to be its own
+       *  span. */
+      const settle = async (home = A) => {
+        h.recorder.onFrame(frame(1, home));
+        h.advance(600);
+        await flush();
+        await flush();
+      };
+      return { h, closes, settle };
+    };
+
+    it("that returns to the same picture is not what makes a span motion, and does not lengthen it", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      // The runner's shape (2026-11-14): changed, back 35 ms later, then a
+      // caret blink.
+      h.recorder.onFrame(frame(2, B)); // 600
+      h.advance(35);
+      h.recorder.onFrame(frame(3, A)); // 635
+      h.advance(100);
+      h.recorder.onFrame(frame(4, C)); // 735
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // Premise: all three reached the encoder, in one span after the first.
+      expect(h.encoder.push).toHaveBeenCalledTimes(4);
+      expect(h.encoder.openSpan).toHaveBeenCalledTimes(2);
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [735 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    it("alone ends its span where a single frame would", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, A));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [600 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    it("is not a picture that changed and stayed changed", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, C));
+      h.advance(35);
+      h.recorder.onFrame(frame(4, B));
+      h.advance(35);
+      // B again, after B: the page holding still on what it changed to.
+      h.recorder.onFrame(frame(5, B));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // B, C, B: the middle C came back to B, which is a flicker of its
+      // own; the change from A to B is not.
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [705 + SPAN_QUIET_MS, 2],
+      ]);
+    });
+
+    // Code review, 2026-11-14. Red if the rollback leaves `lastMotion` on
+    // the flicker's frame: an act would end on it.
+    it("that arrives as a span's third frame is not the page's last motion", async () => {
+      const { h, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B)); // 600
+      h.advance(50);
+      h.recorder.onFrame(frame(3, C)); // 650: two paints
+      h.advance(50);
+      h.recorder.onFrame(frame(4, picture(4))); // 700: the third
+      // Premise: a third frame is motion until it is taken back.
+      expect(h.recorder.lastMotionMs()).toBe(700);
+      h.advance(35);
+      h.recorder.onFrame(frame(5, C)); // back to the second
+      expect(h.recorder.lastMotionMs()).toBeNull();
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+    });
+
+    // CI, 2026-11-14: a page flashing black and white, and a spinner whose
+    // picture repeats, lost every frame to the rule. Red if `faintChange` is
+    // not asked, or asks how much of the frame changed.
+    it.each([
+      ["a page that flashes between two pictures", BIG],
+      ["something small that changes strongly, as a spinner does", SMALL],
+    ])("is not %s", async (_what, other) => {
+      const { h, closes, settle } = still();
+      await settle(BASE);
+      for (const data of [other, BASE, other, BASE]) {
+        h.recorder.onFrame(frame(2, data));
+        h.advance(100);
+        // Each push lands before the next: three outstanding is a budget
+        // breach, and the frame would be skipped.
+        await flush();
+      }
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      // Premise: all four arrived in one span.
+      expect(h.encoder.push).toHaveBeenCalledTimes(5);
+      expect(closes()).toEqual([
+        [SPAN_QUIET_MS, 0],
+        [900 + SPAN_QUIET_MS, 0],
+      ]);
+    });
+
+    it("is not called on frames that cannot be read", async () => {
+      const { h, closes } = still();
+      const unread = (n: number) =>
+        Buffer.concat([
+          Buffer.from(fakeScreenshotBase64(256, 160), "base64"),
+          Buffer.from([n]),
+        ]).toString("base64");
+      // Premise: the recorder's own reader refuses them.
+      expect(lumaBlocks(Buffer.from(unread(1), "base64"))).toBeNull();
+      h.recorder.onFrame(frame(1, unread(1)));
+      h.advance(600);
+      await flush();
+      await flush();
+      h.recorder.onFrame(frame(2, unread(2)));
+      h.advance(35);
+      h.recorder.onFrame(frame(3, unread(1)));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes().map(([, flicker]) => flicker)).toEqual([0, 0]);
+    });
+
+    it("is not a picture that comes back after the page went quiet", async () => {
+      const { h, closes, settle } = still();
+      await settle();
+      h.recorder.onFrame(frame(2, B));
+      h.advance(SPAN_QUIET_MS);
+      h.recorder.onFrame(frame(3, A));
+      h.advance(SPAN_QUIET_MS + 1);
+      await h.recorder.teardown();
+      expect(closes().map(([, flicker]) => flicker)).toEqual(
+        closes().map(() => 0),
+      );
+      // Premise: both frames were seen.
+      expect(h.encoder.push).toHaveBeenCalledTimes(3);
+    });
   });
 
   // Review Focus 2: a run that stops while a background close fails.

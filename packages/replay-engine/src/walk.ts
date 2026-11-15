@@ -63,9 +63,9 @@ import {
   STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
-  TYPE_KEY_MS,
   TYPE_LEAD_MS,
-  TYPE_MAX_MS,
+  typeGapMs,
+  typeKeysOf,
   WAIT_POLL_MS,
   WAIT_TIMEOUT_MS,
 } from "./constants.js";
@@ -131,6 +131,7 @@ import type {
   ResolveFailure,
   ResolveReport,
   TargetHandle,
+  ZoomDecision,
 } from "./types.js";
 import { seenNow } from "./visibility.js";
 
@@ -229,6 +230,12 @@ export interface WalkStep {
    * An edited gap's duration when the author set one; see `pacedGap`.
    */
   recordedIntervalMs?: number;
+  /**
+   * The script's `pause` slept just before this step, as written: a planned
+   * number the beat plan adds to the step's rest (`BeatRules.restBefore`).
+   * Undefined: none.
+   */
+  pauseMs?: number;
   /**
    * Set when `recordedIntervalMs` is an edited gap rather than the take's
    * own spacing. The walk lists each one it paces in the bundle's
@@ -382,6 +389,9 @@ export interface WalkSource {
   /** Told each step's timing once the walk has counted it, before it pulls
    *  the next. Never told for a step the walk did not perform. */
   onFinished?(actionId: string, timing: StepTiming): void;
+  /** The script's pauses slept since the last step it yielded, asked once
+   *  the steps are done: the beat plan's tail adds them. Undefined: none. */
+  closingPauseMs?(): number;
 }
 
 /**
@@ -428,18 +438,35 @@ export interface WalkConfig {
  */
 export interface RoomPolicy {
   /**
-   * Source ms the camera needs from the latest act's end to a zoomed
+   * Designed ms the camera needs from the latest act's end to a zoomed
    * click's marker: the settle, the push-in and the lead-in — or none for a
-   * click the camera pans to from the zoom before it (spec 2026-10-22).
+   * click the camera pans to from the zoom before it (spec 2026-10-22):
+   * 0 exactly when `arrives` says "pan".
    * `heldUntilMs` is what that zoom holds until as the camera counts it:
    * a zoomed click's marker plus `leadInMs`, a zoomed drag's release; null
    * before the first zoom. `clickMs` is this click's marker as it will land
    * with nothing added.
    */
   neededMs(gap: { heldUntilMs: number | null; clickMs: number }): number;
+  /**
+   * Designed ms a click paced as a return still lacks for the camera to
+   * make one with a margin to spare: from `heldUntilMs` to this click's
+   * arrival, a full return (`returnsBetween`'s terms) plus the policy's
+   * margin. 0 when it already fits, or before the first zoom. `gap` as for
+   * `neededMs`, with `clickMs` where the click lands with its room.
+   */
+  returnShortMs(gap: { heldUntilMs: number | null; clickMs: number }): number;
+  /** How the camera arrives at a click: "pan" from the zoom before it, or
+   *  "return" through full frame ("return" when `heldUntilMs` is null).
+   *  `gap` as for `neededMs`, in designed ms. */
+  arrives(gap: {
+    heldUntilMs: number | null;
+    clickMs: number;
+  }): "pan" | "return";
   /** Whether the camera will zoom to this click. Asked once per click and
    *  per drag (its `rect` the box round both ends), in order, with its
-   *  marker time as it will be with all added room taken out. Keeps its own
+   *  marker time as it will be with all added room taken out — under a beat
+   *  plan, its designed marker before any room for it. Keeps its own
    *  record of the last zoom. */
   zooms(click: {
     actionId: string;
@@ -449,12 +476,52 @@ export interface RoomPolicy {
     scale: number;
   }): boolean;
   /**
-   * Source ms by which the camera has pulled out of the take's last zoom and
+   * Designed ms by which the camera has pulled out of the take's last zoom and
    * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
    * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
    * on until then, so the decision is recorded in its frames.
    */
   settledAfterMs(heldUntilMs: number): number;
+}
+
+/**
+ * The pacing rule (spec 2026-11-13 Part 3), handed in so this package does
+ * not import the one that owns it (`@demoman/run-core`'s `beats.ts`).
+ * Every number it answers is planned, never measured.
+ */
+export interface BeatRules {
+  /** Dead air before a step's journey; `roomMs` is what the camera needs
+   *  from the last act's designed end to this click, 0 when none;
+   *  `returnShortMs` what a return still lacks (`RoomPolicy.returnShortMs`),
+   *  absent when none. */
+  restBefore(i: {
+    first: boolean;
+    pauseMs: number;
+    roomMs: number;
+    journeyMs: number;
+    returnShortMs?: number;
+  }): number;
+  /** Dead air between a step's approach scroll and its journey; `zooms`
+   *  for a click the camera zooms to, `roomMs` and `returnShortMs` as for
+   *  `restBefore`. */
+  afterScroll(i: {
+    zooms: boolean;
+    roomMs: number;
+    journeyMs: number;
+    returnShortMs?: number;
+  }): number;
+  /** A step's own designed length. */
+  actMs(action: SceneAction): number;
+  /** How long the take runs on after its last act; `pauseMs` is the
+   *  script's closing pause. */
+  tailMs(i: {
+    zoomSettleMs: number | null;
+    trimEndMs: number | null;
+    trimAfterAction: boolean;
+    pauseMs: number;
+  }): number;
+  /** Dead air after the cursor arrives, before the act. */
+  arriveMs: number;
 }
 
 export interface EngineDeps {
@@ -510,6 +577,14 @@ export interface EngineDeps {
   recording?: "continuous" | "sampled";
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */
   room?: RoomPolicy;
+  /**
+   * The beat plan (spec 2026-11-13 Part 3). Continuous recording only.
+   * Given, the walk keeps a designed clock that only these rules and the
+   * script feed, asks `room` its questions on it, waits out no room and no
+   * planned tail live, and returns `ReplayResult.pacing`. Absent: none of
+   * that, as for `runReplay`.
+   */
+  beats?: BeatRules;
 }
 /** The shortest gap between two mouse moves of a dispatched path. Chrome's
  *  own answer, about a frame, is the real pace; this only bounds the rate
@@ -802,6 +877,92 @@ export async function runWalk(
   /** The last counted step's `heldEndMs`, on the walk's clock, for the
    *  tail: what the trim's held zoom needs filmed. */
   let lastHeldEndAt = null as number | null;
+  /**
+   * The beat plan (spec 2026-11-13 Part 3), continuous with `beats` only.
+   * `designed` is the designed clock: 0 at the opening still, moved only by
+   * planned numbers (rests, journeys as dispatched, the arrive, each act's
+   * designed length), never by the page or the machine. After a counted step
+   * it is that step's designed act end. `designedZoom` and
+   * `designedHeldUntil` are `lastZoom` and `lastHeldUntil` on it, which the
+   * room policy is asked with; the source-time pair stays for `StepTiming`.
+   * `stepPlan` is the step in hand, from its marker until it is counted
+   * (`commitPlan`), so a step that never counts plans nothing.
+   */
+  const beats = continuous ? deps.beats : undefined;
+  let designed = 0;
+  let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
+  let designedHeldUntil: number | null = null;
+  /** Rest the plan added for the camera (room, a return's shortfall) to the
+   *  steps counted so far: on `designed`, and taken out of the time a zoom
+   *  is asked on, as the live walk takes out every room it waited. */
+  let designedRoom = 0;
+  const plannedBeats: NonNullable<ReplayResult["pacing"]>["beats"] = [];
+  let stepPlan: {
+    beat: (typeof plannedBeats)[number];
+    markerMs: number;
+    /** How much of `markerMs` is the camera's room for this step. */
+    roomMs: number;
+    zoomed: boolean;
+  } | null = null;
+  /** What each zoom was decided on (`ReplayResult.decided`). */
+  const decided = new Map<string, ZoomDecision>();
+  /** The script's pauses since the last counted step: a run that ends,
+   *  or stops, after them closes on them (`BeatRules.tailMs`). */
+  let pausedSinceCounted = 0;
+  /** The beat for a step with no journey and no arrive (a wait, a key
+   *  press), marked now. Approved: `arriveMs` 0 and the approach at the
+   *  marker, since the walk sleeps no arrive before either. */
+  const planUnplaced = (step: WalkStep): void => {
+    if (beats === undefined) return;
+    const restMs = beats.restBefore({
+      first: plannedBeats.length === 0,
+      pauseMs: step.pauseMs ?? 0,
+      roomMs: 0,
+      journeyMs: 0,
+    });
+    stepPlan = {
+      beat: { beforeActionId: step.action.id, restMs, arriveMs: 0 },
+      markerMs: designed + restMs,
+      roomMs: 0,
+      zoomed: false,
+    };
+  };
+  /** Where the last zoom held through an `after: "action"` cut lands, and
+   *  a settle, on the designed clock; -Infinity with none held. */
+  const plannedHeldEnd = (): number => {
+    const landsAt =
+      designedHeldUntil === null || config.tail?.after !== "action"
+        ? null
+        : heldThroughEndMs(designedHeldUntil, designed + config.tail.ms);
+    return landsAt === null ? Number.NEGATIVE_INFINITY : landsAt + SETTLE_MS;
+  };
+  /** A counted step's plan, onto the designed clock. */
+  const commitPlan = (action: SceneAction): void => {
+    const plan = stepPlan;
+    stepPlan = null;
+    if (beats === undefined || plan === null) return;
+    pausedSinceCounted = 0;
+    plannedBeats.push(plan.beat);
+    designed = plan.markerMs + beats.actMs(action);
+    designedRoom += plan.roomMs;
+    if (plan.zoomed) {
+      designedZoom = {
+        actionMs: plan.markerMs,
+        arrivalMs: plan.markerMs + CAMERA_DEFAULTS.leadInMs,
+      };
+      if (action.kind === "click") designedHeldUntil = designedZoom.arrivalMs;
+    }
+    // A drag holds the zoom it is pressed in until it lets go, as below.
+    if (
+      action.kind === "drag" &&
+      designedZoom !== null &&
+      plan.markerMs >= designedZoom.actionMs &&
+      plan.markerMs <
+        designedZoom.arrivalMs + CAMERA_DEFAULTS.neutral.zoomHoldMs
+    ) {
+      designedHeldUntil = Math.max(designedHeldUntil ?? designed, designed);
+    }
+  };
   /**
    * The one place a step's finish is measured: where the walk counts it,
    * after its verb returned and (sampled) its span closed. It moves with the
@@ -2698,6 +2859,7 @@ export async function runWalk(
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
       navsAtPreviousStep = navsAtThisStep;
       navsAtThisStep = navigationsSeen;
+      pausedSinceCounted += step.pauseMs ?? 0;
       const stepStartedAt = at();
       // Unhurried beats: any step but a click begins at once, and the act
       // it follows ends where the page has got to. A click settles it once
@@ -2792,8 +2954,11 @@ export async function runWalk(
         const waitMarker: FrameBundle["markers"][number] = {
           actionId: step.action.id,
           sourceTimeMs: metAt,
+          // No journey: all of the wait is the rest before it.
+          ...(continuous ? { approachSourceTimeMs: metAt } : {}),
         };
         markers.push(waitMarker);
+        planUnplaced(step);
         // The picture of what the wait was waiting for.
         //
         // This branch used to mark the beat and take no frame at all, and a
@@ -2822,6 +2987,7 @@ export async function runWalk(
         lastCompletedActionId = step.action.id;
         inFlight = null;
         stepFinished(step.action.id, metAt, stepStartedAt);
+        commitPlan(step.action);
         // A page that came in goes on painting after the condition holds,
         // and that is the act a later zoom waits for, not the click that
         // set it off (code review 2026-10-20, R1).
@@ -2864,11 +3030,15 @@ export async function runWalk(
         await keepRhythm();
         pressMarked = true;
         inFlight = keyAction.id;
+        const pressedAt = at();
         const marker: FrameBundle["markers"][number] = {
           actionId: keyAction.id,
-          sourceTimeMs: at(),
+          sourceTimeMs: pressedAt,
+          // No journey: the key goes where the cursor already rests.
+          ...(continuous ? { approachSourceTimeMs: pressedAt } : {}),
         };
         markers.push(marker);
+        planUnplaced(step);
         await stepStill(keyAction.id);
         if (!continuous) recorder.open();
         await gate.section(() => pressKey(cdp, keyAction.key));
@@ -2884,6 +3054,7 @@ export async function runWalk(
         lastCompletedActionId = keyAction.id;
         inFlight = null;
         stepFinished(keyAction.id, marker.sourceTimeMs, stepStartedAt);
+        commitPlan(keyAction);
         deps.onProgress?.({
           step: completed,
           total,
@@ -2953,6 +3124,9 @@ export async function runWalk(
         reason = stopForResolveFailure(located.failureReason);
         break;
       }
+      // Where the approach scroll ended, for the marker: the renderer plays
+      // the beat's `afterScrollMs` from here (spec 2026-11-13 Part 3).
+      const scrollEndAt = continuous && scrolls ? at() : undefined;
       // The scroll moved the page under the camera too: the camera's room
       // is measured from its last paint (code review 2026-10-20, R7).
       if (unhurriedScroll) {
@@ -3002,22 +3176,79 @@ export async function runWalk(
       // through the drag instead (`solveCamera`'s holds).
       let zoomedClick = false;
       let zoomedDrag = false;
+      // The journey the walk will make, not the source's plan: from where
+      // the cursor is to the target as measured after the approach scroll
+      // (`dispatchPath` retargets the same way). The plan is longer for a
+      // target scrolled to, and nothing at all for one the cursor is on.
+      const journeyMs =
+        segment === undefined
+          ? 0
+          : retargetSegment(
+              segment,
+              cursor,
+              dragPlan?.start ?? clickPoint(handle.rect),
+            ).durationMs;
+      // The beat plan: this step's rest and marker on the designed clock,
+      // first with no room for it (what the camera's questions are asked
+      // of, as the live path asks them with the room taken out).
+      const restWith = (roomMs: number, returnShortMs = 0): number =>
+        beats === undefined
+          ? 0
+          : beats.restBefore({
+              first: plannedBeats.length === 0,
+              pauseMs: step.pauseMs ?? 0,
+              roomMs,
+              journeyMs,
+              returnShortMs,
+            });
+      const arriveMs = beats?.arriveMs ?? 0;
+      // A step the approach scrolled to rests again after the scroll, where
+      // the designed clock adds it beside the rest: an arrive's worth, or
+      // the camera's room for a zoomed click (below). The scroll itself is
+      // motion and is not on the designed clock.
+      const scrolledTo = beats !== undefined && scrollEndAt !== undefined;
+      let afterScrollMs =
+        beats !== undefined && scrolledTo
+          ? beats.afterScroll({ zooms: false, roomMs: 0, journeyMs })
+          : 0;
+      const designedAt = (restMs: number): number =>
+        designed + restMs + afterScrollMs + journeyMs + arriveMs;
+      let restMs = restWith(0);
+      const unroomedMs = designedAt(restMs);
+      // Whether it zooms is asked with every room taken out, earlier steps'
+      // too: `designed` holds theirs, and left in, a click 900 ms after a
+      // zoom that was given a return's room read as 2 s after it and zoomed
+      // where the gap rule skips it (code review, 2026-11-14).
+      const askedMs = unroomedMs - designedRoom;
+      let roomMs = 0;
+      // Reached by a scroll, the camera needs its room after the page
+      // moved: the rest keeps its base and the room goes after it.
+      const planRoom = (returnShortMs: number): void => {
+        if (beats === undefined) return;
+        if (scrolledTo) {
+          afterScrollMs = beats.afterScroll({
+            zooms: true,
+            roomMs,
+            journeyMs,
+            returnShortMs,
+          });
+        } else {
+          restMs = restWith(roomMs, returnShortMs);
+        }
+      };
       if (
         room !== undefined &&
         (step.action.kind === "click" || dragPlan !== null)
       ) {
-        // The journey the walk will make, not the source's plan: from where
-        // the cursor is to the target as measured after the approach scroll
-        // (`dispatchPath` retargets the same way). The plan is longer for a
-        // target scrolled to, and nothing at all for one the cursor is on.
-        const ahead =
-          (segment === undefined
-            ? 0
-            : retargetSegment(
-                segment,
-                cursor,
-                dragPlan?.start ?? clickPoint(handle.rect),
-              ).durationMs) + SETTLE_MS;
+        const ahead = journeyMs + SETTLE_MS;
+        const scale = viewportTransforms.at(-1)?.scale ?? 1;
+        const unwaitedMs = at() + ahead - roomAdded - roomHere;
+        decided.set(
+          step.action.id,
+          beats === undefined
+            ? { unwaitedMs, scale }
+            : { designedMs: askedMs, scale },
+        );
         const zooms = room.zooms({
           actionId: step.action.id,
           anchorId: step.action.anchorId as string,
@@ -3030,10 +3261,44 @@ export async function runWalk(
                   width: Math.abs(dragPlan.end.x - dragPlan.start.x),
                   height: Math.abs(dragPlan.end.y - dragPlan.start.y),
                 },
-          unwaitedMs: at() + ahead - roomAdded - roomHere,
-          scale: viewportTransforms.at(-1)?.scale ?? 1,
+          unwaitedMs: beats === undefined ? unwaitedMs : askedMs,
+          scale,
         });
-        if (zooms && dragPlan === null) {
+        if (zooms && dragPlan === null && beats !== undefined) {
+          // The act before still finishes painting (a settle, which stays).
+          // The room is planned, not waited: it goes into the designed rest
+          // and the renderer plays it, the idle frames being the same. Asked
+          // of the designed act end before it, which `designed` is.
+          roomHere += await quietThenFinalize();
+          if (plannedBeats.length > 0) {
+            roomMs = room.neededMs({
+              heldUntilMs: designedHeldUntil,
+              clickMs: unroomedMs,
+            });
+            planRoom(0);
+          }
+          const arrives = room.arrives({
+            heldUntilMs: designedHeldUntil,
+            clickMs: designedAt(restMs),
+          });
+          // A return is the camera's record under a plan, so it is planned a
+          // whole one with the policy's margin. Added rest only widens the
+          // gap, so the answer stays "return".
+          const returnShortMs =
+            arrives === "return"
+              ? room.returnShortMs({
+                  heldUntilMs: designedHeldUntil,
+                  clickMs: designedAt(restMs),
+                })
+              : 0;
+          if (returnShortMs > 0) planRoom(returnShortMs);
+          decided.set(step.action.id, {
+            designedMs: askedMs,
+            scale,
+            arrives,
+          });
+          zoomedClick = true;
+        } else if (zooms && dragPlan === null) {
           roomHere += await quietThenFinalize();
           if (latestActEnd !== null) {
             // Asked of the click where it will land: after the journey and
@@ -3055,6 +3320,30 @@ export async function runWalk(
           zoomedClick = true;
         } else {
           finalizeAct();
+          if (zooms && beats !== undefined) {
+            // A zoomed drag: the camera's arrival is decided here too, or
+            // the renderer would decide it from the rendered gap, which a
+            // machine's own motion moves. No push-in room is planned (the
+            // camera holds through the drag); a return gets its margin, so
+            // it is a whole one on any machine.
+            const arrives = room.arrives({
+              heldUntilMs: designedHeldUntil,
+              clickMs: designedAt(restMs),
+            });
+            const returnShortMs =
+              arrives === "return"
+                ? room.returnShortMs({
+                    heldUntilMs: designedHeldUntil,
+                    clickMs: designedAt(restMs),
+                  })
+                : 0;
+            if (returnShortMs > 0) planRoom(returnShortMs);
+            decided.set(step.action.id, {
+              designedMs: askedMs,
+              scale,
+              arrives,
+            });
+          }
         }
         zoomedDrag = zooms && dragPlan !== null;
       }
@@ -3090,10 +3379,33 @@ export async function runWalk(
       const marker: FrameBundle["markers"][number] = {
         actionId: step.action.id,
         sourceTimeMs: markedAt,
-        ...(roomHere > 0 ? { roomMs: Math.round(roomHere) } : {}),
-        ...(heldHere > 0 ? { roomHeldMs: Math.round(heldHere) } : {}),
+        ...(continuous ? { approachSourceTimeMs: pathFrom } : {}),
+        ...(scrollEndAt === undefined
+          ? {}
+          : { scrollEndSourceTimeMs: scrollEndAt }),
+        // Under a plan nothing was waited for the camera: its room is in the
+        // planned rest, and the waits counted here are settles.
+        ...(beats === undefined && roomHere > 0
+          ? { roomMs: Math.round(roomHere) }
+          : {}),
+        ...(beats === undefined && heldHere > 0
+          ? { roomHeldMs: Math.round(heldHere) }
+          : {}),
       };
       markers.push(marker);
+      if (beats !== undefined) {
+        stepPlan = {
+          beat: {
+            beforeActionId: step.action.id,
+            restMs,
+            arriveMs,
+            ...(scrolledTo ? { afterScrollMs } : {}),
+          },
+          markerMs: designedAt(restMs),
+          roomMs: designedAt(restMs) - unroomedMs,
+          zoomed: zoomedClick || zoomedDrag,
+        };
+      }
       if (zoomedClick || zoomedDrag) {
         lastZoom = {
           actionMs: markedAt,
@@ -3196,6 +3508,7 @@ export async function runWalk(
       lastCompletedActionId = step.action.id;
       inFlight = null;
       stepFinished(step.action.id, markedAt, stepStartedAt);
+      commitPlan(step.action);
       deps.onProgress?.({
         step: completed,
         total,
@@ -3239,8 +3552,12 @@ export async function runWalk(
           lastHeldEndAt === null
             ? Number.NEGATIVE_INFINITY
             : lastHeldEndAt + SETTLE_MS;
+        // Under a plan the pull-out and the trim are in `pacing.tailMs`,
+        // played by the renderer: only the floor is recorded.
         const tail =
-          Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held) - at();
+          (beats === undefined
+            ? Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held)
+            : lastMarkerAt + TAKE_TAIL_MS) - at();
         if (tail > 0) await clock.sleep(tail);
       }
       await clock.sleep(SPAN_QUIET_MS);
@@ -3442,6 +3759,34 @@ export async function runWalk(
     storageRefused,
     hoverSensitive,
     counters,
+    ...(room === undefined ? {} : { decided }),
+    // Planned through the last counted step, however the run ended: the
+    // tail is that step's, from its designed act end (`designed`).
+    ...(beats === undefined
+      ? {}
+      : {
+          pacing: {
+            beats: plannedBeats,
+            tailMs: Math.max(
+              beats.tailMs({
+                zoomSettleMs:
+                  room === undefined || designedHeldUntil === null
+                    ? null
+                    : Math.max(
+                        0,
+                        room.settledAfterMs(designedHeldUntil) - designed,
+                      ),
+                trimEndMs: config.tail?.ms ?? null,
+                trimAfterAction: config.tail?.after === "action",
+                pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
+              }),
+              // A zoom held through an `after: "action"` cut (DEM-178)
+              // lands after it: the tail plays through that landing and a
+              // settle, as the unplanned walk films through it.
+              plannedHeldEnd() - designed,
+            ),
+          },
+        }),
   };
 }
 
@@ -3624,14 +3969,8 @@ async function typeKeys(
   cdp: CdpSession,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
-  const keys = Array.from(
-    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text),
-    (s) => s.segment,
-  );
-  const gap = Math.min(
-    TYPE_KEY_MS,
-    Math.floor(TYPE_MAX_MS / Math.max(1, keys.length - 1)),
-  );
+  const keys = typeKeysOf(text);
+  const gap = typeGapMs(keys.length);
   // An empty value still goes in, as it always has: over an input's
   // selection it is what empties the field.
   if (keys.length === 0) {

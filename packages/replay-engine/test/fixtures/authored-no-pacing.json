@@ -1,0 +1,210 @@
+{
+  "zoomOut": {
+    "trim": {
+      "head": {
+        "actionId": "ac-2",
+        "offsetMs": -400
+      },
+      "tail": {
+        "actionId": "ac-10",
+        "offsetMs": 5990
+      }
+    },
+    "camera": [
+      {
+        "id": "zoom-1",
+        "kind": "zoom",
+        "anchorId": "an-3",
+        "marker": {
+          "actionId": "ac-4",
+          "offsetMs": -350
+        },
+        "scale": 1.8,
+        "source": "click"
+      },
+      {
+        "id": "zoom-2",
+        "kind": "zoom",
+        "anchorId": "an-7",
+        "marker": {
+          "actionId": "ac-8",
+          "offsetMs": -350
+        },
+        "scale": 1.8,
+        "source": "click"
+      }
+    ],
+    "pacing": null,
+    "stamps": [
+      ["ac-2", 1340],
+      ["ac-4", 9520],
+      ["ac-6", 12930],
+      ["ac-8", 20650],
+      ["ac-10", 24060]
+    ],
+    "steps": [
+      {
+        "index": 0,
+        "actionId": "ac-2",
+        "timing": {
+          "markerMs": 1340,
+          "startMs": -1180,
+          "finishMs": 3450,
+          "zoomOutMs": null
+        }
+      },
+      {
+        "index": 1,
+        "actionId": "ac-4",
+        "timing": {
+          "markerMs": 9520,
+          "startMs": -4680,
+          "finishMs": 2990,
+          "zoomOutMs": 4650
+        }
+      },
+      {
+        "index": 2,
+        "actionId": "ac-6",
+        "timing": {
+          "markerMs": 12930,
+          "startMs": -370,
+          "finishMs": 2990,
+          "zoomOutMs": 1240
+        }
+      },
+      {
+        "index": 4,
+        "actionId": "ac-8",
+        "timing": {
+          "markerMs": 20650,
+          "startMs": -3180,
+          "finishMs": 2990,
+          "zoomOutMs": 4650
+        }
+      },
+      {
+        "index": 5,
+        "actionId": "ac-10",
+        "timing": {
+          "markerMs": 24060,
+          "startMs": -370,
+          "finishMs": 2990,
+          "zoomOutMs": 1240
+        }
+      }
+    ],
+    "trimClamped": null,
+    "trimUnplaced": null
+  },
+  "action": {
+    "trim": {
+      "head": {
+        "actionId": "ac-2",
+        "offsetMs": -1340
+      },
+      "tail": {
+        "actionId": "ac-10",
+        "offsetMs": 5990
+      }
+    },
+    "camera": [
+      {
+        "id": "zoom-1",
+        "kind": "zoom",
+        "anchorId": "an-3",
+        "marker": {
+          "actionId": "ac-4",
+          "offsetMs": -350
+        },
+        "scale": 1.8,
+        "source": "click"
+      },
+      {
+        "id": "zoom-2",
+        "kind": "zoom",
+        "anchorId": "an-7",
+        "marker": {
+          "actionId": "ac-8",
+          "offsetMs": -350
+        },
+        "end": {
+          "actionId": "ac-10",
+          "offsetMs": 7140
+        },
+        "scale": 1.8,
+        "source": "click"
+      }
+    ],
+    "pacing": null,
+    "stamps": [
+      ["ac-2", 1340],
+      ["ac-4", 9520],
+      ["ac-6", 12930],
+      ["ac-8", 20650],
+      ["ac-10", 24060]
+    ],
+    "steps": [
+      {
+        "index": 0,
+        "actionId": "ac-2",
+        "timing": {
+          "markerMs": 1340,
+          "startMs": -1180,
+          "finishMs": 3450,
+          "zoomOutMs": null
+        }
+      },
+      {
+        "index": 1,
+        "actionId": "ac-4",
+        "timing": {
+          "markerMs": 9520,
+          "startMs": -4680,
+          "finishMs": 2990,
+          "zoomOutMs": 4650,
+          "heldEndMs": 7140
+        }
+      },
+      {
+        "index": 2,
+        "actionId": "ac-6",
+        "timing": {
+          "markerMs": 12930,
+          "startMs": -370,
+          "finishMs": 2990,
+          "zoomOutMs": 1240,
+          "heldEndMs": 7140
+        }
+      },
+      {
+        "index": 4,
+        "actionId": "ac-8",
+        "timing": {
+          "markerMs": 20650,
+          "startMs": -3180,
+          "finishMs": 2990,
+          "zoomOutMs": 4650,
+          "heldEndMs": 7140
+        }
+      },
+      {
+        "index": 5,
+        "actionId": "ac-10",
+        "timing": {
+          "markerMs": 24060,
+          "startMs": -370,
+          "finishMs": 2990,
+          "zoomOutMs": 1240,
+          "heldEndMs": 7140
+        }
+      }
+    ],
+    "trimClamped": {
+      "side": "start",
+      "askedMs": 100000,
+      "keptMs": 1340
+    },
+    "trimUnplaced": null
+  }
+}

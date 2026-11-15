@@ -1,8 +1,15 @@
 // apps/runner/test/play.test.ts
 import { type AuthoredResult, reasonSentence } from "@demoman/replay-engine";
-import { clickNotDeliveredDetail } from "@demoman/run-core";
+import { clickNotDeliveredDetail, screenScaleNote } from "@demoman/run-core";
+import type { BrowserContext } from "playwright";
 import { describe, expect, it } from "vitest";
-import { type Played, stopDetail } from "../src/executor/play.js";
+import type { BrowserSession } from "../src/executor/browser.js";
+import {
+  type PlayDeps,
+  type Played,
+  prepareStage,
+  stopDetail,
+} from "../src/executor/play.js";
 
 const target = "http://localhost:4000/";
 
@@ -147,5 +154,70 @@ describe("stopDetail", () => {
 
   it("leaves a wait that found nothing to the generic sentence", () => {
     expect(stopDetail(target, waitedAndSaw("absent"))).toBeUndefined();
+  });
+});
+
+/** `prepareStage`'s deps for a stage on a screen at `screenScale`: only what
+ *  it reads before the walk. `filmScale` null is a visible window. */
+function stagedOn(
+  screenScale: number,
+  filmScale: number | null,
+  more: Partial<PlayDeps> = {},
+): PlayDeps {
+  const context = {} as BrowserContext;
+  return {
+    session: {
+      stage: async () => ({
+        ok: true,
+        stage: { context, page: {}, cdp: {}, clock: {} },
+      }),
+      screen: async () => ({ width: 1440, height: 900, scale: screenScale }),
+      screenUnknown: () => null,
+      filmScale: () => filmScale,
+    } as unknown as BrowserSession,
+    log: () => undefined,
+    sessions: [],
+    sessionsContext: context,
+    loadSessions: async () => ({ ok: true as const, files: [] }),
+    signinCommand: "npx demoman signin",
+    ...more,
+  } as PlayDeps;
+}
+
+const sized = { scriptVersion: 1, name: "n", target, steps: [] } as never;
+
+describe("prepareStage's word on the scale", () => {
+  // Spec 2026-11-13 part 2: a visible window cannot be given a scale, so a
+  // run on a 1x screen of a flow recorded at 2x says so, with both numbers.
+  // Turns red when play.ts's `headedScale` is dropped from `said`.
+  it("says a visible window recorded at its screen's scale, not the flow's", async () => {
+    const out = await prepareStage(sized, stagedOn(1, null, { flowScale: 2 }));
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    // Premise: the size is the screen's, which carries no error of its own.
+    expect(out.size).toMatchObject({ width: 1440, from: "screen" });
+    expect(out.size.error).toBe(screenScaleNote(1, 2));
+    expect(out.size.error).toContain("1x");
+    expect(out.size.error).toContain("2x");
+    // The same screen for a flow at 1x has nothing to say.
+    const same = await prepareStage(sized, stagedOn(1, null, { flowScale: 1 }));
+    expect(same.ok && same.size.error).toBeNull();
+  });
+
+  // Headless asked for the flow's scale at the door, so it is not said.
+  it("says nothing of the screen's scale for headless", async () => {
+    const out = await prepareStage(sized, stagedOn(1, 2, { flowScale: 2 }));
+    expect(out.ok && out.size.error).toBeNull();
+  });
+
+  // Report before you forgive: a flow whose scale could not be read records
+  // at the constant, and says so. Turns red when `scaleUnread` is dropped.
+  it("says when the flow's recorded scale could not be read", async () => {
+    const out = await prepareStage(
+      sized,
+      stagedOn(1, 2, { flowScaleUnread: "video t1 is missing" }),
+    );
+    expect(out.ok && out.size.error).toBe(
+      "The flow's recorded scale could not be read (video t1 is missing), so this run recorded at 2x.",
+    );
   });
 });

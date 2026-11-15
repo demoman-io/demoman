@@ -18,11 +18,12 @@ import {
  * `REPLAY_DPR`). Full Chromium, as the CLI launches it (`apps/cli`'s
  * `executablePath`), not the headless shell a bare `launch()` finds.
  */
-async function headlessFilm(display?: Display) {
+async function headlessFilm(display?: Display, scale?: number) {
   const launched = await launch({
     headless: true,
     executablePath: chromium.executablePath(),
     ...(display === undefined ? {} : { display }),
+    ...(scale === undefined ? {} : { scale }),
   });
   try {
     const { page, cdp } = launched;
@@ -199,6 +200,20 @@ describe("launch", () => {
     expect(on.screen).toEqual([1000, 700]);
     expect(on.userAgent).not.toContain("Headless");
     expect(on.userAgent).toContain("Chrome/");
+  }, 60_000);
+
+  // Spec 2026-11-13 part 2, a machine with no readable display: Chrome's own
+  // stand-in screen is given the scale and no size. Turns red when launch()
+  // drops the `--screen-info={devicePixelRatio=S}` line (launch.ts): the
+  // frame decodes at the override's CSS size, 640x400.
+  it("gives Chrome's own stand-in screen a scale without naming its size", async () => {
+    const scaled = await headlessFilm(undefined, 2);
+    const off = await headlessFilm();
+    // Premise: the control films at 1x, so 2x below came from the scale.
+    expect(off.frame, JSON.stringify(off)).toEqual([640, 400]);
+    expect(scaled.frame, JSON.stringify(scaled)).toEqual([1280, 800]);
+    // The screen is Chrome's own, as without a scale: no size was guessed.
+    expect(scaled.screen).toEqual(off.screen);
   }, 60_000);
 
   // Headless draws a page's 2D canvas on the CPU without HEADLESS_GPU_ARGS:
