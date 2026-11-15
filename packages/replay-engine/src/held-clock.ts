@@ -311,13 +311,18 @@ export function createHeldClock(deps: {
           // twice" differ), at most a frame behind real time and never
           // ahead: a machine that captures faster than a frame waits.
           const continues = span?.endMs === held;
+          // Waits since the last look, also one already over: a cross-site
+          // click's whole wait can fall inside one grant, and the new
+          // page's favicon be what the next look sees (CI ubuntu,
+          // 2026-11-15).
+          const since = network.waitsSince(looked.real);
           if (!continues)
             stretchFrom = {
-              real: Math.max(network.lastWait()?.from ?? realNow(), pausedAt),
+              real: Math.max(since?.from ?? realNow(), pausedAt),
               held,
             };
           const due = stretchFrom.held + (realNow() - stretchFrom.real);
-          const labels = network.labels();
+          const labels = [...(since?.labels ?? []), ...network.labels()];
           const from = held;
           const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
           if (to > due) await wait(to - due);
@@ -341,9 +346,9 @@ export function createHeldClock(deps: {
         // 2026-11-15): one more connection of a stretch open up to now, or
         // a stretch of its own from where the page stood when it began,
         // kept only if it is owed time.
-        const last = network.lastWait();
+        const last = network.waitsSince(looked.real);
         let unseen: typeof span = null;
-        if (quiet !== null && last !== null && last.from > looked.real) {
+        if (quiet !== null && last !== null) {
           if (span?.endMs === held)
             for (const l of last.labels) span.labels.add(l);
           else {

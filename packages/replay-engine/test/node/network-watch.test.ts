@@ -61,24 +61,32 @@ describe("createNetworkWatch", () => {
     expect(w.quietSince()).toBe(210);
   });
 
-  it("says when the latest wait began and what it waited on, also after it", async () => {
+  it("says the waits since a time, also those over, from the first one's start", async () => {
     const { cdp, emit } = setup();
     let now = 0;
     const w = await createNetworkWatch(cdp, () => now);
-    expect(w.lastWait()).toBeNull();
+    expect(w.waitsSince(0)).toBeNull();
     now = 100;
     emit("Network.requestWillBeSent", start("1", "http://app.test/a"));
     now = 150;
     emit("Network.requestWillBeSent", start("2", "http://app.test/b"));
     emit("Network.loadingFinished", { requestId: "1" });
-    expect(w.waiting()).toBe(true); // premise: "2" still open
-    expect(w.lastWait()).toEqual({ from: 100, labels: ["GET /a", "GET /b"] });
+    expect(w.waiting()).toBe(true); // premise: "2" still open: one wait
+    expect(w.waitsSince(50)).toEqual({
+      from: 100,
+      labels: ["GET /a", "GET /b"],
+    });
     emit("Network.loadingFinished", { requestId: "2" });
     expect(w.waiting()).toBe(false);
-    expect(w.lastWait()).toEqual({ from: 100, labels: ["GET /a", "GET /b"] });
     now = 300;
     emit("Network.requestWillBeSent", start("3", "http://app.test/c"));
-    expect(w.lastWait()).toEqual({ from: 300, labels: ["GET /c"] });
+    // Both waits since 50, though the first is over; only the second since 200.
+    expect(w.waitsSince(50)).toEqual({
+      from: 100,
+      labels: ["GET /a", "GET /b", "GET /c"],
+    });
+    expect(w.waitsSince(200)).toEqual({ from: 300, labels: ["GET /c"] });
+    expect(w.waitsSince(300)).toBeNull();
   });
 
   // Review of Task 9, M4: a connection gone quiet is dropped before a new
@@ -90,7 +98,10 @@ describe("createNetworkWatch", () => {
     emit("Network.requestWillBeSent", start("1", "http://app.test/poll"));
     now = 20_000; // "1" silent past the cut-off, and nobody asked since
     emit("Network.requestWillBeSent", start("2", "http://app.test/next"));
-    expect(w.lastWait()).toEqual({ from: 20_000, labels: ["GET /next"] });
+    expect(w.waitsSince(10_000)).toEqual({
+      from: 20_000,
+      labels: ["GET /next"],
+    });
   });
 
   it("keeps waiting while a stream's data arrives", async () => {

@@ -13,9 +13,9 @@ export interface NetworkWatch {
   /** When the page stopped waiting (real ms), while it is not; null while
    *  it is, or before it ever waited. */
   quietSince(): number | null;
-  /** The latest wait, also once it is over: when it began (real ms) and
-   *  the connections it counted; null before the page ever waited. */
-  lastWait(): { from: number; labels: string[] } | null;
+  /** The waits that began after `realMs`, over or not: when the first
+   *  began and every connection they counted; null when none did. */
+  waitsSince(realMs: number): { from: number; labels: string[] } | null;
   stop(): void;
 }
 
@@ -35,7 +35,8 @@ export async function createNetworkWatch(
   const live = new Map<string, { label: string; lastAt: number }>();
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
-  let last: { from: number; labels: string[] } | null = null;
+  /** Every wait, in order: when it began and the connections it counted. */
+  const waits: { from: number; labels: string[] }[] = [];
   const dropped: string[] = []; // each label named once
   const id = (p: Record<string, unknown>) => String(p.requestId);
   const name = (label: string) => {
@@ -54,7 +55,9 @@ export async function createNetworkWatch(
   const count = (p: Record<string, unknown>, label: string, now: number) => {
     // A connection gone silent first, or a new wait takes its start.
     sweep();
-    if (live.size === 0 || last === null) last = { from: now, labels: [] };
+    if (live.size === 0 || waits.length === 0)
+      waits.push({ from: now, labels: [] });
+    const last = waits[waits.length - 1] as (typeof waits)[number];
     if (!last.labels.includes(label)) last.labels.push(label);
     live.set(id(p), { label, lastAt: now });
   };
@@ -127,9 +130,15 @@ export async function createNetworkWatch(
       sweep();
       return live.size > 0 ? null : quietAt;
     },
-    lastWait() {
+    waitsSince(realMs) {
       sweep();
-      return last && { from: last.from, labels: [...last.labels] };
+      const since = waits.filter((w) => w.from > realMs);
+      const first = since[0];
+      if (first === undefined) return null;
+      return {
+        from: first.from,
+        labels: [...new Set(since.flatMap((w) => w.labels))],
+      };
     },
     stop,
   };

@@ -18,6 +18,8 @@ function setup(
   o: {
     waiting?: (real: number) => boolean;
     captureMs?: number;
+    /** Real time each grant takes before Chrome says it expired. */
+    grantMs?: number;
     policy?: (
       params: Record<string, unknown>,
     ) => "expire" | "silent" | "refuse";
@@ -28,8 +30,12 @@ function setup(
     ignored?: string[];
     /** The real time the wait ended, once it has (`NetworkWatch.quietSince`). */
     quietSince?: (real: number) => number | null;
-    /** The latest wait, also once over (`NetworkWatch.lastWait`). */
-    lastWait?: (real: number) => { from: number; labels: string[] } | null;
+    /** The waits that began after a time, also those over
+     *  (`NetworkWatch.waitsSince`), given the real time now. */
+    waitsSince?: (
+      sinceMs: number,
+      real: number,
+    ) => { from: number; labels: string[] } | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -47,6 +53,8 @@ function setup(
         throw new Error("Can only specify budget for non-Pause policy");
       const answer = o.policy?.(params) ?? "expire";
       if (answer === "refuse") throw new Error("Target closed");
+      if (answer === "expire" && params.budget !== undefined)
+        real += o.grantMs ?? 0;
       if (answer === "expire" && params.budget !== undefined)
         queueMicrotask(() => {
           for (const h of handlers.get("Emulation.virtualTimeBudgetExpired") ??
@@ -68,7 +76,7 @@ function setup(
     labels: () => ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
     quietSince: () => o.quietSince?.(real) ?? null,
-    lastWait: () => o.lastWait?.(real) ?? null,
+    waitsSince: (sinceMs) => o.waitsSince?.(sinceMs, real) ?? null,
     stop() {},
   };
   const clock = createHeldClock({
@@ -108,6 +116,17 @@ function setup(
 }
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
+/** A network watch's waits for `waitsSince`: each began at `from`, and is
+ *  known from `at` (default `from`). */
+const waitsOf =
+  (...list: { from: number; at?: number; labels: string[] }[]) =>
+  (since: number, real: number) => {
+    const w = list.filter((x) => x.from > since && real >= (x.at ?? x.from));
+    const [first] = w;
+    return first === undefined
+      ? null
+      : { from: first.from, labels: w.flatMap((x) => x.labels) };
+  };
 /** Times in frames of the grid, to six places. */
 const inFrames = (list: number[]) =>
   list.map((ms) => Number((ms / HELD_FRAME_MS).toFixed(6)));
@@ -264,8 +283,7 @@ describe("createHeldClock", () => {
   it("begins a stretch when the page began waiting, not when the walk saw it", async () => {
     const { clock, frames, budgets, advance } = setup({
       waiting: (real) => real >= 5500,
-      lastWait: (real) =>
-        real >= 5500 ? { from: 5500, labels: ["POST /api/chat"] } : null,
+      waitsSince: waitsOf({ from: 5500, labels: ["POST /api/chat"] }),
       captureMs: 200,
     });
     await clock.hold(START);
@@ -284,7 +302,7 @@ describe("createHeldClock", () => {
   it("credits no real time from before the hold", async () => {
     const { clock, budgets, advance } = setup({
       waiting: () => true,
-      lastWait: () => ({ from: 500, labels: ["GET /"] }),
+      waitsSince: waitsOf({ from: 500, labels: ["GET /"] }),
       captureMs: 200,
     });
     advance(1000); // the page's request opened at real 500, before the hold
@@ -294,19 +312,20 @@ describe("createHeldClock", () => {
   });
 
   it("credits no real time a held frame already played", async () => {
-    // The page began waiting at real 300, before the third grant (real
-    // 400) played that time as held.
+    // Grants take 50 ms: the third runs real 500-550. The page began
+    // waiting at 505, inside it, which that grant played as held time.
     const { clock, budgets } = setup({
-      waiting: (real) => real >= 600,
-      lastWait: (real) =>
-        real >= 600 ? { from: 300, labels: ["POST /api/chat"] } : null,
+      waiting: (real) => real >= 505,
+      waitsSince: waitsOf({ from: 505, labels: ["POST /api/chat"] }),
       captureMs: 200,
+      grantMs: 50,
     });
     await clock.hold(START);
     await clock.sleep(100);
     expect(budgets()).toHaveLength(3); // premise: three held grants first
     await clock.sleep(1000);
-    // Real 600 now, the page last stopped at real 400: six frames.
+    // Real 750 now, the page last stopped at real 550: six frames (seven
+    // from 505).
     expect(inFrames(budgets()).slice(3, 4)).toEqual([6]);
   });
 
@@ -373,8 +392,7 @@ describe("createHeldClock", () => {
       waiting: () => false,
       // It began at real 250 and ended at 340, both inside the second
       // frame's capture (real 200-400), so no look saw it.
-      lastWait: (real) =>
-        real >= 250 ? { from: 250, labels: ["GET /there"] } : null,
+      waitsSince: waitsOf({ from: 250, labels: ["GET /there"] }),
       quietSince: (real) => (real >= 340 ? 340 : null),
       captureMs: 200,
     });
@@ -401,10 +419,10 @@ describe("createHeldClock", () => {
       // The POST is open until real 300; the refetch runs 310-320.
       waiting: (real) => real < 300,
       quietSince: (real) => (real >= 320 ? 320 : null),
-      lastWait: (real) =>
-        real >= 310
-          ? { from: 310, labels: ["GET /refetch"] }
-          : { from: 0, labels: ["POST /api/chat"] },
+      waitsSince: waitsOf(
+        { from: 0, labels: ["POST /api/chat"] },
+        { from: 310, labels: ["GET /refetch"] },
+      ),
       captureMs: 200,
     });
     await clock.hold(START);
@@ -418,6 +436,34 @@ describe("createHeldClock", () => {
         .networkSpans()
         .map((s) => [...inFrames([s.startMs, s.endMs]), s.label]),
     ).toEqual([[0, 10, "POST /api/chat, GET /refetch"]]);
+  });
+
+  // CI ubuntu, 2026-11-15 (fix round 1): a cross-site click's whole wait
+  // fell inside one grant, and the next look saw the new page's favicon
+  // already loading: a wait of its own, which hid the first.
+  it("follows a wait that ended unseen when the next look sees another", async () => {
+    const { clock } = setup({
+      // GET /there 250-340, then the favicon from 360, both inside the
+      // second frame's capture (real 200-400); the favicon ends at 700.
+      waiting: (real) => real >= 360 && real < 700,
+      quietSince: (real) => (real >= 700 ? 700 : null),
+      waitsSince: waitsOf(
+        { from: 250, labels: ["GET /there"] },
+        { from: 360, labels: ["GET /favicon.ico"] },
+      ),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(1000);
+    // One stretch from where the page stood when GET /there began (frame 2,
+    // real 200), naming it; it runs the real time from 250 to 700.
+    const [first, ...rest] = clock.networkSpans();
+    expect(inFrames([first?.startMs ?? Number.NaN])).toEqual([2]);
+    expect(first?.label).toContain("GET /there");
+    expect(rest).toEqual([]);
+    expect((first?.endMs ?? 0) - (first?.startMs ?? 0)).toBeGreaterThanOrEqual(
+      450,
+    );
   });
 
   it("names the connections the network watch stopped counting", () => {
