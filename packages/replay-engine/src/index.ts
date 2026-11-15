@@ -167,6 +167,8 @@ export {
   type NavigatingGuardDeps, // runner API, see header
   replayUrl,
 } from "./navigate.js";
+export type { NetworkWatch } from "./network-watch.js";
+export { createNetworkWatch, IDLE_CONNECTION_MS } from "./network-watch.js";
 export { createOcclusionGuard, type OcclusionGuard } from "./occlusion.js";
 export {
   classifyOrigin,

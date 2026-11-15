@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+import { createNetworkWatch } from "../../src/index.js";
+import type { CdpSession } from "../../src/types.js";
+
+function setup() {
+  const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
+  const sent: string[] = [];
+  const cdp: CdpSession = {
+    async send(method) {
+      sent.push(method);
+      return {};
+    },
+    on(event, handler) {
+      const set = handlers.get(event) ?? new Set();
+      set.add(handler);
+      handlers.set(event, set);
+      return () => set.delete(handler);
+    },
+    async detach() {},
+  };
+  const emit = (event: string, params: Record<string, unknown>) => {
+    for (const h of handlers.get(event) ?? []) h(params);
+  };
+  const listeners = () =>
+    [...handlers.values()].reduce((n, s) => n + s.size, 0);
+  return { cdp, emit, sent, listeners };
+}
+
+const start = (id: string, url = "http://app.test/poll?x=1") => ({
+  requestId: id,
+  request: { method: "GET", url },
+});
+
+describe("createNetworkWatch", () => {
+  it("is waiting from a request's start until it finishes", async () => {
+    const { cdp, emit, sent } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    expect(sent).toContain("Network.enable");
+    expect(w.waiting()).toBe(false);
+    emit("Network.requestWillBeSent", start("1"));
+    expect(w.waiting()).toBe(true);
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(w.waiting()).toBe(false);
+  });
+
+  it("keeps waiting while a stream's data arrives", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    for (let s = 1; s <= 30; s++) {
+      now = s * 1000;
+      emit("Network.dataReceived", { requestId: "1" });
+      expect(w.waiting()).toBe(true);
+    }
+    expect(w.ignored()).toEqual([]);
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(w.waiting()).toBe(false);
+  });
+
+  it("drops a connection with no data for 10 s and names it", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_000;
+    expect(w.waiting()).toBe(true);
+    now = 10_001;
+    expect(w.waiting()).toBe(false);
+    expect(w.ignored()).toEqual(["GET /poll"]);
+  });
+
+  it("counts a websocket only while frames arrive", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.webSocketCreated", {
+      requestId: "w",
+      url: "ws://app.test/hmr",
+    });
+    expect(w.waiting()).toBe(true);
+    now = 1000;
+    emit("Network.webSocketFrameReceived", { requestId: "w" });
+    now = 11_000;
+    expect(w.waiting()).toBe(true);
+    now = 11_001;
+    expect(w.waiting()).toBe(false);
+    expect(w.ignored()).toEqual(["websocket /hmr"]);
+  });
+
+  it("a failed request stops counting", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", start("1"));
+    emit("Network.loadingFailed", { requestId: "1" });
+    expect(w.waiting()).toBe(false);
+  });
+
+  it("stop removes its listeners", async () => {
+    const { cdp, listeners } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    expect(listeners()).toBeGreaterThan(0);
+    w.stop();
+    expect(listeners()).toBe(0);
+  });
+
+  it("rejects when Network cannot be enabled", async () => {
+    const { cdp } = setup();
+    cdp.send = async () => {
+      throw new Error("no network");
+    };
+    await expect(createNetworkWatch(cdp, () => 0)).rejects.toThrow(
+      "no network",
+    );
+  });
+});
