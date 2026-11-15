@@ -335,6 +335,18 @@ const greyDiff = (x: string, y: string): number => {
     most = Math.max(most, Math.abs((p[i] ?? 0) - (q[i] ?? 0)));
   return most;
 };
+/** The frames of two runs' crops further apart than the noise, with how far;
+ *  a different count of frames is a difference too. */
+const apartFrames = (two: string[], one: string[]): string[] => [
+  ...(two.length === one.length
+    ? []
+    : [`${two.length} frames against ${one.length}`]),
+  ...one.flatMap((f, i) => {
+    const d = greyDiff(f, two[i] ?? "");
+    return d > NOISE ? [`frame ${i}: ${d}`] : [];
+  }),
+];
+
 /** Where two 96x60 crops differ past the noise: the cells' bounding box. */
 const apartIn = (x: string, y: string): string => {
   const p = Buffer.from(x, "base64");
@@ -376,9 +388,16 @@ describe("a held recording", () => {
     expect(changes(box), said()).toBeGreaterThanOrEqual(20);
     const stripes = await pageRegion(first, [0.94, 0, 1, 1]);
     expect(new Set(stripes).size, said()).toBeGreaterThanOrEqual(5);
-    // And the same on the second run, frame for frame.
-    expect(await pageRegion(second, [0.23, 0.14, 0.43, 0.21])).toEqual(box);
-    expect(await pageRegion(second, [0.94, 0, 1, 1])).toEqual(stripes);
+    // And the same on the second run, frame for frame, within the spans'
+    // encoding noise (they are GPU-encoded, as the render's are).
+    expect(
+      apartFrames(await pageRegion(second, [0.23, 0.14, 0.43, 0.21]), box),
+      said(),
+    ).toEqual([]);
+    expect(
+      apartFrames(await pageRegion(second, [0.94, 0, 1, 1]), stripes),
+      said(),
+    ).toEqual([]);
 
     // Exactly the same recording: every frame at the same time, the cursor
     // and the steps on the same frames, and every still (a hold) the same

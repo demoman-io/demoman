@@ -1,5 +1,5 @@
-// Probe (Task 6 of held-clock): what real Chrome does under a held clock.
-//   node apps/runner/compare/held-probe.mjs
+// Held-clock probe (2026-11-15): what real Chrome does under a held clock.
+//   FULL=1 node apps/runner/compare/held-probe-basics.mjs (FULL=1: the full Chromium production launches)
 // Prints one line per question with what it measured. Grants are
 // `advance` with a budget: Chrome refuses a budget on `pause`.
 import { createServer } from "node:http";

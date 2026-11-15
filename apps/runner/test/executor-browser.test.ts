@@ -474,6 +474,37 @@ describe("createBrowserSession bookkeeping (fake launcher)", () => {
     await session.close();
   });
 
+  // Fix round 1, M2: a recording on the real clock launches exactly as
+  // before held capture, so a browser launched for a held clock is launched
+  // again without its flags, and the other way round. Red when `ensure`
+  // ignores `held`: one launch, with the flags it had.
+  it("launches a headless browser again for the clock a call asks for", async () => {
+    const launchedWith: Parameters<typeof launch>[0][] = [];
+    const fakes: Fake[] = [];
+    const lines: string[] = [];
+    const session = createBrowserSession({
+      headless: true,
+      log: (l: string) => lines.push(l),
+      launchFn: async (o) => {
+        launchedWith.push(o);
+        const fake = fakeLaunched();
+        fakes.push(fake);
+        return fake.launched;
+      },
+    });
+    expect((await session.ensure({ held: true })).ok).toBe(true);
+    expect((await session.ensure({ held: true })).ok).toBe(true);
+    expect((await session.ensure({ held: false })).ok).toBe(true);
+    // A call that names neither keeps the browser as it is.
+    expect((await session.ensure()).ok).toBe(true);
+    expect(launchedWith.map((o) => o?.held === true)).toEqual([true, false]);
+    expect(fakes[0]?.closeCalls()).toBe(1);
+    expect(lines).toContain(
+      "this call records on the real clock and the headless browser was launched for a held one; starting a new one",
+    );
+    await session.close();
+  });
+
   // Report before you forgive: a relaunch for scale that fails answers the
   // launch's failure, as a first launch does, never the old browser.
   it("answers a relaunch for scale that fails with the launch's reason", async () => {

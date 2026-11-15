@@ -113,6 +113,21 @@ export async function prepareStage(
   deps: PlayDeps,
 ): Promise<Prepared> {
   const { log } = deps;
+  const verdict = heldClockAsked()
+    ? shouldHold({
+        headed: !deps.session.headless,
+        device: script.device !== undefined,
+      })
+    : null;
+  // Held capture asked for: the browser is launched for this recording's
+  // clock, and launched again when the live one was for the other, so one
+  // that records in real time launches exactly as before held capture.
+  if (verdict !== null && deps.session.headless) {
+    const ensured = await deps.session.ensure({ held: verdict.hold });
+    if (!ensured.ok) {
+      return { ok: false, reason: "portFailure", detail: ensured.detail };
+    }
+  }
   // Ensured at the door already; a failure here is a race with the author
   // closing the browser in between, said in the session's own words. A page
   // of its own, so nothing an earlier call emulated or installed is on it
@@ -124,12 +139,6 @@ export async function prepareStage(
   const launched = staged.stage;
   const { page } = launched;
 
-  const verdict = heldClockAsked()
-    ? shouldHold({
-        headed: !deps.session.headless,
-        device: script.device !== undefined,
-      })
-    : null;
   const recording =
     verdict === null
       ? undefined
@@ -495,52 +504,57 @@ export async function playOnStage(
     }
     return null;
   };
-  const authored = await runAuthored(script, {
-    cdp,
-    page: createHeadlessPageAgent(page, log),
-    captureResolved: pageCapture(page, log),
-    encoder,
-    store,
-    clock,
-    // Every CLI run may replay: see "No gate" in `runScript`.
-    mayReplay: true,
-    occlusion,
-    landing,
-    // Spec 2026-10-03: keep every frame the page paints, real time.
-    recording: "continuous",
-    onProgress: (progress) => {
-      if (progress.state === "failed" && progress.note !== null) {
-        failedNote = progress.note;
-      }
-      onProgress(progress);
-    },
-    newId,
-    sceneId,
-    // This package has no wall clock — `Clock.now()` is contracted for
-    // deltas only — so the take's `createdAt` is the caller's to supply.
-    createdAt: new Date().toISOString(),
-    // Null only for a device script, whose size runAuthored takes from
-    // the device.
-    ...(viewport === null ? {} : { viewport }),
-    // Decided once, at launch; the take records it for keep and the
-    // flow's next run to read. A visible window's is its screen's, as read:
-    // left out, the next run inferred it from the widest motion span to the
-    // nearest quarter and told a 1.3125x screen it had changed scale.
-    ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
-    // Spec 2026-10-01 §1: the take starts as a recorded one does — the
-    // author's kit and a zoom on every click.
-    startingBranding,
-    cameraFor: zoomsForClicks,
-    // Spec 2026-10-19: the camera never sets off toward a zoom while an
-    // earlier step is still acting; the replay waits for room instead.
-    roomFor: (vp, intentOf) =>
-      createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
-    // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
-    // instead of waiting the camera's room out live.
-    beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
-    ...(held === undefined ? {} : { held }),
-  });
-  prepared.held?.network.stop();
+  let authored: AuthoredResult;
+  try {
+    authored = await runAuthored(script, {
+      cdp,
+      page: createHeadlessPageAgent(page, log),
+      captureResolved: pageCapture(page, log),
+      encoder,
+      store,
+      clock,
+      // Every CLI run may replay: see "No gate" in `runScript`.
+      mayReplay: true,
+      occlusion,
+      landing,
+      // Spec 2026-10-03: keep every frame the page paints, real time.
+      recording: "continuous",
+      onProgress: (progress) => {
+        if (progress.state === "failed" && progress.note !== null) {
+          failedNote = progress.note;
+        }
+        onProgress(progress);
+      },
+      newId,
+      sceneId,
+      // This package has no wall clock — `Clock.now()` is contracted for
+      // deltas only — so the take's `createdAt` is the caller's to supply.
+      createdAt: new Date().toISOString(),
+      // Null only for a device script, whose size runAuthored takes from
+      // the device.
+      ...(viewport === null ? {} : { viewport }),
+      // Decided once, at launch; the take records it for keep and the
+      // flow's next run to read. A visible window's is its screen's, as read:
+      // left out, the next run inferred it from the widest motion span to the
+      // nearest quarter and told a 1.3125x screen it had changed scale.
+      ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
+      // Spec 2026-10-01 §1: the take starts as a recorded one does — the
+      // author's kit and a zoom on every click.
+      startingBranding,
+      cameraFor: zoomsForClicks,
+      // Spec 2026-10-19: the camera never sets off toward a zoom while an
+      // earlier step is still acting; the replay waits for room instead.
+      roomFor: (vp, intentOf) =>
+        createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
+      // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
+      // instead of waiting the camera's room out live.
+      beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
+      ...(held === undefined ? {} : { held }),
+    });
+  } finally {
+    // Whatever the walk did, the watch's listeners leave with it.
+    prepared.held?.network.stop();
+  }
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop
   // reason and returns a `ReplayResult`, which would drop `document`,
