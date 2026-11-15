@@ -180,10 +180,16 @@ async function run(
     /** The click's read answers only once this much page time has passed
      *  (a click that navigated to another site). */
     clickReadAnswersAfterMs?: number;
+    /** The hover renewal's move after the first click answers only once
+     *  this much page time has passed: Chrome holds input for a document
+     *  still loading, which no `Page.frameStartedLoading` announced. */
+    hoverAnswersAfterMs?: number;
   } = {},
 ) {
   const cdp = createCdpFake();
   let clicks = 0;
+  /** Whether the hover renewal's move after the first click was held. */
+  let hoverHeld = false;
   let loadingUntil: number | null = null;
   const network = [...(opts.network ?? [])];
   let restRequestAt: number | null = null;
@@ -262,6 +268,22 @@ async function run(
       scrollAsked.steps.push(String(params.objectId));
       if (p === 1) belowFold = false;
       return { result: { type: "undefined" } };
+    }
+    if (
+      opts.hoverAnswersAfterMs !== undefined &&
+      clicks === 1 &&
+      !hoverHeld &&
+      method === "Input.dispatchMouseEvent" &&
+      params?.type === "mouseMoved"
+    ) {
+      hoverHeld = true;
+      const after = opts.hoverAnswersAfterMs;
+      return new Promise((resolve) =>
+        settleWaiters.push({
+          due: held.clock.now() + after,
+          answer: () => resolve(send(method, params)),
+        }),
+      );
     }
     if (
       opts.clickReadAnswersAfterMs !== undefined &&
@@ -925,6 +947,27 @@ describe("in-page waits on a held clock", () => {
 });
 
 describe("a click's read on a held clock", () => {
+  // Review of Task 9 round 1, finding C: the hover renewal's move after a
+  // navigating click, held by Chrome until the new document loads, waited
+  // out its 30 s answer deadline in real time with no page time played, and
+  // the open request's stretch took all 30 s as the server's. Red if the
+  // move is awaited unplayed: it never answers.
+  it("plays page time while the hover renewal's move is not answered", async () => {
+    const { result, progress } = await run([click("a"), click("b")], {
+      hoverAnswersAfterMs: 400,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    // Nothing said of the hover: it was renewed (the fake's standing
+    // degradations are the clock's, from its fixtures).
+    expect(
+      (result.bundle?.degradations ?? []).filter((d) =>
+        d.note.includes("hover"),
+      ),
+      evidence,
+    ).toEqual([]);
+  }, 10_000);
+
   // Fix round 1, finding 3: a click that navigates to another site is read
   // only once the new page commits; that wait is played as page time, so a
   // server's wait is in the video. Red if the read is awaited unplayed.

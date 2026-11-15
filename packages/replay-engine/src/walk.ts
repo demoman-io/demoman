@@ -1882,12 +1882,18 @@ export async function runWalk(
         // A section waits for any still in flight, and one of a page that
         // stopped painting never ends.
         if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
+        const move = { type: "mouseMoved", x: cursor.x, y: cursor.y };
+        // Held: answered as page time moves, as the click's read is; a
+        // document loading that no frameStartedLoading announced held this
+        // move until its 30 s deadline, no page time played (review of Task 9
+        // round 1, finding C).
         await gate.section(() =>
-          cdp.send("Input.dispatchMouseEvent", {
-            type: "mouseMoved",
-            x: cursor.x,
-            y: cursor.y,
-          }),
+          held === undefined
+            ? cdp.send("Input.dispatchMouseEvent", move)
+            : answered(
+                cdp.send("Input.dispatchMouseEvent", move, heldProbe),
+                NAVIGATE_TIMEOUT_MS,
+              ),
         );
       } catch (error) {
         moved.push(
