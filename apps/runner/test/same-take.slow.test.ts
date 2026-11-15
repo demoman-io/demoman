@@ -27,7 +27,7 @@ import { launch } from "../src/launch.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
-import { lagCdp } from "./lag.js";
+import { heldByLagMs, lagCdp } from "./lag.js";
 import { mp4FirstFrameSize, mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 // Spec 2026-11-13 (same take on any machine), Part 4 tests 1 to 3. One
@@ -328,6 +328,8 @@ const zoomShape = (r: Recording) => (c: SceneDocument["camera"][number]) => ({
 
 let fast: Recording;
 let slow: Recording;
+/** How long the slowed recording's commands were held, in all. */
+let slowHeldMs = 0;
 
 // The hook (both recordings, the fast one's 1080p render) took 37.5 s
 // locally on Apple silicon, 2026-11-13, rounded up to 40 s; the seam check
@@ -338,15 +340,17 @@ let slow: Recording;
 // 7.13x, so the decode gets 10x. The hook does not scale that way: since it
 // records at 2x (four times the pixels, on a runner with no GPU) it ran
 // past 400 s on ubuntu-latest and was cut off there (CI, 2026-11-14), while
-// macOS finished inside it. What it needs on ubuntu is not yet measured, so
-// it gets 15 minutes; set it from the first run that completes.
-const RECORD_BOTH_MS = 900_000;
+// macOS finished inside it. The first run to complete there took 290 s for
+// the whole file (CI, 2026-11-15); the hook gets twice that.
+const RECORD_BOTH_MS = 600_000;
 const DECODE_MS = 2_000 * 10;
 
 beforeAll(async () => {
   fast = await record(0, true);
   // Slowed second: the lag is the process's and nothing runs after it.
+  const heldBefore = heldByLagMs();
   slow = await record(LAG_MS, false);
+  slowHeldMs = heldByLagMs() - heldBefore;
 }, RECORD_BOTH_MS);
 
 describe("one script recorded fast and slowed", () => {
@@ -429,7 +433,13 @@ describe("one script recorded fast and slowed", () => {
         slow: slow.scene.camera.map(zoomShape(slow)),
       }),
     );
-    expect(sourceDiff, said).toBeGreaterThan(LAG_MS * STEPS * 4);
+    // Asked of what the lag held, not of the two recordings' lengths: on
+    // a busy macOS runner the fast one ran 18 s by itself and the slowed
+    // one was not 640 ms longer (CI, 2026-11-15), with nothing wrong.
+    expect(
+      slowHeldMs,
+      `${JSON.stringify({ slowHeldMs, sourceDiff })} ${said}`,
+    ).toBeGreaterThan(LAG_MS * STEPS * 4);
   });
 
   // Result 1: idle contributes nothing to the difference. Red if the take
@@ -574,7 +584,12 @@ describe("one script recorded fast and slowed", () => {
         // changes is the pointer: its box, with a margin.
         const motion = diffOf(idleFrame, frameAt(motionSide));
         const [x0, y0, x1, y1] = motion.box;
-        const pointer: Box = [x0 - 12, y0 - 12, x1 + 12, y1 + 12];
+        // 64: the pointer's own size (62 by 50, measured below). The box of
+        // what changed can be a sliver of it when the seam falls on the
+        // journey's eased start, and with a 12 px margin the pointer's far
+        // edge crept outside the mask on ubuntu (43 px, peak 68 of 255; CI,
+        // 2026-11-15).
+        const pointer: Box = [x0 - 64, y0 - 64, x1 + 64, y1 + 64];
         // The settled frame is compared outside the pointer: the frames are
         // the recording's, the pointer is drawn over them from its samples,
         // and the first and last half-pixel steps of a journey are below
@@ -583,7 +598,7 @@ describe("one script recorded fast and slowed", () => {
         const still = diffOf(idleFrame, frameAt(settled), pointer);
         const where = `${JSON.stringify({ still, motion })} seam at ${Math.round(seam.atMs)} ms (${seam.idleBefore ? "idle to motion" : "motion to idle"}), frames ${read.map((r) => r.frameSec)}: ${said}`;
         // Premise: what moved is pointer-sized, so the mask below (`pointer`,
-        // the box of what changed, plus 12 px) hides no page. It guards
+        // the box of what changed, plus 64 px) hides no page. It guards
         // `still.n === 0` from reading the pointer's own creep as a page
         // change. The box holds the pointer at both frames, so its size is
         // the pointer's plus its travel between them, and the travel

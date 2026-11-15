@@ -1,5 +1,9 @@
 import type { BrowserContext } from "playwright";
 
+let held = 0;
+/** How long `lagCdp` has held commands in this process, in all. */
+export const heldByLagMs = (): number => held;
+
 type LaggedProto = {
   send: ((...args: unknown[]) => Promise<unknown>) & { lagged?: boolean };
   lagMs?: number;
@@ -28,7 +32,10 @@ export async function lagCdp(
   const send = proto.send;
   proto.send = async function (this: unknown, ...args: unknown[]) {
     const lag = proto.lagMs ?? 0;
-    if (lag > 0) await new Promise((r) => setTimeout(r, lag));
+    if (lag > 0) {
+      await new Promise((r) => setTimeout(r, lag));
+      held += lag;
+    }
     return send.apply(this, args);
   };
   proto.send.lagged = true;
