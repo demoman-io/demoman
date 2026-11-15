@@ -336,16 +336,25 @@ export function createHeldClock(deps: {
       // Nor owing a stretch whose wait it has heard end: the walk would ask
       // the page next, and a settle's 200 ms quiet window ran inside the
       // owed network time on one machine and after it on another, a frame
-      // apart (the two-machines test, 2026-11-15).
-      const owing = () => {
+      // apart (the two-machines test, 2026-11-15). Only a wait heard over by
+      // the time the sleep reached its end: one the page opens and closes
+      // while that is played goes to the next sleep, or a page polling a
+      // fast server keeps the sleep from ever returning (review of Task 9
+      // round 4).
+      let heardBy: number | null = null;
+      const goesOn = () => {
+        if (end - held > EPS) return true;
+        heardBy ??= realNow();
         const quiet = network.quietSince();
         return (
-          quiet !== null &&
-          span?.endMs === held &&
-          stretchFrom.held + (quiet - stretchFrom.real) - held > EPS
+          unshot ||
+          (quiet !== null &&
+            quiet <= heardBy &&
+            span?.endMs === held &&
+            stretchFrom.held + (quiet - stretchFrom.real) - held > EPS)
         );
       };
-      while (end - held > EPS || unshot || owing()) {
+      while (goesOn()) {
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
         if (network.waiting()) {
