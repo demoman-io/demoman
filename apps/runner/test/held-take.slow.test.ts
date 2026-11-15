@@ -183,6 +183,14 @@ const changes = (frames: string[]): number =>
   frames.filter((f, i) => i > 0 && f !== frames[i - 1]).length;
 const hash = (s: string) => createHash("sha1").update(s).digest("hex");
 
+/** Navigations recorded in a row: enough to see the held frames agree
+ *  (20 did, 2026-11-15); the wait that falls between two looks, 1 in 20,
+ *  is held by its node test (held-clock.test.ts), which never misses. */
+const RUNS = 5;
+/** About 6 s a navigation here; 5x for CI's slower machines (the lane's
+ *  rule, vitest.config.ts). */
+const NAVIGATIONS_MS = RUNS * 6_000 * 5;
+
 describe("a held recording", () => {
   let first: Recorded;
   let second: Recorded;
@@ -326,40 +334,43 @@ describe("a held recording", () => {
   }, 120_000);
 
   // Task 6 review, carried to Task 9: the server's wait is in the video
-  // however Chrome's word of the request falls between the walk's looks.
-  // 1 of 20 runs lost it on 2026-11-15: the whole wait began and ended
-  // inside the one grant after the click (held-clock.ts follows such a
-  // wait now). `after` (held frames from the wait's end to each later step
-  // moment) is printed, not asserted: it is measured in the Task 9 report.
+  // however Chrome's word of the request falls between the walk's looks
+  // (1 of 20 runs lost it on 2026-11-15, the whole wait inside the one
+  // grant after the click; held-clock.ts follows such a wait now, and its
+  // node test is the guard that never misses). And the held frames from
+  // the click to each later step moment, outside every network stretch,
+  // are the same every run: they are what a slower machine must not change.
   it("puts a navigation's server wait in the video every time", async () => {
-    const runs: { waitMs: number; after: number[]; evidence?: unknown }[] = [];
-    for (let i = 0; i < 20; i++) {
+    const runs: { waitMs: number; held: number[]; evidence: unknown }[] = [];
+    for (let i = 0; i < RUNS; i++) {
       const r = await record(`${aUrl}/go`, [
         { do: "click", on: { stableId: "go" }, zoom: false },
         { do: "waitFor", on: { stableId: "there" }, until: "visible" },
       ]);
-      const click = r.bundle.markers[0]?.sourceTimeMs ?? Number.NaN;
-      const wait = (r.bundle.networkSpans ?? []).find(
+      const spans = r.bundle.networkSpans ?? [];
+      const [first, second] = r.bundle.markers;
+      const click = first?.sourceTimeMs ?? Number.NaN;
+      const wait = spans.find(
         (s) => s.label.includes("GET /there") && s.endMs > click,
       );
-      const end = wait?.endMs ?? Number.NaN;
-      const waitMs = end - Math.max(wait?.startMs ?? 0, click);
+      const heldSince = (to: number) => {
+        let network = 0;
+        for (const s of spans)
+          network += Math.max(
+            0,
+            Math.min(s.endMs, to) - Math.max(s.startMs, click),
+          );
+        return Math.round((to - click - network) / HELD_FRAME_MS);
+      };
       runs.push({
-        waitMs,
-        // The stretch ends on a frame of the grid, and so does each moment.
-        after: r.bundle.markers
-          .flatMap((m) => [m.sourceTimeMs, m.actEndSourceTimeMs ?? Number.NaN])
-          .filter((ms) => ms > end)
-          .map((ms) => Math.round((ms - end) / HELD_FRAME_MS)),
-        ...(waitMs >= 150
-          ? {}
-          : {
-              evidence: {
-                network: r.bundle.networkSpans,
-                markers: r.bundle.markers,
-                lines: r.lines.slice(-10),
-              },
-            }),
+        waitMs: (wait?.endMs ?? Number.NaN) - Math.max(wait?.startMs ?? 0, click),
+        held: [
+          first?.actEndSourceTimeMs,
+          second?.approachSourceTimeMs,
+          second?.sourceTimeMs,
+          second?.actEndSourceTimeMs,
+        ].map((ms) => heldSince(ms ?? Number.NaN)),
+        evidence: { network: spans, markers: r.bundle.markers },
       });
     }
     const said = JSON.stringify(runs);
@@ -367,7 +378,8 @@ describe("a held recording", () => {
       runs.filter((r) => !(r.waitMs >= 150)),
       said,
     ).toEqual([]);
-  }, 600_000);
+    expect(new Set(runs.map((r) => JSON.stringify(r.held))).size, said).toBe(1);
+  }, NAVIGATIONS_MS);
 
   // Fix round 1, finding 1: a frame of another origin on this page's own
   // site shares its renderer; the page cannot run its animation frames, so
