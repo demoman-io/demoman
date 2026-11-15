@@ -335,24 +335,38 @@ export function createHeldClock(deps: {
         const quiet = network.quietSince();
         // A wait can also begin and end between two looks, inside one
         // grant (a cross-site click's whole wait, 1 of 20 times on
-        // 2026-11-15): followed the same way, from the look before it.
+        // 2026-11-15): one more connection of a stretch open up to now, or
+        // a stretch of its own from where the page stood when it began,
+        // kept only if it is owed time.
         const last = network.lastWait();
+        let unseen: typeof span = null;
         if (quiet !== null && last !== null && last.from > looked.real) {
-          stretchFrom = { real: last.from, held: looked.held };
-          span = {
-            startMs: looked.held,
-            endMs: held,
-            labels: new Set(last.labels),
-          };
-          spans.push(span);
+          if (span?.endMs === held)
+            for (const l of last.labels) span.labels.add(l);
+          else {
+            stretchFrom = {
+              real: last.from,
+              held: last.from > pausedAt ? held : looked.held,
+            };
+            unseen = {
+              startMs: stretchFrom.held,
+              endMs: held,
+              labels: new Set(last.labels),
+            };
+          }
         }
+        const open = unseen ?? (span?.endMs === held ? span : null);
         const owed =
-          span?.endMs === held && quiet !== null
+          open !== null && quiet !== null
             ? stretchFrom.held + (quiet - stretchFrom.real) - held
             : 0;
-        if (span !== null && owed > EPS) {
+        if (open !== null && owed > EPS) {
+          if (open === unseen) {
+            span = open;
+            spans.push(open);
+          }
           await grant(frameFrom(held + owed));
-          span.endMs = held;
+          open.endMs = held;
           await shoot();
           continue;
         }

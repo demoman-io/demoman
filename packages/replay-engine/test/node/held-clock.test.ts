@@ -359,7 +359,7 @@ describe("createHeldClock", () => {
     const { clock, frames } = setup({
       waiting: () => false,
       // It began at real 250 and ended at 340, both inside the second
-      // frame's grant and capture (real 200-400), so no look saw it.
+      // frame's capture (real 200-400), so no look saw it.
       lastWait: (real) =>
         real >= 250 ? { from: 250, labels: ["GET /there"] } : null,
       quietSince: (real) => (real >= 340 ? 340 : null),
@@ -369,14 +369,42 @@ describe("createHeldClock", () => {
     await clock.sleep(1000);
     // Premise: two held frames first.
     expect(inFrames(times(frames).slice(0, 2))).toEqual([1, 2]);
-    // The stretch runs from the look before the wait (frame 1) for its
-    // 90 ms of real time, to the frame of the grid at or after it.
+    // The page was stopped at frame 2 (real 200) the whole wait, so the
+    // stretch runs from frame 2 for its 90 ms of real time, to the frame of
+    // the grid at or after it.
     expect(
       clock
         .networkSpans()
         .map((s) => [...inFrames([s.startMs, s.endMs]), s.label]),
-    ).toEqual([[1, 4, "GET /there"]]);
+    ).toEqual([[2, 5, "GET /there"]]);
     expect(frames.slice(3).every((f) => onGrid(f.sourceTimeMs))).toBe(true);
+  });
+
+  // Review of Task 9, finding 1: a stretch's last grant overran its sleep,
+  // and a quick refetch began and ended before the next look. It is one
+  // more connection of the open stretch, not a second span over it.
+  it("adds a wait between two looks to the stretch open up to it", async () => {
+    const { clock } = setup({
+      // The POST is open until real 300; the refetch runs 310-320.
+      waiting: (real) => real < 300,
+      quietSince: (real) => (real >= 320 ? 320 : null),
+      lastWait: (real) =>
+        real >= 310
+          ? { from: 310, labels: ["GET /refetch"] }
+          : { from: 0, labels: ["POST /api/chat"] },
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    // A frame at a time, as the walk sleeps: the second grant catches up to
+    // real 233 and ends the sleep there, past its own end; the third sleep's
+    // look is the first after the refetch.
+    for (let i = 0; i < 5; i++) await clock.sleep(HELD_FRAME_MS);
+    // One stretch, to the refetch's end (real 320, frame 10).
+    expect(
+      clock
+        .networkSpans()
+        .map((s) => [...inFrames([s.startMs, s.endMs]), s.label]),
+    ).toEqual([[0, 10, "POST /api/chat, GET /refetch"]]);
   });
 
   it("names the connections the network watch stopped counting", () => {
