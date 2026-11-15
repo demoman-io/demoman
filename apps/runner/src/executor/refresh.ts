@@ -181,6 +181,8 @@ const FORGIVEN = new Set<string>([
   "stepSettleFailed",
   // The video is right; a long poll was not waited for, and said.
   "requestNotWaited",
+  // The video is right; the cursor arrives before a slow page's hover.
+  "pointerLate",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 

@@ -1126,6 +1126,8 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "a drag reached the page and changed nothing on screen, so the page may not take drags this way",
   dragPictureMissing:
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
+  pointerLate:
+    "the page took the pointer's moves late on this machine, so the cursor can arrive a moment before a hover shows",
   stepUnsettled:
     "a step's page had not settled when the next began, so refresh cannot compare that screen",
   stepSettleFailed:

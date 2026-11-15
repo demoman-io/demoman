@@ -590,6 +590,10 @@ export interface EngineDeps {
  *  own answer, about a frame, is the real pace; this only bounds the rate
  *  when an answer comes back sooner. */
 const PATH_STEP_MS = 8;
+/** How far past its plan a path's last move may reach the page before the
+ *  run says so (`pointerLate`): the drawn cursor follows the plan, and on a
+ *  Mac the last move lands within about one answer, 10-25 ms, of it. */
+const POINTER_LATE_MS = 100;
 
 /** What a run that stopped before its first frame walks: nothing. */
 const NO_STEPS: AsyncIterable<WalkStep> = {
@@ -2162,37 +2166,95 @@ export async function runWalk(
     return rect === null ? null : { objectId: handle.objectId, rect };
   };
 
+  /** Paths whose last move reached the page late, said once for the run
+   *  (as the recorder's budget breaches are): on a slow runner every path
+   *  is late, and a note per path says nothing the count does not. */
+  let pointerLate: {
+    entry: Degradation;
+    paths: number;
+    worstMs: number;
+  } | null = null;
+
+  /**
+   * Sends a path's moves paced against the clock, not step by step. Chrome
+   * answers a move once the renderer has taken it, about a frame, and a
+   * fixed sleep after each answer made every path take about twice its
+   * plan: 1.4s for a 700ms move, twice in a row on the author's take of
+   * 2026-09-29. Each move is the point the curve has reached by the time it
+   * is sent (`pathPointAt` says why not a list planned ahead), so the first
+   * starts where the cursor is and the one sent once the time is up lands.
+   * A move answered sooner than `PATH_STEP_MS` waits out the rest: Chrome
+   * never does that, but nothing else bounds the rate.
+   *
+   * The drawn cursor is the planned curve on its own grid, not one sample
+   * per move sent: a runner answered a move in up to ~480 ms (2026-11-15),
+   * and a sample per answer drew a 700 ms move as four jumps. Drawn as far
+   * as the last move the page took, so a send that fails mid-path keeps
+   * the trail it made. A path whose last move landed more than
+   * `POINTER_LATE_MS` after its plan is said (`pointerLate`): the drawn
+   * cursor arrives that much before the page's hover shows.
+   */
+  const walkPath = async (
+    segment: CursorSegment,
+    send: (point: { x: number; y: number }) => Promise<unknown>,
+  ): Promise<void> => {
+    const start = at();
+    let sentAt = start;
+    let answered = -1;
+    try {
+      for (;;) {
+        const elapsed = sentAt - start;
+        await send(pathPointAt(segment, elapsed));
+        answered = elapsed;
+        const now = at();
+        if (elapsed >= segment.durationMs) break;
+        const wait = PATH_STEP_MS - (now - sentAt);
+        if (wait > 0) await clock.sleep(wait);
+        sentAt = at();
+      }
+    } finally {
+      if (answered >= 0) {
+        const until = Math.min(answered, segment.durationMs);
+        for (let ms = 0; ms < until; ms += PATH_STEP_MS) {
+          const p = pathPointAt(segment, ms);
+          cursorSamples.push({ sourceTimeMs: start + ms, x: p.x, y: p.y });
+        }
+        const last = pathPointAt(segment, until);
+        cursorSamples.push({
+          sourceTimeMs: start + until,
+          x: last.x,
+          y: last.y,
+        });
+      }
+    }
+    const lateMs = Math.round(answered - segment.durationMs);
+    if (lateMs > POINTER_LATE_MS) {
+      if (pointerLate === null) {
+        pointerLate = {
+          entry: degradation("pointerLate", start, at(), ""),
+          paths: 0,
+          worstMs: 0,
+        };
+        degradations.push(pointerLate.entry);
+      }
+      pointerLate.paths++;
+      pointerLate.worstMs = Math.max(pointerLate.worstMs, lateMs);
+      pointerLate.entry.endMs = at();
+      pointerLate.entry.note = `${pointerLate.paths} pointer ${pointerLate.paths === 1 ? "move" : "moves"} reached the page up to ${pointerLate.worstMs} ms after the drawn cursor`;
+    }
+  };
+
   const dispatchPath = async (
     segment: CursorSegment,
     to: { x: number; y: number },
   ): Promise<void> => {
-    const retargeted = retargetSegment(segment, cursor, to);
-    // Paced against the clock, not step by step. Chrome answers a
-    // `mouseMoved` once the renderer has taken it, about a frame, and a
-    // fixed sleep after each answer made every path take about twice its
-    // plan: 1.4s for a 700ms move, twice in a row on the author's take of
-    // 2026-09-29. Each move is the point the curve has reached by the time
-    // it is sent (`pathPointAt` says why not a list planned ahead), so the
-    // first starts where the cursor is and the one sent once the time is up
-    // lands. A move answered sooner than `PATH_STEP_MS` waits out the rest:
-    // Chrome never does that, but nothing else bounds the rate.
-    const start = at();
-    let sentAt = start;
-    for (;;) {
-      const elapsed = sentAt - start;
-      const point = pathPointAt(retargeted, elapsed);
-      await cdp.send("Input.dispatchMouseEvent", {
+    await walkPath(retargetSegment(segment, cursor, to), (point) =>
+      cdp.send("Input.dispatchMouseEvent", {
         type: "mouseMoved",
         x: point.x,
         y: point.y,
-      });
-      const now = at();
-      cursorSamples.push({ sourceTimeMs: now, x: point.x, y: point.y });
-      if (elapsed >= retargeted.durationMs) break;
-      const wait = PATH_STEP_MS - (now - sentAt);
-      if (wait > 0) await clock.sleep(wait);
-      sentAt = at();
-    }
+      }),
+    );
     cursor = to;
   };
 
@@ -2337,7 +2399,6 @@ export async function runWalk(
           }
         }
       }
-      cursorSamples.push({ sourceTimeMs: at(), x: p.x, y: p.y });
     };
     const probe = await placeClickProbe(cdp, objectId, actionId);
     // After the probe, so placing it is not a change the drag made.
@@ -2366,19 +2427,11 @@ export async function runWalk(
       const { lead, segment } = heldPath(plan.start, plan.end, actionId);
       for (const p of lead) {
         await move(p);
+        cursorSamples.push({ sourceTimeMs: at(), x: p.x, y: p.y });
         await clock.sleep(PATH_STEP_MS);
       }
-      // Paced against the clock, as `dispatchPath` is, and for its reason.
-      const begun = at();
-      let sentAt = begun;
-      for (;;) {
-        const elapsed = sentAt - begun;
-        await move(pathPointAt(segment, elapsed));
-        if (elapsed >= segment.durationMs) break;
-        const wait = PATH_STEP_MS - (at() - sentAt);
-        if (wait > 0) await clock.sleep(wait);
-        sentAt = at();
-      }
+      // The held path is drawn and paced as `dispatchPath`'s, for its reasons.
+      await walkPath(segment, move);
       await clock.sleep(SETTLE_MS);
       await (native
         ? cdp.send("Input.dispatchDragEvent", {

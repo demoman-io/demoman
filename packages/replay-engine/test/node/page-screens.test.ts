@@ -693,8 +693,25 @@ describe("the pointer's move before each step's settle", () => {
         }),
       capture: (take) => inner.capture(take),
     };
-    const seen: { what: string; x?: unknown; y?: unknown; gated?: boolean }[] =
-      [];
+    // The walk's own clock, read without reading the fake's (each read of
+    // which costs 10 ms): its first read is the walk's start (`started`),
+    // and the newest read is where the walk is now.
+    const now = d.clock.now.bind(d.clock);
+    let first: number | null = null;
+    let latest = 0;
+    d.clock.now = () => {
+      latest = now();
+      first ??= latest;
+      return latest;
+    };
+    const walkMs = () => latest - (first ?? latest);
+    const seen: {
+      what: string;
+      x?: unknown;
+      y?: unknown;
+      gated?: boolean;
+      at?: number;
+    }[] = [];
     const send = d.cdp.send.bind(d.cdp);
     d.cdp.send = async (method, params = {}) => {
       if (method === "Input.dispatchMouseEvent")
@@ -703,9 +720,10 @@ describe("the pointer's move before each step's settle", () => {
           x: params.x,
           y: params.y,
           gated: inSection > 0,
+          at: walkMs(),
         });
       if (String(params.expression ?? "").includes(STEP_SETTLE_MARKER))
-        seen.push({ what: "settle" });
+        seen.push({ what: "settle", at: walkMs() });
       return send(method, params);
     };
     return seen;
@@ -726,17 +744,30 @@ describe("the pointer's move before each step's settle", () => {
       const before = seen.slice(0, i).filter((s) => s.what !== "settle");
       const [release, move] = before.slice(-2);
       expect(release?.what, JSON.stringify(seen)).toBe("mouseReleased");
-      expect(move, JSON.stringify(seen)).toEqual({
+      expect(move, JSON.stringify(seen)).toMatchObject({
         what: "mouseMoved",
         x: release?.x,
         y: release?.y,
         gated: true,
       });
     }
-    // No cursor sample for it: the drawn cursor did not move. Every other
-    // move the walk sent is one.
-    const moves = seen.filter((s) => s.what === "mouseMoved").length;
-    expect(result.bundle?.cursorSamples, evidence).toHaveLength(moves - 2);
+    // No cursor sample for it: the drawn cursor did not move. Nothing is
+    // drawn from that move to its settle (the travels draw their planned
+    // curves, each before its last move is sent).
+    const samples = result.bundle?.cursorSamples ?? [];
+    expect(samples.length, evidence).toBeGreaterThan(0);
+    // The premise: `at` is on the samples' clock. A travel's first sample is
+    // stamped at the walk's read just before its first move went out.
+    const firstMove = seen.find((s) => s.what === "mouseMoved");
+    expect(samples[0]?.sourceTimeMs, evidence).toBe(firstMove?.at);
+    for (const i of settles.slice(1)) {
+      const from = seen[i - 1]?.at as number;
+      const to = seen[i]?.at as number;
+      const drawn = samples.filter(
+        (c) => c.sourceTimeMs >= from && c.sourceTimeMs <= to,
+      );
+      expect(drawn, `${from}-${to} ms; ${evidence}`).toEqual([]);
+    }
     const release = seen.filter((s) => s.what === "mouseReleased").at(-1);
     expect(result.bundle?.cursorSamples.at(-1), evidence).toMatchObject({
       x: release?.x,
