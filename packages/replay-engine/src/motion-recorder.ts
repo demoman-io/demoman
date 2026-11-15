@@ -8,7 +8,11 @@ import {
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
 } from "./constants.js";
-import { changedShare, type LumaBlocks, lumaBlocks } from "./frame-change.js";
+import {
+  type LumaBlocks,
+  lumaBlocks,
+  strongestChange,
+} from "./frame-change.js";
 import { decodeBase64, jpegSize } from "./image.js";
 import {
   admitFrame,
@@ -143,22 +147,26 @@ interface OpenSpan {
  * byte, 25-160 ms later, several times a take; the Mac sent none. A pair of
  * them beside a caret blink made `SPAN_MIN_FRAMES`, and a still page was
  * kept as 300-460 ms of motion on one machine and not the other.
- * Only a small change is one (`FLICKER_SHARE`): a page that flashes, or
- * loops through two pictures, changes far more of itself and is motion.
- * shortcut: something small a page really shows for one or two frames and
- * takes back (a status dot blinking faster than `SPAN_QUIET_MS` a turn) is
- * read the same way; upgrade by finding what makes the runner flicker.
+ * Only a faint change is one (`FLICKER_DELTA`): a page that flashes, a
+ * spinner, a caret, change some block strongly and are motion.
+ * shortcut: something faint a page really shows for one or two frames and
+ * takes back (a hover tint that flickers) is read the same way; upgrade by
+ * finding what makes the runner flicker.
  */
 const FLICKER_FRAMES = 2;
 
 /**
- * The most of the frame (its 8x8 luma blocks) a flicker changes. The
- * runner's measured 0.2-1.5%; a frame that cannot be read is not called
- * one. Above it the frames are the page's own: `render.slow.test.ts`'s page
- * flashing black and white every 200 ms lost all its motion to the rule
- * before it asked this (CI, 2026-11-14).
+ * The strongest change a flicker makes to any one block (`strongestChange`).
+ * Measured on ubuntu-latest, 2026-11-14: the flicker's strongest block
+ * changed by 78 to 282 on a page of controls and on a page full of text
+ * (where it touched a fifth to a third of all blocks, so how much of the
+ * frame changed says nothing), while a caret's blink changed one by 480,
+ * typing by 480 to 1020 and a small spinner by 750 to 1280. A frame that
+ * cannot be read is not called a flicker. Before it asked this the rule
+ * took every frame of a page flashing black and white, and of a spinner
+ * whose picture repeats (CI, 2026-11-14).
  */
-const FLICKER_SHARE = 0.02;
+const FLICKER_DELTA = 350;
 
 /** A frame the recorder has just seen, kept for `FLICKER_FRAMES`. */
 interface RecentFrame {
@@ -183,14 +191,14 @@ function lumaOf(frame: RecentFrame): LumaBlocks | null {
   return frame.luma;
 }
 
-/** Whether every one of `strayed` differs from `home` by a flicker's worth
- *  at most. False when any of them cannot be read. */
-function smallChange(home: RecentFrame, strayed: RecentFrame[]): boolean {
+/** Whether every one of `strayed` differs from `home` only faintly. False
+ *  when any of them cannot be read. */
+function faintChange(home: RecentFrame, strayed: RecentFrame[]): boolean {
   const a = lumaOf(home);
   if (a === null) return false;
   return strayed.every((f) => {
     const b = lumaOf(f);
-    return b !== null && changedShare(a, b) <= FLICKER_SHARE;
+    return b !== null && strongestChange(a, b) <= FLICKER_DELTA;
   });
 }
 
@@ -381,7 +389,7 @@ export function createMotionRecorder(deps: MotionRecorderDeps): MotionRecorder {
       recent.at(-1)?.data !== seen.data &&
       seen.atMs - first.atMs < SPAN_QUIET_MS &&
       strayed.every((f) => !f.flicker) &&
-      smallChange(seen, strayed)
+      faintChange(seen, strayed)
     ) {
       seen.flicker = true;
       for (const f of strayed) {

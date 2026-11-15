@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Degradation } from "@demoman/compositor";
 import { describe, expect, it, vi } from "vitest";
-import { changedShare, lumaBlocks } from "../../src/frame-change.js";
+import {
+  changedShare,
+  lumaBlocks,
+  strongestChange,
+} from "../../src/frame-change.js";
 import type {
   EncodedSpan,
   FrameEncoder,
@@ -673,10 +677,12 @@ describe("continuous recording", () => {
   });
 
   describe("a flicker", () => {
-    // Real frames, 256x160: `small-change.jpg` differs from `base.jpg` in 4
-    // of its 640 blocks (0.6%, a flicker's worth) and `big-change.jpg` in
-    // nearly half. A byte after the end of the picture makes another frame
-    // of the same picture.
+    // Real frames, 256x160. `flicker-faint.jpg` is `flicker-home.jpg` with
+    // its text a shade lighter: a sixth of its blocks change, none by more
+    // than 30 (the runner's flicker on a page of text). `small-change.jpg`
+    // changes 4 of `base.jpg`'s 640 blocks by 750 (a spinner, a caret), and
+    // `big-change.jpg` nearly half of them. A byte after the end of the
+    // picture makes another frame of the same picture.
     const fixture = (name: string, extra?: number) =>
       Buffer.concat([
         readFileSync(
@@ -684,23 +690,31 @@ describe("continuous recording", () => {
         ),
         Buffer.from(extra === undefined ? [] : [extra]),
       ]).toString("base64");
-    const A = fixture("base.jpg");
-    const B = fixture("small-change.jpg");
-    const C = fixture("small-change.jpg", 1);
-    const picture = (n: number) => fixture("base.jpg", n);
+    const A = fixture("flicker-home.jpg");
+    const B = fixture("flicker-faint.jpg");
+    const C = fixture("flicker-faint.jpg", 1);
+    const picture = (n: number) => fixture("flicker-home.jpg", n);
+    const BASE = fixture("base.jpg");
+    const SMALL = fixture("small-change.jpg");
     const BIG = fixture("big-change.jpg");
     // Premise: the fixtures are what the cases below say they are.
-    it("is asked of frames that differ a little, a lot, and not at all", () => {
+    it("is asked of frames that differ faintly, strongly, and not at all", () => {
       const read = (data: string) => {
         const blocks = lumaBlocks(Buffer.from(data, "base64"));
         if (blocks === null) throw new Error("a fixture did not decode");
         return blocks;
       };
-      expect(changedShare(read(A), read(B))).toBeCloseTo(4 / 640, 6);
-      expect(changedShare(read(B), read(C))).toBe(0);
-      expect(changedShare(read(A), read(picture(4)))).toBe(0);
-      expect(changedShare(read(A), read(BIG))).toBeGreaterThan(0.45);
-      expect(new Set([A, B, C, picture(4), BIG]).size).toBe(5);
+      // Faint and widespread: how much of the frame changed is not the test.
+      expect(changedShare(read(A), read(B))).toBeGreaterThan(0.1);
+      expect(strongestChange(read(A), read(B))).toBeGreaterThan(0);
+      expect(strongestChange(read(A), read(B))).toBeLessThan(100);
+      expect(strongestChange(read(B), read(C))).toBe(0);
+      expect(strongestChange(read(A), read(picture(4)))).toBe(0);
+      // Strong, on a hundredth of the frame and on half of it.
+      expect(changedShare(read(BASE), read(SMALL))).toBeLessThan(0.01);
+      expect(strongestChange(read(BASE), read(SMALL))).toBeGreaterThan(600);
+      expect(strongestChange(read(BASE), read(BIG))).toBeGreaterThan(600);
+      expect(new Set([A, B, C, picture(4), BASE, SMALL, BIG]).size).toBe(7);
     });
     /** A recorder whose close loops wait on the test's clock, and each
      *  encoder close as `[endMs, flicker]`. */
@@ -717,8 +731,8 @@ describe("continuous recording", () => {
         ]);
       /** The page as it stood: one frame, long enough ago to be its own
        *  span. */
-      const settle = async () => {
-        h.recorder.onFrame(frame(1, A));
+      const settle = async (home = A) => {
+        h.recorder.onFrame(frame(1, home));
         h.advance(600);
         await flush();
         await flush();
@@ -801,12 +815,16 @@ describe("continuous recording", () => {
       await h.recorder.teardown();
     });
 
-    // CI, 2026-11-14: a page flashing black and white lost every frame to
-    // the rule. Red if `smallChange` is not asked.
-    it("is not a page that flashes between two pictures", async () => {
+    // CI, 2026-11-14: a page flashing black and white, and a spinner whose
+    // picture repeats, lost every frame to the rule. Red if `faintChange` is
+    // not asked, or asks how much of the frame changed.
+    it.each([
+      ["a page that flashes between two pictures", BIG],
+      ["something small that changes strongly, as a spinner does", SMALL],
+    ])("is not %s", async (_what, other) => {
       const { h, closes, settle } = still();
-      await settle();
-      for (const data of [BIG, A, BIG, A]) {
+      await settle(BASE);
+      for (const data of [other, BASE, other, BASE]) {
         h.recorder.onFrame(frame(2, data));
         h.advance(100);
         // Each push lands before the next: three outstanding is a budget
