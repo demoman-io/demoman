@@ -118,18 +118,24 @@ async function blocksOf(r: Recorded): Promise<{ ms: number; n: number }[]> {
   });
 }
 
-/** From the first frame that shows the answer's first chunk to the first
- *  that shows its last, in the video's source ms; how late either can be:
- *  a chunk shows in the first frame taken after it came, so each is at most
- *  the time since the frame before it (never under a held frame); whether
- *  the answer only grew; and each frame it grew on. */
+/** The stream's pace in the video. The first frame that shows the answer
+ *  is left out: it is taken as the wait begins, and shows what came while
+ *  it was being captured, which on a slow machine is two or three chunks
+ *  (2026-11-15, every command held 40 ms). So: from the first frame that
+ *  shows a chunk more than that one (`fromChunk`) to the first that shows
+ *  them all, in source ms; how late either can be (a chunk shows in the
+ *  first frame taken after it came: at most the time since the frame before
+ *  it, never under a held frame); whether the answer only grew; and each
+ *  frame it grew on. */
 async function streamed(r: Recorded) {
   const frames = await blocksOf(r);
-  const from = frames.findIndex((f) => f.n >= 1);
+  const shown = frames.find((f) => f.n >= 1)?.n ?? Number.NaN;
+  const from = frames.findIndex((f) => f.n > shown);
   const to = frames.findIndex((f) => f.n === CHUNKS);
   const gapBefore = (i: number) =>
     (frames[i]?.ms ?? Number.NaN) - (frames[i - 1]?.ms ?? Number.NaN);
   return {
+    fromChunk: frames[from]?.n ?? Number.NaN,
     first: frames[from]?.ms ?? Number.NaN,
     last: frames[to]?.ms ?? Number.NaN,
     lateMs: Math.max(HELD_FRAME_MS, gapBefore(from), gapBefore(to)),
@@ -179,13 +185,14 @@ describe("a held recording that waits on its server", () => {
     expect(slowed.realMs, said).toBeGreaterThan(normal.realMs + 10_000);
     for (const s of both) {
       // Premise: the answer grew in the frames, from none to all ten, over
-      // at least six states seen.
+      // at least six states seen, and at least 1200 ms of it is measured.
       expect(s.rising, said).toBe(true);
       expect(s.states[0], said).toBe(0);
       expect(s.states.at(-1), said).toBe(CHUNKS);
       expect(s.states.length, said).toBeGreaterThanOrEqual(6);
+      expect(s.fromChunk, said).toBeLessThanOrEqual(CHUNKS - 6);
       expect(
-        Math.abs(s.last - s.first - (CHUNKS - 1) * CHUNK_GAP_MS),
+        Math.abs(s.last - s.first - (CHUNKS - s.fromChunk) * CHUNK_GAP_MS),
         said,
       ).toBeLessThanOrEqual(s.lateMs);
     }
