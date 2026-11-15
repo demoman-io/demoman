@@ -41,6 +41,25 @@ describe("filmQuality: a held take", () => {
     expect(film.connectionsIgnored).toEqual([]);
   });
 
+  it("puts network time on the video's clock when an earlier stretch is shortened", () => {
+    // Red if `network` is given source ms instead of the timeline's output ms.
+    const late = { startMs: 9000, endMs: 9500, label: "GET /late" };
+    const film = filmQuality(
+      twoStepScene(undefined, [
+        { id: "g1", afterActionId: "s1", durationMs: 800 },
+      ]),
+      held({ networkSpans: [late] }),
+    );
+    if ("unavailable" in film) throw new Error(film.unavailable);
+    const shown = film.network?.[0];
+    // The 6 s rest between the steps plays about 800 ms, so the span moves
+    // earlier by seconds; its own length is the timeline's (idle after the
+    // last step is shortened), while `networkMs` stays the source sum.
+    expect(late.startMs - (shown?.startMs ?? 0)).toBeGreaterThan(4000);
+    expect(shown?.endMs).toBeGreaterThan(shown?.startMs ?? 0);
+    expect(film.networkMs).toBe(500);
+  });
+
   it("names a connection dropped from the count", () => {
     const film = filmOf(
       held({
