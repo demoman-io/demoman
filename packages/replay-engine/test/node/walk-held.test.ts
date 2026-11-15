@@ -174,6 +174,9 @@ async function run(
      *  closes this much later, reported as network time when page time
      *  reaches it: inside the next step's rest. */
     networkInRestMs?: number;
+    /** The same request, opening 100 ms after the walk's scroll ends:
+     *  inside the scrolled step's after-scroll. */
+    networkAfterScrollMs?: number;
     /** The step-settle probe waits on the page's timers: it answers only
      *  once this much page time has passed since it was asked (null: never). */
     settleAnswersAfterMs?: number | null;
@@ -203,7 +206,9 @@ async function run(
       if (restRequestAt !== null && now >= restRequestAt) {
         network.push({
           startMs: restRequestAt,
-          endMs: restRequestAt + (opts.networkInRestMs ?? 0),
+          endMs:
+            restRequestAt +
+            (opts.networkInRestMs ?? opts.networkAfterScrollMs ?? 0),
           label: "GET /beacon",
         });
         restRequestAt = null;
@@ -267,6 +272,8 @@ async function run(
       scrollSteps.push(p);
       scrollAsked.steps.push(String(params.objectId));
       if (p === 1) belowFold = false;
+      if (p === 1 && opts.networkAfterScrollMs !== undefined)
+        restRequestAt = held.clock.now() + 100;
       return { result: { type: "undefined" } };
     }
     if (
@@ -737,6 +744,50 @@ describe("the walk on a held clock", () => {
       BASE + HELD_SCROLL_MS + ARRIVE,
       6,
     );
+  });
+
+  // Review of Task 9 round 1, minor: the after-scroll is a rest too.
+  it("plays the whole after-scroll around a request inside it", async () => {
+    const afterScroll = async (ms: number) => {
+      const { result, progress } = await run([click("a"), click("far")], {
+        networkAfterScrollMs: ms,
+      });
+      const evidence = evidenceOf(result, progress);
+      expect(result.outcome, evidence).toBe("complete");
+      const far = markerOf(result, 1);
+      return {
+        evidence,
+        beacon: result.bundle?.networkSpans?.[0],
+        scrollEnd: far.scrollEndSourceTimeMs ?? Number.NaN,
+        fromScrollEnd:
+          (far.approachSourceTimeMs ?? 0) - (far.scrollEndSourceTimeMs ?? 0),
+      };
+    };
+    const without = await afterScroll(0);
+    const withIt = await afterScroll(300);
+    // Premise: the request is network time inside the after-scroll.
+    expect(withIt.beacon?.startMs ?? 0, withIt.evidence).toBeGreaterThan(
+      withIt.scrollEnd,
+    );
+    expect(
+      withIt.fromScrollEnd - without.fromScrollEnd,
+      withIt.evidence,
+    ).toBeCloseTo(300, 6);
+  });
+
+  // Review of Task 9 round 1, minor: report before you forgive.
+  it("says a rest it cut short because the page waited the whole time", async () => {
+    const { result, progress } = await run([click("a"), click("b")], {
+      networkInRestMs: 100_000,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const cut = (result.bundle?.degradations ?? []).filter(
+      (d) => d.kind === "pacingUnplaced",
+    );
+    // The rest before the second click, and the tail: the request never ends.
+    expect(cut, evidence).toHaveLength(2);
+    for (const d of cut) expect(d.note, evidence).toMatch(/cut \d+ ms short/);
   });
 
   it("returns no pacing plan and a held bundle", async () => {

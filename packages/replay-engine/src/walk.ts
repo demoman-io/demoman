@@ -936,29 +936,41 @@ export async function runWalk(
    *  renderer folds that idle into the rest. Network time does not: it is
    *  the server's, played on top of the designed clock (spec §2), or a
    *  slower server would leave a different rest on another machine. */
-  const sinceActEnd = (plannedMs: number): number => {
+  const sinceActEnd = (plannedMs: number, since = heldActEnd): number => {
     const now = at();
     let networkMs = 0;
     for (const s of held?.networkSpans() ?? []) {
-      const from = Math.max(s.startMs - started, heldActEnd);
+      const from = Math.max(s.startMs - started, since);
       networkMs += Math.max(0, Math.min(s.endMs - started, now) - from);
     }
-    return Math.max(0, plannedMs - (now - heldActEnd - networkMs));
+    return Math.max(0, plannedMs - (now - since - networkMs));
   };
-  /** Plays a held rest or tail to its planned page time: network time that
-   *  opens inside it is played on top, so the rest's held part is the
-   *  plan's on any machine (review of Task 9, finding 3).
-   *  shortcut: a page that waits on its server the whole time (an endless
-   *  stream) ends the rest after NAVIGATE_TIMEOUT_MS of it; upgrade with a
-   *  degradation if an app shows it. */
-  const playRest = async (plannedMs: number): Promise<void> => {
-    const giveUpAt = at() + plannedMs + NAVIGATE_TIMEOUT_MS;
-    for (
-      let left = sinceActEnd(plannedMs);
-      left > HELD_EPS_MS && at() < giveUpAt;
-      left = sinceActEnd(plannedMs)
-    )
+  /** Plays a held rest or tail to its planned page time, counted from
+   *  `since` (the last act's end): network time that opens inside it is
+   *  played on top, so the rest's held part is the plan's on any machine
+   *  (review of Task 9, finding 3). A page that waits on its server the
+   *  whole time (an endless stream) ends it after NAVIGATE_TIMEOUT_MS of
+   *  that, short, and says so. */
+  const playRest = async (
+    plannedMs: number,
+    since = heldActEnd,
+  ): Promise<void> => {
+    const from = at();
+    const giveUpAt = from + plannedMs + NAVIGATE_TIMEOUT_MS;
+    let left = sinceActEnd(plannedMs, since);
+    while (left > HELD_EPS_MS && at() < giveUpAt) {
       await clock.sleep(left);
+      left = sinceActEnd(plannedMs, since);
+    }
+    if (left > HELD_EPS_MS)
+      degradations.push(
+        degradation(
+          "pacingUnplaced",
+          from,
+          at(),
+          `a pause was cut ${Math.round(left)} ms short: the page waited on its server through ${NAVIGATE_TIMEOUT_MS / 1000} s of it`,
+        ),
+      );
   };
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
@@ -3729,7 +3741,7 @@ export async function runWalk(
       // the arrive below replaces the settle.
       if (heldPlan) {
         if (restBeforeScroll === null) await playRest(restMs);
-        else await clock.sleep(afterScrollMs);
+        else await playRest(afterScrollMs, scrollEndAt ?? at());
       }
       const pathFrom = at();
       if (segment !== undefined) {
