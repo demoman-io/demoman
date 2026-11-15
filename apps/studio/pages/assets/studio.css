@@ -132,11 +132,12 @@
   padding-inline: 32px;
   gap: 28px;
 }
-/* The bare figure in place of the disc and the wordmark. Its span is
-   `hidden` in the markup, so the extension never shows it. */
+/* The bare mark in place of the disc and the wordmark, as tall as the
+   site header's (the author, 2026-11-14). Its span is `hidden` in the
+   markup, so the extension never shows it. */
 [data-studio] .logomark {
   align-items: center;
-  height: 20px;
+  height: 14px;
   color: var(--ink);
 }
 [data-studio] .logomark .disc,
@@ -145,7 +146,7 @@
 }
 [data-studio] .logomark .figure {
   display: flex;
-  height: 20px;
+  height: 14px;
 }
 /* The site's nav: words in ink-2, the current page in ink, no pill. */
 [data-studio] .tabs {
@@ -1414,11 +1415,11 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   font-size: 12.5px;
 }
 
-/* The figure's svg, last: every other svg rule here is less specific, and
+/* The mark's svg, last: every other svg rule here is less specific, and
    biome's noDescendingSpecificity holds them in ascending order. */
 [data-studio] .logomark .figure svg {
   width: auto;
-  height: 20px;
+  height: 14px;
   fill: currentColor;
 }
 

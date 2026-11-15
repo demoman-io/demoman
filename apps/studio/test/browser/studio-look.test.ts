@@ -145,7 +145,7 @@ describe("header and frame", () => {
   // Spec §4, §5.1. Red: drop the figure's display rule (it stays `hidden`),
   // set --line to transparent, or give the topbar back its 64px.
   it.runIf(process.platform === "darwin")(
-    "draws the bare figure, a 56px header over a hairline, the two rails and the jump list's current row",
+    "draws the bare mark, a 56px header over a hairline, the two rails and the jump list's current row",
     async () => {
       const { page, open } = await openStudio(1440, 900);
       const xs: number[] = [];
@@ -189,11 +189,13 @@ describe("header and frame", () => {
         const current = g.current as NonNullable<typeof g.current>;
 
         expect(figure.display, said).not.toBe("none");
-        expect(Math.abs(figure.height - 20), said).toBeLessThanOrEqual(1);
+        expect(Math.abs(figure.height - 14), said).toBeLessThanOrEqual(1);
         expect(g.disc?.display, said).toBe("none");
         expect(g.word?.display, said).toBe("none");
+        // Three quarters across and halfway down is inside the D's bowl;
+        // the middle falls between the second slash and the D.
         const [ink] = await pixelsAt(page, [
-          [figure.left + figure.width / 2, figure.top + figure.height * 0.5],
+          [figure.left + figure.width * 0.75, figure.top + figure.height * 0.5],
         ]);
         expect(
           distance(ink as Rgb, [244, 244, 245]),
