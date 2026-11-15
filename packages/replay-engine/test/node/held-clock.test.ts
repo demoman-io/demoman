@@ -340,12 +340,13 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await clock.sleep(100);
-    expect(budgets()).toHaveLength(3); // premise: three held grants first
-    await clock.sleep(1000);
-    // The stretch: frame 2 at real 805. The third grant's frame is not
-    // taken (the page was waiting by its end); the stretch's first is taken
-    // at 1000 + 400 (a grant and a capture): 595 ms on, frame 19 (16 past
-    // 3). Dated from the grant's end instead (frame 3 at 1000): frame 15.
+    // Premise: three held grants, the third the sleep's last; its frame is
+    // not taken (the page was waiting by its end), and the stretch's first
+    // is, before the sleep returns.
+    expect(budgets()).toHaveLength(4);
+    // The stretch: frame 2 at real 805. Its first frame is taken at
+    // 1000 + 400 (a grant and a capture): 595 ms on, frame 19 (16 past 3).
+    // Dated from the grant's end instead (frame 3 at 1000): frame 15.
     expect(inFrames(budgets()).slice(3, 4)).toEqual([16]);
   });
 
@@ -438,6 +439,49 @@ describe("createHeldClock", () => {
   // Review of Task 9 round 2, finding 3: the frame of a held grant the page
   // was waiting at the end of was skipped; when the wait ended before the
   // next look, under a frame long, no stretch replaced it.
+  // Review of Task 9 round 3: the skipped grant was the sleep's last, so the
+  // sleep returned with its frame untaken; the walk then changed the page
+  // (a scroll step) before the next sleep took it, or never did after the
+  // walk's last sleep. Each one-frame sleep must return with its frame.
+  it.each([
+    ["the fourth", 1400],
+    ["the last", 2200],
+  ])(
+    "takes a skipped frame before its sleep returns, in %s sleep",
+    async (_, end) => {
+      let seen = false;
+      const { clock, frames } = setup({
+        // The same beacon, inside that one-frame sleep's grant (each runs
+        // 200 ms of real time, ending at a multiple of 400 less 200).
+        waiting: (real) => {
+          if (real >= end && !seen) {
+            seen = true;
+            return true;
+          }
+          return false;
+        },
+        quietSince: (real) => (real >= end ? end + 5 : null),
+        waitsSince: waitsOf({
+          from: end - 10,
+          at: end,
+          labels: ["GET /beacon"],
+        }),
+        captureMs: 200,
+        grantMs: 200,
+      });
+      await clock.hold(START);
+      const taken: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        await clock.sleep(HELD_FRAME_MS);
+        taken.push(frames.length);
+      }
+      expect(seen).toBe(true); // premise: the check saw the beacon
+      expect(taken).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(inFrames(times(frames))).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(clock.networkSpans()).toEqual([]);
+    },
+  );
+
   it("takes a skipped frame when its wait leaves no stretch", async () => {
     let seen = false;
     const { clock, frames } = setup({

@@ -331,7 +331,9 @@ export function createHeldClock(deps: {
       if (startEpochMs === null) throw new Error("sleep before hold");
       if (!(ms >= 0)) throw new Error(`cannot sleep ${ms} ms of page time`);
       const end = held + ms;
-      while (end - held > EPS) {
+      // Not past a frame skipped at the sleep's last grant: the walk would
+      // change the page before it was taken (review of Task 9 round 3).
+      while (end - held > EPS || unshot) {
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
         if (network.waiting()) {
