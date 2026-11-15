@@ -5,6 +5,7 @@ import {
   type FrameBundle,
   frameTrack,
   inScreenSpace,
+  isHeld,
   LANDSCAPE_1080P,
   landscapeFrame,
   outputRectToCss,
@@ -96,9 +97,18 @@ export type FilmReport =
        * `recordedMs` how long the take ran while recorded. A take with no plan carries
        * none of these four, and its report is what it always was.
        */
-      pacing?: "planned";
+      pacing?: "planned" | "held";
       plannedMs?: number;
       recordedMs?: number;
+      /**
+       * Present only on a held take (`pacing: "held"`, page time one video
+       * frame per capture): the stretches spent waiting on the network, in
+       * output ms, their total, and the connections dropped from that count
+       * for going quiet. A planned or older take carries none of these.
+       */
+      networkMs?: number;
+      network?: { startMs: number; endMs: number; label: string }[];
+      connectionsIgnored?: string[];
       /** Beats that could not be placed (they play as recorded); present
        *  only when above 0. `unplacedBeatSteps` names the step each sits
        *  before, `null` for the planned tail. */
@@ -648,6 +658,23 @@ export function filmQuality(
                 unplacedBeatSteps: unplacedSteps,
               }
             : {}),
+        }
+      : {}),
+    ...(isHeld(bundle)
+      ? {
+          pacing: "held" as const,
+          networkMs: (bundle.networkSpans ?? []).reduce(
+            (sum, s) => sum + (s.endMs - s.startMs),
+            0,
+          ),
+          network: (bundle.networkSpans ?? []).map((s) => ({
+            startMs: out(s.startMs),
+            endMs: out(s.endMs),
+            label: s.label,
+          })),
+          connectionsIgnored: bundle.degradations
+            .filter((d) => d.kind === "connectionIgnored")
+            .map((d) => d.note),
         }
       : {}),
   };

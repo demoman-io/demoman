@@ -7,6 +7,7 @@ import {
   type AuthoredStep,
   type CaptureFailure,
   failedPerformedStep,
+  IDLE_CONNECTION_MS,
   type Rect,
   type ReplayCounters,
   type ReplayPolicy,
@@ -1138,8 +1139,7 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   pageHoldNotReleased:
     "a page screen's hold could not be undone, so the video after that step may show no caret and frozen animations",
   requestNotWaited: `a request opened more than ${STEP_REQUEST_CAP_MS / 1000} seconds before a step's wait began (a long poll, say) was not waited for, so that step's page screen may have been taken before it answered`,
-  connectionIgnored:
-    "a connection with no data for 10 seconds stopped counting as waiting on the server, so the video may show the page before that connection answered",
+  connectionIgnored: `a connection with no data for ${IDLE_CONNECTION_MS / 1000} seconds stopped counting as waiting on the server, so the video may show the page before that connection answered`,
   animationUnpinned:
     "part of the page could not be held on the video's clock (an animation that could not be paused, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing",
 };
