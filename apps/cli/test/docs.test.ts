@@ -266,28 +266,28 @@ describe("no Mintlify starter left", () => {
 });
 
 describe("brand copies", () => {
-  // The logos are demoman.io's header lockup: brand/logomark.svg's figure,
-  // cropped as the site's header crops it, beside brand/wordmark.svg's
-  // outlines, each filled with the theme's ink.
+  // The logos are demoman.io's header lockup: brand/logomark.svg's mark
+  // beside brand/wordmark.svg's outlines, each filled with the theme's ink
+  // (internal/site/scripts/icons.mjs writes all three).
   it.each([
     ["logo/light.svg", "#0a0a0a"],
     ["logo/dark.svg", "#f4f4f5"],
-  ])("%s is the figure beside the wordmark, filled %s", (copy, fill) => {
+  ])("%s is the mark beside the wordmark, filled %s", (copy, fill) => {
     const wordmark = readFileSync(brand("wordmark.svg"), "utf8");
     const d = wordmark.match(/<path fill="currentColor" d="([^"]+)"/)?.[1];
-    const figure = readFileSync(brand("logomark.svg"), "utf8").match(
-      /<g fill="currentColor">([\s\S]*)<\/g>\s*<\/svg>/,
-    )?.[1];
+    const mark = readFileSync(brand("logomark.svg"), "utf8").match(
+      /<g fill="currentColor" stroke="currentColor"([^>]*)>([\s\S]*?)<\/g>/,
+    );
     // The premise: the outlines were found, all seven letters' worth, and
-    // the figure's head and three blocks.
+    // the mark's two slashes and its D.
     expect(d?.match(/Z/g)?.length ?? 0).toBeGreaterThanOrEqual(7);
-    expect(figure?.match(/<rect /g)?.length).toBe(3);
+    expect(mark?.[2]?.match(/<polygon /g)?.length).toBe(2);
+    expect(mark?.[2]?.match(/<path /g)?.length).toBe(1);
     const logo = readDocs(copy);
     expect(logo).toContain(`<path fill="${fill}" d="${d}"/>`);
-    expect(logo).toContain(`<g fill="${fill}">${figure}</g>`);
-    // The site header's crop of the figure, and the wordmark's own box.
-    expect(logo).toContain('viewBox="258 120 96 302"');
-    expect(logo).toContain(wordmark.match(/viewBox="[^"]+"/)?.[0]);
+    expect(logo).toContain(
+      `<g fill="${fill}" stroke="${fill}"${mark?.[1]}>${mark?.[2]}</g>`,
+    );
   });
   it("docs.json points at those copies", () => {
     expect(docsJson().logo).toMatchObject({
