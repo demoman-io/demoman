@@ -197,6 +197,10 @@ export function createHeldClock(deps: {
   let shotLatency = 0;
   /** When the latest frame was taken, in real time. */
   let shotAt = 0;
+  /** A held grant's frame not taken because the page was waiting by its
+   *  end: a stretch replaces it, or, if none comes of the wait, it is taken
+   *  after all, at its time. */
+  let unshot = false;
   /** Where a wait that began at real `from` (null: now) began in page time:
    *  where the page stood then, so `held` if it began after the page last
    *  stopped, or the look before if it began inside that grant. Never
@@ -366,6 +370,7 @@ export function createHeldClock(deps: {
           const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
           if (to > due) await wait(to - due);
           await grant(to);
+          unshot = false;
           if (!continues || !span) {
             span = {
               startMs: stretchFrom.held,
@@ -414,7 +419,16 @@ export function createHeldClock(deps: {
             spans.push(open);
           }
           await grant(frameFrom(held + owed));
+          unshot = false;
           open.endMs = held;
+          await shoot();
+          continue;
+        }
+        // A wait shorter than a frame left no stretch: the frame it skipped
+        // is taken, at its time, as on a machine that never saw the wait
+        // (review of Task 9 round 2, finding 3).
+        if (unshot) {
+          unshot = false;
           await shoot();
           continue;
         }
@@ -429,7 +443,10 @@ export function createHeldClock(deps: {
         // capture is the server's, so the frame is the stretch's first, taken
         // where real time is (the next look), not here. Taken here, a
         // stream's first chunks showed a capture early on a slow machine.
-        if (network.waiting()) continue;
+        if (network.waiting()) {
+          unshot = true;
+          continue;
+        }
         await shoot();
       }
     },

@@ -435,6 +435,36 @@ describe("createHeldClock", () => {
     ).toBeLessThanOrEqual(1200);
   });
 
+  // Review of Task 9 round 2, finding 3: the frame of a held grant the page
+  // was waiting at the end of was skipped; when the wait ended before the
+  // next look, under a frame long, no stretch replaced it.
+  it("takes a skipped frame when its wait leaves no stretch", async () => {
+    let seen = false;
+    const { clock, frames } = setup({
+      // A beacon sent at 1390 inside the fourth grant (real 1200-1400) and
+      // answered at 1405: the check after the grant sees it, the next look
+      // does not.
+      waiting: (real) => {
+        if (real >= 1400 && !seen) {
+          seen = true;
+          return true;
+        }
+        return false;
+      },
+      quietSince: (real) => (real >= 1400 ? 1405 : null),
+      waitsSince: waitsOf({ from: 1390, at: 1400, labels: ["GET /beacon"] }),
+      captureMs: 200,
+      grantMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    await clock.sleep(100);
+    expect(seen).toBe(true); // premise: the check saw the beacon
+    expect(clock.networkSpans()).toEqual([]);
+    // Every frame of the grid, the fourth too.
+    expect(inFrames(times(frames))).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
   it("keeps one stretch for a wait that runs across sleeps", async () => {
     const { clock, frames } = setup({ waiting: () => true, captureMs: 200 });
     await clock.hold(START);
