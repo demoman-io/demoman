@@ -697,6 +697,15 @@ describe("HELD_FRAMES_SCRIPT", () => {
     expect(p.native).toHaveLength(1);
   });
 
+  // Fix round 2: a frame inside one that kept Chrome's frames is reachable
+  // from its parent, but no queue of its would ever be run there.
+  it("leaves Chrome's own frames to a frame whose parent runs no queue", () => {
+    const p = page({ parent: {} });
+    expect(p.window.__demomanFlushFrames).toBeUndefined();
+    p.raf(() => undefined);
+    expect(p.native).toHaveLength(1);
+  });
+
   it("keeps Chrome's own frames for Demoman's probes", () => {
     const p = page();
     (p.window.__demomanRaf as (cb: unknown) => void)("probe");

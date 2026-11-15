@@ -140,7 +140,15 @@ beforeAll(async () => {
     };
     if (u.pathname === "/raf") {
       send(
-        `<div id=b style="position:absolute;top:10px;width:30px;height:30px;background:#06c"></div><script>let s=null;(function f(t){if(s===null)s=t;document.getElementById("b").style.left=((t-s)/10%200)+"px";requestAnimationFrame(f)})(performance.now())</script>`,
+        `<body style="margin:0"><div id=b style="position:absolute;top:10px;width:30px;height:30px;background:#06c"></div><iframe src="/raf-inner" style="position:absolute;left:0;top:50px;width:300px;height:60px;border:0"></iframe><script>let s=null;(function f(t){if(s===null)s=t;document.getElementById("b").style.left=((t-s)/10%200)+"px";requestAnimationFrame(f)})(performance.now())</script>`,
+      );
+      return;
+    }
+    // The frame's own frame, of its own origin: reachable from it, not
+    // from the page (fix round 2).
+    if (u.pathname === "/raf-inner") {
+      send(
+        `<body style="margin:0"><div id=c style="position:absolute;top:10px;width:30px;height:30px;background:#c06"></div><script>let s=null;(function f(t){if(s===null)s=t;document.getElementById("c").style.left=((t-s)/7%200)+"px";requestAnimationFrame(f)})(performance.now())</script>`,
       );
       return;
     }
@@ -171,7 +179,7 @@ beforeAll(async () => {
       );
     else if (path === "/same-site")
       res.end(
-        `<!doctype html><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><iframe src="${bSameSite}/raf" style="position:absolute;left:40px;top:120px;width:300px;height:60px;border:0"></iframe>`,
+        `<!doctype html><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><iframe src="${bSameSite}/raf" style="position:absolute;left:40px;top:120px;width:300px;height:120px;border:0"></iframe>`,
       );
     else if (path === "/shadow-scroll")
       res.end(
@@ -358,6 +366,11 @@ const apartIn = (x: string, y: string): string => {
   const ys = cells.map((i) => Math.floor(i / 96));
   return `x ${Math.min(...xs)}-${Math.max(...xs)}, y ${Math.min(...ys)}-${Math.max(...ys)} of 96x60`;
 };
+/** How many frames moved past the encoder's noise from the frame before: a
+ *  still picture's decoded crops differ by a grey level or two. */
+const moves = (frames: string[]): number =>
+  frames.filter((f, i) => i > 0 && greyDiff(f, frames[i - 1] ?? "") > NOISE)
+    .length;
 const changes = (frames: string[]): number =>
   frames.filter((f, i) => i > 0 && f !== frames[i - 1]).length;
 const hash = (s: string) => createHash("sha1").update(s).digest("hex");
@@ -387,7 +400,7 @@ describe("a held recording", () => {
     const box = await pageRegion(first, [0.23, 0.14, 0.43, 0.21]);
     expect(changes(box), said()).toBeGreaterThanOrEqual(20);
     const stripes = await pageRegion(first, [0.94, 0, 1, 1]);
-    expect(new Set(stripes).size, said()).toBeGreaterThanOrEqual(5);
+    expect(moves(stripes), said()).toBeGreaterThanOrEqual(5);
     // And the same on the second run, frame for frame, within the spans'
     // encoding noise (they are GPU-encoded, as the render's are).
     expect(
@@ -525,7 +538,12 @@ describe("a held recording", () => {
     ]);
     // The frame's box (top 130-160 of 800, left 40-340 of 1280) moved.
     const box = await pageRegion(r, [0.03, 0.16, 0.27, 0.2]);
-    expect(new Set(box).size, evidence).toBeGreaterThanOrEqual(5);
+    expect(moves(box), evidence).toBeGreaterThanOrEqual(5);
+    // And the box of that frame's own frame (top 180-210), which only the
+    // frame could run: red when it queues its frames for a parent that
+    // runs none (fix round 2).
+    const inner = await pageRegion(r, [0.03, 0.225, 0.27, 0.265]);
+    expect(moves(inner), evidence).toBeGreaterThanOrEqual(5);
   }, 120_000);
 
   // Fix round 1, finding 4: the walk up from a target in a shadow root
@@ -536,7 +554,7 @@ describe("a held recording", () => {
     ]);
     const stripes = await pageRegion(r, [0.94, 0, 1, 1]);
     expect(
-      new Set(stripes).size,
+      moves(stripes),
       JSON.stringify(r.bundle.degradations),
     ).toBeGreaterThanOrEqual(5);
   }, 120_000);

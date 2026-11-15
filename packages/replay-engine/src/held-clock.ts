@@ -73,14 +73,17 @@ export const PIN_ANIMATIONS = `(v) => {
  *  frame (any the walk starts) reads its own clock to within that jitter.
  *
  *  A frame this document cannot reach (another origin kept in this renderer,
- *  a sandboxed one) is never run by it: such a frame keeps Chrome's own
- *  animation frames, and is answered once by name, with what the pin could
- *  not hold. Chrome's own stays at `__demomanRaf` for Demoman's probes that
+ *  a sandboxed one) is never run by it: such a frame, and every frame in it,
+ *  keeps Chrome's own animation frames, and is answered once by name, with
+ *  what the pin could not hold. Chrome's own stays at `__demomanRaf` for Demoman's probes that
  *  must not wait on a captured frame. */
 export const HELD_FRAMES_SCRIPT = `(() => {
   if (window.__demomanFlushFrames) return;
   if (window !== window.parent) {
-    try { void window.parent.document; } catch (e) { return; } // run by no one: Chrome's own frames
+    // Queued only for a parent that runs the queue (its script ran before
+    // this frame existed); one that cannot be reached, or itself kept
+    // Chrome's frames, runs none: Chrome's own frames.
+    try { if (!window.parent.__demomanFlushFrames) return; } catch (e) { return; }
   }
   const request = window.requestAnimationFrame.bind(window);
   const FRAME = 1000 / 30;
