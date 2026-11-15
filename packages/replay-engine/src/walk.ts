@@ -945,6 +945,21 @@ export async function runWalk(
     }
     return Math.max(0, plannedMs - (now - heldActEnd - networkMs));
   };
+  /** Plays a held rest or tail to its planned page time: network time that
+   *  opens inside it is played on top, so the rest's held part is the
+   *  plan's on any machine (review of Task 9, finding 3).
+   *  shortcut: a page that waits on its server the whole time (an endless
+   *  stream) ends the rest after NAVIGATE_TIMEOUT_MS of it; upgrade with a
+   *  degradation if an app shows it. */
+  const playRest = async (plannedMs: number): Promise<void> => {
+    const giveUpAt = at() + plannedMs + NAVIGATE_TIMEOUT_MS;
+    for (
+      let left = sinceActEnd(plannedMs);
+      left > HELD_EPS_MS && at() < giveUpAt;
+      left = sinceActEnd(plannedMs)
+    )
+      await clock.sleep(left);
+  };
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
@@ -3245,7 +3260,7 @@ export async function runWalk(
 
       if (step.action.kind === "waitFor") {
         // A held plan plans the wait here and plays its rest before it.
-        if (heldPlan) await clock.sleep(sinceActEnd(planUnplaced(step)));
+        if (heldPlan) await playRest(planUnplaced(step));
         if (!(await awaitCondition(step.action, step.target))) {
           // Only a wait for something to show can have found it unseen. The
           // resolver's word decides (`waitSawOf`): an element it found with no box
@@ -3365,7 +3380,7 @@ export async function runWalk(
         const keyAction = step.action;
         await keepRhythm();
         // A held plan plans the key here and plays its rest before it.
-        if (heldPlan) await clock.sleep(sinceActEnd(planUnplaced(step)));
+        if (heldPlan) await playRest(planUnplaced(step));
         pressMarked = true;
         inFlight = keyAction.id;
         const pressedAt = at();
@@ -3463,7 +3478,7 @@ export async function runWalk(
             })
           : null;
       if (restBeforeScroll !== null) {
-        await clock.sleep(sinceActEnd(restBeforeScroll));
+        await playRest(restBeforeScroll);
       }
       if (record) recorder?.open();
       // Scroll the target on screen, then re-measure: the quad is
@@ -3707,9 +3722,8 @@ export async function runWalk(
       // after-scroll: its rest was played before the scroll), decided above;
       // the arrive below replaces the settle.
       if (heldPlan) {
-        await clock.sleep(
-          restBeforeScroll === null ? sinceActEnd(restMs) : afterScrollMs,
-        );
+        if (restBeforeScroll === null) await playRest(restMs);
+        else await clock.sleep(afterScrollMs);
       }
       const pathFrom = at();
       if (segment !== undefined) {
@@ -3919,13 +3933,15 @@ export async function runWalk(
         // Under a plan the pull-out and the trim are in `pacing.tailMs`,
         // played by the renderer: only the floor is recorded. A held plan
         // plays its tail here instead.
-        const tail =
-          beats !== undefined && heldPlan
-            ? sinceActEnd(plannedTailMs(beats))
-            : (beats === undefined
-                ? Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held)
-                : lastMarkerAt + TAKE_TAIL_MS) - at();
-        if (tail > 0) await clock.sleep(tail);
+        if (beats !== undefined && heldPlan)
+          await playRest(plannedTailMs(beats));
+        else {
+          const tail =
+            (beats === undefined
+              ? Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held)
+              : lastMarkerAt + TAKE_TAIL_MS) - at();
+          if (tail > 0) await clock.sleep(tail);
+        }
       }
       // Held: no span to let close.
       if (recorder !== null) await clock.sleep(SPAN_QUIET_MS);

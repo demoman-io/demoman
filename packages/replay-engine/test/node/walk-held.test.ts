@@ -170,6 +170,10 @@ async function run(
     loadIsNetwork?: boolean;
     /** Network stretches the clock reports, on its own time. */
     network?: { startMs: number; endMs: number; label: string }[];
+    /** A request that opens 100 ms of page time after the first click and
+     *  closes this much later, reported as network time when page time
+     *  reaches it: inside the next step's rest. */
+    networkInRestMs?: number;
     /** The step-settle probe waits on the page's timers: it answers only
      *  once this much page time has passed since it was asked (null: never). */
     settleAnswersAfterMs?: number | null;
@@ -182,6 +186,7 @@ async function run(
   let clicks = 0;
   let loadingUntil: number | null = null;
   const network = [...(opts.network ?? [])];
+  let restRequestAt: number | null = null;
   /** Settle probes waiting on page time, answered as it passes. */
   const settleWaiters: { due: number; answer: () => void }[] = [];
   const held = fakeHeld({
@@ -189,6 +194,14 @@ async function run(
     roundTrip: () => cdp.send("Runtime.evaluate", { expression: "0" }),
     network,
     moved: (now) => {
+      if (restRequestAt !== null && now >= restRequestAt) {
+        network.push({
+          startMs: restRequestAt,
+          endMs: restRequestAt + (opts.networkInRestMs ?? 0),
+          label: "GET /beacon",
+        });
+        restRequestAt = null;
+      }
       for (const w of settleWaiters.filter((w) => now >= w.due)) {
         settleWaiters.splice(settleWaiters.indexOf(w), 1);
         w.answer();
@@ -291,6 +304,8 @@ async function run(
       params?.type === "mouseReleased"
     ) {
       clicks++;
+      if (clicks === 1 && opts.networkInRestMs !== undefined)
+        restRequestAt = held.clock.now() + 100;
       if (clicks === 1 && opts.loadAfterFirstClickMs !== undefined) {
         const from = held.clock.now();
         loadingUntil = from + opts.loadAfterFirstClickMs;
@@ -622,6 +637,44 @@ describe("the walk on a held clock", () => {
     );
     expect(second.sourceTimeMs - clickAt, evidence).toBeCloseTo(
       BASE + n + journeyMs + ARRIVE,
+      6,
+    );
+  });
+
+  // Review of Task 9, finding 3: a request that opens and closes inside a
+  // rest is played on top of it, so the rest's held part is as planned.
+  // Red if the rest is slept once, as it was when it began.
+  it("plays the whole rest around a request inside it", async () => {
+    // The same walk with a request that closes as it opens: the control.
+    const rest = async (ms: number) => {
+      const { result, progress } = await run([click("a"), click("b")], {
+        networkInRestMs: ms,
+      });
+      const evidence = evidenceOf(result, progress);
+      expect(result.outcome, evidence).toBe("complete");
+      const approach = markerOf(result, 1).approachSourceTimeMs ?? 0;
+      return {
+        evidence,
+        beacon: result.bundle?.networkSpans?.[0],
+        actEnd: actEndOf(result, 0),
+        approach,
+        fromClick: approach - markerOf(result, 0).sourceTimeMs,
+      };
+    };
+    const without = await rest(0);
+    const withIt = await rest(300);
+    // Premise: the request is network time, after the act and before the
+    // next step's approach.
+    expect(withIt.beacon?.label, withIt.evidence).toBe("GET /beacon");
+    expect(withIt.beacon?.startMs ?? 0, withIt.evidence).toBeGreaterThan(
+      withIt.actEnd,
+    );
+    expect(withIt.beacon?.endMs ?? 0, withIt.evidence).toBeLessThan(
+      withIt.approach,
+    );
+    // Its 300 ms come on top of the rest, which keeps its held part.
+    expect(withIt.fromClick - without.fromClick, withIt.evidence).toBeCloseTo(
+      300,
       6,
     );
   });
