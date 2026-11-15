@@ -272,6 +272,9 @@ export function createHeldClock(deps: {
       startEpochMs = epochMs;
       held = 0;
       lookedAt = { real: realNow(), held };
+      // A request already open at the hold: its real time before it is not
+      // the page's.
+      pausedAt = lookedAt.real;
     },
     async rehold() {
       if (startEpochMs === null) throw new Error("rehold before hold");

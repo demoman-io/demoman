@@ -280,6 +280,19 @@ describe("createHeldClock", () => {
     expect(inFrames(times(frames).slice(3, 5))).toEqual([6, 12]);
   });
 
+  // Review of Task 9, M5: a request already open when the clock is held.
+  it("credits no real time from before the hold", async () => {
+    const { clock, budgets, advance } = setup({
+      waiting: () => true,
+      lastWait: () => ({ from: 500, labels: ["GET /"] }),
+      captureMs: 200,
+    });
+    advance(1000); // the page's request opened at real 500, before the hold
+    await clock.hold(START);
+    await clock.sleep(HELD_FRAME_MS);
+    expect(inFrames(budgets())).toEqual([1]);
+  });
+
   it("credits no real time a held frame already played", async () => {
     // The page began waiting at real 300, before the third grant (real
     // 400) played that time as held.
