@@ -229,12 +229,15 @@ describe("a take whose pointer moves the page answers unevenly", () => {
         ),
       );
     const evidence = `${moves()} moves; ${found.length} frames; darkest ${found.map((f) => f.darkest).join(",")}; dark px ${found.map((f) => f.n).join(",")}; steps ${steps.join(",")}`;
-    // The premise: the cursor is found in every frame, alone (a cursor's
-    // worth of dark pixels), and it travelled most of the frame between the
-    // buttons over many frames.
+    // The premise: the cursor is found in every frame (a dark pixel, and no
+    // more than a cursor's worth near it), and it travelled most of the
+    // frame between the buttons over many frames. How many pixels a shrunk
+    // cursor leaves varies by machine: 6-19 on the Mac, 3-26 on
+    // ubuntu-latest (2026-11-15).
     expect(found.length, evidence).toBeGreaterThanOrEqual(15);
     for (const f of found) {
-      expect(f.n, evidence).toBeGreaterThan(3);
+      expect(f.darkest, evidence).toBeLessThan(DARKEST_MAX);
+      expect(f.n, evidence).toBeGreaterThan(0);
       expect(f.n, evidence).toBeLessThan(400);
     }
     const a = found[0] as { x: number; y: number };
