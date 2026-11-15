@@ -114,6 +114,9 @@ let a: Server;
 let b: Server;
 let aUrl: string;
 let bUrl: string;
+/** The other server on this page's own site (127.0.0.1, another port):
+ *  Chrome keeps such a frame in the page's renderer. */
+let bSameSite: string;
 /** What the other site's page printed, by label, as epoch milliseconds. */
 const printed: { label: string; t: number }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
@@ -135,6 +138,12 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(body);
     };
+    if (u.pathname === "/raf") {
+      send(
+        `<div id=b style="position:absolute;top:10px;width:30px;height:30px;background:#06c"></div><script>let s=null;(function f(t){if(s===null)s=t;document.getElementById("b").style.left=((t-s)/10%200)+"px";requestAnimationFrame(f)})(performance.now())</script>`,
+      );
+      return;
+    }
     if (u.pathname === "/frame") {
       send(
         `<style>div{width:40px;height:40px;background:#c60;animation:s 1s linear infinite}@keyframes s{to{transform:translateX(100px)}}</style><div></div>`,
@@ -151,15 +160,22 @@ beforeAll(async () => {
       200,
     );
   });
-  bUrl = (await listenOnLoopback(b))
-    .replace("127.0.0.1", "localhost")
-    .replace(/\/$/, "");
+  bSameSite = (await listenOnLoopback(b)).replace(/\/$/, "");
+  bUrl = bSameSite.replace("127.0.0.1", "localhost");
   a = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
     res.writeHead(200, { "content-type": "text/html" });
     if (path === "/go")
       res.end(
         `<!doctype html><a id=go href="${bUrl}/there" style="position:absolute;left:40px;top:40px;width:160px;height:40px;display:block;background:#eee">Go</a>`,
+      );
+    else if (path === "/same-site")
+      res.end(
+        `<!doctype html><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><iframe src="${bSameSite}/raf" style="position:absolute;left:40px;top:120px;width:300px;height:60px;border:0"></iframe>`,
+      );
+    else if (path === "/shadow-scroll")
+      res.end(
+        `<!doctype html><style>body{margin:0;height:3200px}#s{position:absolute;right:0;top:0;width:80px;height:3200px;background:repeating-linear-gradient(#000 0 20px,#fff 20px 37px)}#host{position:absolute;left:40px;top:2400px}</style><div id=s></div><div id=host></div><script>document.getElementById("host").attachShadow({mode:"open"}).innerHTML='<button id=deep style="width:160px;height:40px">Deep</button>'</script>`,
       );
     else if (path === "/framed")
       res.end(
@@ -467,6 +483,43 @@ describe("a held recording", () => {
     const at = (there?.t ?? Number.NaN) - Date.parse(PIN);
     expect(Math.abs(at - click), said).toBeLessThanOrEqual(2 * HELD_FRAME_MS);
     expect(r.realMs, said).toBeLessThan(30_000);
+  }, 120_000);
+
+  // Fix round 1, finding 1: a frame of another origin on this page's own
+  // site shares its renderer; the page cannot run its animation frames, so
+  // it keeps Chrome's own, and the run says so. Red when the frame's queue
+  // is left to a parent that cannot reach it: the frame's box never moves.
+  it("leaves a frame it cannot reach on Chrome's frames, and says so", async () => {
+    const r = await record(`${aUrl}/same-site`, [
+      { do: "click", on: { stableId: "ok" }, zoom: false },
+      { do: "pause", ms: 600 },
+    ]);
+    const evidence = JSON.stringify(r.bundle.degradations);
+    const said = r.bundle.degradations.filter(
+      (d) => d.kind === "animationUnpinned",
+    );
+    expect(
+      said.map((d) => d.note),
+      evidence,
+    ).toEqual([
+      `a frame from ${bSameSite} runs its animations on its own clock: they were not held`,
+    ]);
+    // The frame's box (top 130-160 of 800, left 40-340 of 1280) moved.
+    const box = await pageRegion(r, [0.03, 0.16, 0.27, 0.2]);
+    expect(new Set(box).size, evidence).toBeGreaterThanOrEqual(5);
+  }, 120_000);
+
+  // Fix round 1, finding 4: the walk up from a target in a shadow root
+  // reaches the page's own scroll. Red when it stops at the shadow root.
+  it("plays the scroll to a target in a shadow root", async () => {
+    const r = await record(`${aUrl}/shadow-scroll`, [
+      { do: "click", on: { stableId: "deep" }, zoom: false },
+    ]);
+    const stripes = await pageRegion(r, [0.94, 0, 1, 1]);
+    expect(
+      new Set(stripes).size,
+      JSON.stringify(r.bundle.degradations),
+    ).toBeGreaterThanOrEqual(5);
   }, 120_000);
 
   // Review Focus 4 and R6.

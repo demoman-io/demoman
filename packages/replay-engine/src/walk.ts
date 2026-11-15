@@ -108,6 +108,7 @@ import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
 import { type RequestTracker, trackRequests } from "./requests.js";
 import {
+  HELD_SCROLL_STEP,
   heldScrollPlanFunction,
   type ScrollAim,
   type ScrollReport,
@@ -2298,9 +2299,9 @@ export async function runWalk(
   /**
    * `bringIntoView` on a held clock. Chrome's smooth scroll runs on its real
    * clock (and held recordings launch with it off), so the walk plays the
-   * scroll itself: one step a captured frame, over `SCROLL_SETTLE_TIMEOUT_MS`
-   * (the scroll's one constant; nothing designs its length) on the cursor's
-   * minimum-jerk ease. Ends with the last step landed, so the re-measure and
+   * scroll itself: one step a captured frame, over `HELD_SCROLL_MS` on the
+   * cursor's minimum-jerk ease, each step asked of the target itself, so in
+   * its own frame. Ends with the last step landed, so the re-measure and
    * `scrollEndAt` are taken where the scroll stopped.
    */
   const playScroll = async (
@@ -2324,14 +2325,14 @@ export async function runWalk(
         ),
       );
     } else if (planned.movedPx > 0) {
-      const frames = Math.ceil(
-        SCROLL_SETTLE_TIMEOUT_MS / HELD_FRAME_MS - HELD_EPS_MS,
-      );
+      const frames = Math.ceil(HELD_SCROLL_MS / HELD_FRAME_MS - HELD_EPS_MS);
       for (let k = 1; k <= frames; k++) {
         const p = easings.minimumJerk(Math.min(1, k / frames));
         evaluatedValue(
-          await cdp.send("Runtime.evaluate", {
-            expression: `window.__demomanHeldScroll(${p})`,
+          await cdp.send("Runtime.callFunctionOn", {
+            objectId: handle.objectId,
+            functionDeclaration: HELD_SCROLL_STEP,
+            arguments: [{ value: p }],
           }),
         );
         await clock.sleep(HELD_FRAME_MS);

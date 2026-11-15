@@ -6,7 +6,7 @@ import {
   type SceneAnchor,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
-import { SCROLL_SETTLE_TIMEOUT_MS } from "../../src/constants.js";
+import { HELD_SCROLL_MS } from "../../src/constants.js";
 import { HELD_FRAME_MS } from "../../src/held-clock.js";
 import type {
   AuthoredDeps,
@@ -21,6 +21,7 @@ import type {
 import {
   decodeBase64,
   HELD_SCROLL_MARKER,
+  HELD_SCROLL_STEP,
   runAuthored,
   SCROLL_MARKER,
   SETTLE_MS,
@@ -172,6 +173,9 @@ async function run(
     /** The step-settle probe waits on the page's timers: it answers only
      *  once this much page time has passed since it was asked (null: never). */
     settleAnswersAfterMs?: number | null;
+    /** The click's read answers only once this much page time has passed
+     *  (a click that navigated to another site). */
+    clickReadAnswersAfterMs?: number;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -205,25 +209,59 @@ async function run(
    *  below the fold until the walk scrolls to it. */
   const stableOf = new Map<string, string>();
   let belowFold = false;
-  /** Each step of the walk's own scroll, as asked of the page. */
+  /** Each step of the walk's own scroll, as asked of the page, and the
+   *  objects the plan and its steps were asked of. */
   const scrollSteps: number[] = [];
+  const scrollAsked: { plan: string[]; steps: string[] } = {
+    plan: [],
+    steps: [],
+  };
   const send = cdp.send.bind(cdp);
-  cdp.send = async (method, params) => {
+  /** How each settle probe was sent. */
+  const probeSends: unknown[] = [];
+  cdp.send = async (method, params, options) => {
     if (opts.realDelayMs !== undefined) await delay();
+    if (
+      method === "Runtime.evaluate" &&
+      /__demomanStepSettle|__demomanSettlePaint/.test(
+        String(params?.expression ?? ""),
+      )
+    )
+      probeSends.push(options);
     if (
       method === "Runtime.callFunctionOn" &&
       String(params?.functionDeclaration ?? "").includes(HELD_SCROLL_MARKER)
     ) {
+      scrollAsked.plan.push(String(params?.objectId));
       return {
         result: { type: "object", value: { movedPx: belowFold ? 2000 : 0 } },
       };
     }
     const expression = String(params?.expression ?? "");
-    const step = /^window\.__demomanHeldScroll\((.*)\)$/.exec(expression);
-    if (method === "Runtime.evaluate" && step !== null) {
-      scrollSteps.push(Number(step[1]));
-      if (Number(step[1]) === 1) belowFold = false;
+    if (
+      method === "Runtime.callFunctionOn" &&
+      params?.functionDeclaration === HELD_SCROLL_STEP
+    ) {
+      const p = Number(
+        (params.arguments as { value?: unknown }[] | undefined)?.[0]?.value,
+      );
+      scrollSteps.push(p);
+      scrollAsked.steps.push(String(params.objectId));
+      if (p === 1) belowFold = false;
       return { result: { type: "undefined" } };
+    }
+    if (
+      opts.clickReadAnswersAfterMs !== undefined &&
+      method === "Runtime.callFunctionOn" &&
+      String(params?.functionDeclaration ?? "").includes("this.read()")
+    ) {
+      const after = opts.clickReadAnswersAfterMs;
+      return new Promise((resolve) =>
+        settleWaiters.push({
+          due: held.clock.now() + after,
+          answer: () => resolve(send(method, params)),
+        }),
+      );
     }
     if (
       method === "Runtime.evaluate" &&
@@ -369,6 +407,8 @@ async function run(
     journeys,
     push,
     scrollSteps,
+    scrollAsked,
+    probeSends,
   };
 }
 
@@ -553,7 +593,10 @@ describe("the walk on a held clock", () => {
   });
 
   // Network time is the server's, played on top of the plan (spec §2): a
-  // rest is counted only on page time. Red if the rest absorbs it.
+  // rest is counted only on page time. Red if the rest absorbs it. The wait
+  // begins at the click, and the click's read (one frame, fix round 1,
+  // finding 3) is played inside it, before the act ends: so all is measured
+  // from the click.
   it.each([
     ["shorter", 300],
     ["longer", 1000],
@@ -564,18 +607,20 @@ describe("the walk on a held clock", () => {
     });
     const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(journeys)}`;
     expect(result.outcome, evidence).toBe("complete");
-    const actEnd = actEndOf(result, 0);
-    // Premise: the clock reports the wait as network time, from the act on.
+    const clickAt = markerOf(result, 0).sourceTimeMs;
+    // Premise: the clock reports the wait as network time, from the click on,
+    // and the act ended inside it.
     expect(result.bundle?.networkSpans, evidence).toEqual([
-      { startMs: actEnd, endMs: actEnd + n, label: "GET /slow" },
+      { startMs: clickAt, endMs: clickAt + n, label: "GET /slow" },
     ]);
+    expect(actEndOf(result, 0), evidence).toBeGreaterThan(clickAt);
     const journeyMs = journeys.at(-1) ?? 0;
     const second = markerOf(result, 1);
-    expect((second.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
+    expect((second.approachSourceTimeMs ?? 0) - clickAt, evidence).toBeCloseTo(
       BASE + n,
       6,
     );
-    expect(second.sourceTimeMs - actEnd, evidence).toBeCloseTo(
+    expect(second.sourceTimeMs - clickAt, evidence).toBeCloseTo(
       BASE + n + journeyMs + ARRIVE,
       6,
     );
@@ -588,10 +633,10 @@ describe("the walk on a held clock", () => {
     });
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");
-    const actEnd = actEndOf(result, 0);
-    expect(result.bundle?.networkSpans?.length, evidence).toBe(1);
+    const clickAt = markerOf(result, 0).sourceTimeMs;
+    expect(result.bundle?.networkSpans?.[0]?.startMs, evidence).toBe(clickAt);
     expect(
-      (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) - actEnd,
+      (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) - clickAt,
       evidence,
     ).toBeCloseTo(1000 + TAIL, 6);
   });
@@ -608,16 +653,13 @@ describe("the walk on a held clock", () => {
     expect(far.scrollEndSourceTimeMs, evidence).toBeDefined();
     const scrollEnd = far.scrollEndSourceTimeMs ?? 0;
     // The rest, then the walk's own scroll.
-    expect(scrollEnd - actEnd, evidence).toBeCloseTo(
-      BASE + SCROLL_SETTLE_TIMEOUT_MS,
-      6,
-    );
+    expect(scrollEnd - actEnd, evidence).toBeCloseTo(BASE + HELD_SCROLL_MS, 6);
     expect((far.approachSourceTimeMs ?? 0) - scrollEnd, evidence).toBeCloseTo(
       ARRIVE,
       6,
     );
     expect((far.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
-      BASE + SCROLL_SETTLE_TIMEOUT_MS + ARRIVE,
+      BASE + HELD_SCROLL_MS + ARRIVE,
       6,
     );
   });
@@ -739,15 +781,20 @@ describe("the walk on a held clock", () => {
 describe("the walk's own scroll on a held clock", () => {
   // R5: Chrome's smooth scroll runs on its real clock; the walk plays it.
   it("plays the corrective scroll one step a frame, eased, and lands it", async () => {
-    const { result, progress, scrollSteps, frames } = await run([
+    const { result, progress, scrollSteps, scrollAsked, frames } = await run([
       click("a"),
       click("far"),
     ]);
     const evidence = `${evidenceOf(result, progress)} ${scrollSteps.join(",")}`;
     expect(result.outcome, evidence).toBe("complete");
-    const n = Math.ceil(SCROLL_SETTLE_TIMEOUT_MS / HELD_FRAME_MS - 1e-6);
+    const n = Math.ceil(HELD_SCROLL_MS / HELD_FRAME_MS - 1e-6);
     expect(scrollSteps, evidence).toHaveLength(n);
     expect(scrollSteps.at(-1), evidence).toBe(1);
+    // Each step asked of the target the plan was made on, so in its own
+    // frame (fix round 1, finding 4), never of the top document.
+    const target = scrollAsked.plan.at(-1);
+    expect(target, evidence).toBeDefined();
+    expect(new Set(scrollAsked.steps), evidence).toEqual(new Set([target]));
     // Eased: slow at both ends, so the first step is short of a linear one.
     expect(scrollSteps[0] ?? 1, evidence).toBeLessThan(1 / n);
     expect(
@@ -759,9 +806,7 @@ describe("the walk's own scroll on a held clock", () => {
     const scrollEnd = far.scrollEndSourceTimeMs ?? Number.NaN;
     const filmed = frames.map((f) => f.sourceTimeMs - START);
     const during = filmed.filter(
-      (t) =>
-        t > scrollEnd - SCROLL_SETTLE_TIMEOUT_MS + 1e-6 &&
-        t <= scrollEnd + 1e-6,
+      (t) => t > scrollEnd - HELD_SCROLL_MS + 1e-6 && t <= scrollEnd + 1e-6,
     );
     expect(during, evidence).toHaveLength(n);
   });
@@ -801,6 +846,16 @@ describe("in-page waits on a held clock", () => {
     );
   });
 
+  // Fix round 1, finding 2: bounded in page time by the walk, never cut by
+  // the real-time answer deadline at whatever page time a machine reached.
+  it("sends its probes free of the real-time deadline", async () => {
+    const { result, progress, probeSends } = await run([click("a")]);
+    const evidence = evidenceOf(result, progress);
+    expect(probeSends.length, evidence).toBeGreaterThanOrEqual(3);
+    for (const sent of probeSends)
+      expect(sent, evidence).toEqual({ unbounded: true });
+  });
+
   it("files no frame from before the opening", async () => {
     const { result, frames, progress } = await run([click("a")]);
     const evidence = evidenceOf(result, progress);
@@ -813,5 +868,30 @@ describe("in-page waits on a held clock", () => {
       expect(k.sourceTimeMs, evidence).toBeGreaterThanOrEqual(opening);
     for (const s of result.bundle?.motionSpans ?? [])
       expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
+  });
+});
+
+describe("a click's read on a held clock", () => {
+  // Fix round 1, finding 3: a click that navigates to another site is read
+  // only once the new page commits; that wait is played as page time, so a
+  // server's wait is in the video. Red if the read is awaited unplayed.
+  it("plays page time while the page that was clicked does not answer", async () => {
+    const { result, progress, frames } = await run([click("a")], {
+      clickReadAnswersAfterMs: 400,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const marker = markerOf(result, 0);
+    expect(
+      (marker.actEndSourceTimeMs ?? 0) - marker.sourceTimeMs,
+      evidence,
+    ).toBeGreaterThanOrEqual(400);
+    // Premise: frames were captured while the read waited.
+    const during = frames.filter(
+      (f) =>
+        f.sourceTimeMs - START > marker.sourceTimeMs &&
+        f.sourceTimeMs - START <= marker.sourceTimeMs + 400,
+    );
+    expect(during.length, evidence).toBeGreaterThanOrEqual(11);
   });
 });

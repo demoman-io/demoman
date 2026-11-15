@@ -118,22 +118,30 @@ export const HELD_SCROLL_MARKER = "__demomanHeldScrollPlan";
 export function heldScrollPlanFunction(aim: ScrollAim): string {
   return `function(){
   const ${HELD_SCROLL_MARKER} = true;
-  const at = () => { const r = this.getBoundingClientRect(); return { x: r.left, y: r.top }; };
-  const from = at();
+  // Every box that can hold it scrolled, out through shadow hosts and the
+  // frames of this page it is reachable from.
+  const up = (el) => {
+    if (el.parentElement) return el.parentElement;
+    if (el.parentNode && el.parentNode.host) return el.parentNode.host;
+    try { return el.ownerDocument.defaultView.frameElement; } catch (e) { return null; } // a frame of another origin: its boxes are not ours
+  };
   const boxes = [];
-  for (let el = this.parentElement; el !== null; el = el.parentElement) boxes.push(el);
+  for (let el = up(this); el; el = up(el)) boxes.push(el);
   const before = boxes.map((el) => [el.scrollLeft, el.scrollTop]);
   ${scrollStatement(aim, "instant")}
-  const to = at();
   const moves = boxes
     .map((el, i) => ({ el, x0: before[i][0], y0: before[i][1], x1: el.scrollLeft, y1: el.scrollTop }))
     .filter((m) => m.x0 !== m.x1 || m.y0 !== m.y1);
   const put = (p) => { for (const m of moves) m.el.scrollTo({ left: m.x0 + (m.x1 - m.x0) * p, top: m.y0 + (m.y1 - m.y0) * p, behavior: "instant" }); };
   put(0);
-  window.__demomanHeldScroll = put;
-  return { movedPx: Math.round(Math.hypot(to.x - from.x, to.y - from.y)) };
+  this.__demomanHeldScroll = put;
+  return { movedPx: Math.round(Math.max(0, ...moves.map((m) => Math.hypot(m.x1 - m.x0, m.y1 - m.y0)))) };
 }`;
 }
+
+/** One step of the walk's own scroll, called on the same target as its plan
+ *  (so in that target's own frame) with how far along it is, 0 to 1. */
+export const HELD_SCROLL_STEP = "function(p){ this.__demomanHeldScroll(p); }";
 
 /** The one statement that starts the scroll, for {@link scrollIntoViewFunction}. */
 function scrollStatement(

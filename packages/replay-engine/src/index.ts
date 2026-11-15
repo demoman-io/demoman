@@ -201,6 +201,7 @@ export {
 // Whole block is test-only, see header.
 export {
   HELD_SCROLL_MARKER,
+  HELD_SCROLL_STEP,
   heldScrollPlanFunction,
   SCROLL_MARKER,
   type ScrollAim,
