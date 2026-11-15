@@ -4,6 +4,7 @@ import {
   type Degradation,
   type FrameBundle,
   gapPacedLive,
+  isHeld,
   isRealTime,
 } from "../bundle.js";
 import { clamp } from "../geometry.js";
@@ -1064,7 +1065,7 @@ export function buildTimeline(
   /**
    * Keyframe-diff motion (`detectKeyframeMotion`): two stills that differ
    * with no motion recorded between them. Motion like `hints`, except on a
-   * planned take (`scene.pacing`, ruling 2026-11-13), where it is idle: no
+   * planned take (`scene.pacing`, ruling 2026-11-13) or a held one, where it is idle: no
    * frames lie between the two stills, so nothing is lost, and a planned
    * length must not depend on what only a reader with pixels detects.
    */
@@ -1075,7 +1076,7 @@ export function buildTimeline(
     (plan.paces ?? []).some((pace) => pace.origin === "planned");
   const motion = motionSpansOf(
     bundle,
-    isPlanned ? hints : [...hints, ...keyframeHints],
+    isPlanned || isHeld(bundle) ? hints : [...hints, ...keyframeHints],
   );
   const sourceDurationMs = sourceDurationOf(bundle);
 
