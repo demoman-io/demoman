@@ -118,6 +118,13 @@ export function ciRetry(env = process.env, say = (line) => console.log(line)) {
     const result = test.result();
     if (test.diagnostic()?.flaky) {
       say(`::warning title=Passed on retry::${name}`);
+      // What the first attempt failed on, as plain lines: the annotation
+      // names the test only, and a retry's pass otherwise hides the why
+      // (vitest keeps a retried pass's earlier errors on its result).
+      for (const error of result.errors ?? [])
+        say(
+          `First attempt of ${name} failed: ${error.stack ?? error.message ?? String(error)}`,
+        );
     } else if (result.state === "skipped" && result.note) {
       say(`::warning title=Skipped::${name}: ${result.note}`);
     }
