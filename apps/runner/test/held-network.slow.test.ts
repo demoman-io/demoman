@@ -119,21 +119,21 @@ async function blocksOf(r: Recorded): Promise<{ ms: number; n: number }[]> {
 }
 
 /** From the first frame that shows the answer's first chunk to the first
- *  that shows its last, in the video's source ms; the longest time between
- *  two of the frames from one to the other, which is how finely this
- *  machine samples the stream; and each frame the answer grew on. */
+ *  that shows its last, in the video's source ms; how late either can be:
+ *  a chunk shows in the first frame taken after it came, so each is at most
+ *  the time since the frame before it (never under a held frame); whether
+ *  the answer only grew; and each frame it grew on. */
 async function streamed(r: Recorded) {
   const frames = await blocksOf(r);
   const from = frames.findIndex((f) => f.n >= 1);
   const to = frames.findIndex((f) => f.n === CHUNKS);
-  const between = frames.slice(from, to + 1);
+  const gapBefore = (i: number) =>
+    (frames[i]?.ms ?? Number.NaN) - (frames[i - 1]?.ms ?? Number.NaN);
   return {
     first: frames[from]?.ms ?? Number.NaN,
     last: frames[to]?.ms ?? Number.NaN,
-    frameMs: Math.max(
-      HELD_FRAME_MS,
-      ...between.slice(1).map((f, i) => f.ms - (between[i]?.ms ?? 0)),
-    ),
+    lateMs: Math.max(HELD_FRAME_MS, gapBefore(from), gapBefore(to)),
+    rising: frames.every((f, i) => i === 0 || f.n >= (frames[i - 1]?.n ?? 0)),
     grew: frames
       .filter((f, i) => i > 0 && f.n !== frames[i - 1]?.n)
       .map((f) => [Math.round(f.ms), f.n]),
@@ -146,19 +146,28 @@ const ASK = [
   { do: "waitFor", on: { stableId: "done" }, until: "visible" },
 ];
 
+/** One recording of the stream takes about 9 s here, 40 s slowed; CI's
+ *  macOS took 32-44 s each (2026-11-15). Both, with room: */
+const STREAMS_MS = 300_000;
+
 describe("a held recording that waits on its server", () => {
   let normal: Recorded;
+  let slowed: Recorded;
+
+  beforeAll(async () => {
+    normal = await record(home, `${url}/`, ASK);
+    slowed = await record(home, `${url}/`, ASK, {}, 40);
+  }, STREAMS_MS);
 
   // Spec test 3. Red when the stream is played on the held grid instead of
   // real time: its 1800 ms would be one frame for each frame captured.
   // "Within a frame" is a frame of the machine that recorded it: frames
   // that wait on the server are taken as fast as it can, and a chunk shows
-  // in the first one taken after it came. With every command held 40 ms
-  // that is 250-330 ms (measured 2026-11-15), so two chunks 200 ms apart
-  // can share a frame there, and the premise is asked of the fast run.
+  // in the first one taken after it came. Those took 50 ms here, 250-330 ms
+  // with every command held 40 ms, and 300-500 ms on CI's macOS without
+  // the lag (2026-11-15): two chunks 200 ms apart can share a frame there,
+  // so the premise asks for most of the states, not each.
   it("a streamed answer follows real time", async () => {
-    normal = await record(home, `${url}/`, ASK);
-    const slowed = await record(home, `${url}/`, ASK, {}, 40);
     const both = await Promise.all(
       [normal, slowed].map(async (r) => ({
         ...(await streamed(r)),
@@ -167,15 +176,20 @@ describe("a held recording that waits on its server", () => {
       })),
     );
     const said = JSON.stringify(both);
-    // Premise: every one of the ten appended states is in the frames.
-    expect(both[0]?.states, said).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(slowed.realMs, said).toBeGreaterThan(normal.realMs + 10_000);
-    for (const s of both)
+    for (const s of both) {
+      // Premise: the answer grew in the frames, from none to all ten, over
+      // at least six states seen.
+      expect(s.rising, said).toBe(true);
+      expect(s.states[0], said).toBe(0);
+      expect(s.states.at(-1), said).toBe(CHUNKS);
+      expect(s.states.length, said).toBeGreaterThanOrEqual(6);
       expect(
         Math.abs(s.last - s.first - (CHUNKS - 1) * CHUNK_GAP_MS),
         said,
-      ).toBeLessThanOrEqual(s.frameMs);
-  }, 300_000);
+      ).toBeLessThanOrEqual(s.lateMs);
+    }
+  });
 
   // Spec test 4, Review Focus 5: the report says where the waiting was,
   // and it covers the answer, from the click that asked for it.
@@ -200,10 +214,12 @@ describe("a held recording that waits on its server", () => {
       (CHUNKS - 1) * CHUNK_GAP_MS,
     );
     expect(film.connectionsIgnored, said).toEqual([]);
-  }, 60_000);
+  });
 
   // Spec test 6. Red without the idle cut-off (network-watch.ts): the poll
-  // keeps the clock on real time to the end, and nothing is named.
+  // keeps the clock on real time to the end, and nothing is named. 50 s
+  // here; 120 s was not enough on CI's macOS (2026-11-15): 5x, the lane's
+  // rule (vitest.config.ts).
   it("an idle connection stops counting and is named", async () => {
     const r = await record(home, `${url}/idle`, [
       { do: "click", on: { stableId: "ask" }, zoom: false },
@@ -226,8 +242,12 @@ describe("a held recording that waits on its server", () => {
     expect(end - (poll[0]?.startMs ?? 0), said).toBeGreaterThanOrEqual(
       IDLE_CONNECTION_MS - 1000,
     );
-    // After it, the clock is held again: every frame is on the held grid,
-    // one frame apart, for the rest of the pause.
+    // After it, the clock is held again: no network time, and every frame
+    // on the held grid, one frame apart, for the rest of the pause.
+    expect(
+      (r.bundle.networkSpans ?? []).filter((n) => n.endMs > end),
+      said,
+    ).toEqual([]);
     const after = frames.filter((f) => f.ms > end + 1).map((f) => f.ms);
     expect(after.length, said).toBeGreaterThanOrEqual(60);
     const offGrid = after.filter((ms, i) => {
@@ -238,5 +258,5 @@ describe("a held recording that waits on its server", () => {
       );
     });
     expect(offGrid, said).toEqual([]);
-  }, 120_000);
+  }, 250_000);
 });
