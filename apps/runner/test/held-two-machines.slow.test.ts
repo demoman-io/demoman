@@ -23,7 +23,7 @@ import {
  * a Mac (`fixtures/held-two-machines.json`). Timing only, never pixels
  * across operating systems: the frame count, the frames every step's
  * moments land on, and the frames the picture changes on, in held frames
- * from the first frame.
+ * from the first frame, network stretches left out.
  */
 
 const GOLDEN = join(import.meta.dirname, "fixtures", "held-two-machines.json");
@@ -31,13 +31,25 @@ const GOLDEN = join(import.meta.dirname, "fixtures", "held-two-machines.json");
 const LAG_MS = 40;
 
 /** The recording's timing in held frames from its first frame (`originMs`,
- *  not compared). Every frame from the first on is on the held grid while
- *  no network stretch falls after it, which the test asserts. */
+ *  not compared): a moment is counted by the page time before it that was
+ *  not waiting on the server, and a frame taken while it was (network
+ *  time, real time) is no picture change of the held clock's. */
 async function timingOf(r: Recorded) {
   const frames = await pageFrames(r, [0, 0, 1, 1], { width: 96, height: 60 });
   const stills = r.bundle.keyframes.map((k) => k.sourceTimeMs);
   const originMs = Math.min(...stills, ...frames.map((f) => f.ms));
-  const at = (ms: number) => Math.round((ms - originMs) / HELD_FRAME_MS);
+  const spans = r.bundle.networkSpans ?? [];
+  const at = (ms: number) => {
+    let network = 0;
+    for (const s of spans)
+      network += Math.max(
+        0,
+        Math.min(s.endMs, ms) - Math.max(s.startMs, originMs),
+      );
+    return Math.round((ms - originMs - network) / HELD_FRAME_MS);
+  };
+  const waiting = (ms: number) =>
+    spans.some((s) => ms > s.startMs && ms <= s.endMs);
   // A still starts where the picture stopped changing; a span's frame is a
   // change when it moved past the encoder's noise from the frame before.
   const changed = frames.filter(
@@ -58,35 +70,68 @@ async function timingOf(r: Recorded) {
         ].map((ms) => (ms === undefined ? null : at(ms))),
       ),
       changeFrames: [
-        ...new Set([...changed.map((f) => f.ms), ...stills].map(at)),
+        ...new Set(
+          [...changed.map((f) => f.ms), ...stills]
+            .filter((ms) => !waiting(ms))
+            .map(at),
+        ),
       ].sort((x, y) => x - y),
     },
   };
 }
 
 let home: string;
-let server: Server;
+let a: Server;
+let b: Server;
 let url: string;
+let away: string;
 const requests: string[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
+
+/** The fixture, then a click to another site whose server answers 200 ms
+ *  late, mid-flow: the path whose held frames once varied (Task 9). */
+const STEPS = [
+  ...SCRIPT_STEPS,
+  { do: "click", on: { stableId: "away" }, zoom: false },
+  { do: "waitFor", on: { stableId: "there" }, until: "visible" },
+];
 
 beforeAll(async () => {
   process.env.DEMOMAN_HELD_CLOCK = "1";
   home = await mkdtemp(join(tmpdir(), "demoman-held-machines-"));
-  server = createServer((req, res) => {
-    requests.push(`${req.method} ${req.url}`);
-    res.writeHead(200, { "content-type": "text/html" });
-    res.end(PAGE);
+  b = createServer((req, res) => {
+    requests.push(`b ${req.method} ${req.url}`);
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<!doctype html><link rel=icon href="data:,"><p id=there style="position:absolute;left:40px;top:40px">there</p>`,
+      );
+    }, 200);
   });
-  url = await listenOnLoopback(server);
+  // Another site: localhost, where the page is on 127.0.0.1.
+  away = (await listenOnLoopback(b)).replace("127.0.0.1", "localhost");
+  a = createServer((req, res) => {
+    requests.push(`a ${req.method} ${req.url}`);
+    res.writeHead(200, { "content-type": "text/html" });
+    // Beside the Far button, where the walk has scrolled by then.
+    res.end(
+      `${PAGE}<a id=away href="${away.replace(/\/$/, "")}/there" style="position:absolute;left:240px;top:2600px;width:160px;height:40px;display:block;background:#eee">Away</a>`,
+    );
+  });
+  url = await listenOnLoopback(a);
 }, 30_000);
 
 afterAll(async () => {
   if (was === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
   else process.env.DEMOMAN_HELD_CLOCK = was;
-  server.close();
+  a.close();
+  b.close();
   await rm(home, { recursive: true, force: true });
 });
+
+/** Both recordings took 200 s on CI's macOS and 177 s on ubuntu
+ *  (2026-11-15, before the navigation), 87 s here: with room. */
+const BOTH_MS = 900_000;
 
 describe("a held recording", () => {
   // Spec test 2, and the Task 6 review's open question: the loops that end
@@ -94,35 +139,48 @@ describe("a held recording", () => {
   // the browser process, so a slow machine could end them on another frame.
   // The slowed recording is that machine. Red when anything the walk times
   // follows the machine's speed rather than the held clock.
-  it("the same timing on any machine", async () => {
-    requests.length = 0;
-    const fast = await record(home, url, SCRIPT_STEPS);
-    const fastRequests = [...requests];
-    requests.length = 0;
-    const slow = await record(home, url, SCRIPT_STEPS, {}, LAG_MS);
-    const [one, two] = [await timingOf(fast), await timingOf(slow)];
-    const measured = {
-      platform: process.platform,
-      realMs: [fast.realMs, slow.realMs],
-      requests: [fastRequests, [...requests]],
-      network: [fast.bundle.networkSpans, slow.bundle.networkSpans],
-      originMs: [one.originMs, two.originMs],
-      fast: one.timing,
-      slow: two.timing,
-    };
-    const said = JSON.stringify(measured);
-    // Premise: the fixture makes one request, its document, whose wait is
-    // over before the first frame, so no network stretch is in the timing
-    // compared (its icon is empty, so Chrome fetches none).
-    expect(measured.requests, said).toEqual([["GET /"], ["GET /"]]);
-    for (const [i, r] of [one, two].entries())
-      expect(
-        (measured.network[i] ?? []).map((s) => [s.label, s.endMs < r.originMs]),
-        said,
-      ).toEqual([["GET /", true]]);
-    // The slowed recording really was slower.
-    expect(slow.realMs, said).toBeGreaterThan(fast.realMs + 10_000);
-    expect(two.timing, said).toEqual(one.timing);
-    expect(one.timing, said).toEqual(JSON.parse(readFileSync(GOLDEN, "utf8")));
-  }, 600_000);
+  it(
+    "the same timing on any machine",
+    async () => {
+      requests.length = 0;
+      const fast = await record(home, url, STEPS);
+      const fastRequests = [...requests];
+      requests.length = 0;
+      const slow = await record(home, url, STEPS, {}, LAG_MS);
+      const [one, two] = [await timingOf(fast), await timingOf(slow)];
+      const measured = {
+        platform: process.platform,
+        realMs: [fast.realMs, slow.realMs],
+        requests: [fastRequests, [...requests]],
+        network: [fast.bundle.networkSpans, slow.bundle.networkSpans],
+        originMs: [one.originMs, two.originMs],
+        fast: one.timing,
+        slow: two.timing,
+      };
+      const said = JSON.stringify(measured);
+      // Premise: two requests, the document's (over before the first frame)
+      // and the other site's after the click, each a network stretch (the
+      // icons are empty, so Chrome fetches none).
+      const premise = [["a GET /", "b GET /there"]];
+      expect(measured.requests, said).toEqual([...premise, ...premise]);
+      for (const [i, r] of [one, two].entries())
+        expect(
+          (measured.network[i] ?? []).map((s) => [
+            s.label,
+            s.endMs < r.originMs,
+          ]),
+          said,
+        ).toEqual([
+          ["GET /", true],
+          ["GET /there", false],
+        ]);
+      // The slowed recording really was slower.
+      expect(slow.realMs, said).toBeGreaterThan(fast.realMs + 10_000);
+      expect(two.timing, said).toEqual(one.timing);
+      expect(one.timing, said).toEqual(
+        JSON.parse(readFileSync(GOLDEN, "utf8")),
+      );
+    },
+    BOTH_MS,
+  );
 });
