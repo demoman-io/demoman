@@ -183,16 +183,17 @@ async function run(
     /** The click's read answers only once this much page time has passed
      *  (a click that navigated to another site). */
     clickReadAnswersAfterMs?: number;
-    /** The hover renewal's move after the first click answers only once
-     *  this much page time has passed: Chrome holds input for a document
-     *  still loading, which no `Page.frameStartedLoading` announced. */
-    hoverAnswersAfterMs?: number;
+    /** The first click starts a document load no `Page.frameStartedLoading`
+     *  announces, this long in page time: the document says "loading", and
+     *  Chrome holds a pointer move sent meanwhile until it has loaded. */
+    unannouncedLoadMs?: number;
   } = {},
 ) {
   const cdp = createCdpFake();
   let clicks = 0;
-  /** Whether the hover renewal's move after the first click was held. */
-  let hoverHeld = false;
+  /** When the unannounced load after the first click ends, in page time. */
+  let loadedAt: number | null = null;
+  const loading = () => loadedAt !== null && held.clock.now() < loadedAt;
   let loadingUntil: number | null = null;
   const network = [...(opts.network ?? [])];
   let restRequestAt: number | null = null;
@@ -276,18 +277,19 @@ async function run(
         restRequestAt = held.clock.now() + 100;
       return { result: { type: "undefined" } };
     }
+    if (method === "Runtime.evaluate" && expression === "document.readyState") {
+      return {
+        result: { type: "string", value: loading() ? "loading" : "complete" },
+      };
+    }
     if (
-      opts.hoverAnswersAfterMs !== undefined &&
-      clicks === 1 &&
-      !hoverHeld &&
+      loading() &&
       method === "Input.dispatchMouseEvent" &&
       params?.type === "mouseMoved"
     ) {
-      hoverHeld = true;
-      const after = opts.hoverAnswersAfterMs;
       return new Promise((resolve) =>
         settleWaiters.push({
-          due: held.clock.now() + after,
+          due: loadedAt ?? 0,
           answer: () => resolve(send(method, params)),
         }),
       );
@@ -333,6 +335,8 @@ async function run(
       params?.type === "mouseReleased"
     ) {
       clicks++;
+      if (clicks === 1 && opts.unannouncedLoadMs !== undefined)
+        loadedAt = held.clock.now() + opts.unannouncedLoadMs;
       if (clicks === 1 && opts.networkInRestMs !== undefined)
         restRequestAt = held.clock.now() + 100;
       if (clicks === 1 && opts.loadAfterFirstClickMs !== undefined) {
@@ -998,14 +1002,15 @@ describe("in-page waits on a held clock", () => {
 });
 
 describe("a click's read on a held clock", () => {
-  // Review of Task 9 round 1, finding C: the hover renewal's move after a
-  // navigating click, held by Chrome until the new document loads, waited
-  // out its 30 s answer deadline in real time with no page time played, and
-  // the open request's stretch took all 30 s as the server's. Red if the
-  // move is awaited unplayed: it never answers.
-  it("plays page time while the hover renewal's move is not answered", async () => {
+  // Review of Task 9 round 1, finding C (round 2, finding 2): the hover
+  // renewal's move after a navigating click, held by Chrome until the new
+  // document loads, waited out its 30 s answer deadline with no page time
+  // played. The load is played first, until the document says it is
+  // complete, then the move is sent. Red if it is sent while the document
+  // loads: it never answers.
+  it("plays a load no frameStartedLoading announced before the hover renewal", async () => {
     const { result, progress } = await run([click("a"), click("b")], {
-      hoverAnswersAfterMs: 400,
+      unannouncedLoadMs: 400,
     });
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");

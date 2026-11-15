@@ -936,10 +936,6 @@ export async function runWalk(
    *  renderer folds that idle into the rest. Network time does not: it is
    *  the server's, played on top of the designed clock (spec §2), or a
    *  slower server would leave a different rest on another machine. */
-  /** Real time a held hover renewal's move is given to answer before page
-   *  time is played for it: moves answer in milliseconds unless Chrome holds
-   *  them for a loading document. */
-  const HOVER_HELD_MS = 1000;
   const sinceActEnd = (plannedMs: number, since = heldActEnd): number => {
     const now = at();
     let networkMs = 0;
@@ -1645,6 +1641,22 @@ export async function runWalk(
    * is asked again. Without that, a navigating click's screen was the old
    * page mid-unload (Review Focus 2).
    */
+  /** Whether the top document says it is still loading. Not asked of a
+   *  page that cannot answer (one leaving): it counts as loaded. */
+  const documentLoading = async (): Promise<boolean> => {
+    try {
+      const state = evaluatedValue(
+        await cdp.send("Runtime.evaluate", {
+          expression: "document.readyState",
+          returnByValue: true,
+        }),
+      );
+      return state === "loading" || state === "interactive";
+    } catch {
+      return false;
+    }
+  };
+
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
     for (;;) {
       while (topLoading && at() < deadline) await clock.sleep(50);
@@ -1889,38 +1901,22 @@ export async function runWalk(
       // Held: Chrome holds input for a document still loading until it
       // loads, which on a held clock is only as page time moves (measured
       // 2026-11-15: this move after a navigating click waited out Chrome's
-      // own 30 s), so the load is played first, within the settle's cap.
+      // own 30 s), so the load is played first, within the settle's cap:
+      // while the top frame is loading, or its document says it is not yet
+      // complete (a load no frameStartedLoading announced, review of Task 9
+      // round 1, finding C). Asked of the page between frames, so the frame
+      // it ends on is the same on any machine.
       if (held !== undefined) {
         const loadBy = at() + STEP_SETTLE_CAP_MS;
-        while (topLoading && at() < loadBy) await clock.sleep(HELD_FRAME_MS);
+        while ((topLoading || (await documentLoading())) && at() < loadBy)
+          await clock.sleep(HELD_FRAME_MS);
       }
       try {
         // A section waits for any still in flight, and one of a page that
         // stopped painting never ends.
         if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
         const move = { type: "mouseMoved", x: cursor.x, y: cursor.y };
-        await gate.section(async () => {
-          if (held === undefined)
-            return cdp.send("Input.dispatchMouseEvent", move);
-          // Held: a move Chrome holds for a document still loading that no
-          // frameStartedLoading announced waited out its 30 s deadline, no
-          // page time played (review of Task 9 round 1, finding C); so one
-          // not answered in a moment is answered as page time moves. Not
-          // every move: its answer comes from the browser, which a frame's
-          // page call does not order, and played frames would land on one
-          // frame or the next by machine (measured 2026-11-15).
-          const sent = cdp.send("Input.dispatchMouseEvent", move, heldProbe);
-          const soon = await Promise.race([
-            sent.then(
-              () => true,
-              () => true,
-            ),
-            new Promise<false>((r) =>
-              setTimeout(() => r(false), HOVER_HELD_MS),
-            ),
-          ]);
-          return soon ? sent : answered(sent, NAVIGATE_TIMEOUT_MS);
-        });
+        await gate.section(() => cdp.send("Input.dispatchMouseEvent", move));
       } catch (error) {
         moved.push(
           machineMade(
