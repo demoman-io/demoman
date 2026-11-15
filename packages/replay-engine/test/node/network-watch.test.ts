@@ -88,6 +88,54 @@ describe("createNetworkWatch", () => {
     expect(w.ignored()).toEqual(["websocket /hmr"]);
   });
 
+  it("counts a dropped connection again when its data resumes, and keeps it named", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_001;
+    expect(w.waiting()).toBe(false);
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.waiting()).toBe(true);
+    expect(w.ignored()).toEqual(["GET /poll"]);
+  });
+
+  it("treats data after a gap over 10 s as dropped then resumed, without a sweep between", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_001;
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.waiting()).toBe(true);
+    expect(w.ignored()).toEqual(["GET /poll"]);
+  });
+
+  it("names a label once when a poller reconnects and idles again", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_001;
+    expect(w.waiting()).toBe(false);
+    emit("Network.requestWillBeSent", start("2"));
+    now = 20_002;
+    expect(w.waiting()).toBe(false);
+    expect(w.ignored()).toEqual(["GET /poll"]);
+  });
+
+  it("an idle connection that finishes leaves the idle set", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_001;
+    expect(w.waiting()).toBe(false);
+    emit("Network.loadingFinished", { requestId: "1" });
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.waiting()).toBe(false);
+  });
+
   it("a failed request stops counting", async () => {
     const { cdp, emit } = setup();
     const w = await createNetworkWatch(cdp, () => 0);

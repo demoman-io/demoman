@@ -25,15 +25,31 @@ export async function createNetworkWatch(
 ): Promise<NetworkWatch> {
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
   const live = new Map<string, { label: string; lastAt: number }>();
-  const dropped: string[] = [];
+  const idle = new Map<string, string>(); // dropped for silence, may resume
+  const dropped: string[] = []; // each label named once
   const id = (p: Record<string, unknown>) => String(p.requestId);
   const begin = (p: Record<string, unknown>, label: string) =>
     live.set(id(p), { label, lastAt: realNow() });
-  const data = (p: Record<string, unknown>) => {
-    const c = live.get(id(p));
-    if (c) c.lastAt = realNow();
+  const name = (label: string) => {
+    if (!dropped.includes(label)) dropped.push(label);
   };
-  const end = (p: Record<string, unknown>) => void live.delete(id(p));
+  const data = (p: Record<string, unknown>) => {
+    const now = realNow();
+    const c = live.get(id(p));
+    if (c) {
+      if (now - c.lastAt > IDLE_CONNECTION_MS) name(c.label);
+      c.lastAt = now;
+      return;
+    }
+    const label = idle.get(id(p));
+    if (label === undefined) return;
+    idle.delete(id(p));
+    live.set(id(p), { label, lastAt: now });
+  };
+  const end = (p: Record<string, unknown>) => {
+    live.delete(id(p));
+    idle.delete(id(p));
+  };
 
   const offs = [
     cdp.on("Network.requestWillBeSent", (p) => {
@@ -69,7 +85,8 @@ export async function createNetworkWatch(
     const now = realNow();
     for (const [k, c] of live)
       if (now - c.lastAt > IDLE_CONNECTION_MS) {
-        dropped.push(c.label);
+        name(c.label);
+        idle.set(k, c.label);
         live.delete(k);
       }
   };
