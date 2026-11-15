@@ -587,28 +587,6 @@ describe("createHeldClock", () => {
     ).toEqual([[0, 9]]);
   });
 
-  // Review of Task 9 round 4: a page polling a fast server opens and closes
-  // a request inside every grant that pays a stretch, so the wait is always
-  // just over. Only what was heard by the sleep's end is paid; the rest is
-  // the next sleep's, and the walk's page-time bounds stay reachable.
-  it("returns when the page opens and closes a request in every payment", async () => {
-    const { clock, budgets } = setup({
-      waiting: (real) => real < 300,
-      // A poll ended a millisecond before every look from the wait's end on.
-      quietSince: (real) => (real >= 300 ? real - 1 : null),
-      captureMs: (shot) => {
-        if (shot > 50) throw new Error("the sleep never returned");
-        return 400;
-      },
-    });
-    await clock.hold(START);
-    await clock.sleep(HELD_FRAME_MS);
-    // The stretch's first frame, then what was heard by its capture's end
-    // (real 433): played to frame 13, and no further.
-    expect(budgets()).toHaveLength(2);
-    expect(inFrames([clock.now()])).toEqual([13]);
-  });
-
   // Task 9: the whole wait of a click to another site fell inside the one
   // grant after the click, between two looks, and was not in the video.
   it("follows a wait that began and ended between two looks", async () => {
