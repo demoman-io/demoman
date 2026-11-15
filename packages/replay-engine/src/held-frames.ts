@@ -34,7 +34,8 @@ export function createHeldFrames(deps: {
   let newest: HeldFrame | null = null;
   let span: {
     startMs: number;
-    opened: boolean;
+    /** The first frame pushed, filed as a keyframe if the span is dropped. */
+    opened: HeldFrame | null;
     keyframeOnly: boolean;
     breach: Degradation | null;
     skipped: number;
@@ -43,7 +44,7 @@ export function createHeldFrames(deps: {
   const push = async (frame: HeldFrame): Promise<void> => {
     span ??= {
       startMs: frame.sourceTimeMs,
-      opened: false,
+      opened: null,
       keyframeOnly: false,
       breach: null,
       skipped: 0,
@@ -81,9 +82,9 @@ export function createHeldFrames(deps: {
       }
       return;
     }
-    if (!span.opened) {
+    if (span.opened === null) {
       encoder.openSpan(frame.sourceTimeMs);
-      span.opened = true;
+      span.opened = frame;
     }
     await encoder.push({
       bytes: frame.bytes,
@@ -96,9 +97,21 @@ export function createHeldFrames(deps: {
   const close = async (endMs: number): Promise<void> => {
     const open = span;
     span = null;
-    if (open?.opened !== true) return;
+    if (open?.opened == null) return;
     const encoded = await encoder.closeSpan(endMs);
-    if (encoded === null) return;
+    if (encoded === null) {
+      // Too short to be motion, and no step files a still for this stretch.
+      await fileStill(open.opened.bytes, open.opened.sourceTimeMs);
+      degradations.push(
+        degradation(
+          "keyframeOnly",
+          open.startMs,
+          endMs,
+          "a change too short to play as motion was kept as a still",
+        ),
+      );
+      return;
+    }
     onSpan({
       startMs: open.startMs,
       endMs,
@@ -119,6 +132,7 @@ export function createHeldFrames(deps: {
         run.push(frame);
         if (run.length < HOLD_MIN_FRAMES) return;
         held = true;
+        run = [first];
         // The span ends where the still page begins.
         if (span !== null) await push(first);
         await close(first.sourceTimeMs);
@@ -130,6 +144,7 @@ export function createHeldFrames(deps: {
       held = false;
     },
 
+    // In a hold the span already closed where the hold began; `endMs` ends nothing.
     async finish(endMs) {
       if (!held) {
         // A short run after motion is motion; a short run alone is a still page.

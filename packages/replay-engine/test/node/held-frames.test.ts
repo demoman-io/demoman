@@ -72,7 +72,7 @@ describe("createHeldFrames", () => {
   });
 
   it("puts changing frames in a span at their held times", async () => {
-    const h = setup();
+    const h = setup({ closeSpan: async () => ENCODED });
     for (const f of seq("ABCDDDD")) await h.held.add(f);
     await h.held.finish(t(7));
     expect(h.calls).toEqual([
@@ -90,7 +90,8 @@ describe("createHeldFrames", () => {
     const h = setup();
     for (const f of seq("AAABAAA")) await h.held.add(f);
     await h.held.finish(t(7));
-    expect(h.stills.map((s) => s.at)).toEqual([t(0), t(4)]);
+    // The one-frame span closes null (default encoder): its first frame is filed.
+    expect(h.stills.map((s) => s.at)).toEqual([t(0), t(3), t(4)]);
     expect(h.calls).toEqual([
       `open@${t(3)}`,
       `push@${t(3)}:B`,
@@ -99,9 +100,32 @@ describe("createHeldFrames", () => {
     ]);
   });
 
+  it("holds ten identical frames before a change as a keyframe, and opens no span at 0", async () => {
+    const h = setup();
+    for (const f of seq("AAAAAAAAAAB")) await h.held.add(f);
+    await h.held.finish(t(11));
+    expect(h.stills[0]).toEqual({ at: 0, byte: 65 });
+    expect(h.calls).not.toContain(`open@${t(0)}`);
+  });
+
+  it("files a span the encoder drops as too short as a keyframe and says so", async () => {
+    const h = setup();
+    for (const f of seq("AAABAAA")) await h.held.add(f);
+    await h.held.finish(t(7));
+    expect(h.spans).toEqual([]);
+    expect(h.stills).toContainEqual({ at: t(3), byte: 66 });
+    expect(h.degradations).toHaveLength(1);
+    expect(h.degradations[0]).toMatchObject({
+      kind: "keyframeOnly",
+      startMs: t(3),
+      endMs: t(4),
+    });
+    expect(h.degradations[0]?.note).toMatch(/too short/);
+  });
+
   it("treats fewer than HOLD_MIN_FRAMES identical frames as motion", async () => {
     expect(HOLD_MIN_FRAMES).toBe(3);
-    const h = setup();
+    const h = setup({ closeSpan: async () => ENCODED });
     for (const f of seq("AAB")) await h.held.add(f);
     await h.held.finish(t(3));
     expect(h.calls).toEqual([
@@ -159,7 +183,7 @@ describe("createHeldFrames", () => {
 
   it("keeps an endless animation in one span, and says when the budget skips frames", async () => {
     let heap = 0;
-    const h = setup({ heap: () => heap });
+    const h = setup({ heap: () => heap, closeSpan: async () => ENCODED });
     const frames = seq(
       Array.from({ length: 600 }, (_, i) =>
         String.fromCharCode(33 + (i % 90)),
@@ -178,6 +202,12 @@ describe("createHeldFrames", () => {
     expect(h.calls.filter((c) => c.startsWith("open"))).toHaveLength(1);
     // Frames 0..298 went in; 299 onwards met the heap and were skipped.
     expect(h.calls.filter((c) => c.startsWith("push"))).toHaveLength(299);
-    expect(h.degradations.map((d) => d.kind)).toEqual(["keyframeOnly"]);
+    expect(h.degradations).toHaveLength(1);
+    expect(h.degradations[0]).toMatchObject({
+      kind: "keyframeOnly",
+      startMs: 0,
+      endMs: t(299),
+    });
+    expect(h.degradations[0]?.note).toMatch(/heap/);
   });
 });
