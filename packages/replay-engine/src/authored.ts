@@ -732,7 +732,10 @@ export function createAuthoredRun(
       for (const [index, step] of script.steps.entries()) {
         if (step.do === "pause") {
           // The clock moves and nothing enters the log. A duration, not a beat.
-          await deps.clock.sleep(step.ms);
+          // A held plan plays it inside the next rest or the tail instead.
+          if (deps.held === undefined || deps.beats === undefined) {
+            await deps.clock.sleep(step.ms);
+          }
           paused += step.ms;
           continue;
         }

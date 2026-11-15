@@ -1,3 +1,4 @@
+import { validateBundle } from "@demoman/compositor";
 import type { AnchorIntent } from "@demoman/resolver";
 import {
   BRANDING_DEFAULTS,
@@ -5,6 +6,7 @@ import {
   type SceneAnchor,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
+import { HELD_FRAME_MS } from "../../src/held-clock.js";
 import type {
   AuthoredDeps,
   AuthoredResult,
@@ -17,8 +19,8 @@ import type {
 } from "../../src/index.js";
 import {
   decodeBase64,
-  HELD_FRAME_MS,
   runAuthored,
+  SCROLL_MARKER,
   SETTLE_MS,
   TAKE_TAIL_MS,
 } from "../../src/index.js";
@@ -39,8 +41,14 @@ const BASE = 700;
 const OPENING = 800;
 /** Not TAKE_TAIL_MS, the floor an unplanned walk records, so the two are told apart. */
 const TAIL = 1700;
-const NETWORK = [{ startMs: 400, endMs: 900, label: "POST /api/chat" }];
-const UNPINNED = [{ atMs: 40, what: "spin on div: refused" }];
+/** The held clock's time when the walk starts: not 0, so the walk's own
+ *  time (from its start) and the clock's are told apart. */
+const START = 5000;
+/** On the clock's time, as `HeldClock` answers them. */
+const NETWORK = [
+  { startMs: START + 400, endMs: START + 900, label: "POST /api/chat" },
+];
+const UNPINNED = [{ atMs: START + 40, what: "spin on div: refused" }];
 const IGNORED = ["GET /poll"];
 
 const restBefore = vi.fn<BeatRules["restBefore"]>(
@@ -63,7 +71,7 @@ const ROOM: RoomPolicy = {
   settledAfterMs: (heldUntil) => heldUntil,
 };
 
-/** A distinct frame each time: a marker-only JPEG with its count after it. */
+/** A frame: a marker-only JPEG with `n` after it. */
 const frameBytes = (n: number): Uint8Array => {
   const head = decodeBase64(fakeScreenshotBase64());
   const bytes = new Uint8Array(head.length + 2);
@@ -74,9 +82,11 @@ const frameBytes = (n: number): Uint8Array => {
 };
 
 /** A held clock with no browser behind it: `sleep` moves page time and
- *  files one frame per `HELD_FRAME_MS` on the grid, as the real one does. */
-function fakeHeld() {
-  let now = 0;
+ *  files one frame per `HELD_FRAME_MS` on the grid, as the real one does.
+ *  `look` is what the page shows (default: a new picture every frame);
+ *  `moved` is told the time after every frame and every sleep. */
+function fakeHeld(o: { look?: () => number; moved?: (now: number) => void }) {
+  let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const frames: HeldFrame[] = [];
   const clock: HeldClock = {
@@ -100,14 +110,16 @@ function fakeHeld() {
           throw new Error("a frame was captured with no frame listener");
         const frame = {
           sourceTimeMs: now,
-          bytes: frameBytes(frames.length + 1),
+          bytes: frameBytes(o.look?.() ?? frames.length + 1),
           width: 1280,
           height: 800,
         };
         frames.push(frame);
         for (const listener of listeners) await listener(frame);
+        o.moved?.(now);
       }
       now = end;
+      o.moved?.(now);
     },
   };
   return { clock, frames };
@@ -136,29 +148,67 @@ async function run(
     realDelayMs?: number;
     recording?: EngineDeps["recording"];
     encoder?: Partial<EngineDeps["encoder"]>;
+    /** The page changes only when clicked, so frames repeat between acts. */
+    stillBetweenActs?: boolean;
+    /** The first click starts a load that runs this long in page time: the
+     *  step's settle waits it out. */
+    loadAfterFirstClickMs?: number;
   } = {},
 ) {
   const cdp = createCdpFake();
-  const held = fakeHeld();
+  let clicks = 0;
+  let loadingUntil: number | null = null;
+  const held = fakeHeld({
+    ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
+    moved: (now) => {
+      if (loadingUntil !== null && now >= loadingUntil) {
+        loadingUntil = null;
+        cdp.emit("Page.frameStoppedLoading", { frameId: "top" });
+      }
+    },
+  });
   const delay = () =>
     new Promise<void>((resolve) => setTimeout(resolve, opts.realDelayMs ?? 0));
-  /** stableId by anchor id, so "b" can sit 400 px right of "a". */
+  /** stableId by anchor id: "b" sits 400 px right of "a", and "far" 2000 px
+   *  below the fold until the walk scrolls to it. */
   const stableOf = new Map<string, string>();
+  let belowFold = false;
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
     if (opts.realDelayMs !== undefined) await delay();
+    if (
+      method === "Runtime.callFunctionOn" &&
+      String(params?.functionDeclaration ?? "").includes(SCROLL_MARKER)
+    ) {
+      belowFold = false;
+      return {
+        result: { type: "object", value: { settled: true, movedPx: 2000 } },
+      };
+    }
+    if (
+      method === "Input.dispatchMouseEvent" &&
+      params?.type === "mouseReleased"
+    ) {
+      clicks++;
+      if (clicks === 1 && opts.loadAfterFirstClickMs !== undefined) {
+        loadingUntil = held.clock.now() + opts.loadAfterFirstClickMs;
+        cdp.emit("Page.frameStartedLoading", { frameId: "top" });
+      }
+    }
     if (method === "DOM.getBoxModel") {
       const anchorId = String(params?.objectId ?? "").split(":")[1] ?? "";
       const reply = (await send(method, params)) as {
         model: { border: number[]; content: number[] };
       };
-      if (stableOf.get(anchorId) !== "b") return reply;
-      const right = (q: number[]) =>
-        q.map((v, i) => (i % 2 === 0 ? v + 400 : v));
+      const stable = stableOf.get(anchorId);
+      const dx = stable === "b" ? 400 : 0;
+      const dy = stable === "far" && belowFold ? 2000 : 0;
+      const move = (q: number[]) =>
+        q.map((v, i) => v + (i % 2 === 0 ? dx : dy));
       return {
         model: {
-          border: right(reply.model.border),
-          content: right(reply.model.content),
+          border: move(reply.model.border),
+          content: move(reply.model.content),
         },
       };
     }
@@ -180,13 +230,14 @@ async function run(
   };
   const store = createMemoryFrameStore();
   const progress: ReplayProgress[] = [];
+  const push = vi.fn(async () => undefined);
   let n = 0;
   const deps: AuthoredDeps = {
     cdp,
     page,
     encoder: {
       openSpan: vi.fn(),
-      push: vi.fn(async () => undefined),
+      push,
       closeSpan: vi.fn(async () => null),
       queueDepth: () => 0,
       heapFraction: () => 0.1,
@@ -208,8 +259,10 @@ async function run(
     onProgress: (p) => progress.push(p),
     captureResolved: async (intent) => {
       if (opts.realDelayMs !== undefined) await delay();
-      stableOf.set(intent.id, String(intent.fingerprint.stableId));
-      return intent.fingerprint.stableId === "gone"
+      const stable = String(intent.fingerprint.stableId);
+      stableOf.set(intent.id, stable);
+      if (stable === "far") belowFold = true;
+      return stable === "gone"
         ? {
             anchor: null,
             failureReason: "unresolved",
@@ -241,7 +294,7 @@ async function run(
     deps,
   );
   const journeys = restBefore.mock.calls.map(([i]) => i.journeyMs);
-  return { result, cdp, frames: held.frames, store, progress, journeys };
+  return { result, cdp, frames: held.frames, store, progress, journeys, push };
 }
 
 const evidenceOf = (result: AuthoredResult, progress: ReplayProgress[] = []) =>
@@ -254,6 +307,7 @@ const evidenceOf = (result: AuthoredResult, progress: ReplayProgress[] = []) =>
       k.sourceTimeMs,
       k.actionId,
     ]),
+    screens: result.bundle?.pageScreens?.map((s) => s.sourceTimeMs),
   });
 
 const markerOf = (result: AuthoredResult, index: number) => {
@@ -261,6 +315,13 @@ const markerOf = (result: AuthoredResult, index: number) => {
   const marker = result.bundle?.markers.find((m) => m.actionId === id);
   if (marker === undefined) throw new Error(evidenceOf(result));
   return marker;
+};
+
+/** A counted step's act end; throws with the evidence when it has none. */
+const actEndOf = (result: AuthoredResult, index: number): number => {
+  const end = markerOf(result, index).actEndSourceTimeMs;
+  if (end === undefined) throw new Error(evidenceOf(result));
+  return end;
 };
 
 const click = (stableId: string) =>
@@ -275,25 +336,26 @@ describe("the walk on a held clock", () => {
     expect(frames.length, evidence).toBeGreaterThan(0);
     const methods = cdp.calls.map((c) => c.method);
     expect(methods).not.toContain("Page.startScreencast");
-    expect(methods).not.toContain("Page.screencastFrameAck");
+    expect(methods).not.toContain("Page.stopScreencast");
   });
 
   // Red if the walk sleeps SETTLE_MS instead of the arrive, sleeps no rest,
-  // or still waits the act out before the rest.
+  // or plays the journey past its planned length.
   it("plays the planned rest and arrive as page time", async () => {
     const { result, journeys, progress } = await run([click("a"), click("b")]);
     const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(journeys)}`;
     expect(result.outcome, evidence).toBe("complete");
     const first = markerOf(result, 0);
     const second = markerOf(result, 1);
-    // Premise: the second click travels, on a journey a whole number of
-    // frames long (the path is played a frame at a time).
+    // Premise: the second click travels, on a journey that is not a whole
+    // number of frames (so one played a frame at a time overruns it).
     const journeyMs = journeys.at(-1) ?? 0;
     expect(journeyMs, evidence).toBeGreaterThan(0);
     const frames = journeyMs / HELD_FRAME_MS;
-    const playedJourney = Math.ceil(frames - 1e-6) * HELD_FRAME_MS;
-    const actEnd = first.actEndSourceTimeMs;
-    expect(actEnd, evidence).toBeDefined();
+    expect(Math.abs(frames - Math.round(frames)), evidence).toBeGreaterThan(
+      0.01,
+    );
+    const actEnd = actEndOf(result, 0);
     const rest = RULES.restBefore({
       first: false,
       pauseMs: 0,
@@ -302,18 +364,92 @@ describe("the walk on a held clock", () => {
     });
     expect(rest).toBe(BASE);
     expect(ARRIVE).not.toBe(SETTLE_MS);
-    expect(second.sourceTimeMs - (actEnd ?? 0), evidence).toBeCloseTo(
-      rest + playedJourney + ARRIVE,
+    expect(second.sourceTimeMs - actEnd, evidence).toBeCloseTo(
+      rest + journeyMs + ARRIVE,
       6,
     );
     // The journey sets off once the rest is over.
+    expect((second.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
+      rest,
+      6,
+    );
+    // And the first step's rest is the opening one, from the walk's start.
+    expect(first.approachSourceTimeMs ?? 0, evidence).toBeCloseTo(OPENING, 6);
+  });
+
+  // Red if the pause plays on top of the rest that already counts it: the
+  // source sleeping it with the rest slept whole. (The source sleeping it
+  // alone is absorbed: the rest is slept as what is left since the act.)
+  it("plays a scripted pause once", async () => {
+    const { result, progress } = await run([
+      click("a"),
+      { do: "pause", ms: 500 },
+      click("b"),
+    ]);
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
     expect(
-      (second.approachSourceTimeMs ?? 0) - (actEnd ?? 0),
+      (markerOf(result, 1).approachSourceTimeMs ?? 0) - actEndOf(result, 0),
       evidence,
-    ).toBeCloseTo(rest, 6);
-    // And the first step's rest is the opening one, from the opening still.
-    expect(first.approachSourceTimeMs ?? 0, evidence).toBeCloseTo(
-      HELD_FRAME_MS + OPENING,
+    ).toBeCloseTo(BASE + 500, 6);
+  });
+
+  it("plays a closing pause once, in the tail", async () => {
+    const { result, progress } = await run([
+      click("a"),
+      { do: "pause", ms: 500 },
+    ]);
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    expect(
+      (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) -
+        actEndOf(result, 0),
+      evidence,
+    ).toBeCloseTo(TAIL + 500, 6);
+  });
+
+  // Red if the rest is slept whole after a settle that already played page
+  // time since the act ended.
+  it("counts the page time a step's settle played toward the next rest", async () => {
+    const { result, journeys, progress } = await run([click("a"), click("b")], {
+      loadAfterFirstClickMs: 300,
+    });
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(journeys)}`;
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    // Premise: the settle after the first click waited the load out.
+    const screen = result.bundle?.pageScreens?.[1]?.sourceTimeMs ?? 0;
+    expect(screen - actEnd, evidence).toBeGreaterThanOrEqual(300);
+    const journeyMs = journeys.at(-1) ?? 0;
+    const second = markerOf(result, 1);
+    expect((second.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
+      BASE,
+      6,
+    );
+    expect(second.sourceTimeMs - actEnd, evidence).toBeCloseTo(
+      BASE + journeyMs + ARRIVE,
+      6,
+    );
+  });
+
+  // Red if the rest of a step reached by scrolling is played after the
+  // scroll, or the after-scroll before it.
+  it("rests before the scroll and plays the after-scroll after it", async () => {
+    const { result, progress } = await run([click("a"), click("far")]);
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const actEnd = actEndOf(result, 0);
+    const far = markerOf(result, 1);
+    // Premise: the approach scrolled.
+    expect(far.scrollEndSourceTimeMs, evidence).toBeDefined();
+    const scrollEnd = far.scrollEndSourceTimeMs ?? 0;
+    expect(scrollEnd - actEnd, evidence).toBeCloseTo(BASE, 6);
+    expect((far.approachSourceTimeMs ?? 0) - scrollEnd, evidence).toBeCloseTo(
+      ARRIVE,
+      6,
+    );
+    expect((far.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
+      BASE + ARRIVE,
       6,
     );
   });
@@ -325,21 +461,44 @@ describe("the walk on a held clock", () => {
     expect(result.pacing).toBeUndefined();
     expect(result.bundle?.clock).toBe("held");
     expect(result.bundle?.timing).toBe("real");
-    expect(result.bundle?.networkSpans).toEqual(NETWORK);
+    // On the walk's time, from its start.
+    expect(result.bundle?.networkSpans).toEqual([
+      { startMs: 400, endMs: 900, label: "POST /api/chat" },
+    ]);
     const said = (kind: string) =>
       result.bundle?.degradations
         .filter((d) => d.kind === kind)
-        .map((d) => d.note);
-    expect(said("animationUnpinned")).toEqual(UNPINNED.map((u) => u.what));
-    expect(said("connectionIgnored")).toEqual(IGNORED);
+        .map((d) => [d.startMs, d.note]);
+    expect(said("animationUnpinned")).toEqual([[40, UNPINNED[0]?.what]]);
+    expect(said("connectionIgnored")).toEqual([[0, IGNORED[0]]]);
     // The tail is played: the take runs its planned tail past the last act.
     expect(TAIL).not.toBe(TAKE_TAIL_MS);
-    const last = markerOf(result, 0);
     expect(
       (result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0) -
-        (last.actEndSourceTimeMs ?? 0),
+        actEndOf(result, 0),
       evidence,
     ).toBeCloseTo(TAIL, 6);
+  });
+
+  it("files frames that repeat between acts as holds, in order", async () => {
+    const { result, frames, push, progress } = await run(
+      [click("a"), click("b")],
+      { stillBetweenActs: true },
+    );
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const bundle = result.bundle;
+    if (bundle === null) throw new Error(evidence);
+    // Premise: holds formed: repeated frames were not pushed as motion, and
+    // stills no step asked for were filed for them.
+    expect(push.mock.calls.length, evidence).toBeLessThan(frames.length);
+    expect(
+      bundle.keyframes.filter((k) => k.actionId === null).length,
+      evidence,
+    ).toBeGreaterThan(2);
+    expect(() => validateBundle(bundle)).not.toThrow();
+    const times = bundle.keyframes.map((k) => k.sourceTimeMs);
+    expect(times, evidence).toEqual([...times].sort((a, b) => a - b));
   });
 
   it("a waitFor that never resolves fails at the same held time", async () => {
@@ -381,7 +540,7 @@ describe("the walk on a held clock", () => {
     );
     expect(still, evidence).toBeDefined();
     const latest = frames
-      .filter((f) => f.sourceTimeMs <= marker.sourceTimeMs + 1e-6)
+      .filter((f) => f.sourceTimeMs - START <= marker.sourceTimeMs + 1e-6)
       .at(-1);
     // Premise: a frame had been captured before the step's still.
     expect(latest, evidence).toBeDefined();
