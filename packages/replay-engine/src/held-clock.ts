@@ -199,15 +199,19 @@ export function createHeldClock(deps: {
   let shotAt = 0;
   /** Where a wait that began at real `from` (null: now) began in page time:
    *  where the page stood then, so `held` if it began after the page last
-   *  stopped, or the look before if it began inside that grant. One rule,
-   *  whichever branch of the sleep sees the wait. */
+   *  stopped, or the look before if it began inside that grant. Never
+   *  before that look: a wait heard after it is not credited from earlier.
+   *  One rule, whichever branch of the sleep sees the wait. */
   const dated = (
     from: number | null,
     looked: { real: number; held: number },
   ) =>
     from === null
       ? { real: realNow(), held }
-      : { real: from, held: from > pausedAt ? held : looked.held };
+      : {
+          real: Math.max(from, looked.real),
+          held: from > pausedAt ? held : looked.held,
+        };
   const unpinned: { atMs: number; what: string }[] = [];
 
   const pause = async (initialVirtualTime: number) => {

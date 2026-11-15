@@ -410,6 +410,31 @@ describe("createHeldClock", () => {
     expect(clock.now() - before).toBeGreaterThanOrEqual(WALK_GAP_CREDIT_MS);
   });
 
+  // Review of Task 9 round 2, finding 1: a wait dated hours before the
+  // look that heard it (a fetch stamped on the page's held clock) moved the
+  // page 10 h in one grant on CI.
+  it("credits a wait from no earlier than the look before it was heard", async () => {
+    const { clock } = setup({
+      waiting: (real) => real >= 650,
+      waitsSince: waitsOf({
+        from: -36_000_000,
+        at: 650,
+        labels: ["POST /answer"],
+      }),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    await clock.sleep(1000);
+    const spans = clock.networkSpans();
+    expect(spans).toHaveLength(1); // premise: the wait was seen
+    // Credited from the look before it was heard (real 600): the sleep's
+    // second and a capture at most, not 10 h.
+    expect(
+      (spans[0]?.endMs ?? 0) - (spans[0]?.startMs ?? 0),
+    ).toBeLessThanOrEqual(1200);
+  });
+
   it("keeps one stretch for a wait that runs across sleeps", async () => {
     const { clock, frames } = setup({ waiting: () => true, captureMs: 200 });
     await clock.hold(START);

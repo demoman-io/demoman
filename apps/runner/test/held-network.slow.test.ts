@@ -149,6 +149,11 @@ const ASK = [
   { do: "waitFor", on: { stableId: "done" }, until: "visible" },
 ];
 
+/** Ten hours before now: a page's own clock far from real time, as a pin
+ *  makes it (a fetch's wallTime is the page's, review of Task 9 round 2:
+ *  CI run 3's stream stretch was 10.5 h). */
+const FAR_PIN = new Date(Date.now() - 10 * 3600 * 1000).toISOString();
+
 /** One recording of the stream takes about 9 s here, 40 s slowed; CI's
  *  macOS took 32-44 s each (2026-11-15). Both, with room: */
 const STREAMS_MS = 300_000;
@@ -158,8 +163,8 @@ describe("a held recording that waits on its server", () => {
   let slowed: Recorded;
 
   beforeAll(async () => {
-    normal = await record(home, `${url}/`, ASK);
-    slowed = await record(home, `${url}/`, ASK, {}, 40);
+    normal = await record(home, `${url}/`, ASK, {}, undefined, FAR_PIN);
+    slowed = await record(home, `${url}/`, ASK, {}, 40, FAR_PIN);
   }, STREAMS_MS);
 
   // Spec test 3. Red when the stream is played on the held grid instead of
@@ -176,6 +181,9 @@ describe("a held recording that waits on its server", () => {
     const both = await Promise.all(
       [normal, slowed].map(async (r) => ({
         ...(await streamed(r)),
+        stretch: (r.bundle.networkSpans ?? []).find((n) =>
+          n.label.includes("POST /answer"),
+        ),
         realMs: r.realMs,
         network: r.bundle.networkSpans,
       })),
@@ -193,6 +201,18 @@ describe("a held recording that waits on its server", () => {
         Math.abs(s.last - s.first - (CHUNKS - 1) * CHUNK_GAP_MS),
         said,
       ).toBeLessThanOrEqual(s.frameMs);
+      // And from where the wait began: the server answers at once, so its
+      // last chunk is 1800 ms on, within a frame; the stretch lasts no
+      // longer than the stream and a frame either side.
+      const start = s.stretch?.startMs ?? Number.NaN;
+      expect(
+        Math.abs(s.last - start - (CHUNKS - 1) * CHUNK_GAP_MS),
+        said,
+      ).toBeLessThanOrEqual(s.frameMs);
+      expect(
+        (s.stretch?.endMs ?? Number.NaN) - start,
+        said,
+      ).toBeLessThanOrEqual((CHUNKS - 1) * CHUNK_GAP_MS + 2 * s.frameMs);
     }
   });
 

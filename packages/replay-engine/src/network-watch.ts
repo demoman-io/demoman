@@ -68,12 +68,20 @@ export async function createNetworkWatch(
     if (!last.labels.includes(label)) last.labels.push(label);
     live.set(id(p), { label, lastAt: now });
   };
-  // Dated by when the browser sent it: its word can come after the walk's
-  // next grant (CI ubuntu, 2026-11-15: a cross-site click's request, heard
-  // a frame late, counted that frame as held).
+  // A document's request is dated by when the browser sent it: its word can
+  // come after the walk's next grant (CI ubuntu, 2026-11-15: a cross-site
+  // click's request, heard a frame late, counted that frame as held). Only a
+  // document's: the browser stamps it in real time, but a page's own fetch
+  // is stamped by the page, on its held clock (measured 2026-11-15,
+  // apps/runner/compare/held-probe-walltime.mjs: a fetch 10 h behind real
+  // time under a pin 10 h ago, a document within 2 ms; CI run 3 recorded a
+  // 10.5 h stretch from it).
   const begin = (p: Record<string, unknown>, label: string) => {
     const now = realNow();
-    const wall = typeof p.wallTime === "number" ? p.wallTime * 1000 : now;
+    const wall =
+      p.type === "Document" && typeof p.wallTime === "number"
+        ? p.wallTime * 1000
+        : now;
     count(p, label, now, Math.min(now, wall));
   };
   const data = (p: Record<string, unknown>) => {

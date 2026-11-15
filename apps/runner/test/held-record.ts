@@ -115,6 +115,7 @@ export async function record(
   steps: unknown[],
   extra: Record<string, unknown> = {},
   lagMs?: number,
+  pin: string = PIN,
 ): Promise<Recorded> {
   const lines: string[] = [];
   let lagged: BrowserContext | null = null;
@@ -156,7 +157,7 @@ export async function record(
         signinCommand: "npx demoman signin",
         loadSessions: async () => ({ ok: true as const, files: [] }),
         sessionsContext: {} as BrowserContext,
-        pinnedNow: PIN,
+        pinnedNow: pin,
       },
       () => undefined,
     );

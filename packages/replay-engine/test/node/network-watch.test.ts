@@ -98,10 +98,29 @@ describe("createNetworkWatch", () => {
     now = 1450;
     emit("Network.requestWillBeSent", {
       ...start("1", "http://app.test/there"),
+      type: "Document",
       wallTime: 1.3, // sent at 1300, heard at 1450
     });
     expect(w.waitsSince(1400)).toEqual({ from: 1300, labels: ["GET /there"] });
     expect(w.waitsSince(1450)).toBeNull();
+  });
+
+  // Review of Task 9 round 2, finding 1: a page's own fetch is stamped on
+  // its held clock (10 h behind real time under a pin 10 h ago, measured).
+  it("dates a page's own request by when it was heard", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    now = 36_000_000;
+    emit("Network.requestWillBeSent", {
+      ...start("1", "http://app.test/answer"),
+      type: "Fetch",
+      wallTime: 0.333, // the page's held clock
+    });
+    expect(w.waitsSince(0)).toEqual({
+      from: 36_000_000,
+      labels: ["GET /answer"],
+    });
   });
 
   // Review of Task 9, M4: a connection gone quiet is dropped before a new
