@@ -1368,6 +1368,62 @@ describe("runReplay", () => {
     expect(worst, evidence).toBeLessThanOrEqual(1.15);
   });
 
+  // Nylon's create-invoice on ubuntu-latest, 2026-11-15: Chrome answered a
+  // `mouseMoved` in up to ~480 ms, the walk drew one sample per answer, and
+  // the move to "Create invoice" was four samples, one 400 px apart from the
+  // next 3 ms later. The drawn cursor jumped. The fake answers after 300 ms.
+  it("draws a move as its planned curve when moves are slow to land", async () => {
+    const FAR = { x: 1150, y: 720 };
+    const expected = segmentDurationMs(TARGET, FAR);
+    const d = deps();
+    const send = d.cdp.send.bind(d.cdp);
+    let moves = 0;
+    d.cdp.send = async (method, params) => {
+      if (
+        method === "DOM.getBoxModel" &&
+        String(params?.objectId ?? "").includes(":second-btn:")
+      ) {
+        const [l, t, r, b] = [FAR.x - 50, FAR.y - 20, FAR.x + 50, FAR.y + 20];
+        const quad = [l, t, r, t, r, b, l, b];
+        return { model: { border: quad, content: quad } };
+      }
+      const reply = await send(method, params);
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        params?.type === "mouseMoved"
+      ) {
+        moves++;
+        await d.clock.sleep(300);
+      }
+      return reply;
+    };
+    const result = await runReplay(scene(), d);
+
+    expect(result.outcome).toBe("complete");
+    const bundle = result.bundle as FrameBundle;
+    const firstAt = bundle.markers.find((m) => m.actionId === "act-1")
+      ?.sourceTimeMs as number;
+    const path = bundle.cursorSamples.filter((c) => c.sourceTimeMs > firstAt);
+    const gaps = path
+      .slice(1)
+      .map(
+        (c, i) =>
+          c.sourceTimeMs - (path[i] as { sourceTimeMs: number }).sourceTimeMs,
+      );
+    const evidence = `${moves} moves sent; ${path.length} samples, gaps ${gaps.join(", ")} ms`;
+    // The premise: the move ran to the far target, and the slow answers left
+    // only a handful of moves for a move planned to take this long.
+    expect(path.at(-1), evidence).toMatchObject(FAR);
+    expect(expected).toBeGreaterThanOrEqual(600);
+    expect(moves, evidence).toBeLessThanOrEqual(8);
+    // The curve on its own grid, however few moves were sent.
+    expect(Math.max(...gaps), evidence).toBeLessThanOrEqual(20);
+    expect(
+      gaps.every((g) => g >= 0),
+      evidence,
+    ).toBe(true);
+  });
+
   it("acknowledges a frame that arrives with no span open", async () => {
     const d = deps();
     // The opening keyframe is taken before any span exists, and `locate`'s

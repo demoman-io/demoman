@@ -2187,12 +2187,24 @@ export async function runWalk(
         y: point.y,
       });
       const now = at();
-      cursorSamples.push({ sourceTimeMs: now, x: point.x, y: point.y });
       if (elapsed >= retargeted.durationMs) break;
       const wait = PATH_STEP_MS - (now - sentAt);
       if (wait > 0) await clock.sleep(wait);
       sentAt = at();
     }
+    // The drawn cursor is the planned curve on its own grid, not one sample
+    // per move sent: a runner answered a move in up to ~480 ms (2026-11-15),
+    // and a sample per answer drew a 700 ms move as four jumps. The moves
+    // only drive the page; every sample lies before the last one was sent.
+    for (let ms = 0; ms < retargeted.durationMs; ms += PATH_STEP_MS) {
+      const p = pathPointAt(retargeted, ms);
+      cursorSamples.push({ sourceTimeMs: start + ms, x: p.x, y: p.y });
+    }
+    cursorSamples.push({
+      sourceTimeMs: start + retargeted.durationMs,
+      x: to.x,
+      y: to.y,
+    });
     cursor = to;
   };
 
