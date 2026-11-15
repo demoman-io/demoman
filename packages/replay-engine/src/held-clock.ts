@@ -183,6 +183,21 @@ export function createHeldClock(deps: {
   let pausedAt = 0;
   /** The last look at the network, in real and held time. */
   let lookedAt = { real: 0, held: 0 };
+  /** When the latest grant began, and the real time from a grant's start to
+   *  its frame's capture, as last measured. */
+  let grantAt = 0;
+  let shotLatency = 0;
+  /** Where a wait that began at real `from` (null: now) began in page time:
+   *  where the page stood then, so `held` if it began after the page last
+   *  stopped, or the look before if it began inside that grant. One rule,
+   *  whichever branch of the sleep sees the wait. */
+  const dated = (
+    from: number | null,
+    looked: { real: number; held: number },
+  ) =>
+    from === null
+      ? { real: realNow(), held }
+      : { real: from, held: from > pausedAt ? held : looked.held };
   const unpinned: { atMs: number; what: string }[] = [];
 
   const pause = async (initialVirtualTime: number) => {
@@ -204,6 +219,7 @@ export function createHeldClock(deps: {
    *  (measured 2026-11-15, apps/runner/compare/held-probe-navigation.mjs). */
   const grant = async (to: number) => {
     if (startEpochMs === null) throw new Error("grant before hold");
+    grantAt = realNow();
     const epochMs = startEpochMs;
     await advance(to);
     await pause((epochMs + to) / 1000);
@@ -259,6 +275,7 @@ export function createHeldClock(deps: {
     for (const what of failed)
       unpinned.push({ atMs: held, what: String(what) });
     const shot = await deps.capture();
+    shotLatency = realNow() - grantAt;
     if (listeners.length === 0)
       throw new Error("a frame was captured with no frame listener to file it");
     for (const listener of listeners)
@@ -316,12 +333,14 @@ export function createHeldClock(deps: {
           // page's favicon be what the next look sees (CI ubuntu,
           // 2026-11-15).
           const since = network.waitsSince(looked.real);
-          if (!continues)
-            stretchFrom = {
-              real: Math.max(since?.from ?? realNow(), pausedAt),
-              held,
-            };
-          const due = stretchFrom.held + (realNow() - stretchFrom.real);
+          if (!continues) stretchFrom = dated(since?.from ?? null, looked);
+          // Where real time will be when this frame is taken, a grant and a
+          // capture from now (the last one's): what the page shows then is
+          // what the frame's time must say. Stamped at the look instead,
+          // every frame of a stream was one capture early on a slow machine,
+          // where that is about 240 ms (2026-11-15).
+          const due =
+            stretchFrom.held + (realNow() + shotLatency - stretchFrom.real);
           const labels = [...(since?.labels ?? []), ...network.labels()];
           const from = held;
           const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
@@ -352,10 +371,7 @@ export function createHeldClock(deps: {
           if (span?.endMs === held)
             for (const l of last.labels) span.labels.add(l);
           else {
-            stretchFrom = {
-              real: last.from,
-              held: last.from > pausedAt ? held : looked.held,
-            };
+            stretchFrom = dated(last.from, looked);
             unseen = {
               startMs: stretchFrom.held,
               endMs: held,
@@ -385,6 +401,11 @@ export function createHeldClock(deps: {
           break;
         }
         await grant(next < end - EPS ? next : end);
+        // The page began waiting during this grant: what it shows by the
+        // capture is the server's, so the frame is the stretch's first, taken
+        // where real time is (the next look), not here. Taken here, a
+        // stream's first chunks showed a capture early on a slow machine.
+        if (network.waiting()) continue;
         await shoot();
       }
     },
