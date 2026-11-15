@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GRANT_EXPIRY_TIMEOUT_MS,
   HELD_FRAMES_SCRIPT,
+  WALK_GAP_CREDIT_MS,
 } from "../../src/held-clock.js";
 import {
   createHeldClock,
@@ -386,6 +387,27 @@ describe("createHeldClock", () => {
     await clock.sleep(1000);
     // The stretch begins at frame 3, where the grant it was sent in began.
     expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
+  });
+
+  // Review of Task 9 round 1, finding C: a call of the walk's that waited
+  // out its 30 s deadline while a request was open became 30 s of the
+  // server's wait in the video.
+  it("credits the walk's own stuck time to the server only up to a bound", async () => {
+    const { clock, frames, advance } = setup({
+      waiting: () => true,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    const before = clock.now();
+    expect(frames.length).toBeGreaterThan(0); // premise: a stretch is open
+    advance(30_000); // a call of the walk's that got no answer
+    await clock.sleep(HELD_FRAME_MS);
+    // At most the bound, the capture and a frame on.
+    expect(clock.now() - before).toBeLessThanOrEqual(
+      WALK_GAP_CREDIT_MS + 200 + HELD_FRAME_MS,
+    );
+    expect(clock.now() - before).toBeGreaterThanOrEqual(WALK_GAP_CREDIT_MS);
   });
 
   it("keeps one stretch for a wait that runs across sleeps", async () => {

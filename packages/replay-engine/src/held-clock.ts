@@ -10,6 +10,14 @@ export const HELD_FRAME_MS = 1000 / 30;
  *  own long task, short enough to say what happened. */
 export const GRANT_EXPIRY_TIMEOUT_MS = 15_000;
 
+/** Real time the walk itself spends between two frames of a stretch that
+ *  counts as the server's: its own work there (a condition read, a few page
+ *  calls) is milliseconds; past this it is a call of the walk's that stuck,
+ *  which the server did not take (a 30 s stretch on CI ubuntu, 2026-11-15).
+ *  shortcut: a fixed bound, not the walk telling the clock; upgrade if a
+ *  walk's honest work between frames comes near it. */
+export const WALK_GAP_CREDIT_MS = 2000;
+
 /** 30 · (1000/30) is 1000.0000000000001: held times are compared this
  *  loosely, so a sleep of no more than this moves no page time, and a caller
  *  looping until a held time is reached must stop within it. */
@@ -187,6 +195,8 @@ export function createHeldClock(deps: {
    *  its frame's capture, as last measured. */
   let grantAt = 0;
   let shotLatency = 0;
+  /** When the latest frame was taken, in real time. */
+  let shotAt = 0;
   /** Where a wait that began at real `from` (null: now) began in page time:
    *  where the page stood then, so `held` if it began after the page last
    *  stopped, or the look before if it began inside that grant. One rule,
@@ -275,7 +285,8 @@ export function createHeldClock(deps: {
     for (const what of failed)
       unpinned.push({ atMs: held, what: String(what) });
     const shot = await deps.capture();
-    shotLatency = realNow() - grantAt;
+    shotAt = realNow();
+    shotLatency = shotAt - grantAt;
     if (listeners.length === 0)
       throw new Error("a frame was captured with no frame listener to file it");
     for (const listener of listeners)
@@ -334,6 +345,12 @@ export function createHeldClock(deps: {
           // 2026-11-15).
           const since = network.waitsSince(looked.real);
           if (!continues) stretchFrom = dated(since?.from ?? null, looked);
+          const walked = lookedAt.real - Math.max(shotAt, stretchFrom.real);
+          if (walked > WALK_GAP_CREDIT_MS)
+            stretchFrom = {
+              real: stretchFrom.real + walked - WALK_GAP_CREDIT_MS,
+              held: stretchFrom.held,
+            };
           // Where real time will be when this frame is taken, a grant and a
           // capture from now (the last one's): what the page shows then is
           // what the frame's time must say. Stamped at the look instead,
