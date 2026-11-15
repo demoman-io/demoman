@@ -26,6 +26,8 @@ function setup(
     pin?: (heldMs: number) => unknown;
     /** What the network watch says it stopped counting. */
     ignored?: string[];
+    /** The real time the wait ended, once it has (`NetworkWatch.quietSince`). */
+    quietSince?: (real: number) => number | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -63,6 +65,7 @@ function setup(
     waiting: () => o.waiting?.(real) ?? false,
     labels: () => ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
+    quietSince: () => o.quietSince?.(real) ?? null,
     stop() {},
   };
   const clock = createHeldClock({
@@ -249,6 +252,30 @@ describe("createHeldClock", () => {
     expect(clock.networkSpans()).toEqual([
       { startMs: 0, endMs: 201, label: "POST /api/chat" },
     ]);
+  });
+
+  // Fix round 1, finding 3: the old page of a navigation to another site
+  // answers no page call until the new one commits, so the server's wait
+  // can end while a frame is being taken. The stretch follows it to its end.
+  it("follows a wait that ended while a frame was taken, to its end", async () => {
+    const { clock, frames, budgets } = setup({
+      waiting: (real) => real < 300,
+      quietSince: (real) => (real >= 300 ? 300 : null),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(1000);
+    // Premise: the wait ended during the second frame's capture (real 200-400).
+    expect(times(frames).slice(0, 2)).toEqual([1, 201]);
+    // The stretch lasts the wait's 300 ms of real time, the 1 ms floor in it.
+    expect(budgets().slice(0, 3)).toEqual([1, 200, 99]);
+    expect(clock.networkSpans()).toEqual([
+      { startMs: 0, endMs: 300, label: "POST /api/chat" },
+    ]);
+    // Then the held grid again.
+    const after = frames.slice(3);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
   });
 
   it("names the connections the network watch stopped counting", () => {

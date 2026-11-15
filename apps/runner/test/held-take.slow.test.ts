@@ -143,8 +143,8 @@ beforeAll(async () => {
       );
       return;
     }
-    // The other site's page, answered late so its document commits while
-    // the clock follows the server's real time (R7).
+    // The other site's page, answered late: the wait is the server's, and is
+    // to be in the video as one (fix round 1, finding 3).
     setTimeout(
       () =>
         send(
@@ -431,12 +431,17 @@ describe("a held recording", () => {
     }
   }, 300_000);
 
-  // Review Focus 1. The other site's document answers 200 ms late, to have
-  // its renderer made while the clock follows the server (R7): measured
-  // 2026-11-15, it never is, because the walk's read of the click (the old
-  // document's) waits for the commit, so the commit lands between grants.
-  // Red without the pause after every grant (held-clock.ts): the new
-  // renderer then starts on the machine's clock, years past the pin.
+  // Review Focus 1, and fix round 1 finding 3. The other site's document
+  // answers 200 ms late. The old page answers no grant or page call until
+  // the new one commits, so the stretch is followed to the wait's end
+  // afterwards: the wait is a network stretch in the video. The new page's
+  // clock continues the held time, from where the navigation began: Chrome
+  // runs its first script in the first grant after the commit, at the time
+  // the old page was paused at (measured 2026-11-15), before any of the
+  // wait can be granted to it. Red without the pause after every grant
+  // (held-clock.ts): the new renderer then starts on the machine's clock,
+  // years past the pin; and red without the stretch following the wait to
+  // its end: the stretch is a millisecond long.
   it("continues the held time across a navigation to another origin", async () => {
     printed.length = 0;
     const r = await record(`${aUrl}/go`, [
@@ -451,12 +456,18 @@ describe("a held recording", () => {
     // Premise: the other site's page printed its clock.
     const there = printed.find((p) => p.label === "there");
     expect(there, said).toBeDefined();
+    const click = r.bundle.markers[0]?.sourceTimeMs ?? Number.NaN;
+    // The server's wait is network time, from the click on.
+    const wait = (r.bundle.networkSpans ?? []).find(
+      (s) => s.label.includes("GET /there") && s.endMs > click,
+    );
+    expect(wait, said).toBeDefined();
+    const waitMs = (wait?.endMs ?? 0) - Math.max(wait?.startMs ?? 0, click);
+    expect(waitMs, said).toBeGreaterThanOrEqual(150);
     // The walk's clock is the held clock from its hold, so the page's
     // Date.now() less the pinned instant is the held time it ran at.
     const at = (there?.t ?? Number.NaN) - Date.parse(PIN);
-    const click = r.bundle.markers[0]?.sourceTimeMs ?? Number.NaN;
-    expect(Math.abs(at - click), said).toBeLessThanOrEqual(HELD_FRAME_MS);
-    // Within the run's real time too, not merely near the click.
+    expect(Math.abs(at - click), said).toBeLessThanOrEqual(2 * HELD_FRAME_MS);
     expect(r.realMs, said).toBeLessThan(30_000);
   }, 120_000);
 

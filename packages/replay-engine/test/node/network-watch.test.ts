@@ -43,6 +43,24 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(false);
   });
 
+  // Fix round 1, finding 3: when the page stopped waiting, for a stretch
+  // that ended while the held clock was taking a frame.
+  it("says when the page stopped waiting", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    expect(w.quietSince()).toBeNull();
+    emit("Network.requestWillBeSent", start("1"));
+    emit("Network.requestWillBeSent", start("2"));
+    now = 150;
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(w.quietSince()).toBeNull(); // premise: "2" still open
+    now = 210;
+    emit("Network.loadingFailed", { requestId: "2" });
+    now = 400;
+    expect(w.quietSince()).toBe(210);
+  });
+
   it("keeps waiting while a stream's data arrives", async () => {
     const { cdp, emit } = setup();
     let now = 0;

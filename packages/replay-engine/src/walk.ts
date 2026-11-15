@@ -41,13 +41,16 @@ import {
   type ClickVerdict,
   createClickSightings,
   discardClickProbe,
+  isClickRead,
   placeClickProbe,
   readClickProbe,
   TYPE_FIELD_UNFOCUSED,
 } from "./click-probe.js";
 import {
   ACT_CEILING_MS,
+  HELD_SCROLL_MS,
   KEYFRAME_QUALITY,
+  NAVIGATE_TIMEOUT_MS,
   NEXT_FRAME_WAIT_MS,
   REPLAY_DPR,
   REPLAY_TARGETS,
@@ -1579,6 +1582,28 @@ export async function runWalk(
   };
 
   /**
+   * Held: the walk reads a click from the page clicked, and when the click
+   * navigated to another site Chrome answers that read only once the new
+   * page commits (measured 2026-11-15: 214 ms against the server's 200).
+   * Played as page time, network time while the request is open, so the
+   * server's wait is in the video as any other is; a click that stays on its
+   * page answers after one frame. Off a held clock, the session as it is.
+   */
+  const verbCdp: CdpSession =
+    held === undefined
+      ? cdp
+      : {
+          ...cdp,
+          send: (method, params, options) =>
+            isClickRead(method, params)
+              ? answered(
+                  cdp.send(method, params, heldProbe),
+                  NAVIGATE_TIMEOUT_MS,
+                )
+              : cdp.send(method, params, options),
+        };
+
+  /**
    * The page-side half of a step's settle (`step-settle.ts`), within
    * `deadline`. Answers the conditions that never held, in words.
    *
@@ -2722,10 +2747,16 @@ export async function runWalk(
     const releaseMs = at();
     heldPresses.push({ actionId, pressMs, releaseMs });
     cursor = plan.end;
-    const verdict = await readClickProbe(cdp, probe, plan.start, sightings, {
-      releasedAt: plan.end,
-      touch,
-    });
+    const verdict = await readClickProbe(
+      verbCdp,
+      probe,
+      plan.start,
+      sightings,
+      {
+        releasedAt: plan.end,
+        touch,
+      },
+    );
     const seen = await changes();
     // A native drop nothing accepted (final review, finding 3): the page
     // ignored the drag at its end, which is the same fact as `notDragged`.
@@ -3761,7 +3792,7 @@ export async function runWalk(
             : performVerb(
                 step.action,
                 text,
-                cdp,
+                verbCdp,
                 cursor,
                 device?.touch === true,
                 handle.objectId,
@@ -3807,7 +3838,7 @@ export async function runWalk(
             : performVerb(
                 step.action,
                 text,
-                cdp,
+                verbCdp,
                 cursor,
                 device?.touch === true,
                 handle.objectId,

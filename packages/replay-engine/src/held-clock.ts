@@ -131,6 +131,9 @@ export function createHeldClock(deps: {
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const spans: { startMs: number; endMs: number; labels: Set<string> }[] = [];
   let span: (typeof spans)[number] | null = null;
+  /** Where the open stretch began, in real and in held time: by its end it
+   *  has followed all the real time between. */
+  let stretchFrom = { real: 0, held: 0 };
   const unpinned: { atMs: number; what: string }[] = [];
 
   const pause = async (initialVirtualTime: number) => {
@@ -245,6 +248,7 @@ export function createHeldClock(deps: {
           // grant. Not for a stretch's first: the real time before it was the
           // walk's own work, which takes no time in the video.
           const continues = span?.endMs === held;
+          if (!continues) stretchFrom = { real: realNow(), held };
           const realMs = continues ? realNow() - grantEnded : 0;
           const labels = network.labels();
           const from = held;
@@ -255,6 +259,21 @@ export function createHeldClock(deps: {
           }
           span.endMs = held;
           for (const l of labels) span.labels.add(l);
+          await shoot();
+          continue;
+        }
+        // A stretch ends having followed all the real time of its wait,
+        // also what passed inside a grant or a frame: a navigation's old
+        // page answers neither until the new one commits (measured
+        // 2026-11-15: a 1 ms grant took 227 ms, the server's 200).
+        const quiet = network.quietSince();
+        const owed =
+          span?.endMs === held && quiet !== null
+            ? stretchFrom.held + (quiet - stretchFrom.real) - held
+            : 0;
+        if (span !== null && owed > EPS) {
+          await grant(Math.min(end, held + owed));
+          span.endMs = held;
           await shoot();
           continue;
         }

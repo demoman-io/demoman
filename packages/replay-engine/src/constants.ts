@@ -155,6 +155,13 @@ export const SETTLE_QUIET_TIMEOUT_MS = 5000;
  * `scrollUnsettled` degradation saying so.
  */
 export const SCROLL_SETTLE_TIMEOUT_MS = 1500;
+/**
+ * How long the walk's own scroll takes on a held clock, whatever the
+ * distance: about as long as Chrome's smooth scroll took across 1800px when
+ * `SCROLL_SETTLE_TIMEOUT_MS` was measured. Nothing else designs a scroll's
+ * length (the renderer plays the scroll as recorded).
+ */
+export const HELD_SCROLL_MS = 600;
 export const WAIT_POLL_MS = 150;
 /** How long a paused replay waits for its window to become visible again. */
 export const OCCLUSION_TIMEOUT_MS = 60_000;

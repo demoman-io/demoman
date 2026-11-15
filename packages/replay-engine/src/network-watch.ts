@@ -10,6 +10,9 @@ export interface NetworkWatch {
   labels(): string[];
   /** Connections dropped from the count after IDLE_CONNECTION_MS with no data, in order. */
   ignored(): string[];
+  /** When the page stopped waiting (real ms), while it is not; null while
+   *  it is, or before it ever waited. */
+  quietSince(): number | null;
   stop(): void;
 }
 
@@ -28,6 +31,7 @@ export async function createNetworkWatch(
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
   const live = new Map<string, { label: string; lastAt: number }>();
   const idle = new Map<string, string>(); // dropped for silence, may resume
+  let quietAt: number | null = null;
   const dropped: string[] = []; // each label named once
   const id = (p: Record<string, unknown>) => String(p.requestId);
   const begin = (p: Record<string, unknown>, label: string) =>
@@ -49,8 +53,10 @@ export async function createNetworkWatch(
     live.set(id(p), { label, lastAt: now });
   };
   const end = (p: Record<string, unknown>) => {
+    const was = live.size;
     live.delete(id(p));
     idle.delete(id(p));
+    if (was > 0 && live.size === 0) quietAt = realNow();
   };
 
   const offs = [
@@ -90,6 +96,7 @@ export async function createNetworkWatch(
         name(c.label);
         idle.set(k, c.label);
         live.delete(k);
+        if (live.size === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
       }
   };
   return {
@@ -104,6 +111,10 @@ export async function createNetworkWatch(
     ignored() {
       sweep();
       return [...dropped];
+    },
+    quietSince() {
+      sweep();
+      return live.size > 0 ? null : quietAt;
     },
     stop,
   };

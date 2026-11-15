@@ -120,6 +120,14 @@ export const CLICK_PROBE_INSTALL = `function(token){
 }`;
 
 const CLICK_PROBE_READ = `function(){ const ${CLICK_PROBE_MARKER} = true; return this.read(); }`;
+
+/** Whether a call is a click probe's read (`readClickProbe`'s). */
+export const isClickRead = (
+  method: string,
+  params: Record<string, unknown> | undefined,
+): boolean =>
+  method === "Runtime.callFunctionOn" &&
+  params?.functionDeclaration === CLICK_PROBE_READ;
 const CLICK_PROBE_MEASURE = `function(){ const ${CLICK_PROBE_MARKER} = true; this.measure(); }`;
 
 interface Point {
