@@ -183,6 +183,10 @@ const FORGIVEN = new Set<string>([
   "requestNotWaited",
   // The video is right; the cursor arrives before a slow page's hover.
   "pointerLate",
+  // The video is right; a connection was dropped from the count, or an
+  // animation ran unpinned, and the report says which.
+  "connectionIgnored",
+  "animationUnpinned",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 

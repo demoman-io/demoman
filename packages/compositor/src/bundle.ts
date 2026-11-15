@@ -292,6 +292,14 @@ const DegradationSchema = z.object({
     // be undone after the capture: the video after that step may show no
     // caret and frozen spinners. About the video, so not forgiven.
     "pageHoldNotReleased",
+    // A held take only: a connection with no data for IDLE_CONNECTION_MS
+    // stopped counting as waiting on the server. One per run; the note names
+    // the connection. The video is right, so refresh forgives it.
+    "connectionIgnored",
+    // A held take only: a page animation the held clock could not pin (one
+    // in a cross-origin frame, say) ran on real time. One per run; the note
+    // says how many. The video is right, so refresh forgives it.
+    "animationUnpinned",
   ]),
   note: z.string(),
 });
@@ -331,6 +339,29 @@ export const FrameBundleSchema = z
      * reader of what it means.
      */
     timing: z.literal("real").optional(),
+    /**
+     * Present only on a replay recorded on a held page clock: page time
+     * advanced one video frame per capture, so source time is the designed
+     * clock, not elapsed wall time. `isHeld` is the one reader.
+     */
+    clock: z.literal("held").optional(),
+    /**
+     * A held replay only: the stretches of source time spent waiting on the
+     * network, `label` the connections that made each ("POST /api/chat").
+     */
+    networkSpans: z
+      .array(
+        z
+          .object({
+            startMs: z.number().nonnegative(),
+            endMs: z.number().nonnegative(),
+            label: z.string(),
+          })
+          .refine((s) => s.endMs >= s.startMs, {
+            message: "a network stretch cannot end before it starts",
+          }),
+      )
+      .optional(),
     /**
      * A real-time replay only: the gaps the author edited that the engine
      * waited out live, each at the duration it waited. The pause is then
@@ -390,6 +421,17 @@ export const FrameBundleSchema = z
         message:
           "a capture bundle is real time by definition and carries no timing field",
         path: ["timing"],
+      });
+    }
+    if (
+      bundle.clock === "held" &&
+      (bundle.source === "capture" || bundle.timing !== "real")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "a held clock is a real-time replay's; a capture or a sampled replay cannot be held",
+        path: ["clock"],
       });
     }
     if (bundle.pacedGaps !== undefined && bundle.timing !== "real") {
@@ -713,4 +755,9 @@ export function madeFromOf(scene: SceneDocument): MadeFromStep[] {
     anchorId: action.anchorId ?? null,
     text: action.kind === "type" ? action.text : null,
   }));
+}
+
+/** Whether the take was recorded on a held page clock (see `clock`). */
+export function isHeld(bundle: Pick<FrameBundle, "clock">): boolean {
+  return bundle.clock === "held";
 }

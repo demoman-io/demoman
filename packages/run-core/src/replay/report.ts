@@ -1135,6 +1135,10 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   pageHoldNotReleased:
     "a page screen's hold could not be undone, so the video after that step may show no caret and frozen animations",
   requestNotWaited: `a request opened more than ${STEP_REQUEST_CAP_MS / 1000} seconds before a step's wait began (a long poll, say) was not waited for, so that step's page screen may have been taken before it answered`,
+  connectionIgnored:
+    "a connection with no data for 10 seconds stopped counting as waiting on the server, so the video may show the page before that connection answered",
+  animationUnpinned:
+    "a page animation could not be held on the video's clock (one in a cross-origin frame, say), so it ran in real time and may not match the video's pacing",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */
