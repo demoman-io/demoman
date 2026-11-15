@@ -149,6 +149,7 @@ export {
 export {
   createHeldClock,
   HELD_FRAME_MS,
+  HELD_FRAMES_SCRIPT,
   type HeldClock,
   type HeldFrame,
   PIN_ANIMATIONS,
@@ -199,6 +200,8 @@ export {
 } from "./policy.js";
 // Whole block is test-only, see header.
 export {
+  HELD_SCROLL_MARKER,
+  heldScrollPlanFunction,
   SCROLL_MARKER,
   type ScrollAim,
   scrollIntoViewFunction,

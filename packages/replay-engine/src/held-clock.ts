@@ -26,6 +26,7 @@ const EPS = HELD_EPS_MS;
  *  shortcut: an animation at a playbackRate other than 1 plays at rate 1 under
  *  the pin; upgrade if an app shows it. */
 export const PIN_ANIMATIONS = `(v) => {
+  if (typeof window.__demomanFlushFrames === "function") window.__demomanFlushFrames();
   const unpinned = [];
   for (const a of document.getAnimations()) {
     if (a.__unpinned) continue;
@@ -55,6 +56,44 @@ export const PIN_ANIMATIONS = `(v) => {
   }
   return unpinned;
 }`;
+
+/** Page script for every document of a held recording: Chrome runs
+ *  animation frames on its real clock even while page time is held
+ *  (measured 2026-11-15, apps/runner/compare/held-probe-matrix.mjs), so the
+ *  page's `requestAnimationFrame` queues instead, and `PIN_ANIMATIONS` runs
+ *  the queue once per captured frame at the held `performance.now()`, as a
+ *  browser runs one frame's callbacks. A callback asked for inside a frame
+ *  runs on the next. Chrome's own stays at `__demomanRaf` for Demoman's
+ *  probes that must not wait on a captured frame. */
+export const HELD_FRAMES_SCRIPT = `(() => {
+  if (window.__demomanFlushFrames) return;
+  const request = window.requestAnimationFrame.bind(window);
+  const queue = new Map();
+  let last = 0;
+  window.requestAnimationFrame = function requestAnimationFrame(callback) {
+    if (typeof callback !== "function") return request(callback);
+    queue.set(++last, callback);
+    return last;
+  };
+  window.cancelAnimationFrame = function cancelAnimationFrame(id) {
+    queue.delete(id);
+  };
+  const flush = () => {
+    const due = [...queue.keys()];
+    const t = performance.now();
+    for (const id of due) {
+      const callback = queue.get(id);
+      if (callback === undefined) continue;
+      queue.delete(id);
+      try { callback(t); } catch (e) { reportError(e); }
+    }
+    for (let i = 0; i < window.frames.length; i++) {
+      try { const f = window.frames[i].__demomanFlushFrames; if (f) f(); } catch (e) {} // another origin's: not ours to run
+    }
+  };
+  Object.defineProperty(window, "__demomanRaf", { value: request });
+  Object.defineProperty(window, "__demomanFlushFrames", { value: flush });
+})()`;
 
 export interface HeldFrame {
   sourceTimeMs: number;

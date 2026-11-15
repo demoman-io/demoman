@@ -6,6 +6,7 @@ import {
   type SceneAnchor,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
+import { SCROLL_SETTLE_TIMEOUT_MS } from "../../src/constants.js";
 import { HELD_FRAME_MS } from "../../src/held-clock.js";
 import type {
   AuthoredDeps,
@@ -19,9 +20,11 @@ import type {
 } from "../../src/index.js";
 import {
   decodeBase64,
+  HELD_SCROLL_MARKER,
   runAuthored,
   SCROLL_MARKER,
   SETTLE_MS,
+  STEP_SETTLE_MARKER,
   TAKE_TAIL_MS,
 } from "../../src/index.js";
 import type { BeatRules } from "../../src/walk.js";
@@ -89,6 +92,9 @@ function fakeHeld(o: {
   look?: () => number;
   moved?: (now: number) => void;
   network: { startMs: number; endMs: number; label: string }[];
+  /** The page call each captured frame makes (the pin): a page's answer
+   *  sent before it arrives before it, as on one CDP session. */
+  roundTrip?: () => Promise<unknown>;
 }) {
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -110,6 +116,7 @@ function fakeHeld(o: {
           (Math.floor(now / HELD_FRAME_MS + 1e-6) + 1) * HELD_FRAME_MS;
         if (next > end + 1e-6) break;
         now = next;
+        await o.roundTrip?.();
         if (listeners.length === 0)
           throw new Error("a frame was captured with no frame listener");
         const frame = {
@@ -162,16 +169,26 @@ async function run(
     loadIsNetwork?: boolean;
     /** Network stretches the clock reports, on its own time. */
     network?: { startMs: number; endMs: number; label: string }[];
+    /** The step-settle probe waits on the page's timers: it answers only
+     *  once this much page time has passed since it was asked (null: never). */
+    settleAnswersAfterMs?: number | null;
   } = {},
 ) {
   const cdp = createCdpFake();
   let clicks = 0;
   let loadingUntil: number | null = null;
   const network = [...(opts.network ?? [])];
+  /** Settle probes waiting on page time, answered as it passes. */
+  const settleWaiters: { due: number; answer: () => void }[] = [];
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
+    roundTrip: () => cdp.send("Runtime.evaluate", { expression: "0" }),
     network,
     moved: (now) => {
+      for (const w of settleWaiters.filter((w) => now >= w.due)) {
+        settleWaiters.splice(settleWaiters.indexOf(w), 1);
+        w.answer();
+      }
       if (loadingUntil === null) return;
       const open = network.at(-1);
       if (opts.loadIsNetwork === true && open !== undefined)
@@ -188,9 +205,40 @@ async function run(
    *  below the fold until the walk scrolls to it. */
   const stableOf = new Map<string, string>();
   let belowFold = false;
+  /** Each step of the walk's own scroll, as asked of the page. */
+  const scrollSteps: number[] = [];
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
     if (opts.realDelayMs !== undefined) await delay();
+    if (
+      method === "Runtime.callFunctionOn" &&
+      String(params?.functionDeclaration ?? "").includes(HELD_SCROLL_MARKER)
+    ) {
+      return {
+        result: { type: "object", value: { movedPx: belowFold ? 2000 : 0 } },
+      };
+    }
+    const expression = String(params?.expression ?? "");
+    const step = /^window\.__demomanHeldScroll\((.*)\)$/.exec(expression);
+    if (method === "Runtime.evaluate" && step !== null) {
+      scrollSteps.push(Number(step[1]));
+      if (Number(step[1]) === 1) belowFold = false;
+      return { result: { type: "undefined" } };
+    }
+    if (
+      method === "Runtime.evaluate" &&
+      expression.includes(STEP_SETTLE_MARKER) &&
+      opts.settleAnswersAfterMs !== undefined
+    ) {
+      const after = opts.settleAnswersAfterMs;
+      if (after === null) return new Promise<never>(() => undefined);
+      return new Promise((resolve) =>
+        settleWaiters.push({
+          due: held.clock.now() + after,
+          answer: () => resolve(send(method, params)),
+        }),
+      );
+    }
     if (
       method === "Runtime.callFunctionOn" &&
       String(params?.functionDeclaration ?? "").includes(SCROLL_MARKER)
@@ -312,7 +360,16 @@ async function run(
     deps,
   );
   const journeys = restBefore.mock.calls.map(([i]) => i.journeyMs);
-  return { result, cdp, frames: held.frames, store, progress, journeys, push };
+  return {
+    result,
+    cdp,
+    frames: held.frames,
+    store,
+    progress,
+    journeys,
+    push,
+    scrollSteps,
+  };
 }
 
 const evidenceOf = (result: AuthoredResult, progress: ReplayProgress[] = []) =>
@@ -391,8 +448,13 @@ describe("the walk on a held clock", () => {
       rest,
       6,
     );
-    // And the first step's rest is the opening one, from the walk's start.
-    expect(first.approachSourceTimeMs ?? 0, evidence).toBeCloseTo(OPENING, 6);
+    // And the first step's rest is the opening one, from the opening frame:
+    // the load and settle before it are not in the video.
+    const opening = result.bundle?.keyframes[0]?.sourceTimeMs ?? Number.NaN;
+    expect((first.approachSourceTimeMs ?? 0) - opening, evidence).toBeCloseTo(
+      OPENING,
+      6,
+    );
   });
 
   // Red if the pause plays on top of the rest that already counts it: the
@@ -545,13 +607,17 @@ describe("the walk on a held clock", () => {
     // Premise: the approach scrolled.
     expect(far.scrollEndSourceTimeMs, evidence).toBeDefined();
     const scrollEnd = far.scrollEndSourceTimeMs ?? 0;
-    expect(scrollEnd - actEnd, evidence).toBeCloseTo(BASE, 6);
+    // The rest, then the walk's own scroll.
+    expect(scrollEnd - actEnd, evidence).toBeCloseTo(
+      BASE + SCROLL_SETTLE_TIMEOUT_MS,
+      6,
+    );
     expect((far.approachSourceTimeMs ?? 0) - scrollEnd, evidence).toBeCloseTo(
       ARRIVE,
       6,
     );
     expect((far.approachSourceTimeMs ?? 0) - actEnd, evidence).toBeCloseTo(
-      BASE + ARRIVE,
+      BASE + SCROLL_SETTLE_TIMEOUT_MS + ARRIVE,
       6,
     );
   });
@@ -667,5 +733,85 @@ describe("the walk on a held clock", () => {
     await expect(run([click("a")], { recording: "sampled" })).rejects.toThrow(
       /held clock.*continuous recording/,
     );
+  });
+});
+
+describe("the walk's own scroll on a held clock", () => {
+  // R5: Chrome's smooth scroll runs on its real clock; the walk plays it.
+  it("plays the corrective scroll one step a frame, eased, and lands it", async () => {
+    const { result, progress, scrollSteps, frames } = await run([
+      click("a"),
+      click("far"),
+    ]);
+    const evidence = `${evidenceOf(result, progress)} ${scrollSteps.join(",")}`;
+    expect(result.outcome, evidence).toBe("complete");
+    const n = Math.ceil(SCROLL_SETTLE_TIMEOUT_MS / HELD_FRAME_MS - 1e-6);
+    expect(scrollSteps, evidence).toHaveLength(n);
+    expect(scrollSteps.at(-1), evidence).toBe(1);
+    // Eased: slow at both ends, so the first step is short of a linear one.
+    expect(scrollSteps[0] ?? 1, evidence).toBeLessThan(1 / n);
+    expect(
+      [...scrollSteps].sort((a, b) => a - b),
+      evidence,
+    ).toEqual(scrollSteps);
+    // One captured frame a step: the scroll ends where its last frame is.
+    const far = markerOf(result, 1);
+    const scrollEnd = far.scrollEndSourceTimeMs ?? Number.NaN;
+    const filmed = frames.map((f) => f.sourceTimeMs - START);
+    const during = filmed.filter(
+      (t) =>
+        t > scrollEnd - SCROLL_SETTLE_TIMEOUT_MS + 1e-6 &&
+        t <= scrollEnd + 1e-6,
+    );
+    expect(during, evidence).toHaveLength(n);
+  });
+});
+
+describe("in-page waits on a held clock", () => {
+  // R3: the step-settle probe waits on the page's timers, which move only
+  // as page time is played.
+  it("plays page time until the settle probe answers", async () => {
+    const { result, progress } = await run([click("a")], {
+      settleAnswersAfterMs: 500,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const screens = result.bundle?.pageScreens ?? [];
+    const marker = markerOf(result, 0);
+    const after = screens.find((s) => s.after === 1);
+    // The screen after the click waited out the probe's 500 ms of page time.
+    expect(
+      (after?.sourceTimeMs ?? 0) - (marker.actEndSourceTimeMs ?? 0),
+      evidence,
+    ).toBeGreaterThanOrEqual(500);
+    expect(after?.unsettled, evidence).toBeUndefined();
+  });
+
+  it("says a settle probe that never answers, at its bound in page time", async () => {
+    const { result, progress } = await run([click("a")], {
+      settleAnswersAfterMs: null,
+    });
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const said = (result.bundle?.degradations ?? []).filter(
+      (d) => d.kind === "stepSettleFailed",
+    );
+    expect(said.map((d) => d.note).join(" "), evidence).toMatch(
+      /had not answered after \d+ ms of page time/,
+    );
+  });
+
+  it("files no frame from before the opening", async () => {
+    const { result, frames, progress } = await run([click("a")]);
+    const evidence = evidenceOf(result, progress);
+    const opening = result.bundle?.keyframes[0]?.sourceTimeMs ?? Number.NaN;
+    // Premise: page time was played, and a frame captured, before it.
+    expect(frames[0]?.sourceTimeMs ?? Number.NaN, evidence).toBeLessThan(
+      START + opening,
+    );
+    for (const k of result.bundle?.keyframes ?? [])
+      expect(k.sourceTimeMs, evidence).toBeGreaterThanOrEqual(opening);
+    for (const s of result.bundle?.motionSpans ?? [])
+      expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
   });
 });

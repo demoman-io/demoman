@@ -106,10 +106,42 @@ export function scrollIntoViewFunction(
 }`;
 }
 
+/**
+ * Held (the corrective scroll on a held clock): Chrome's smooth scroll runs
+ * on its real clock, so the walk plays the scroll itself. Called on the
+ * target like {@link scrollIntoViewFunction}: it takes the scroll instantly
+ * to see where every scroll container lands, puts them back, and leaves
+ * `window.__demomanHeldScroll(p)` to put them `p` (0 to 1) of the way there.
+ * Answers how far the element will travel, in CSS pixels.
+ */
+export const HELD_SCROLL_MARKER = "__demomanHeldScrollPlan";
+export function heldScrollPlanFunction(aim: ScrollAim): string {
+  return `function(){
+  const ${HELD_SCROLL_MARKER} = true;
+  const at = () => { const r = this.getBoundingClientRect(); return { x: r.left, y: r.top }; };
+  const from = at();
+  const boxes = [];
+  for (let el = this.parentElement; el !== null; el = el.parentElement) boxes.push(el);
+  const before = boxes.map((el) => [el.scrollLeft, el.scrollTop]);
+  ${scrollStatement(aim, "instant")}
+  const to = at();
+  const moves = boxes
+    .map((el, i) => ({ el, x0: before[i][0], y0: before[i][1], x1: el.scrollLeft, y1: el.scrollTop }))
+    .filter((m) => m.x0 !== m.x1 || m.y0 !== m.y1);
+  const put = (p) => { for (const m of moves) m.el.scrollTo({ left: m.x0 + (m.x1 - m.x0) * p, top: m.y0 + (m.y1 - m.y0) * p, behavior: "instant" }); };
+  put(0);
+  window.__demomanHeldScroll = put;
+  return { movedPx: Math.round(Math.hypot(to.x - from.x, to.y - from.y)) };
+}`;
+}
+
 /** The one statement that starts the scroll, for {@link scrollIntoViewFunction}. */
-function scrollStatement(aim: ScrollAim): string {
+function scrollStatement(
+  aim: ScrollAim,
+  behavior: "smooth" | "instant" = "smooth",
+): string {
   if (typeof aim === "string") {
-    return `this.scrollIntoView({ behavior: "smooth", block: "${aim}", inline: "nearest" });`;
+    return `this.scrollIntoView({ behavior: "${behavior}", block: "${aim}", inline: "nearest" });`;
   }
   // Interpolated into page source, so it must be a number and nothing else.
   if (!Number.isFinite(aim.top)) {
@@ -124,7 +156,7 @@ function scrollStatement(aim: ScrollAim): string {
     }
     return document.scrollingElement ?? document.documentElement;
   })();
-  scroller.scrollBy({ top: from.y - (${aim.top}), behavior: "smooth" });`;
+  scroller.scrollBy({ top: from.y - (${aim.top}), behavior: "${behavior}" });`;
 }
 
 /**

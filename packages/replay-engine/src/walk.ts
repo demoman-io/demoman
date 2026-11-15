@@ -16,6 +16,7 @@ import {
   type CursorSegment,
   coversViewport,
   type Degradation,
+  easings,
   type FrameBundle,
   heldThroughEndMs,
   type KeyframeEntry,
@@ -104,6 +105,7 @@ import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
 import { type RequestTracker, trackRequests } from "./requests.js";
 import {
+  heldScrollPlanFunction,
   type ScrollAim,
   type ScrollReport,
   scrollIntoViewFunction,
@@ -721,6 +723,11 @@ export function stopForResolveFailure(
 }
 
 /** What to put in a degradation note for a failed settle probe. */
+/** Held: page time past an in-page probe's own backstop before the walk
+ *  stops waiting for its answer. The backstops answer within 250 ms of
+ *  their cap, polling every 50 ms; past this, the probe is not answering. */
+const PROBE_GRACE_MS = 1000;
+
 function describeSettleError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -1264,8 +1271,13 @@ export async function runWalk(
           degradations,
         });
   // Before the walk's first sleep, which captures the first frame.
+  /** Held: frames are filed from the opening on. The load and settle
+   *  before it play page time too, unfilmed, as a real-time recording
+   *  keeps no frame before its opening still. */
+  let filing = false;
   if (held !== undefined && heldFrames !== null) {
     held.onFrame(async (frame) => {
+      if (!filing) return;
       const atMs = frame.sourceTimeMs - started;
       try {
         await heldFrames.add({ ...frame, sourceTimeMs: atMs });
@@ -1528,6 +1540,37 @@ export async function runWalk(
   const pageScreens: PageScreen[] = [];
 
   /**
+   * Held: an in-page wait on the page's own timers answers only as page time
+   * moves, so page time is played a frame at a time until it answers, within
+   * `boundMs` of page time; past that it throws, in words. The answer is
+   * looked for only after a frame, whose page call is a round trip behind
+   * it, so it lands on the same frame on any machine. Off a held clock, the
+   * call as it was.
+   */
+  const answered = async (
+    asked: Promise<Record<string, unknown>>,
+    boundMs: number,
+  ): Promise<Record<string, unknown>> => {
+    if (held === undefined) return asked;
+    let done = false;
+    const reply = asked.finally(() => {
+      done = true;
+    });
+    // Handled here; awaited below once it has answered.
+    reply.catch(() => undefined);
+    const from = clock.now();
+    while (!done) {
+      if (clock.now() - from >= boundMs) {
+        throw new Error(
+          `the page had not answered after ${Math.round(boundMs)} ms of page time`,
+        );
+      }
+      await clock.sleep(HELD_FRAME_MS);
+    }
+    return reply;
+  };
+
+  /**
    * The page-side half of a step's settle (`step-settle.ts`), within
    * `deadline`. Answers the conditions that never held, in words.
    *
@@ -1549,11 +1592,14 @@ export async function runWalk(
       let failure: unknown = null;
       try {
         report = evaluatedValue(
-          await cdp.send("Runtime.evaluate", {
-            expression: stepSettleExpression(STEP_QUIET_MS, capMs),
-            awaitPromise: true,
-            returnByValue: true,
-          }),
+          await answered(
+            cdp.send("Runtime.evaluate", {
+              expression: stepSettleExpression(STEP_QUIET_MS, capMs),
+              awaitPromise: true,
+              returnByValue: true,
+            }),
+            capMs + PROBE_GRACE_MS,
+          ),
         ) as Partial<StepSettleReport> | undefined;
       } catch (error) {
         failure = error;
@@ -1771,6 +1817,14 @@ export async function runWalk(
     // move and would lose the keys' selection (review of 301982b4).
     const moved: Unmet[] = [];
     if (pointerStep && cursorSamples.length > 0) {
+      // Held: Chrome holds input for a document still loading until it
+      // loads, which on a held clock is only as page time moves (measured
+      // 2026-11-15: this move after a navigating click waited out Chrome's
+      // own 30 s), so the load is played first, within the settle's cap.
+      if (held !== undefined) {
+        const loadBy = at() + STEP_SETTLE_CAP_MS;
+        while (topLoading && at() < loadBy) await clock.sleep(HELD_FRAME_MS);
+      }
       try {
         // A section waits for any still in flight, and one of a page that
         // stopped painting never ends.
@@ -2205,6 +2259,52 @@ export async function runWalk(
   };
 
   /**
+   * `bringIntoView` on a held clock. Chrome's smooth scroll runs on its real
+   * clock (and held recordings launch with it off), so the walk plays the
+   * scroll itself: one step a captured frame, over `SCROLL_SETTLE_TIMEOUT_MS`
+   * (the scroll's one constant; nothing designs its length) on the cursor's
+   * minimum-jerk ease. Ends with the last step landed, so the re-measure and
+   * `scrollEndAt` are taken where the scroll stopped.
+   */
+  const playScroll = async (
+    handle: TargetHandle,
+    aim: ScrollAim,
+  ): Promise<TargetHandle | null> => {
+    const planned = evaluatedValue(
+      await cdp.send("Runtime.callFunctionOn", {
+        objectId: handle.objectId,
+        functionDeclaration: heldScrollPlanFunction(aim),
+        returnByValue: true,
+      }),
+    ) as Partial<ScrollReport> | undefined;
+    if (typeof planned?.movedPx !== "number") {
+      degradations.push(
+        degradation(
+          "scrollUnsettled",
+          at(),
+          at(),
+          "the scroll plan answered with nothing this could read",
+        ),
+      );
+    } else if (planned.movedPx > 0) {
+      const frames = Math.ceil(
+        SCROLL_SETTLE_TIMEOUT_MS / HELD_FRAME_MS - HELD_EPS_MS,
+      );
+      for (let k = 1; k <= frames; k++) {
+        const p = easings.minimumJerk(Math.min(1, k / frames));
+        evaluatedValue(
+          await cdp.send("Runtime.evaluate", {
+            expression: `window.__demomanHeldScroll(${p})`,
+          }),
+        );
+        await clock.sleep(HELD_FRAME_MS);
+      }
+    }
+    const rect = await measure(handle.objectId);
+    return rect === null ? null : { objectId: handle.objectId, rect };
+  };
+
+  /**
    * Put the target on screen before anything is dispatched at it.
    *
    * `DOM.getBoxModel` quads are **viewport-relative** — measured against real
@@ -2235,6 +2335,7 @@ export async function runWalk(
     handle: TargetHandle,
     aim: ScrollAim,
   ): Promise<TargetHandle | null> => {
+    if (held !== undefined) return playScroll(handle, aim);
     const reply = await cdp.send("Runtime.callFunctionOn", {
       objectId: handle.objectId,
       functionDeclaration: scrollIntoViewFunction(
@@ -2708,11 +2809,14 @@ export async function runWalk(
   const settlePaint = async (): Promise<Degradation | null> => {
     let reply: Record<string, unknown>;
     try {
-      reply = await cdp.send("Runtime.evaluate", {
-        expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
-        awaitPromise: true,
-        returnByValue: true,
-      });
+      reply = await answered(
+        cdp.send("Runtime.evaluate", {
+          expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
+          awaitPromise: true,
+          returnByValue: true,
+        }),
+        SETTLE_PAINT_TIMEOUT_MS + SETTLE_QUIET_TIMEOUT_MS + PROBE_GRACE_MS,
+      );
     } catch (error) {
       // A page that navigates out from under an in-flight evaluate destroys
       // the context it was running in, and CDP reports that as a rejection.
@@ -3025,9 +3129,12 @@ export async function runWalk(
       reason = "signedOut";
       failureNote = signedOut;
     } else {
-      // Held: the opening still is the take's first frame, one frame in.
+      // Held: the opening still is the take's first frame, one frame in,
+      // and the opening rest is played from it.
+      filing = true;
       if (held !== undefined) await clock.sleep(HELD_FRAME_MS);
       await shot(null);
+      if (heldPlan) heldActEnd = at();
       filming = true;
       if (continuous) await settleAndCapture(0, null);
     }
@@ -4237,7 +4344,7 @@ async function lastKeyPainted(
     const drawn = evaluatedValue(
       await cdp.send("Runtime.callFunctionOn", {
         objectId,
-        functionDeclaration: `function () { const w = this.ownerDocument.defaultView; return new Promise((r) => { const t = w.setTimeout(() => r(false), ${ACT_CEILING_MS}); w.requestAnimationFrame(() => w.requestAnimationFrame(() => { w.clearTimeout(t); r(true); })); }); }`,
+        functionDeclaration: `function () { const w = this.ownerDocument.defaultView; const raf = w.__demomanRaf || w.requestAnimationFrame.bind(w); return new Promise((r) => { const t = w.setTimeout(() => r(false), ${ACT_CEILING_MS}); raf(() => raf(() => { w.clearTimeout(t); r(true); })); }); }`,
         awaitPromise: true,
         returnByValue: true,
       }),
