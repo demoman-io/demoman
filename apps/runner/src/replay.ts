@@ -60,8 +60,8 @@ export function watchNavigation(cdp: CdpSession): {
   return {
     cdp: {
       ...cdp,
-      send: async (method, params) => {
-        const result = await cdp.send(method, params);
+      send: async (method, params, options) => {
+        const result = await cdp.send(method, params, options);
         if (method === "Page.navigate") {
           const errorText = result?.errorText;
           error =

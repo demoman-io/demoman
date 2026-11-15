@@ -245,4 +245,5 @@ export type {
   ReplayStopReason,
   ResolveFailure,
   ResolveReport,
+  SendOptions,
 } from "./types.js";

@@ -134,6 +134,7 @@ import type {
   ReplayStopReason,
   ResolveFailure,
   ResolveReport,
+  SendOptions,
   TargetHandle,
   ZoomDecision,
 } from "./types.js";
@@ -828,6 +829,10 @@ export async function runWalk(
     );
   }
   const clock = held ?? deps.clock;
+  /** Held: a probe's send, bounded by `answered` in page time rather than
+   *  by the real-time answer deadline. Off a held clock, none. */
+  const heldProbe: SendOptions | undefined =
+    held === undefined ? undefined : { unbounded: true };
   // Every call the walk makes has a deadline: a call the browser never
   // answers becomes a reported stop rather than a run that never returns
   // (`answer-deadline.ts`). Cleared at the very end of teardown.
@@ -1551,6 +1556,9 @@ export async function runWalk(
     asked: Promise<Record<string, unknown>>,
     boundMs: number,
   ): Promise<Record<string, unknown>> => {
+    // `asked` goes out `heldProbe`: bounded here in page time, which a slow
+    // machine takes longer to play, never by the real-time answer deadline;
+    // each frame's grant and page call keep theirs.
     if (held === undefined) return asked;
     let done = false;
     const reply = asked.finally(() => {
@@ -1593,11 +1601,15 @@ export async function runWalk(
       try {
         report = evaluatedValue(
           await answered(
-            cdp.send("Runtime.evaluate", {
-              expression: stepSettleExpression(STEP_QUIET_MS, capMs),
-              awaitPromise: true,
-              returnByValue: true,
-            }),
+            cdp.send(
+              "Runtime.evaluate",
+              {
+                expression: stepSettleExpression(STEP_QUIET_MS, capMs),
+                awaitPromise: true,
+                returnByValue: true,
+              },
+              heldProbe,
+            ),
             capMs + PROBE_GRACE_MS,
           ),
         ) as Partial<StepSettleReport> | undefined;
@@ -2810,11 +2822,15 @@ export async function runWalk(
     let reply: Record<string, unknown>;
     try {
       reply = await answered(
-        cdp.send("Runtime.evaluate", {
-          expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
-          awaitPromise: true,
-          returnByValue: true,
-        }),
+        cdp.send(
+          "Runtime.evaluate",
+          {
+            expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
+            awaitPromise: true,
+            returnByValue: true,
+          },
+          heldProbe,
+        ),
         SETTLE_PAINT_TIMEOUT_MS + SETTLE_QUIET_TIMEOUT_MS + PROBE_GRACE_MS,
       );
     } catch (error) {

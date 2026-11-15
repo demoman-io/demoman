@@ -13,6 +13,14 @@ export interface Rect {
   height: number;
 }
 
+/** How one call is sent. `unbounded`: the caller bounds the wait itself (a
+ *  held recording's probe, bounded in page time while frames are played),
+ *  so no real-time answer deadline is put on it; every wrapper passes the
+ *  options on. */
+export interface SendOptions {
+  unbounded?: true;
+}
+
 /**
  * CDP, narrowed to what replay uses. A Playwright CDPSession satisfies it in
  * the runner and in the integration lane (`chrome.debugger` did in the
@@ -24,6 +32,7 @@ export interface CdpSession {
   send(
     method: string,
     params?: Record<string, unknown>,
+    options?: SendOptions,
   ): Promise<Record<string, unknown>>;
   on(
     event: string,
