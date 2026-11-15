@@ -14,6 +14,7 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { renderToFiles } from "../src/render.js";
 import {
   apartFrames,
+  deadlinesMissed,
   greyDiff,
   moves,
   NOISE,
@@ -283,12 +284,11 @@ describe("a held recording", () => {
     });
     expect(apart, said()).toEqual([]);
 
-    // The addendum's proof: no step waited out a 30 s answer deadline (one
-    // such wait alone takes 30 s of real time, longer than this whole
-    // recording is let take), and nothing was said but what the fixture is
-    // built to produce: nothing.
+    // The addendum's proof: no call waited out its answer deadline, and
+    // nothing was said but what the fixture is built to produce: nothing.
+    // (Not the recording's real time: 40 s on CI's ubuntu with no wait.)
     for (const r of [first, second]) {
-      expect(r.realMs, said()).toBeLessThan(30_000);
+      expect(deadlinesMissed(r), said()).toEqual([]);
       expect(r.bundle.degradations, said()).toEqual([]);
     }
     // 73 s here; 300 s was not enough on CI's ubuntu or macOS (2026-11-15).
@@ -331,7 +331,7 @@ describe("a held recording", () => {
     // Date.now() less the pinned instant is the held time it ran at.
     const at = (there?.t ?? Number.NaN) - Date.parse(PIN);
     expect(Math.abs(at - click), said).toBeLessThanOrEqual(2 * HELD_FRAME_MS);
-    expect(r.realMs, said).toBeLessThan(30_000);
+    expect(deadlinesMissed(r), said).toEqual([]);
   }, 120_000);
 
   // Task 6 review, carried to Task 9: the server's wait is in the video
@@ -374,12 +374,29 @@ describe("a held recording", () => {
             second?.sourceTimeMs,
             second?.actEndSourceTimeMs,
           ].map((ms) => heldSince(ms ?? Number.NaN)),
-          evidence: { network: spans, markers: r.bundle.markers },
+          evidence: {
+            network: spans,
+            markers: r.bundle.markers,
+            degradations: r.bundle.degradations,
+            missed: deadlinesMissed(r),
+            lines: r.lines.slice(-10),
+          },
         });
       }
       const said = JSON.stringify(runs);
+      // The server answers in 200 ms; with the other site's load, its
+      // favicon and report it was 230-600 ms here and on CI (2026-11-15),
+      // and once 30 427 ms on CI's ubuntu: a call of the walk's stuck, not
+      // the server (review of Task 9 round 1, finding C).
       expect(
-        runs.filter((r) => !(r.waitMs >= 150)),
+        runs.filter((r) => !(r.waitMs >= 150 && r.waitMs <= 2000)),
+        said,
+      ).toEqual([]);
+      expect(
+        runs.flatMap((r) => [
+          ...(r.evidence as { degradations: unknown[] }).degradations,
+          ...(r.evidence as { missed: string[] }).missed,
+        ]),
         said,
       ).toEqual([]);
       expect(new Set(runs.map((r) => JSON.stringify(r.held))).size, said).toBe(

@@ -174,6 +174,15 @@ export async function record(
   }
 }
 
+/** What a call of the walk's that waited out its answer deadline says
+ *  (`withAnswerDeadline`): each line of the run's log and report that has
+ *  it. The deadline is real time, so a recording's own length on a slow
+ *  machine says nothing; this does. */
+export const deadlinesMissed = (r: Recorded): string[] =>
+  [...r.lines, JSON.stringify(r.report)].filter((l) =>
+    l.includes("got no answer from the browser"),
+  );
+
 /** The page's own captured frames, a region of each as grey levels at its
  *  source time, from every motion span of the recording: no cursor, no
  *  camera. A hold (a still) is not among them. */
