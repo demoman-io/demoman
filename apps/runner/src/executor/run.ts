@@ -3,6 +3,7 @@ import type { Degradation, FrameBundle } from "@demoman/compositor";
 import {
   type AuthoredResult,
   authoredTotal,
+  CAPTURE_SPAN_MIN_FRAMES,
   type ReplayProgress,
   type ReplayStopReason,
 } from "@demoman/replay-engine";
@@ -378,6 +379,7 @@ export async function runScript(
 
   const prepared = await prepareStage(script, deps);
   if (!prepared.ok) return noTake(prepared.reason, prepared.detail);
+  if (prepared.recording !== undefined) run.recording = prepared.recording;
   const { stage: launched, sessions, size } = prepared;
   const { page } = launched;
 
@@ -391,7 +393,12 @@ export async function runScript(
   /** The walk and the encode: everything that writes into the take's folder
    *  before the take exists. Its caller removes that folder on any throw. */
   const filmAndEncode = async () => {
-    const encoder = createParkingEncoder(store, sceneId);
+    // Held: every captured frame is the page as drawn, so a span of one is
+    // kept, not read as a repaint.
+    const encoder =
+      prepared.held === undefined
+        ? createParkingEncoder(store, sceneId)
+        : createParkingEncoder(store, sceneId, CAPTURE_SPAN_MIN_FRAMES);
     const played = await playOnStage(
       toFilm,
       prepared,

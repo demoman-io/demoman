@@ -155,6 +155,9 @@ export interface RunReport {
     target: string;
     executor: Executor;
     script: ScriptRef;
+    /** Held-clock capture asked for (`DEMOMAN_HELD_CLOCK=1`) only: whether
+     *  the page's clock was held, and why not when it was not. */
+    recording?: { clock: "held" } | { clock: "real"; why: string };
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";
@@ -1138,7 +1141,7 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   connectionIgnored:
     "a connection with no data for 10 seconds stopped counting as waiting on the server, so the video may show the page before that connection answered",
   animationUnpinned:
-    "a page animation could not be held on the video's clock (one in a cross-origin frame, say), so it ran in real time and may not match the video's pacing",
+    "part of the page could not be held on the video's clock (an animation that could not be paused, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */

@@ -8,6 +8,7 @@ description: "The environment variables Demoman reads."
 | `DEMOMAN_HOME` | Where Demoman keeps its videos, sessions and settings; `~/.demoman` by default |
 | `DEMOMAN_DISPLAY` | The screen to record at, as `<width>x<height>@<scale>` (such as `1710x1107@2`), when Demoman cannot read the display, as on a machine with no screen. Demoman says when to set it. Its scale is also the one headless records motion at, ahead of any other; without it, a flow records at its latest video's scale, and a new one at 2, or 3 for a phone |
 | `DEMOMAN_NO_UPDATE_CHECK=1` | Turns off the once-a-day check for a newer version |
+| `DEMOMAN_HELD_CLOCK=1` | Experimental: records on a clock Demoman holds, one frame of the page's own time at a time, so one script gives the same video on any machine. A visible window and a device's video still record in real time; the run report's `run.recording` says which, and why |
 | `DEMOMAN_SECRET_<NAME>` | A demo account's secret ([accounts.json](/reference/accounts-json#secrets)) |
 | `DEMOMAN_SECRET_<NAME>_ORIGIN` | The one site that secret may be typed on |
 | `DEMOMAN_NOW` | Set by Demoman, not you: the pinned instant, given to the app's commands ([app.json](/reference/app-json#pinned-dates)) |

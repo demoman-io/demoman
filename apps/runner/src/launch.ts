@@ -6,6 +6,7 @@ import {
   chromium,
   type Page,
 } from "playwright";
+import { HELD_FLAGS, heldClockAsked } from "./executor/held.js";
 
 /**
  * What the browser context is created with — and deliberately **not** what
@@ -266,6 +267,7 @@ export async function launch(options?: {
           ? [`--screen-info={devicePixelRatio=${options.scale}}`]
           : []),
       ...(headless ? HEADLESS_GPU_ARGS : []),
+      ...(headless && heldClockAsked() ? HELD_FLAGS : []),
     ],
   });
   let pid: number | null = null;

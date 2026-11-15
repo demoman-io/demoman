@@ -2,10 +2,19 @@
 import {
   type AuthoredResult,
   assertSceneWasLoaded,
+  type CdpSession,
+  createHeldClock,
   createNavigatingGuard,
+  createNetworkWatch,
   createOcclusionGuard,
+  decodeBase64,
   type EngineStore,
   type FrameEncoder,
+  HELD_FRAMES_SCRIPT,
+  type HeldClock,
+  jpegSize,
+  KEYFRAME_QUALITY,
+  type NetworkWatch,
   type ReplayProgress,
   type ReplayStopReason,
   reasonSentence,
@@ -41,6 +50,7 @@ import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
 import { closedShadowHolds, targetWords } from "./closed-shadow.js";
 import { readDatesOnScreen } from "./dates-on-screen.js";
+import { HELD_CARET_SCRIPT, heldClockAsked, shouldHold } from "./held.js";
 import {
   fileForLanding,
   fileIsForLanding,
@@ -88,6 +98,11 @@ export type Prepared =
       /** The scale this run records at: headless's own, else the screen's
        *  as read; absent when a visible window's screen could not be read. */
       recordedAt?: number;
+      /** Asked for (`DEMOMAN_HELD_CLOCK=1`) only: whether the page's clock
+       *  is held, and why not when not. Absent, the run is today's. */
+      recording?: { clock: "held" } | { clock: "real"; why: string };
+      /** The held clock, already holding the page, and what feeds it. */
+      held?: { clock: HeldClock; network: NetworkWatch };
     }
   | { ok: false; reason: ReplayStopReason; detail: string };
 
@@ -109,11 +124,42 @@ export async function prepareStage(
   const launched = staged.stage;
   const { page } = launched;
 
+  const verdict = heldClockAsked()
+    ? shouldHold({
+        headed: !deps.session.headless,
+        device: script.device !== undefined,
+      })
+    : null;
+  const recording =
+    verdict === null
+      ? undefined
+      : verdict.hold
+        ? ({ clock: "held" } as const)
+        : ({ clock: "real", why: verdict.why } as const);
+  // Held: every document gets the held animation frames and a hidden caret
+  // before its first script, and the held clock starts at the pinned instant
+  // in place of the Date offset below. A script Chrome refuses stops the run.
+  if (recording?.clock === "held") {
+    try {
+      for (const source of [HELD_FRAMES_SCRIPT, HELD_CARET_SCRIPT]) {
+        await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+          source,
+        });
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be held: its frame and caret scripts were refused (${messageOf(error)})`,
+      };
+    }
+  }
+
   // Before the first navigation, on this flow's own target: every document
   // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
   // be installed stops the run: a video at the real date would be compared
   // with pinned ones and read as changed.
-  if (deps.pinnedNow !== undefined) {
+  if (deps.pinnedNow !== undefined && recording?.clock !== "held") {
     try {
       await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: pinnedClockSource(pinnedOffsetMs(deps.pinnedNow)),
@@ -214,6 +260,21 @@ export async function prepareStage(
   // (spec 2026-10-10), so it is handed no viewport.
   const viewport =
     size.from === "device" ? null : { width: size.width, height: size.height };
+  let held: { clock: HeldClock; network: NetworkWatch } | undefined;
+  if (recording?.clock === "held") {
+    // Last, after every read above, and before the walk's first navigation.
+    // A clock Chrome will not hold stops the run, as a pin that cannot be
+    // installed does: recorded in real time it would read as another video.
+    try {
+      held = await holdClock(launched.cdp, deps.pinnedNow);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be held (${messageOf(error)})`,
+      };
+    }
+  }
   return {
     ok: true,
     stage: launched,
@@ -221,6 +282,96 @@ export async function prepareStage(
     size,
     viewport,
     ...(recordedAt === undefined ? {} : { recordedAt }),
+    ...(recording === undefined ? {} : { recording }),
+    ...(held === undefined ? {} : { held }),
+  };
+}
+
+/**
+ * The page's clock, held at the pinned instant (or now) with the network
+ * watch that turns it to real time while the page waits on the server. A
+ * frame from another site is its own target, whose timers, animations and
+ * requests this clock cannot reach: each such origin is said once, with
+ * what the clock could not pin.
+ */
+async function holdClock(
+  cdp: CdpSession,
+  pinnedNow: string | undefined,
+): Promise<{ clock: HeldClock; network: NetworkWatch }> {
+  const network = await createNetworkWatch(cdp, Date.now);
+  const clock = createHeldClock({
+    cdp,
+    network,
+    realNow: Date.now,
+    capture: async () => {
+      const reply = await cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: KEYFRAME_QUALITY,
+      });
+      const bytes = decodeBase64(String(reply.data ?? ""));
+      return { bytes, ...jpegSize(bytes) };
+    },
+    evaluate: async (source, arg) => {
+      const reply = await cdp.send("Runtime.evaluate", {
+        expression: `(${source})(${JSON.stringify(arg)})`,
+        returnByValue: true,
+      });
+      const thrown = reply.exceptionDetails as
+        | { text?: string; exception?: { description?: string } }
+        | undefined;
+      if (thrown !== undefined) {
+        throw new Error(
+          thrown.exception?.description ?? thrown.text ?? "the page threw",
+        );
+      }
+      return (reply.result as { value?: unknown } | undefined)?.value;
+    },
+  });
+  // A frame target is attached before it navigates, with no URL yet: its
+  // address is read as it changes, and the origins said at the end.
+  const frames = new Map<string, { atMs: number; url: string }>();
+  const seen = (params: Record<string, unknown>, attached: boolean) => {
+    const info = params.targetInfo as
+      | { targetId?: string; type?: string; url?: string }
+      | undefined;
+    if (info?.type !== "iframe" || info.targetId === undefined) return;
+    const known = frames.get(info.targetId);
+    if (known === undefined && !attached) return;
+    frames.set(info.targetId, {
+      atMs: known?.atMs ?? clock.now(),
+      url: info.url || (known?.url ?? ""),
+    });
+  };
+  cdp.on("Target.attachedToTarget", (p) => seen(p, true));
+  cdp.on("Target.targetInfoChanged", (p) => seen(p, false));
+  const framesSaid = () => {
+    const said = new Map<string, number>();
+    for (const { atMs, url } of frames.values()) {
+      let origin = "an address it never named";
+      try {
+        origin = new URL(url).origin;
+      } catch {
+        // Said as such: the origin is the address it never named.
+      }
+      if (!said.has(origin)) said.set(origin, atMs);
+    }
+    return [...said].map(([origin, atMs]) => ({
+      atMs,
+      what: `a frame from ${origin} runs on its own clock: its timers, animations and requests were not held`,
+    }));
+  };
+  await cdp.send("Target.setAutoAttach", {
+    autoAttach: true,
+    waitForDebuggerOnStart: false,
+    flatten: true,
+  });
+  await cdp.send("Target.setDiscoverTargets", { discover: true });
+  await clock.hold(
+    pinnedNow === undefined ? Date.now() : Date.parse(pinnedNow),
+  );
+  return {
+    clock: { ...clock, unpinned: () => [...clock.unpinned(), ...framesSaid()] },
+    network,
   };
 }
 
@@ -285,11 +436,13 @@ export async function playOnStage(
   const cdp = navigation.cdp;
   // `createNavigatingGuard`, NEVER a bare `createOcclusionGuard`: the
   // navigation rides `install()` (see `replay.ts`'s `replayPhase`).
+  const held = prepared.held?.clock;
   const occlusion = createNavigatingGuard({
     guard: createOcclusionGuard({ cdp, clock }),
     cdp,
     url: script.target,
     sleep: clock.sleep,
+    ...(held === undefined ? {} : { held }),
   });
 
   // The walk's own `failed` note: a port that threw mid-run says what it
@@ -368,7 +521,9 @@ export async function playOnStage(
     // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
     // instead of waiting the camera's room out live.
     beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
+    ...(held === undefined ? {} : { held }),
   });
+  prepared.held?.network.stop();
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop
   // reason and returns a `ReplayResult`, which would drop `document`,
