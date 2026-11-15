@@ -81,6 +81,18 @@ describe("createNetworkWatch", () => {
     expect(w.lastWait()).toEqual({ from: 300, labels: ["GET /c"] });
   });
 
+  // Review of Task 9, M4: a connection gone quiet is dropped before a new
+  // wait is dated, or the new wait takes the old one's start.
+  it("dates a new wait after a silent connection, from its own start", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1", "http://app.test/poll"));
+    now = 20_000; // "1" silent past the cut-off, and nobody asked since
+    emit("Network.requestWillBeSent", start("2", "http://app.test/next"));
+    expect(w.lastWait()).toEqual({ from: 20_000, labels: ["GET /next"] });
+  });
+
   it("keeps waiting while a stream's data arrives", async () => {
     const { cdp, emit } = setup();
     let now = 0;

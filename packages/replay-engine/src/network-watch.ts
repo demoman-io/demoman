@@ -38,16 +38,28 @@ export async function createNetworkWatch(
   let last: { from: number; labels: string[] } | null = null;
   const dropped: string[] = []; // each label named once
   const id = (p: Record<string, unknown>) => String(p.requestId);
+  const name = (label: string) => {
+    if (!dropped.includes(label)) dropped.push(label);
+  };
+  const sweep = () => {
+    const now = realNow();
+    for (const [k, c] of live)
+      if (now - c.lastAt > IDLE_CONNECTION_MS) {
+        name(c.label);
+        idle.set(k, c.label);
+        live.delete(k);
+        if (live.size === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
+      }
+  };
   const count = (p: Record<string, unknown>, label: string, now: number) => {
+    // A connection gone silent first, or a new wait takes its start.
+    sweep();
     if (live.size === 0 || last === null) last = { from: now, labels: [] };
     if (!last.labels.includes(label)) last.labels.push(label);
     live.set(id(p), { label, lastAt: now });
   };
   const begin = (p: Record<string, unknown>, label: string) =>
     count(p, label, realNow());
-  const name = (label: string) => {
-    if (!dropped.includes(label)) dropped.push(label);
-  };
   const data = (p: Record<string, unknown>) => {
     const now = realNow();
     const c = live.get(id(p));
@@ -98,16 +110,6 @@ export async function createNetworkWatch(
     throw e;
   }
 
-  const sweep = () => {
-    const now = realNow();
-    for (const [k, c] of live)
-      if (now - c.lastAt > IDLE_CONNECTION_MS) {
-        name(c.label);
-        idle.set(k, c.label);
-        live.delete(k);
-        if (live.size === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
-      }
-  };
   return {
     waiting() {
       sweep();
