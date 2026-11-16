@@ -165,7 +165,10 @@ describe("createNetworkWatch", () => {
     expect(w.ignored()).toEqual(["GET /poll"]);
   });
 
-  it("counts a websocket only while frames arrive", async () => {
+  it("never counts a websocket, whatever arrives on it, and names it", async () => {
+    // A dev server's hot-reload socket sends on every request and never
+    // closes: counted, each server wait ran 10 s past its last request
+    // (traced 2026-11-15 on the Chatbot sample).
     const { cdp, emit } = setup();
     let now = 0;
     const w = await createNetworkWatch(cdp, () => now);
@@ -173,14 +176,16 @@ describe("createNetworkWatch", () => {
       requestId: "w",
       url: "ws://app.test/hmr",
     });
-    expect(w.waiting()).toBe(true);
+    expect(w.waiting()).toBe(false);
     now = 1000;
     emit("Network.webSocketFrameReceived", { requestId: "w" });
-    now = 11_000;
-    expect(w.waiting()).toBe(true);
-    now = 11_001;
     expect(w.waiting()).toBe(false);
+    expect(w.waitsSince(-1)).toBeNull();
     expect(w.ignored()).toEqual(["websocket /hmr"]);
+    // premise: a request beside it still counts
+    emit("Network.requestWillBeSent", start("1"));
+    expect(w.waiting()).toBe(true);
+    expect(w.labels()).toEqual(["GET /poll"]);
   });
 
   it("counts a dropped connection again when its data resumes, and keeps it named", async () => {

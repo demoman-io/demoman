@@ -110,6 +110,7 @@ function fakeHeld(o: {
     networkSpans: () => o.network.map((s) => ({ ...s })),
     unpinned: () => UNPINNED.map((u) => ({ ...u })),
     ignoredConnections: () => [...IGNORED],
+    through: (read) => read,
     sleep: async (ms) => {
       const end = now + ms;
       for (;;) {

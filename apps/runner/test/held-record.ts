@@ -10,7 +10,10 @@ import {
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
 import { runScript } from "../src/executor/run.js";
-import { createSessionStore } from "../src/executor/sessions.js";
+import {
+  createSessionStore,
+  type SessionFile,
+} from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 import { lagCdp } from "./lag.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
@@ -116,6 +119,7 @@ export async function record(
   extra: Record<string, unknown> = {},
   lagMs?: number,
   pin: string = PIN,
+  sessions: SessionFile[] = [],
 ): Promise<Recorded> {
   const lines: string[] = [];
   let lagged: BrowserContext | null = null;
@@ -152,10 +156,10 @@ export async function record(
         library,
         kits,
         log: (line) => void lines.push(line),
-        sessions: [],
+        sessions,
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
-        loadSessions: async () => ({ ok: true as const, files: [] }),
+        loadSessions: async () => ({ ok: true as const, files: sessions }),
         sessionsContext: {} as BrowserContext,
         pinnedNow: pin,
       },

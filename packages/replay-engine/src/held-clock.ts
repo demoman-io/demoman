@@ -160,6 +160,10 @@ export interface HeldClock extends Clock {
   ignoredConnections(): string[];
   /** Re-applies the hold to a new document, continuing the same time. */
   rehold(): Promise<void>;
+  /** Lets the page run, a frame of page time at a go and capturing none,
+   *  until `read` settles: for a read after the recording that a paused page
+   *  never answers (its storage). */
+  through<T>(read: Promise<T>): Promise<T>;
 }
 
 export function createHeldClock(deps: {
@@ -315,6 +319,15 @@ export function createHeldClock(deps: {
     async rehold() {
       if (startEpochMs === null) throw new Error("rehold before hold");
       await pause((startEpochMs + held) / 1000);
+    },
+    async through(read) {
+      let settled = false;
+      const done = read.finally(() => {
+        settled = true;
+      });
+      done.catch(() => {}); // handed on below; a failed grant must not leave it unhandled
+      while (!settled) await grant(held + HELD_FRAME_MS);
+      return done;
     },
     onFrame(listener) {
       listeners.push(listener);

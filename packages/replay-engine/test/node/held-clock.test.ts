@@ -655,6 +655,34 @@ describe("createHeldClock", () => {
     expect(clock.ignoredConnections()).toEqual(["GET /poll"]);
   });
 
+  it("lets the page run until a read of it answers, taking no frame, and leaves it held", async () => {
+    // A read of the page's storage answers nothing while its clock is paused
+    // (measured 2026-11-15, apps/runner/compare/held-probe-storage.mjs).
+    let answer: (v: string) => void = () => {};
+    const read = new Promise<string>((r) => {
+      answer = r;
+    });
+    const { clock, frames, policies, budgets } = setup({
+      policy: (p) => {
+        if (p.budget !== undefined && budgets().length === 3) answer("state");
+        return "expire";
+      },
+    });
+    await clock.hold(START);
+    expect(await clock.through(read)).toBe("state");
+    expect(budgets().length).toBe(3); // premise: it took grants to answer
+    expect(frames).toEqual([]);
+    expect(policies.at(-1)?.policy).toBe("pause");
+  });
+
+  it("hands on what a read failed with", async () => {
+    const { clock } = setup();
+    await clock.hold(START);
+    await expect(
+      clock.through(Promise.reject(new Error("closed"))),
+    ).rejects.toThrow("closed");
+  });
+
   it("rehold continues the same time", async () => {
     const { clock, policies } = setup();
     await clock.hold(START);

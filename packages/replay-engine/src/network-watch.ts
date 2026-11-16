@@ -8,7 +8,8 @@ export interface NetworkWatch {
   waiting(): boolean;
   /** The connections counted right now, in the order they began. */
   labels(): string[];
-  /** Connections dropped from the count after IDLE_CONNECTION_MS with no data, in order. */
+  /** Connections not counted, in order: dropped after IDLE_CONNECTION_MS
+   *  with no data, and every websocket. */
   ignored(): string[];
   /** When the page stopped waiting (real ms), while it is not; null while
    *  it is, or before it ever waited. */
@@ -109,20 +110,23 @@ export async function createNetworkWatch(
       const r = (p.request ?? {}) as Record<string, unknown>;
       begin(p, `${r.method} ${pathOf(r.url)}`);
     }),
+    // A websocket is never a wait: what arrives on it is pushed, not an
+    // answer the page asked for, and it stays open. A dev server's hot-reload
+    // socket sends on every request, which kept each wait open 10 s past its
+    // last request (traced 2026-11-15, Chatbot sample). Named, not counted.
+    // shortcut: a reply streamed over a websocket is not server time, so its
+    // words land where the machine puts them; upgrade if an app shows it.
     cdp.on("Network.webSocketCreated", (p) =>
-      begin(p, `websocket ${pathOf(p.url)}`),
+      name(`websocket ${pathOf(p.url)}`),
     ),
     ...[
       "Network.responseReceived",
       "Network.dataReceived",
       "Network.eventSourceMessageReceived",
-      "Network.webSocketFrameReceived",
     ].map((e) => cdp.on(e, data)),
-    ...[
-      "Network.loadingFinished",
-      "Network.loadingFailed",
-      "Network.webSocketClosed",
-    ].map((e) => cdp.on(e, end)),
+    ...["Network.loadingFinished", "Network.loadingFailed"].map((e) =>
+      cdp.on(e, end),
+    ),
   ];
   const stop = () => {
     for (const off of offs) off();

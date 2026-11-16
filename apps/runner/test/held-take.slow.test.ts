@@ -9,6 +9,11 @@ import { frameOf, targetFor } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fullChromiumPath } from "../src/executor/browser.js";
 import { shouldHold } from "../src/executor/held.js";
+import {
+  createSessionStore,
+  SESSION_VERSION,
+  type SessionFile,
+} from "../src/executor/sessions.js";
 import { launch } from "../src/launch.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { renderToFiles } from "../src/render.js";
@@ -112,6 +117,10 @@ beforeAll(async () => {
     else if (path === "/shadow-scroll")
       res.end(
         `<!doctype html><style>body{margin:0;height:3200px}#s{position:absolute;right:0;top:0;width:80px;height:3200px;background:repeating-linear-gradient(#000 0 20px,#fff 20px 37px)}#host{position:absolute;left:40px;top:2400px}</style><div id=s></div><div id=host></div><script>document.getElementById("host").attachShadow({mode:"open"}).innerHTML='<button id=deep style="width:160px;height:40px">Deep</button>'</script>`,
+      );
+    else if (path === "/stored")
+      res.end(
+        `<!doctype html><link rel=icon href="data:,"><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><script>const r=indexedDB.open("d",1);r.onupgradeneeded=()=>r.result.createObjectStore("s");r.onsuccess=()=>r.result.transaction("s","readwrite").objectStore("s").put("v","k")</script>`,
       );
     else if (path === "/framed")
       res.end(
@@ -460,6 +469,35 @@ describe("a held recording", () => {
     expect(said[0]?.note).toContain(new URL(bUrl).origin);
     expect(said[0]?.note).toMatch(/timers, animations and requests/);
   }, 120_000);
+
+  it("finishes a signed-in recording and writes its session back", async () => {
+    // A held page answers no storage read while paused: the write-back after
+    // the walk hung every signed-in held recording (Nylon, 2026-11-15).
+    const store = createSessionStore(home);
+    const file: SessionFile = {
+      sessionVersion: SESSION_VERSION,
+      site: "localhost",
+      savedAt: "2026-11-15T08:00:00.000Z",
+      refreshedAt: null,
+      startUrl: `${aUrl}/stored`,
+      signInUrl: null,
+      state: { cookies: [], origins: [] },
+    };
+    await store.save(file);
+    await recordIn(
+      home,
+      `${aUrl}/stored`,
+      [{ do: "click", on: { stableId: "ok" }, zoom: false }],
+      {},
+      undefined,
+      undefined,
+      [file],
+    );
+    const saved = (await store.read()).files.find(
+      (f) => f.site === "localhost",
+    );
+    expect(saved?.refreshedAt).not.toBeNull();
+  }, 60_000);
 
   it("records in real time, and says so, when headed", async () => {
     const headed = shouldHold({ headed: true });

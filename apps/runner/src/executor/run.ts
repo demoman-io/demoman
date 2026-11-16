@@ -4,6 +4,7 @@ import {
   type AuthoredResult,
   authoredTotal,
   CAPTURE_SPAN_MIN_FRAMES,
+  type HeldClock,
   type ReplayProgress,
   type ReplayStopReason,
 } from "@demoman/replay-engine";
@@ -645,6 +646,7 @@ export async function runScript(
       { ...deps, sessions },
       notStored,
       log,
+      prepared.held?.clock,
     );
   }
 
@@ -764,6 +766,7 @@ async function writeSessionBack(
   deps: Pick<RunDeps, "sessions" | "sessionStore" | "signinCommand">,
   notStored: NonNullable<RunReport["notStored"]>,
   log: (line: string) => void,
+  held?: Pick<HeldClock, "through">,
 ): Promise<void> {
   const fileFor = (url: string): SessionFile | undefined => {
     const s = siteOf(url);
@@ -798,7 +801,10 @@ async function writeSessionBack(
   try {
     // The state first: it is the slow read. The store is read after it, so
     // a `signin` that lands meanwhile is seen and not overwritten.
-    const state = await context.storageState({ indexedDB: true });
+    // A held page answers no storage read while its clock is paused (it
+    // hung every signed-in held recording, 2026-11-15): it is let run.
+    const reading = context.storageState({ indexedDB: true });
+    const state = await (held === undefined ? reading : held.through(reading));
     const slice = writeBackOf(state, loaded);
     // A cookie past its own expiry is gone by the browser's clock, not by a
     // sign-out: counting it would stop every later write-back for good once
