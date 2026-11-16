@@ -139,6 +139,10 @@ beforeAll(async () => {
       res.end(
         `<!doctype html><link rel=icon href="data:,"><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><script>const r=indexedDB.open("d",1);r.onupgradeneeded=()=>r.result.createObjectStore("s");r.onsuccess=()=>r.result.transaction("s","readwrite").objectStore("s").put("v","k")</script>`,
       );
+    else if (path === "/smooth")
+      res.end(
+        `<!doctype html><link rel=icon href="data:,"><body style="margin:0;height:3200px"><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px" onclick="window.scrollTo({top:1500,behavior:'smooth'})">Ok</button>`,
+      );
     else if (path === "/framed")
       res.end(
         `<!doctype html><button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><iframe src="${bUrl}/frame" style="position:absolute;left:40px;top:120px;width:300px;height:100px"></iframe>`,
@@ -535,6 +539,25 @@ describe("a held recording", () => {
     expect(said, JSON.stringify(r.bundle.degradations)).toHaveLength(1);
     expect(said[0]?.note).toContain(new URL(bUrl).origin);
     expect(said[0]?.note).toMatch(/timers, animations and requests/);
+  }, 120_000);
+
+  // The author's ruling, 2026-11-16: smooth scrolling stays off, and the
+  // report says an app's own smooth scroll showed as a jump. Red if it is
+  // unsaid. That the walk's own scroll is not said is "records the same
+  // video twice", which scrolls and allows no degradation.
+  it("says a smooth scroll the page asked for, which showed as a jump", async () => {
+    const r = await record(`${aUrl}/smooth`, [
+      { do: "click", on: { stableId: "ok" }, zoom: false },
+    ]);
+    const said = r.bundle.degradations.filter(
+      (d) => d.kind === "animationUnpinned",
+    );
+    expect(
+      said.map((d) => d.note),
+      JSON.stringify(r.bundle.degradations),
+    ).toEqual([
+      "the page asked for a smooth scroll, which the held clock does not play: it showed as a jump",
+    ]);
   }, 120_000);
 
   it("finishes a signed-in recording and writes its session back", async () => {

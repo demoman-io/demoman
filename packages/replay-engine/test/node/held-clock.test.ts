@@ -1084,6 +1084,28 @@ describe("HELD_FRAMES_SCRIPT", () => {
     return { window, raf, cancel, flushAt, native, reported };
   }
 
+  /** The script run on a window that already has its scroll functions. */
+  function pageWith(window: Record<string, unknown>) {
+    window.requestAnimationFrame = () => 0;
+    window.cancelAnimationFrame = () => undefined;
+    window.frames = [];
+    window.parent = window;
+    new Function(
+      "window",
+      "performance",
+      "reportError",
+      "document",
+      "location",
+      HELD_FRAMES_SCRIPT,
+    )(window, { now: () => 0 }, () => undefined, {}, { href: "http://x/" });
+    return {
+      scrollTo: (o: { top: number; behavior?: string }) =>
+        (window.scrollTo as (o: unknown) => void).call(window, o),
+      flushAt: (v: number) =>
+        (window.__demomanFlushFrames as (v: number) => string[])(v),
+    };
+  }
+
   it("runs the page's frame callbacks once per frame, on the document's held clock", () => {
     const p = page({ startMs: 10 * F });
     const seen: number[] = [];
@@ -1176,6 +1198,33 @@ describe("HELD_FRAMES_SCRIPT", () => {
 
   // Fix round 1, finding 1: a frame of another origin kept in this renderer
   // is said, once, by the address its element names.
+  // The author's ruling, 2026-11-16: smooth scrolling is off on a held
+  // clock, and nothing said an app's own smooth scroll showed as a jump.
+  // Red if it is not said, said twice, or said for a scroll that is not
+  // smooth or moved nothing.
+  it("says a smooth scroll the page asked for, once, when it moved", () => {
+    const w: Record<string, unknown> & {
+      scrollY: number;
+      scrollTo: (o: { top: number; behavior?: string }) => void;
+    } = { scrollX: 0, scrollY: 0, scrollTo: () => undefined };
+    const scrolled: number[] = [];
+    w.scrollTo = (o) => {
+      scrolled.push(o.top);
+      w.scrollY = o.top;
+    };
+    const q = pageWith(w);
+    q.scrollTo({ top: 300, behavior: "instant" });
+    q.scrollTo({ top: 300, behavior: "smooth" });
+    expect(q.flushAt(F)).toEqual([]);
+    q.scrollTo({ top: 900, behavior: "smooth" });
+    expect(scrolled).toEqual([300, 300, 900]);
+    expect(q.flushAt(2 * F)).toEqual([
+      "the page asked for a smooth scroll, which the held clock does not play: it showed as a jump",
+    ]);
+    q.scrollTo({ top: 0, behavior: "smooth" });
+    expect(q.flushAt(3 * F)).toEqual([]);
+  });
+
   it("names a frame it cannot reach, once", () => {
     const foreign = {
       get __demomanFlushFrames(): never {

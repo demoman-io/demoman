@@ -65,7 +65,9 @@ nothing in the checkout is written. `node held-clock.mjs trial --app …
 rounds judged by refresh's own `sameScreens`), for checkouts where
 `house-trial.sh`'s local commit is not wanted. `held-risks.sh <out dir>`
 runs it on one small page per risk of the held-clock spec (`<video>`, the
-app's smooth scroll, a cross-origin iframe, WebGL, a phone). Measured
+app's smooth scroll, a cross-origin iframe, WebGL, a phone). `held-push.sh <out dir>`
+does the same for a page per push channel (an EventSource, one that goes
+quiet, a long poll, a fetch stream that never ends) beside a page with none. Measured
 2026-11-15 in the held-clock spec's "Measured: held capture as built".
 
 ## Export cost

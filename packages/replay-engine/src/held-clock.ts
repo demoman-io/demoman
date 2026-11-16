@@ -133,7 +133,16 @@ export const PIN_ANIMATIONS = `(v) => {
  *  a sandboxed one) is never run by it: such a frame, and every frame in it,
  *  keeps Chrome's own animation frames, and is answered once by name, with
  *  what the pin could not hold. Chrome's own stays at `__demomanRaf` for Demoman's probes that
- *  must not wait on a captured frame. */
+ *  must not wait on a captured frame.
+ *
+ *  A held recording's browser plays no smooth scroll (Chrome runs one on its
+ *  real clock), so a scroll the page asks to be smooth is a jump: the first
+ *  one that moved anything is answered, once, with what the pin could not
+ *  hold (the author's ruling, 2026-11-16).
+ *  shortcut: only a scroll a script asks for (scrollTo, scrollBy,
+ *  scrollIntoView), smooth by its own word or the root's `scroll-behavior`;
+ *  a link to an anchor on a smooth-scrolling page is not seen. Upgrade if an
+ *  app shows it. */
 export const HELD_FRAMES_SCRIPT = `(() => {
   if (window.__demomanFlushFrames) return;
   if (window !== window.parent) {
@@ -161,6 +170,32 @@ export const HELD_FRAMES_SCRIPT = `(() => {
     try { o = new URL(el.getAttribute("src") || "about:srcdoc", location.href).origin; } catch (e) {} // an address it never named: said as sandboxed
     return o === "null" ? "a sandboxed frame" : "a frame from " + o;
   };
+  const SMOOTH = "the page asked for a smooth scroll, which the held clock does not play: it showed as a jump";
+  let jumped = false;
+  let asked = [];
+  // Where everything el scrolls in stands: its own scroll, each box around it, the window.
+  const where = (el) => {
+    let s = "" + window.scrollX + "," + window.scrollY;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) s += "," + n.scrollLeft + "," + n.scrollTop;
+    return s;
+  };
+  const watched = (own) => function (...args) {
+    const el = this === window || this == null ? null : this;
+    try {
+      const b = args[0] && typeof args[0] === "object" ? args[0].behavior : undefined;
+      const smooth = b === "smooth" ||
+        (b !== "instant" && getComputedStyle(document.documentElement).scrollBehavior === "smooth");
+      // Looked at on the next frame: Chrome moves the page after the call.
+      if (smooth && !jumped && asked.length < 8) asked.push({ el, before: where(el) });
+    } catch (e) {} // a page this cannot read is not said
+    return own.apply(this, args);
+  };
+  for (const [on, names] of [
+    [window, ["scroll", "scrollTo", "scrollBy"]],
+    [window.Element && window.Element.prototype, ["scroll", "scrollTo", "scrollBy", "scrollIntoView"]],
+  ])
+    for (const name of on ? names : [])
+      if (typeof on[name] === "function") on[name] = watched(on[name]);
   const flush = (v) => {
     if (origin === null) origin = FRAME * Math.round((v - performance.now()) / FRAME);
     const due = [...queue.keys()];
@@ -172,6 +207,9 @@ export const HELD_FRAMES_SCRIPT = `(() => {
       try { callback(t); } catch (e) { reportError(e); }
     }
     const out = [];
+    try { if (asked.some((a) => where(a.el) !== a.before)) jumped = true; } catch (e) {}
+    asked = [];
+    if (jumped && !said.has(SMOOTH)) { said.add(SMOOTH); out.push(SMOOTH); }
     for (let i = 0; i < window.frames.length; i++) {
       const w = window.frames[i];
       let run;

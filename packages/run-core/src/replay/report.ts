@@ -1142,7 +1142,7 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   requestNotWaited: `a request opened more than ${STEP_REQUEST_CAP_MS / 1000} seconds before a step's wait began (a long poll, say) was not waited for, so that step's page screen may have been taken before it answered`,
   connectionIgnored: `a connection with no data for ${IDLE_CONNECTION_MS / 1000} seconds was not counted as waiting on the server, so the video may show the page before that connection answered`,
   animationUnpinned:
-    "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing",
+    "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */
