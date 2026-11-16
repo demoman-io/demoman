@@ -32,7 +32,13 @@ const EPS = HELD_EPS_MS;
  *  the page is seen playing it again. A scroll-driven animation follows the
  *  scroll, which the walk moves, so it is left alone.
  *  shortcut: an animation at a playbackRate other than 1 plays at rate 1 under
- *  the pin; upgrade if an app shows it. */
+ *  the pin; upgrade if an app shows it.
+ *  A playing <video> runs on Chrome's real clock too, and is not held: it is
+ *  answered once, so the report says it (measured 2026-11-15: every frame of
+ *  one apart between two held recordings).
+ *  shortcut: said, not held, and only a video of this document (none in a
+ *  shadow root or a frame); holding one means seeking it every frame.
+ *  Upgrade if recordings of pages with video matter. */
 export const PIN_ANIMATIONS = `(v) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v) : [];
@@ -60,6 +66,14 @@ export const PIN_ANIMATIONS = `(v) => {
       const name = a.animationName || a.transitionProperty || a.id || "an animation";
       const tag = a.effect?.target?.tagName?.toLowerCase() ?? "no element";
       unpinned.push(name + " on " + tag + ": " + (e && e.message ? e.message : String(e)));
+    }
+  }
+  if (!window.__demomanVideoSaid) {
+    for (const m of document.querySelectorAll("video")) {
+      if (m.paused || m.ended) continue;
+      window.__demomanVideoSaid = true;
+      unpinned.push("a playing video runs on its own clock: it was not held");
+      break;
     }
   }
   return unpinned;

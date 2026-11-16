@@ -817,9 +817,11 @@ describe("PIN_ANIMATIONS", () => {
       "DocumentTimeline",
       "window",
       `return (${PIN_ANIMATIONS})`,
-    )({ getAnimations: () => list }, DocumentTimeline, window) as (
-      heldMs: number,
-    ) => string[];
+    )(
+      { getAnimations: () => list, querySelectorAll: () => [] },
+      DocumentTimeline,
+      window,
+    ) as (heldMs: number) => string[];
 
   // R4: one page call a frame, the page's animation frames before the pin.
   it("runs the page's animation frames before it pins", () => {

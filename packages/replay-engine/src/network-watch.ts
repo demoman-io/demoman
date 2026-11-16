@@ -41,6 +41,8 @@ export async function createNetworkWatch(
    *  connections it counted. */
   const waits: { from: number; heard: number; labels: string[] }[] = [];
   const dropped: string[] = []; // each label named once
+  /** A frame's document request, by frame: the one a swap ends. */
+  const documents = new Map<string, string>();
   const id = (p: Record<string, unknown>) => String(p.requestId);
   const name = (label: string) => {
     if (!dropped.includes(label)) dropped.push(label);
@@ -79,6 +81,8 @@ export async function createNetworkWatch(
   // 10.5 h stretch from it).
   const begin = (p: Record<string, unknown>, label: string) => {
     const now = realNow();
+    if (p.type === "Document" && typeof p.frameId === "string")
+      documents.set(p.frameId, id(p));
     const wall =
       p.type === "Document" && typeof p.wallTime === "number"
         ? p.wallTime * 1000
@@ -119,6 +123,17 @@ export async function createNetworkWatch(
     cdp.on("Network.webSocketCreated", (p) =>
       name(`websocket ${pathOf(p.url)}`),
     ),
+    // A frame of another site moves to that site's process as its document
+    // answers, and the rest of its load is said to that process, not here:
+    // this session hears the swap and never the request's end, so the wait
+    // stood until the idle cut-off (a 10 s opening wait on every page with
+    // such a frame; traced 2026-11-16). The swap is the answer arriving.
+    // What the frame then asks for is its own process's, and goes unseen.
+    cdp.on("Page.frameDetached", (p) => {
+      const request = documents.get(String(p.frameId));
+      if (p.reason === "swap" && request !== undefined)
+        end({ requestId: request });
+    }),
     ...[
       "Network.responseReceived",
       "Network.dataReceived",
@@ -132,6 +147,7 @@ export async function createNetworkWatch(
     for (const off of offs) off();
   };
   try {
+    await cdp.send("Page.enable"); // for the swap above
     await cdp.send("Network.enable");
   } catch (e) {
     stop();

@@ -188,6 +188,42 @@ describe("createNetworkWatch", () => {
     expect(w.labels()).toEqual(["GET /poll"]);
   });
 
+  // Traced 2026-11-16: a frame of another site swaps to that site's process
+  // when its document answers, and this session never hears the request
+  // end. Red if the wait stands until the idle cut-off.
+  it("ends a frame's document request when the frame swaps to another process", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", {
+      ...start("f", "http://other.test/frame"),
+      type: "Document",
+      frameId: "F",
+    });
+    emit("Network.requestWillBeSent", start("1"));
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(w.waiting()).toBe(true); // premise: the frame's document is open
+    now = 40;
+    emit("Page.frameDetached", { frameId: "F", reason: "swap" });
+    expect(w.waiting()).toBe(false);
+    expect(w.quietSince()).toBe(40);
+    now = 20_000;
+    expect(w.ignored()).toEqual([]);
+  });
+
+  it("keeps a frame's document request when the frame is removed, or another frame swaps", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", {
+      ...start("f", "http://other.test/frame"),
+      type: "Document",
+      frameId: "F",
+    });
+    emit("Page.frameDetached", { frameId: "F", reason: "remove" });
+    emit("Page.frameDetached", { frameId: "G", reason: "swap" });
+    expect(w.waiting()).toBe(true);
+  });
+
   it("counts a dropped connection again when its data resumes, and keeps it named", async () => {
     const { cdp, emit } = setup();
     let now = 0;

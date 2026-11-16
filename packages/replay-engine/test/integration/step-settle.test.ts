@@ -334,4 +334,31 @@ describe("the step-settle probe in a real page", () => {
       ).toBe(250);
     });
   });
+
+  // A playing video is not held (measured 2026-11-15: every frame of one
+  // apart between two held recordings). Red if the pin says nothing, so the
+  // report reads as if the whole page were on the video's clock.
+  it("the held clock's pin says a playing video once, and not a paused one", async () => {
+    await withPage(async (page) => {
+      const pin = (v: number) =>
+        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      await page.evaluate(() => {
+        const canvas = document.createElement("canvas");
+        canvas.getContext("2d")?.fillRect(0, 0, 10, 10);
+        const video = document.createElement("video");
+        video.id = "clip";
+        video.muted = true;
+        video.srcObject = canvas.captureStream();
+        document.body.append(video);
+      });
+      expect(await pin(0), "premise: not yet playing").toEqual([]);
+      await page.evaluate(() =>
+        (document.getElementById("clip") as HTMLVideoElement).play(),
+      );
+      expect(await pin(33)).toEqual([
+        "a playing video runs on its own clock: it was not held",
+      ]);
+      expect(await pin(66)).toEqual([]);
+    });
+  });
 });
