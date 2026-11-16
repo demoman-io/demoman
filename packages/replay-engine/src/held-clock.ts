@@ -403,7 +403,27 @@ export function createHeldClock(deps: {
         settled = true;
       });
       done.catch(() => {}); // handed on below; a failed grant must not leave it unhandled
-      while (!settled) await grant(held + HELD_FRAME_MS);
+      // A frame of page time for a frame of real time: unpaced, a 2 s read
+      // ran a minute of the page's timers and polls. Bounded, in words: a
+      // read that never answers would hold the run for good.
+      const by = realNow() + GRANT_EXPIRY_TIMEOUT_MS;
+      while (!settled) {
+        if (realNow() > by)
+          throw new Error(
+            `the page did not answer a read of it within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s of its clock running`,
+          );
+        try {
+          await grant(held + HELD_FRAME_MS);
+        } catch (error) {
+          // The page may be gone and the read still answer (its browser
+          // holds the storage): given a moment before the grant's failure
+          // is the answer.
+          await wait(1000);
+          if (settled) break;
+          throw error;
+        }
+        if (!settled) await wait(HELD_FRAME_MS);
+      }
       return done;
     },
     async release() {

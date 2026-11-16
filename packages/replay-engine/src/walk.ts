@@ -4075,7 +4075,11 @@ export async function runWalk(
 
   // Held: what the clock could not hold, each said once.
   if (held !== undefined) {
+    // Once each: a playing video is answered by every document that has one.
+    const said = new Set<string>();
     for (const u of held.unpinned()) {
+      if (said.has(u.what)) continue;
+      said.add(u.what);
       const atMs = u.atMs - started;
       degradations.push(degradation("animationUnpinned", atMs, atMs, u.what));
     }

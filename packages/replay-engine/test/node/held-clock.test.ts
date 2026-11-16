@@ -704,6 +704,33 @@ describe("createHeldClock", () => {
     ]);
   });
 
+  // Review of 2026-11-16. Red if a read that never answers holds the run
+  // for good, or a read that answered is thrown away because the page's
+  // clock could no longer be moved.
+  it("gives up, in words, on a read that never answers", async () => {
+    const { clock } = setup();
+    await clock.hold(START);
+    await expect(clock.through(new Promise(() => {}))).rejects.toThrow(
+      /did not answer a read of it within 15 s/,
+    );
+  });
+
+  it("hands back a read that answers though the page's clock could no longer be moved", async () => {
+    let answer: (v: string) => void = () => {};
+    const read = new Promise<string>((r) => {
+      answer = r;
+    });
+    const { clock } = setup({
+      policy: (p) => {
+        if (p.budget === undefined) return "expire";
+        answer("state");
+        return "refuse";
+      },
+    });
+    await clock.hold(START);
+    expect(await clock.through(read)).toBe("state");
+  });
+
   it("hands on what a read failed with", async () => {
     const { clock } = setup();
     await clock.hold(START);
