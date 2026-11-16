@@ -84,6 +84,7 @@ function setup(
   const clock = createHeldClock({
     cdp,
     network,
+    scale: 1,
     realNow: () => real,
     capture: async () => {
       log.push("capture");

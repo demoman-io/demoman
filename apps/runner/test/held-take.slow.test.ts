@@ -29,6 +29,7 @@ import {
   type Recorded,
   record as recordIn,
   SCRIPT_STEPS,
+  VIEWPORT,
 } from "./held-record.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
@@ -237,6 +238,16 @@ describe("a held recording", () => {
       apartFrames(await pageRegion(second, [0.94, 0, 1, 1]), stripes),
       said(),
     ).toEqual([]);
+
+    // Rendered at the recording's scale, not the stills' 3x: a held frame
+    // of a 3x page cost six of a 1x page on CI (2026-11-16).
+    const scale = first.scene.meta.capture.displayScale;
+    expect(scale, said()).toBe(2); // premise: the default capture scale
+    expect(
+      [...new Set(first.bundle.keyframes.map((k) => k.width))],
+      said(),
+    ).toEqual([VIEWPORT.width * 2]);
+    expect(first.scene.meta.capture.dpr, said()).toBe(2);
 
     // Exactly the same recording: every frame at the same time, the cursor
     // and the steps on the same frames, and every still (a hold) the same

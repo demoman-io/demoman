@@ -52,6 +52,8 @@ const START = 5000;
 const NETWORK = [
   { startMs: START + 400, endMs: START + 900, label: "POST /api/chat" },
 ];
+/** The held clock's scale: not the stills' 3, and not 1. */
+const SCALE = 2;
 const UNPINNED = [{ atMs: START + 40, what: "spin on div: refused" }];
 const IGNORED = ["GET /poll"];
 
@@ -101,6 +103,7 @@ function fakeHeld(o: {
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const frames: HeldFrame[] = [];
   const clock: HeldClock = {
+    scale: SCALE,
     now: () => now,
     hold: async () => undefined,
     rehold: async () => undefined,
@@ -506,6 +509,21 @@ describe("the walk on a held clock", () => {
     const methods = cdp.calls.map((c) => c.method);
     expect(methods).not.toContain("Page.startScreencast");
     expect(methods).not.toContain("Page.stopScreencast");
+  });
+
+  // Every held frame is a screenshot, and one of a 3x page cost six of a 1x
+  // page on a CI runner (2026-11-16): the page is rendered at the clock's
+  // scale, and the scene says that scale.
+  it("renders the page at the held clock's scale, not the stills' 3x", async () => {
+    const { result, cdp, progress } = await run([click("a")]);
+    const evidence = evidenceOf(result, progress);
+    expect(result.outcome, evidence).toBe("complete");
+    const metrics = cdp.calls.filter(
+      (c) => c.method === "Emulation.setDeviceMetricsOverride",
+    );
+    expect(metrics.length, evidence).toBeGreaterThan(0);
+    for (const m of metrics) expect(m.params.deviceScaleFactor).toBe(SCALE);
+    expect(result.document?.meta.capture.dpr, evidence).toBe(SCALE);
   });
 
   // Red if the walk sleeps SETTLE_MS instead of the arrive, sleeps no rest,

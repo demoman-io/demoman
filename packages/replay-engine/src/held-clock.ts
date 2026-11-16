@@ -148,6 +148,13 @@ export interface HeldFrame {
 }
 
 export interface HeldClock extends Clock {
+  /** The scale the page is rendered and every frame captured at: the
+   *  recording's, not the stills' 3x. Every held frame is a screenshot, and
+   *  one of a 3x page took 97 ms on a CI runner against 16 ms at 1x
+   *  (measured 2026-11-16, apps/runner/compare/held-probe-capture.mjs).
+   *  shortcut: a zoom into a held still is no sharper than this scale;
+   *  upgrade if zooms on 1x recordings read soft. */
+  readonly scale: number;
   /** Holds the page's clock at `startEpochMs` (the pinned now, or the real time). */
   hold(startEpochMs: number): Promise<void>;
   /** Every frame captured so far is handed here, in order. */
@@ -169,6 +176,8 @@ export interface HeldClock extends Clock {
 export function createHeldClock(deps: {
   cdp: CdpSession;
   network: NetworkWatch;
+  /** `HeldClock.scale`. */
+  scale: number;
   realNow: () => number;
   capture: () => Promise<{ bytes: Uint8Array; width: number; height: number }>;
   evaluate: (source: string, arg: number) => Promise<unknown>;
@@ -306,6 +315,7 @@ export function createHeldClock(deps: {
   };
 
   return {
+    scale: deps.scale,
     now: () => held,
     async hold(epochMs) {
       await pause(epochMs / 1000);

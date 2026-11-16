@@ -827,6 +827,9 @@ export async function runWalk(
   config: WalkConfig,
 ): Promise<ReplayResult> {
   const { page, encoder, store, held } = deps;
+  /** The scale the page is rendered at: the stills' 3x, or a held
+   *  recording's own (`HeldClock.scale`), whose every frame is a still. */
+  const stillScale = held?.scale ?? REPLAY_DPR;
   if (held !== undefined && deps.recording !== "continuous") {
     throw new Error(
       `runWalk: a held clock records only on continuous recording, not ${deps.recording ?? "sampled"}`,
@@ -1108,6 +1111,7 @@ export async function runWalk(
   const markers: FrameBundle["markers"] = [];
   const degradations: Degradation[] = [];
   const counters = blankCounters(viewport, total);
+  counters.dpr = stillScale;
 
   // Where the cursor enters, taken from the plan rather than from the origin
   // — see `WalkConfig.firstCursor`, and `runReplay` for where it comes from.
@@ -1222,7 +1226,9 @@ export async function runWalk(
   const applyMetrics = async (): Promise<void> => {
     await cdp.send(
       "Emulation.setDeviceMetricsOverride",
-      device === null ? desktopMetrics(viewport) : deviceMetrics(device),
+      device === null
+        ? { ...desktopMetrics(viewport), deviceScaleFactor: stillScale }
+        : deviceMetrics(device),
     );
   };
 
@@ -4146,7 +4152,7 @@ export async function runWalk(
               })),
             }),
         ...(pacedGaps.length > 0 ? { pacedGaps } : {}),
-        dpr: REPLAY_DPR,
+        dpr: stillScale,
         viewport,
         keyframes,
         motionSpans,

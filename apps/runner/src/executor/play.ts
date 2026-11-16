@@ -275,7 +275,8 @@ export async function prepareStage(
     // A clock Chrome will not hold stops the run, as a pin that cannot be
     // installed does: recorded in real time it would read as another video.
     try {
-      held = await holdClock(launched.cdp, deps.pinnedNow);
+      // Headless with no display to stand in for records at 1x (launch.ts).
+      held = await holdClock(launched.cdp, deps.pinnedNow, recordedAt ?? 1);
     } catch (error) {
       return {
         ok: false,
@@ -311,11 +312,13 @@ const originOf = (what: string): string | null =>
 async function holdClock(
   cdp: CdpSession,
   pinnedNow: string | undefined,
+  scale: number,
 ): Promise<{ clock: HeldClock; network: NetworkWatch }> {
   const network = await createNetworkWatch(cdp, Date.now);
   const clock = createHeldClock({
     cdp,
     network,
+    scale,
     realNow: Date.now,
     capture: async () => {
       const reply = await cdp.send("Page.captureScreenshot", {
