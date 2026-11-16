@@ -43,6 +43,34 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(false);
   });
 
+  // Session A, 2026-11-16: what a page does between its document's last
+  // byte and its load is real time, and its frames followed the machine.
+  // Red if a document's wait ends with its request.
+  it("waits on a document after its request ends, until its page is said loaded", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", {
+      ...start("1", "http://app.test/there"),
+      type: "Document",
+      frameId: "top",
+    });
+    emit("Network.requestWillBeSent", start("2"));
+    expect(w.loading()).toBe(true);
+    expect(w.loadPending()).toBe(false);
+    now = 100;
+    emit("Network.loadingFinished", { requestId: "1" });
+    emit("Network.loadingFinished", { requestId: "2" });
+    expect(w.waiting()).toBe(true);
+    expect(w.labels()).toEqual(["GET /there"]);
+    expect(w.loadPending()).toBe(true);
+    now = 160;
+    w.loaded();
+    expect(w.waiting()).toBe(false);
+    expect(w.loading()).toBe(false);
+    expect(w.quietSince()).toBe(160);
+  });
+
   // Fix round 1, finding 3: when the page stopped waiting, for a stretch
   // that ended while the held clock was taking a frame.
   it("says when the page stopped waiting", async () => {
@@ -192,7 +220,8 @@ describe("createNetworkWatch", () => {
 
   // Traced 2026-11-16: a frame of another site swaps to that site's process
   // when its document answers, and this session never hears the request
-  // end. Red if the wait stands until the idle cut-off.
+  // end. Red if the wait stands until the idle cut-off. The swap is the
+  // request's end: the wait is then over when the page is said loaded.
   it("ends a frame's document request when the frame swaps to another process", async () => {
     const { cdp, emit } = setup();
     let now = 0;
@@ -207,6 +236,8 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(true); // premise: the frame's document is open
     now = 40;
     emit("Page.frameDetached", { frameId: "F", reason: "swap" });
+    expect(w.loadPending()).toBe(true);
+    w.loaded();
     expect(w.waiting()).toBe(false);
     expect(w.quietSince()).toBe(40);
     now = 20_000;

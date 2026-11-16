@@ -18,6 +18,15 @@ export interface NetworkWatch {
    *  (when the browser sent its request, which its word can trail) and
    *  every connection they counted; null when none was. */
   waitsSince(realMs: number): { from: number; labels: string[] } | null;
+  /** Whether a document is being waited on: its request is open, or has
+   *  ended and nobody has yet said its page loaded (`loaded`). */
+  loading(): boolean;
+  /** Whether a document's request has ended and its page is not yet said
+   *  loaded: the one who can ask the page asks it, and says so. */
+  loadPending(): boolean;
+  /** The page says its document has loaded: every wait on one whose
+   *  request has ended is over. */
+  loaded(): void;
   stop(): void;
 }
 
@@ -34,7 +43,18 @@ export async function createNetworkWatch(
   realNow: () => number,
 ): Promise<NetworkWatch> {
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
-  const live = new Map<string, { label: string; lastAt: number }>();
+  // answered: a document's request that has ended, counted on until its page
+  // is said loaded. What a page does between its last byte and its load is
+  // real time that is neither a request nor a timer, so the frames that pass
+  // in it follow the machine: counted as the server's, they are no timing of
+  // the held clock's (the step after a navigation landed on frame 217, 221,
+  // 222 or 223 over six recordings on one Mac; 2026-11-16).
+  // shortcut: a page that never loads holds its wait until the idle cut-off
+  // and is named as a dropped connection; upgrade if a real page shows it.
+  const live = new Map<
+    string,
+    { label: string; lastAt: number; answered?: true }
+  >();
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
@@ -102,10 +122,23 @@ export async function createNetworkWatch(
     idle.delete(id(p));
     count(p, label, now);
   };
+  const isDocument = (request: string) =>
+    [...documents.values()].includes(request);
   const end = (p: Record<string, unknown>) => {
+    const c = live.get(id(p));
+    if (c !== undefined && isDocument(id(p))) {
+      c.answered = true;
+      c.lastAt = realNow();
+      return;
+    }
     const was = live.size;
     live.delete(id(p));
     idle.delete(id(p));
+    if (was > 0 && live.size === 0) quietAt = realNow();
+  };
+  const loaded = () => {
+    const was = live.size;
+    for (const [k, c] of live) if (c.answered) live.delete(k);
     if (was > 0 && live.size === 0) quietAt = realNow();
   };
 
@@ -182,6 +215,15 @@ export async function createNetworkWatch(
         labels: [...new Set(since.flatMap((w) => w.labels))],
       };
     },
+    loading() {
+      sweep();
+      return [...live.keys()].some(isDocument);
+    },
+    loadPending() {
+      sweep();
+      return [...live.values()].some((c) => c.answered);
+    },
+    loaded,
     stop,
   };
 }

@@ -102,6 +102,8 @@ function fakeHeld(o: {
   /** The page call each captured frame makes (the pin): a page's answer
    *  sent before it arrives before it, as on one CDP session. */
   roundTrip?: () => Promise<unknown>;
+  /** Whether a document is being waited on (`HeldClock.loading`). */
+  loading?: () => boolean;
 }) {
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -117,6 +119,8 @@ function fakeHeld(o: {
     networkSpans: () => o.network.map((s) => ({ ...s })),
     unpinned: () => UNPINNED.map((u) => ({ ...u })),
     ignoredConnections: () => [...IGNORED],
+    loading: () => o.loading?.() ?? false,
+    owing: () => o.loading?.() ?? false,
     through: (read) => read,
     release: async () => undefined,
     sleep: async (ms) => {
@@ -214,6 +218,7 @@ async function run(
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
     roundTrip: () => cdp.send("Runtime.evaluate", { expression: "0" }),
+    loading: () => loadingUntil !== null,
     network,
     moved: (now) => {
       if (restRequestAt !== null && now >= restRequestAt) {

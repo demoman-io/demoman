@@ -1195,6 +1195,12 @@ export async function runWalk(
     navigationsSeen++;
     topLoading = true;
   });
+  /** Whether the top document is loading. Held: the clock's word, which is
+   *  the page's own, asked between frames (`NetworkWatch.loaded`); a loop
+   *  that ended on `topLoading` ended on the frame the browser's event
+   *  happened to arrive in. */
+  const loading = (): boolean =>
+    held === undefined ? topLoading : held.loading();
   const offStopped = cdp.on("Page.frameStoppedLoading", (params) => {
     if (isTop(params)) topLoading = false;
   });
@@ -1668,12 +1674,20 @@ export async function runWalk(
    */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
     for (;;) {
-      while (topLoading && at() < deadline) await clock.sleep(50);
+      // Held: also while the clock owes the server frames, which the
+      // probe's quiet window would otherwise run inside (`HeldClock.owing`).
+      if (held === undefined)
+        while (topLoading && at() < deadline) await clock.sleep(50);
+      else
+        while (held.owing() && at() < deadline)
+          await clock.sleep(HELD_FRAME_MS);
       const capMs = deadline - at();
       if (capMs <= 0) {
-        return [...(topLoading ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
+        return [...(loading() ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
       }
       const navs = navigationsSeen;
+      // Read only when held: a clock read is a moment of a real clock's.
+      const asked = held === undefined ? 0 : at();
       let report: Partial<StepSettleReport> | undefined;
       let failure: unknown = null;
       try {
@@ -1697,10 +1711,27 @@ export async function runWalk(
       } catch (error) {
         failure = error;
       }
-      if ((navigationsSeen !== navs || topLoading) && at() < deadline) {
+      // Held: the page counted its window in page time, and a wait that
+      // began after it was asked (the new page's icon, which Chrome fetches
+      // once the page has loaded) put the server's frames in it, as many as
+      // the machine made them: the window is played out in held frames, so
+      // its held part is the same on any machine (6 or 7 frames after a
+      // navigation over five recordings on one Mac, 2026-11-16). Within
+      // one more window: a page that waits on its server throughout (a
+      // stream) is on the server's time anyway.
+      if (held !== undefined && failure === null) {
+        const windowMs = at() - asked;
+        const by = at() + windowMs;
+        for (;;) {
+          const left = sinceActEnd(windowMs, asked);
+          if (left <= HELD_EPS_MS || at() >= by) break;
+          await clock.sleep(left);
+        }
+      }
+      if ((navigationsSeen !== navs || loading()) && at() < deadline) {
         continue;
       }
-      const words = topLoading ? [STILL_LOADING] : [];
+      const words = loading() ? [STILL_LOADING] : [];
       if (failure !== null) {
         return [
           ...words,
@@ -1914,15 +1945,14 @@ export async function runWalk(
       // loads, which on a held clock is only as page time moves (measured
       // 2026-11-15: this move after a navigating click waited out Chrome's
       // own 30 s), so the load is played first, within the settle's cap:
-      // while the top frame is loading, or its document says it is not yet
-      // complete (a load no frameStartedLoading announced, review of Task 9
-      // round 1, finding C). The document is asked between frames, so where
-      // it decides, the frame the loop ends on is the same on any machine;
-      // while the top frame is said to be loading (a browser event, which
-      // the frames do not order) the loop goes on without asking.
+      // while the clock is in the server's time (a document being waited
+      // on, `HeldClock.owing`), or the document says it is not yet complete
+      // (a load no request announced, review of Task 9 round 1, finding C).
+      // Both are asked between frames, never heard from a browser event, so
+      // the frame the loop ends on is the same on any machine.
       if (held !== undefined) {
         const loadBy = at() + STEP_SETTLE_CAP_MS;
-        while ((topLoading || (await documentLoading())) && at() < loadBy)
+        while ((held.owing() || (await documentLoading())) && at() < loadBy)
           await clock.sleep(HELD_FRAME_MS);
       }
       try {
@@ -3005,7 +3035,7 @@ export async function runWalk(
         // and then answers for it, so the window this closes is the first
         // few milliseconds of a load. Skipping a read costs one poll.
         const seenBefore = navigationsSeen;
-        const state = topLoading
+        const state = loading()
           ? undefined
           : ((
               await cdp.send("Runtime.evaluate", {

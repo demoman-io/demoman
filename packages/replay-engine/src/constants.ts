@@ -342,8 +342,15 @@ export const STEP_QUIET_MS = 200;
  * shortcut: a fixed window, so a timer-only delay longer than it is still
  * captured early, as `STEP_QUIET_MS` says; upgrade to watching the page's
  * pending timers if an app shows it.
+ *
+ * 383 is 11.5 frames, so the window is met on its 12th frame (400 ms)
+ * whatever the page's clock reads there. At 400 exactly it was 12 frames or
+ * 13: the page reads whole milliseconds, 12 frames read 399 or 400 by where
+ * on the frame grid the window began, and that follows how long the server
+ * took before it (traced 2026-11-16: the opening, and the step after a
+ * navigation, a frame apart between two machines).
  */
-export const HELD_STEP_QUIET_MS = 400;
+export const HELD_STEP_QUIET_MS = 383;
 /**
  * The most the walk waits for one step's page (paint, finite animations, DOM
  * quiet) once its requests are idle. A page that never stops (a ticker)
