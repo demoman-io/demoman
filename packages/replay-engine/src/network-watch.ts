@@ -113,6 +113,15 @@ export async function createNetworkWatch(
 
   const offs = [
     cdp.on("Network.requestWillBeSent", (p) => {
+      // An EventSource is never a wait, as a websocket is not (below): it
+      // is a subscription, open for as long as the page is, and what
+      // arrives on it is pushed. Counted, one that sent every 3 s made a
+      // 5 s video 72 s, and one that sent once cost 10 s and a note
+      // (measured 2026-11-16, compare/held-push.sh; the author's ruling).
+      // The walk's own request watch never counted one (`requests.ts`).
+      // shortcut: a reply streamed over an EventSource lands where the
+      // machine puts it, unsaid; upgrade if an app shows it.
+      if (p.type === "EventSource") return;
       const r = (p.request ?? {}) as Record<string, unknown>;
       begin(p, `${r.method} ${pathOf(r.url)}`);
     }),
@@ -137,11 +146,9 @@ export async function createNetworkWatch(
       if (p.reason === "swap" && request !== undefined)
         end({ requestId: request });
     }),
-    ...[
-      "Network.responseReceived",
-      "Network.dataReceived",
-      "Network.eventSourceMessageReceived",
-    ].map((e) => cdp.on(e, data)),
+    ...["Network.responseReceived", "Network.dataReceived"].map((e) =>
+      cdp.on(e, data),
+    ),
     ...["Network.loadingFinished", "Network.loadingFailed"].map((e) =>
       cdp.on(e, end),
     ),

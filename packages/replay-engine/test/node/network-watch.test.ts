@@ -183,6 +183,27 @@ describe("createNetworkWatch", () => {
     expect(w.ignored()).toEqual(["GET /poll"]);
   });
 
+  // The author's ruling, 2026-11-16 (measured: compare/held-push.sh). Red
+  // if an EventSource is a wait again, or named as dropped.
+  it("never counts an EventSource, whatever arrives on it, nor says it was ignored", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", {
+      ...start("e", "http://app.test/events"),
+      type: "EventSource",
+    });
+    emit("Network.responseReceived", { requestId: "e" });
+    emit("Network.dataReceived", { requestId: "e" });
+    expect(w.waiting()).toBe(false);
+    expect(w.waitsSince(-1)).toBeNull();
+    now = 20_000;
+    expect(w.ignored()).toEqual([]);
+    // premise: a request beside it still counts
+    emit("Network.requestWillBeSent", { ...start("1"), type: "Fetch" });
+    expect(w.waiting()).toBe(true);
+  });
+
   it("never counts a websocket, whatever arrives on it, nor says it was ignored", async () => {
     // A dev server's hot-reload socket sends on every request and never
     // closes: counted, each server wait ran 10 s past its last request
