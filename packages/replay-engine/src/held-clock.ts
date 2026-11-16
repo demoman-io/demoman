@@ -214,10 +214,10 @@ export interface HeldClock extends Clock {
   unpinned(): { atMs: number; what: string }[];
   /** Connections that stopped counting as waiting on the server (`NetworkWatch.ignored`). */
   ignoredConnections(): string[];
-  /** Whether a document is being waited on (`NetworkWatch.loading`). */
+  /** Whether a document's request is open (`NetworkWatch.loading`). */
   loading(): boolean;
-  /** Whether a sleep begun now would begin in the server's time: a document
-   *  is being waited on, or a wait heard of since the last frame, or heard
+  /** Whether a sleep begun now would begin in the server's time: a document's
+   *  request is open, or a wait heard of since the last frame, or heard
    *  over, is owed frames. The walk plays frames until it is not before it
    *  asks the page a timed question: a settle's quiet window ran inside the
    *  owed frames by as much as the machine made it (246 against 248 on a
@@ -471,15 +471,6 @@ export function createHeldClock(deps: {
       // Not past a frame skipped at the sleep's last grant: the walk would
       // change the page before it was taken (review of Task 9 round 3).
       while (end - held > EPS || unshot) {
-        // A load's end is the page's word, asked here between two frames,
-        // never a browser event, which the frames do not order. A page that
-        // cannot answer (one leaving, or not yet there) is still loading.
-        if (network.loadPending()) {
-          const state = await deps
-            .evaluate("() => document.readyState", 0)
-            .catch(() => "loading");
-          if (state !== "loading" && state !== "interactive") network.loaded();
-        }
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
         if (network.waiting()) {

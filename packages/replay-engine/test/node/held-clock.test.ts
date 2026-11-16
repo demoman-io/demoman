@@ -38,9 +38,8 @@ function setup(
       sinceMs: number,
       real: number,
     ) => { from: number; labels: string[] } | null;
-    /** A document whose request has ended, waited on until the page says
-     *  it has loaded: what the page answers each time it is asked. */
-    readyStates?: string[];
+    /** Whether a document's request is open (`NetworkWatch.loading`). */
+    loading?: (real: number) => boolean;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -50,10 +49,6 @@ function setup(
   const sent: string[] = [];
   let real = 0;
   let shots = 0;
-  const readyStates = o.readyStates === undefined ? null : [...o.readyStates];
-  let loadPending = readyStates !== null;
-  /** The real time the page was said loaded at. */
-  let loadedAt: number | null = null;
   const cdp: CdpSession = {
     async send(method, params = {}) {
       sent.push(method);
@@ -83,18 +78,12 @@ function setup(
     async detach() {},
   };
   const network: NetworkWatch = {
-    waiting: () => loadPending || (o.waiting?.(real) ?? false),
+    waiting: () => o.waiting?.(real) ?? false,
     labels: () => ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
-    quietSince: () =>
-      loadPending ? null : (loadedAt ?? o.quietSince?.(real) ?? null),
+    quietSince: () => o.quietSince?.(real) ?? null,
     waitsSince: (sinceMs) => o.waitsSince?.(sinceMs, real) ?? null,
-    loading: () => loadPending,
-    loadPending: () => loadPending,
-    loaded: () => {
-      loadPending = false;
-      loadedAt = real;
-    },
+    loading: () => o.loading?.(real) ?? false,
     stop() {},
   };
   const clock = createHeldClock({
@@ -115,12 +104,6 @@ function setup(
       real += ms;
     },
     evaluate: async (source, arg) => {
-      if (source.includes("readyState")) {
-        log.push("asked");
-        const state = readyStates?.shift();
-        if (state === "gone") throw new Error("Cannot find context");
-        return state;
-      }
       log.push(`pin ${arg}`);
       pins.push({ source, arg });
       return o.pin ? o.pin(arg) : [];
@@ -601,28 +584,15 @@ describe("createHeldClock", () => {
     expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
   });
 
-  // Session A, 2026-11-16: a load's end was heard from a browser event, on
-  // whichever frame it arrived in. Red if the clock stops asking the page,
-  // takes a page that cannot answer as loaded, or holds frames during a load.
-  it("counts a load as the server's until the page says it has loaded, asked between frames", async () => {
-    const { clock, frames, log } = setup({
-      readyStates: ["interactive", "gone", "complete"],
-      captureMs: 100,
-    });
+  // Session A, 2026-11-16: the walk plays frames while a document's request
+  // is open, on the clock's word.
+  it("owes while a document's request is open", async () => {
+    const { clock, advance } = setup({ loading: (real) => real < 100 });
     await clock.hold(START);
     expect(clock.loading()).toBe(true);
     expect(clock.owing()).toBe(true);
-    await clock.sleep(HELD_FRAME_MS);
-    await clock.sleep(HELD_FRAME_MS);
-    expect(clock.loading()).toBe(true);
-    await clock.sleep(HELD_FRAME_MS);
-    // Asked before each look, and never between a grant and its capture.
-    expect(log.filter((l) => l === "asked").length).toBe(3);
+    advance(100);
     expect(clock.loading()).toBe(false);
-    // The two frames of the load followed real time (100 ms a capture),
-    // and are the server's: one stretch, to the frame the page answered on.
-    expect(clock.networkSpans().map((s) => s.startMs)).toEqual([0]);
-    expect(clock.networkSpans()[0]?.endMs).toBe(frames[1]?.sourceTimeMs);
     expect(clock.owing()).toBe(false);
   });
 

@@ -1195,10 +1195,11 @@ export async function runWalk(
     navigationsSeen++;
     topLoading = true;
   });
-  /** Whether the top document is loading. Held: the clock's word, which is
-   *  the page's own, asked between frames (`NetworkWatch.loaded`); a loop
-   *  that ended on `topLoading` ended on the frame the browser's event
-   *  happened to arrive in. */
+  /** Whether the top document is loading. Held: whether a document's
+   *  request is open, which the clock's frames account for as the server's
+   *  time; `topLoading` ends on whichever frame the browser's event happens
+   *  to arrive in. What the page does after its last byte is asked of it
+   *  between frames (`documentLoading`). */
   const loading = (): boolean =>
     held === undefined ? topLoading : held.loading();
   const offStopped = cdp.on("Page.frameStoppedLoading", (params) => {
@@ -1679,7 +1680,7 @@ export async function runWalk(
       if (held === undefined)
         while (topLoading && at() < deadline) await clock.sleep(50);
       else
-        while (held.owing() && at() < deadline)
+        while ((held.owing() || (await documentLoading())) && at() < deadline)
           await clock.sleep(HELD_FRAME_MS);
       const capMs = deadline - at();
       if (capMs <= 0) {
@@ -1945,8 +1946,8 @@ export async function runWalk(
       // loads, which on a held clock is only as page time moves (measured
       // 2026-11-15: this move after a navigating click waited out Chrome's
       // own 30 s), so the load is played first, within the settle's cap:
-      // while the clock is in the server's time (a document being waited
-      // on, `HeldClock.owing`), or the document says it is not yet complete
+      // while the clock is in the server's time (a document's request open,
+      // `HeldClock.owing`), or the document says it is not yet complete
       // (a load no request announced, review of Task 9 round 1, finding C).
       // Both are asked between frames, never heard from a browser event, so
       // the frame the loop ends on is the same on any machine.
