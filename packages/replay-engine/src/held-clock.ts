@@ -31,8 +31,17 @@ const EPS = HELD_EPS_MS;
  *  waiting for `animationend` still hears it, and pinned again from the frame
  *  the page is seen playing it again. A scroll-driven animation follows the
  *  scroll, which the walk moves, so it is left alone.
- *  shortcut: an animation at a playbackRate other than 1 plays at rate 1 under
- *  the pin; upgrade if an app shows it.
+ *  An animation the page itself holds paused is the page's picture, and is
+ *  left where it is: one first seen paused, until the page plays it, and a
+ *  CSS animation whose element says `animation-play-state: paused`, for as
+ *  long as it does (a progress ring scrubbed by a negative delay swept from
+ *  0 to full under the pin; review of 2026-11-16). It goes on from where it
+ *  stood.
+ *  shortcut: a script's `pause()` of an animation the pin already holds is
+ *  not seen, so it plays on; upgrade if an app shows it.
+ *  An animation at a playbackRate other than 1 is not pinned (played at
+ *  rate 1, a reversed one ran forward and snapped back): it is answered by
+ *  name and runs on Chrome's clock.
  *  A playing <video> runs on Chrome's real clock too, and is not held: it is
  *  answered once, so the report says it (measured 2026-11-15: every frame of
  *  one apart between two held recordings).
@@ -42,9 +51,37 @@ const EPS = HELD_EPS_MS;
 export const PIN_ANIMATIONS = `(v) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v) : [];
+  const cssPaused = (a) => {
+    const el = a.animationName && a.effect && a.effect.target;
+    if (!el) return false;
+    const cs = getComputedStyle(el, a.effect.pseudoElement || null);
+    const states = cs.animationPlayState.split(", ");
+    const i = cs.animationName.split(", ").indexOf(a.animationName);
+    return i !== -1 && states[i % states.length] === "paused";
+  };
+  const nameOf = (a) =>
+    (a.animationName || a.transitionProperty || a.id || "an animation") + " on " +
+    (a.effect?.target?.tagName?.toLowerCase() ?? "no element");
   for (const a of document.getAnimations()) {
     if (a.__unpinned) continue;
     if (a.timeline && !(a.timeline instanceof DocumentTimeline)) continue;
+    if ((a.playbackRate ?? 1) !== 1) {
+      a.__unpinned = true;
+      if (a.__v0 !== undefined) a.play();
+      unpinned.push(nameOf(a) + ": plays at rate " + a.playbackRate + ", which the held clock does not play");
+      continue;
+    }
+    // The page's own pause: left where it is, and it goes on from there.
+    a.__pagePaused = a.__v0 === undefined ? a.playState === "paused" || cssPaused(a) : cssPaused(a);
+    if (a.__pagePaused) {
+      if (a.__v0 === undefined) a.__waited = true;
+      else a.__v0 = v - (a.currentTime ?? 0);
+      continue;
+    }
+    if (a.__waited) {
+      a.__waited = false;
+      a.__v0 = v - (a.currentTime ?? 0);
+    }
     if (a.__done) {
       if (a.playState !== "running") continue;
       a.__done = false;
@@ -63,9 +100,7 @@ export const PIN_ANIMATIONS = `(v) => {
       }
     } catch (e) {
       a.__unpinned = true;
-      const name = a.animationName || a.transitionProperty || a.id || "an animation";
-      const tag = a.effect?.target?.tagName?.toLowerCase() ?? "no element";
-      unpinned.push(name + " on " + tag + ": " + (e && e.message ? e.message : String(e)));
+      unpinned.push(nameOf(a) + ": " + (e && e.message ? e.message : String(e)));
     }
   }
   if (!window.__demomanVideoSaid) {
@@ -185,6 +220,12 @@ export interface HeldClock extends Clock {
    *  until `read` settles: for a read after the recording that a paused page
    *  never answers (its storage). */
   through<T>(read: Promise<T>): Promise<T>;
+  /** Lets the page go, after the recording's last read of it: its clock
+   *  runs again and it is put on a blank document, so nothing of the app
+   *  runs on at that clock's pace. A page left paused slows every other page
+   *  of its browser: the final still rendered in 7.2 s beside one against
+   *  0.5 s (measured 2026-11-16, compare/held-probe-two-runs.mjs). */
+  release(): Promise<void>;
 }
 
 export function createHeldClock(deps: {
@@ -282,15 +323,27 @@ export function createHeldClock(deps: {
           resolve();
         }
       };
-      const timer = setTimeout(
-        () =>
-          settle(
-            new Error(
-              `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant at ${held} ms within ${GRANT_EXPIRY_TIMEOUT_MS} ms`,
-            ),
+      // A grant does not expire while a navigation waits on its server
+      // (measured, Task 6), so a slow server is not Chrome's failure: while
+      // the page is waiting the grant is waited on, and a wait that went
+      // quiet is said as the server's (review of 2026-11-16).
+      // shortcut: a server silent for the whole of the bound still stops the
+      // run, where a real clock goes on; upgrade if a cold route does it.
+      const expired = () => {
+        if (network.waiting()) {
+          timer = setTimeout(expired, GRANT_EXPIRY_TIMEOUT_MS);
+          return;
+        }
+        const waits = network.waitsSince(grantAt - 1);
+        settle(
+          new Error(
+            waits === null
+              ? `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant at ${held} ms within ${GRANT_EXPIRY_TIMEOUT_MS} ms`
+              : `the page's clock did not move: the page was waiting on its server (${waits.labels.join(", ")}), which had not answered ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s on`,
           ),
-        GRANT_EXPIRY_TIMEOUT_MS,
-      );
+        );
+      };
+      let timer = setTimeout(expired, GRANT_EXPIRY_TIMEOUT_MS);
       // Listening before the send: the event can come before the answer.
       const off = cdp.on("Emulation.virtualTimeBudgetExpired", () => settle());
       cdp
@@ -352,6 +405,13 @@ export function createHeldClock(deps: {
       done.catch(() => {}); // handed on below; a failed grant must not leave it unhandled
       while (!settled) await grant(held + HELD_FRAME_MS);
       return done;
+    },
+    async release() {
+      // Chrome has no policy for "the real clock": an advance with no budget
+      // runs the page's time as fast as it will go, so the page is blanked
+      // at once (probe-storage: a 1 s timer fired 125 times in a second).
+      await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance" });
+      await cdp.send("Page.navigate", { url: "about:blank" });
     },
     onFrame(listener) {
       listeners.push(listener);

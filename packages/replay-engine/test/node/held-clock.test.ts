@@ -44,10 +44,12 @@ function setup(
   const policies: Record<string, unknown>[] = [];
   const log: string[] = [];
   const pins: { source: string; arg: number }[] = [];
+  const sent: string[] = [];
   let real = 0;
   let shots = 0;
   const cdp: CdpSession = {
     async send(method, params = {}) {
+      sent.push(method);
       if (method !== "Emulation.setVirtualTimePolicy") return {};
       policies.push(params);
       // As Chrome answers (measured 2026-11-15, apps/runner/compare/held-probe-basics.mjs).
@@ -118,7 +120,17 @@ function setup(
   const advance = (ms: number) => {
     real += ms;
   };
-  return { clock, frames, policies, budgets, log, pins, listeners, advance };
+  return {
+    clock,
+    frames,
+    policies,
+    budgets,
+    log,
+    pins,
+    listeners,
+    advance,
+    sent,
+  };
 }
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
@@ -676,6 +688,22 @@ describe("createHeldClock", () => {
     expect(policies.at(-1)?.policy).toBe("pause");
   });
 
+  // Measured 2026-11-16: a page left paused made the final still, rendered
+  // beside it, take 7.2 s against 0.5 s. Red if the page is left held, or
+  // left running the app at the free clock's pace.
+  it("lets the page go: its clock runs free, and it is blanked at once", async () => {
+    const { clock, policies, sent } = setup();
+    await clock.hold(START);
+    await clock.sleep(HELD_FRAME_MS);
+    const before = sent.length;
+    await clock.release();
+    expect(policies.at(-1)).toEqual({ policy: "advance" });
+    expect(sent.slice(before)).toEqual([
+      "Emulation.setVirtualTimePolicy",
+      "Page.navigate",
+    ]);
+  });
+
   it("hands on what a read failed with", async () => {
     const { clock } = setup();
     await clock.hold(START);
@@ -730,6 +758,33 @@ describe("createHeldClock", () => {
     expect(frames).toHaveLength(0);
     expect(clock.now()).toBe(0);
     expect(listeners()).toBe(0);
+  });
+
+  // Review of 2026-11-16: a grant does not expire while a navigation waits
+  // on its server. Red if a slow server is blamed on Chrome, or stops the
+  // run while its answer is still arriving.
+  it("waits a grant out while the page waits on its server, and says the server when it went quiet", async () => {
+    vi.useFakeTimers();
+    let waiting = true;
+    const { clock } = setup({
+      policy: (p) => (p.budget === undefined ? "expire" : "silent"),
+      waiting: () => waiting,
+      waitsSince: () => ({ from: 0, labels: ["GET /slow"] }),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(2 * GRANT_EXPIRY_TIMEOUT_MS);
+    expect(failed, "still waited on while the page waits").toBeNull();
+    waiting = false;
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS);
+    await slept;
+    expect(String(failed)).toMatch(
+      /waiting on its server \(GET \/slow\), which had not answered 15 s on/,
+    );
+    expect(String(failed)).not.toMatch(/Chrome/);
   });
 
   it("a frame listener's failure comes out of sleep", async () => {
@@ -816,11 +871,13 @@ describe("PIN_ANIMATIONS", () => {
       "document",
       "DocumentTimeline",
       "window",
+      "getComputedStyle",
       `return (${PIN_ANIMATIONS})`,
     )(
       { getAnimations: () => list, querySelectorAll: () => [] },
       DocumentTimeline,
       window,
+      () => ({ animationName: "", animationPlayState: "running" }),
     ) as (heldMs: number) => string[];
 
   // R4: one page call a frame, the page's animation frames before the pin.

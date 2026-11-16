@@ -114,6 +114,7 @@ function fakeHeld(o: {
     unpinned: () => UNPINNED.map((u) => ({ ...u })),
     ignoredConnections: () => [...IGNORED],
     through: (read) => read,
+    release: async () => undefined,
     sleep: async (ms) => {
       const end = now + ms;
       for (;;) {

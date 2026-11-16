@@ -9,7 +9,7 @@ export interface NetworkWatch {
   /** The connections counted right now, in the order they began. */
   labels(): string[];
   /** Connections not counted, in order: dropped after IDLE_CONNECTION_MS
-   *  with no data, and every websocket. */
+   *  with no data. */
   ignored(): string[];
   /** When the page stopped waiting (real ms), while it is not; null while
    *  it is, or before it ever waited. */
@@ -114,15 +114,16 @@ export async function createNetworkWatch(
       const r = (p.request ?? {}) as Record<string, unknown>;
       begin(p, `${r.method} ${pathOf(r.url)}`);
     }),
-    // A websocket is never a wait: what arrives on it is pushed, not an
-    // answer the page asked for, and it stays open. A dev server's hot-reload
-    // socket sends on every request, which kept each wait open 10 s past its
-    // last request (traced 2026-11-15, Chatbot sample). Named, not counted.
+    // A websocket is never a wait, and none is listened for: what arrives
+    // on one is pushed, not an answer the page asked for, and it stays open.
+    // A dev server's hot-reload socket sends on every request, which kept
+    // each wait open 10 s past its last request (traced 2026-11-15, Chatbot
+    // sample). A rule, not a loss, so nothing says it: named as ignored, it
+    // made every run of an app under a dev server a degraded one, which
+    // refresh records twice (review of 2026-11-16).
     // shortcut: a reply streamed over a websocket is not server time, so its
-    // words land where the machine puts them; upgrade if an app shows it.
-    cdp.on("Network.webSocketCreated", (p) =>
-      name(`websocket ${pathOf(p.url)}`),
-    ),
+    // words land where the machine puts them, unsaid; upgrade if an app
+    // shows it.
     // A frame of another site moves to that site's process as its document
     // answers, and the rest of its load is said to that process, not here:
     // this session hears the swap and never the request's end, so the wait

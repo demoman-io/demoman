@@ -361,4 +361,78 @@ describe("the step-settle probe in a real page", () => {
       expect(await pin(66)).toEqual([]);
     });
   });
+
+  // Review of 2026-11-16: the pin reset and played every animation, also one
+  // the page holds paused (a progress ring scrubbed by a negative delay).
+  // Red if such an animation moves, or the screen's hold resets it.
+  it("the held clock's pin leaves an animation the page paused where it is, and plays it on from there", async () => {
+    await withPage(async (page) => {
+      const pin = (v: number) =>
+        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      await page.evaluate(() => {
+        const style = document.createElement("style");
+        style.textContent =
+          "@keyframes fill{to{width:100px}}#ring{width:0;height:4px;background:#06c;animation:fill 10s linear infinite;animation-delay:-4s;animation-play-state:paused}";
+        document.head.append(style);
+        const ring = document.createElement("div");
+        ring.id = "ring";
+        document.body.append(ring);
+      });
+      // How far through its 10 s the ring is drawn (its delay counts).
+      const at = () =>
+        page.evaluate(() =>
+          Math.round(
+            1000 *
+              (document
+                .getElementById("ring")
+                ?.getAnimations()[0]
+                ?.effect?.getComputedTiming().progress ?? -1),
+          ),
+        );
+      expect(await at(), "premise: scrubbed to 4 s by its delay").toBe(400);
+      expect(await pin(1000)).toEqual([]);
+      await pin(1500);
+      expect(await at()).toBe(400);
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(held.held).toBe(0);
+      expect(await at()).toBe(400);
+      // The page plays it: it goes on from 4 s on the held clock.
+      await page.evaluate(() => {
+        (
+          document.getElementById("ring") as HTMLElement
+        ).style.animationPlayState = "running";
+      });
+      await pin(2000);
+      await pin(2300);
+      expect(await at()).toBe(430);
+      // And pauses it again by its style: it stays, whatever the held time.
+      await page.evaluate(() => {
+        (
+          document.getElementById("ring") as HTMLElement
+        ).style.animationPlayState = "paused";
+      });
+      await pin(3000);
+      expect(await at()).toBe(430);
+    });
+  });
+
+  // Red if a reversed animation is played forward by the pin (it ran to its
+  // end and snapped back) without a word.
+  it("the held clock's pin says an animation at another rate, and does not play it", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(() => {
+        const a = document.getElementById("spin")?.getAnimations()[0];
+        if (a) a.playbackRate = -1;
+      });
+      const said = (await page.evaluate(
+        `(${PIN_ANIMATIONS})(1000)`,
+      )) as string[];
+      expect(said).toEqual([
+        "spin on div: plays at rate -1, which the held clock does not play",
+      ]);
+      expect(await page.evaluate(`(${PIN_ANIMATIONS})(1033)`)).toEqual([]);
+    });
+  });
 });

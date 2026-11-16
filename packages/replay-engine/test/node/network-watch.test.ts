@@ -165,7 +165,7 @@ describe("createNetworkWatch", () => {
     expect(w.ignored()).toEqual(["GET /poll"]);
   });
 
-  it("never counts a websocket, whatever arrives on it, and names it", async () => {
+  it("never counts a websocket, whatever arrives on it, nor says it was ignored", async () => {
     // A dev server's hot-reload socket sends on every request and never
     // closes: counted, each server wait ran 10 s past its last request
     // (traced 2026-11-15 on the Chatbot sample).
@@ -181,7 +181,9 @@ describe("createNetworkWatch", () => {
     emit("Network.webSocketFrameReceived", { requestId: "w" });
     expect(w.waiting()).toBe(false);
     expect(w.waitsSince(-1)).toBeNull();
-    expect(w.ignored()).toEqual(["websocket /hmr"]);
+    // Not a degradation: every app under a dev server has one (hot reload).
+    now = 20_000;
+    expect(w.ignored()).toEqual([]);
     // premise: a request beside it still counts
     emit("Network.requestWillBeSent", start("1"));
     expect(w.waiting()).toBe(true);

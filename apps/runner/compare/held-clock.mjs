@@ -12,6 +12,7 @@
 //     commits a baseline there): a baseline and <rounds> recordings per
 //     flow, each judged against the baseline's page screens by refresh's
 //     own `sameScreens`; one verdict line each, then the count unchanged.
+//     BASELINE=real records the baseline in real time whatever the rounds are.
 //
 // Each recording gets a throwaway home and is a refresh's own run (`project`
 // the checkout, `leaveKept`): nothing in the checkout is written. The app's
@@ -281,7 +282,16 @@ async function trial(args) {
         mkdirSync(dir, { recursive: true });
         let ran = null;
         try {
-          ran = await runFlow(name, kept, join(dir, "run.log"));
+          // BASELINE=real: the baseline in real time, the rounds as the
+          // environment says: the first refresh after held capture goes on.
+          const asked = process.env.DEMOMAN_HELD_CLOCK;
+          if (r === 0 && process.env.BASELINE === "real")
+            delete process.env.DEMOMAN_HELD_CLOCK;
+          try {
+            ran = await runFlow(name, kept, join(dir, "run.log"));
+          } finally {
+            if (asked !== undefined) process.env.DEMOMAN_HELD_CLOCK = asked;
+          }
           if (
             ran.value.outcome !== "complete" ||
             typeof ran.takeId !== "string"

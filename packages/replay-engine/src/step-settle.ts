@@ -157,7 +157,7 @@ export const PAGE_CAPTURE_HOLD = `(() => {
   for (const a of document.getAnimations ? document.getAnimations() : []) {
     const t = a.effect && a.effect.getComputedTiming();
     const run = a.playState === "running";
-    if ((!run && a.__v0 === undefined) || !t || t.iterations !== Infinity) continue;
+    if ((!run && (a.__v0 === undefined || a.__pagePaused)) || !t || t.iterations !== Infinity) continue;
     held.push({ a, t: a.currentTime, run });
     a.pause();
     a.currentTime = 0;
