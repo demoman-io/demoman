@@ -1,5 +1,5 @@
 // Slow tier: records the held fixture twice, once on a slowed machine.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -20,7 +20,8 @@ import {
 /**
  * Spec test 2: one script, the same timing on any machine. CI runs this
  * file on ubuntu and on macOS, and both are held to one golden written on
- * a Mac (`fixtures/held-two-machines.json`). Timing only, never pixels
+ * a Mac (`fixtures/held-two-machines.json`, rewritten by a run with
+ * `WRITE_GOLDEN=1`). Timing only, never pixels
  * across operating systems: the frame count, the frames every step's
  * moments land on, and the frames the picture changes on, in held frames
  * from the first frame, network stretches left out.
@@ -129,6 +130,55 @@ afterAll(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+/**
+ * How far a page load may move what follows it, in frames. A page's load is
+ * real time, so the frames that pass during it follow the machine (246
+ * against 248 after the navigation under the lag here, and the opening's
+ * load a frame later in 1 run of 6; traced 2026-11-16). While load and
+ * settle fit inside the planned rest before the next step nothing showed,
+ * and the held clock's longer settle (`HELD_STEP_QUIET_MS`) no longer fits.
+ * The author accepted a few frames there (2026-11-16) for settled screens
+ * that are the page's result. Between the two loads timing stays exact.
+ * Measured on one Mac, six fast recordings: the step after the navigation
+ * on frame 217, 221, 222 or 223, so 8 with room.
+ * shortcut: a bound, not a cause removed; the loops that end on a load hear
+ * it from browser events the frames do not order. Upgrade by deciding a
+ * load's end from the page between frames, and put this back to 0.
+ */
+const AFTER_LOAD_FRAMES = 8;
+
+type Timing = Awaited<ReturnType<typeof timingOf>>["timing"];
+/** `got` against `want`: the opening's load may put everything up to
+ *  `AFTER_LOAD_FRAMES` later or earlier; from the first step's approach to
+ *  the end of the click that navigates (the second-last step) the two are
+ *  then exact; after it, within `AFTER_LOAD_FRAMES` again. */
+function expectSameTiming(got: Timing, want: Timing, said: string) {
+  const first = (t: Timing) => t.stepFrames[0]?.[1] ?? Number.NaN;
+  const late = first(got) - first(want);
+  expect(Math.abs(late), said).toBeLessThanOrEqual(AFTER_LOAD_FRAMES);
+  const navigated = want.stepFrames.at(-2)?.[2] ?? Number.NaN;
+  const between = (t: Timing, by: number) => ({
+    steps: t.stepFrames
+      .slice(0, -1)
+      .map((step) => step.map((f) => (f === null ? null : f - by))),
+    changes: t.changeFrames
+      .map((f) => f - by)
+      .filter((f) => f >= first(want) && f <= navigated),
+  });
+  expect(between(got, late), said).toEqual(between(want, 0));
+  const after = (t: Timing, by: number) => [
+    t.frames - by,
+    ...(t.stepFrames.at(-1) ?? []).map((f) => (f ?? -1) - by),
+    ...t.changeFrames.map((f) => f - by).filter((f) => f > navigated),
+  ];
+  const [g, w] = [after(got, late), after(want, 0)];
+  expect(g.length, said).toBe(w.length);
+  for (const [i, f] of g.entries())
+    expect(Math.abs(f - (w[i] ?? Number.NaN)), said).toBeLessThanOrEqual(
+      AFTER_LOAD_FRAMES,
+    );
+}
+
 /** Both recordings took 200 s on CI's macOS and 177 s on ubuntu
  *  (2026-11-15, before the navigation), 87 s here: with room. */
 const BOTH_MS = 900_000;
@@ -176,9 +226,13 @@ describe("a held recording", () => {
         ]);
       // The slowed recording really was slower.
       expect(slow.realMs, said).toBeGreaterThan(fast.realMs + 10_000);
-      expect(two.timing, said).toEqual(one.timing);
-      expect(one.timing, said).toEqual(
+      if (process.env.WRITE_GOLDEN === "1")
+        writeFileSync(GOLDEN, `${JSON.stringify(one.timing)}\n`);
+      expectSameTiming(two.timing, one.timing, said);
+      expectSameTiming(
+        one.timing,
         JSON.parse(readFileSync(GOLDEN, "utf8")),
+        said,
       );
     },
     BOTH_MS,

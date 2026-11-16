@@ -3,7 +3,8 @@
  * step of a continuous walk, and the capture hold that follows it.
  *
  * Settled here means: the input is painted (one rAF round trip), no finite
- * animation or transition is running, and no DOM mutation for `quietMs`.
+ * animation or transition is running (or held mid-way by a held clock's
+ * pin), and no DOM mutation for `quietMs`.
  * Endless animations (a spinner) are ignored: they never finish, and waiting
  * on them would cost the cap on every step of a page that has one. In-flight
  * requests are a separate question, asked from outside the page.
@@ -52,7 +53,11 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     try {
       if (!document.getAnimations) { failed = true; return 0; }
       return document.getAnimations().filter((a) => {
-        if (a.playState !== "running") return false;
+        // Running, or held mid-way by the held clock's pin (PIN_ANIMATIONS),
+        // which leaves every animation paused: unseen, a toast was pictured
+        // half slid in (measured 2026-11-16).
+        const pinned = a.playState === "paused" && a.__v0 !== undefined && !a.__done && !a.__pagePaused;
+        if (a.playState !== "running" && !pinned) return false;
         const t = a.effect && a.effect.getComputedTiming();
         return !t || t.iterations !== Infinity;
       }).length;

@@ -49,6 +49,7 @@ import {
 import {
   ACT_CEILING_MS,
   HELD_SCROLL_MS,
+  HELD_STEP_QUIET_MS,
   KEYFRAME_QUALITY,
   NAVIGATE_TIMEOUT_MS,
   NEXT_FRAME_WAIT_MS,
@@ -1681,7 +1682,10 @@ export async function runWalk(
             cdp.send(
               "Runtime.evaluate",
               {
-                expression: stepSettleExpression(STEP_QUIET_MS, capMs),
+                expression: stepSettleExpression(
+                  held === undefined ? STEP_QUIET_MS : HELD_STEP_QUIET_MS,
+                  capMs,
+                ),
                 awaitPromise: true,
                 returnByValue: true,
               },

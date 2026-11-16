@@ -88,6 +88,7 @@ export {
   CAPTURE_SPAN_MIN_FRAMES,
   HEAP_HIGH_WATER, // test-only, see header
   HEARTBEAT_STALL_MS, // test-only, see header
+  HELD_STEP_QUIET_MS,
   KEYFRAME_QUALITY,
   MAX_ENCODE_QUEUE, // test-only, see header
   MAX_FRAMES_IN_FLIGHT, // test-only, see header

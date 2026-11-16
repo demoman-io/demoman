@@ -435,4 +435,22 @@ describe("the step-settle probe in a real page", () => {
       expect(await page.evaluate(`(${PIN_ANIMATIONS})(1033)`)).toEqual([]);
     });
   });
+
+  // Measured 2026-11-16: under the held clock's pin every animation is
+  // paused, the probe counted only running ones, and a toast was pictured
+  // half slid in. Red if a finite animation the pin holds mid-way reads as
+  // settled.
+  it("does not call the page settled while the held clock's pin holds a finite animation mid-way", async () => {
+    await withPage(async (page) => {
+      await page.click("#toastbtn");
+      await page.evaluate(`(${PIN_ANIMATIONS})(1000)`);
+      await page.evaluate(`(${PIN_ANIMATIONS})(1033)`);
+      const report = await ask(page, QUIET, 700);
+      expect(report, JSON.stringify(report)).toMatchObject({
+        quiet: false,
+        stopped: "cap",
+      });
+      expect(report.animations).toBeGreaterThan(0);
+    });
+  });
 });

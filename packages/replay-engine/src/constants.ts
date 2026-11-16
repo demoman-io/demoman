@@ -331,6 +331,20 @@ export const ACT_CEILING_MS = 1000;
  */
 export const STEP_QUIET_MS = 200;
 /**
+ * `STEP_QUIET_MS` on a held clock. There the window is exact page time: a
+ * 250 ms search debounce, which a real clock gets past on the walk's own
+ * latency, is never reached at 200, and the settled screen was the page
+ * before its result on every held recording (Nylon's filter, measured
+ * 2026-11-16 against a real-time baseline; the video itself was right).
+ * 400 covers the debounces apps commonly use (250, 300). It is in the
+ * video: about 5 frames more a step on the held fixture (225 frames to 252
+ * over five steps, 2026-11-16).
+ * shortcut: a fixed window, so a timer-only delay longer than it is still
+ * captured early, as `STEP_QUIET_MS` says; upgrade to watching the page's
+ * pending timers if an app shows it.
+ */
+export const HELD_STEP_QUIET_MS = 400;
+/**
  * The most the walk waits for one step's page (paint, finite animations, DOM
  * quiet) once its requests are idle. A page that never stops (a ticker)
  * costs this per step and is reported unsettled.

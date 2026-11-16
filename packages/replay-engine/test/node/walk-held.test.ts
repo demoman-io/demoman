@@ -6,7 +6,11 @@ import {
   type SceneAnchor,
 } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
-import { HELD_SCROLL_MS } from "../../src/constants.js";
+import {
+  HELD_SCROLL_MS,
+  HELD_STEP_QUIET_MS,
+  STEP_QUIET_MS,
+} from "../../src/constants.js";
 import { HELD_FRAME_MS } from "../../src/held-clock.js";
 import type {
   AuthoredDeps,
@@ -525,6 +529,22 @@ describe("the walk on a held clock", () => {
     expect(metrics.length, evidence).toBeGreaterThan(0);
     for (const m of metrics) expect(m.params.deviceScaleFactor).toBe(SCALE);
     expect(result.document?.meta.capture.dpr, evidence).toBe(SCALE);
+  });
+
+  // Measured 2026-11-16: on a held clock the 200 ms window is exact, and a
+  // 250 ms search debounce was never reached. Red if a held walk asks the
+  // page with the real clock's window.
+  it("asks the page to be quiet for the held clock's window", async () => {
+    const { result, cdp, progress } = await run([click("a")]);
+    expect(result.outcome, evidenceOf(result, progress)).toBe("complete");
+    const asked = cdp.calls
+      .filter((c) => c.method === "Runtime.evaluate")
+      .map((c) => String(c.params.expression))
+      .filter((e) => e.includes(STEP_SETTLE_MARKER));
+    expect(asked.length).toBeGreaterThan(0);
+    expect(HELD_STEP_QUIET_MS).not.toBe(STEP_QUIET_MS);
+    for (const e of asked)
+      expect(e).toContain(`lastChange >= ${HELD_STEP_QUIET_MS}`);
   });
 
   // Red if the walk sleeps SETTLE_MS instead of the arrive, sleeps no rest,
