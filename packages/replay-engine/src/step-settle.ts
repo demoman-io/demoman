@@ -107,7 +107,12 @@ const CARET_RULE = "*{caret-color:transparent!important}";
  * Before a page capture: hide the caret and freeze endless animations at
  * time 0, so two captures of the same page agree. Only animations whose
  * iterations are `Infinity` are held; a finished `fill: forwards` one stays
- * as it is. Replies with the capture geometry, and `caretShown`: a focused
+ * as it is. One the held clock's pin paused (`__v0`, `PIN_ANIMATIONS`) is
+ * held too, and left paused after: its pose follows how many frames the
+ * server took before it, so two held recordings of one page showed it a
+ * frame apart (traced 2026-11-16: one more frame of server wait, one more
+ * frame of spin on every screen after). One the page itself paused is its
+ * picture, and stays. Replies with the capture geometry, and `caretShown`: a focused
  * field whose caret is still drawn (its own `!important` inline colour, say),
  * which the screen must then say.
  *
@@ -151,8 +156,9 @@ export const PAGE_CAPTURE_HOLD = `(() => {
   const held = window.__demomanHeld || (window.__demomanHeld = []);
   for (const a of document.getAnimations ? document.getAnimations() : []) {
     const t = a.effect && a.effect.getComputedTiming();
-    if (a.playState !== "running" || !t || t.iterations !== Infinity) continue;
-    held.push({ a, t: a.currentTime });
+    const run = a.playState === "running";
+    if ((!run && a.__v0 === undefined) || !t || t.iterations !== Infinity) continue;
+    held.push({ a, t: a.currentTime, run });
     a.pause();
     a.currentTime = 0;
   }
@@ -172,7 +178,7 @@ export const PAGE_CAPTURE_RELEASE = `(() => {
     delete window.__demomanCaretSheet;
   }
   const held = window.__demomanHeld || [];
-  for (const { a, t } of held) { a.currentTime = t; a.play(); }
+  for (const { a, t, run } of held) { a.currentTime = t; if (run) a.play(); }
   window.__demomanHeld = [];
   return held.length;
 })()`;

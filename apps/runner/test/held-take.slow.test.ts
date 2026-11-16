@@ -92,6 +92,17 @@ beforeAll(async () => {
       );
       return;
     }
+    // A page with an endless spinner, answered as late as it is asked to.
+    if (u.pathname === "/spin") {
+      setTimeout(
+        () =>
+          send(
+            `<link rel=icon href="data:,"><style>@keyframes s{to{transform:rotate(360deg)}}</style><p id=there>there</p><div style="position:absolute;left:300px;top:40px;width:80px;height:80px;background:linear-gradient(90deg,#c00,#00c);animation:s 1s linear infinite"></div>`,
+          ),
+        Number(u.searchParams.get("wait")),
+      );
+      return;
+    }
     // The other site's page, answered late: the wait is the server's, and is
     // to be in the video as one (fix round 1, finding 3).
     setTimeout(
@@ -105,9 +116,14 @@ beforeAll(async () => {
   bSameSite = (await listenOnLoopback(b)).replace(/\/$/, "");
   bUrl = bSameSite.replace("127.0.0.1", "localhost");
   a = createServer((req, res) => {
-    const path = new URL(req.url ?? "/", "http://x").pathname;
+    const asked = new URL(req.url ?? "/", "http://x");
+    const path = asked.pathname;
     res.writeHead(200, { "content-type": "text/html" });
-    if (path === "/go")
+    if (path === "/go-spin")
+      res.end(
+        `<!doctype html><link rel=icon href="data:,"><a id=go href="${bUrl}/spin?wait=${asked.searchParams.get("wait")}" style="position:absolute;left:40px;top:40px;width:160px;height:40px;display:block;background:#eee">Go</a>`,
+      );
+    else if (path === "/go")
       res.end(
         `<!doctype html><a id=go href="${bUrl}/there" style="position:absolute;left:40px;top:40px;width:160px;height:40px;display:block;background:#eee">Go</a>`,
       );
@@ -361,6 +377,47 @@ describe("a held recording", () => {
   // node test is the guard that never misses). And the held frames from
   // the click to each later step moment, outside every network stretch,
   // are the same every run: they are what a slower machine must not change.
+  // Traced 2026-11-16: a frame more of server wait put a spinner a frame
+  // further round on every settled screen after it, and refresh read the
+  // page as changed. Red if a settled screen shows the spinner where the
+  // held time happens to put it.
+  it("shows an endless spinner the same on a settled screen, however long the server took", async () => {
+    const shot = async (waitMs: number) => {
+      const r = await record(`${aUrl}/go-spin?wait=${waitMs}`, [
+        { do: "click", on: { stableId: "go" }, zoom: false },
+        { do: "waitFor", on: { stableId: "there" }, until: "visible" },
+      ]);
+      const wait = (r.bundle.networkSpans ?? []).find((s) =>
+        s.label.includes("GET /spin"),
+      );
+      const last = (r.bundle.pageScreens ?? []).at(-1);
+      if (wait === undefined || last === undefined)
+        throw new Error(
+          JSON.stringify({
+            network: r.bundle.networkSpans,
+            screens: r.bundle.pageScreens,
+            lines: r.lines.slice(-10),
+          }),
+        );
+      const bytes = await r.store.getPageScreen(last.ref);
+      if (bytes === null) throw new Error(`page screen ${last.ref} missing`);
+      return {
+        waitMs: wait.endMs - wait.startMs,
+        held: last.heldAnimations,
+        picture: createHash("sha256").update(bytes).digest("hex"),
+      };
+    };
+    const quick = await shot(40);
+    const slow = await shot(140);
+    const said = JSON.stringify({ quick, slow });
+    // Premise: the server's wait is in the video, three frames apart.
+    expect(slow.waitMs - quick.waitMs, said).toBeGreaterThanOrEqual(
+      2 * HELD_FRAME_MS,
+    );
+    expect(quick.held, said).toBe(1);
+    expect(slow.picture, said).toBe(quick.picture);
+  }, 120_000);
+
   it(
     "puts a navigation's server wait in the video every time",
     async () => {

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
+  PIN_ANIMATIONS,
   type StepSettleReport,
   stepSettleExpression,
 } from "../../src/index.js";
@@ -282,6 +283,55 @@ describe("the step-settle probe in a real page", () => {
         style: false,
         state: "running",
       });
+    });
+  });
+
+  // A held recording's pin leaves every animation paused where the held time
+  // puts it, and that is a frame further for every frame the server took:
+  // red if the screen shows the spinner there instead of at 0, or if RELEASE
+  // sets it running under a held clock.
+  it("HOLD also holds an endless animation the held clock paused, and RELEASE leaves it paused", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(`(${PIN_ANIMATIONS})(1000)`);
+      await page.evaluate(`(${PIN_ANIMATIONS})(1400)`);
+      const spin = () =>
+        page.evaluate(() => {
+          const a = document.getElementById("spin")?.getAnimations()[0];
+          return { at: a?.currentTime, state: a?.playState };
+        });
+      expect(await spin(), "premise: pinned 400 ms in, paused").toEqual({
+        at: 400,
+        state: "paused",
+      });
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      expect(held.held).toBe(1);
+      expect(await spin()).toEqual({ at: 0, state: "paused" });
+      expect(await page.evaluate(PAGE_CAPTURE_RELEASE)).toBe(1);
+      expect(await spin()).toEqual({ at: 400, state: "paused" });
+    });
+  });
+
+  // Red if a spinner the page itself stopped is moved to 0 for the screen:
+  // where it stopped is the page's picture.
+  it("HOLD leaves an endless animation the page paused where it is", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(() => {
+        const a = document.getElementById("spin")?.getAnimations()[0];
+        if (!a) throw new Error("no spinner");
+        a.pause();
+        a.currentTime = 250;
+      });
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(held.held).toBe(0);
+      expect(
+        await page.evaluate(
+          () =>
+            document.getElementById("spin")?.getAnimations()[0]?.currentTime,
+        ),
+      ).toBe(250);
     });
   });
 });
