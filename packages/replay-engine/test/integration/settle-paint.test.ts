@@ -147,6 +147,53 @@ addEventListener("load", () => {
   }
 }
 
+/**
+ * Serves a page that starts a 200 ms entrance animation (a style written
+ * every frame) in the frame of the first `requestAnimationFrame` anyone
+ * asks for, and changes nothing before it. The probe's own last frame is
+ * that first ask: the animation starts in it, which is where Chatbot's
+ * framer-motion entrance landed when its hydration ran late (DEM-208).
+ */
+async function withLateEntrancePage(
+  fn: (url: string) => Promise<void>,
+): Promise<void> {
+  const html = `<!doctype html>
+<meta charset="utf-8">
+<title>late entrance</title>
+<h1 id="hero">hero</h1>
+<script>
+const raf = requestAnimationFrame.bind(window);
+let started = false;
+window.requestAnimationFrame = (cb) => {
+  if (!started) {
+    started = true;
+    raf((t0) => {
+      const step = (t) => {
+        document.getElementById("hero").style.opacity = String(Math.min(1, (t - t0) / 200));
+        if (t - t0 < 200) raf(step);
+      };
+      step(t0);
+    });
+  }
+  return raf(cb);
+};
+</script>
+`;
+  const server: Server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(html);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await fn(`http://127.0.0.1:${port}/`);
+  } finally {
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+}
+
 describe("the settle probe against a real browser", () => {
   // One browser for the file, not one per test. Each `chromium.launch()`
   // measured between 1.9s and 13.3s on a loaded machine, so four of them put
@@ -374,6 +421,37 @@ describe("the settle probe against a real browser", () => {
           ready: "complete",
           quiet: false,
         });
+      } finally {
+        await page.close();
+      }
+    });
+  });
+  // DEM-208: Chatbot's opening was called "never settled" in 0.6 s of its
+  // 5 s budget, when its entrance animation began in the probe's last frame,
+  // and the video then began before the animation instead of after it.
+  it("waits again for a page that starts changing in the probe's last frame", async () => {
+    await withLateEntrancePage(async (url) => {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      try {
+        const session = await page.context().newCDPSession(page);
+        await page.goto(url, { waitUntil: "load" });
+        const reply = (await session.send("Runtime.evaluate", {
+          expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
+          awaitPromise: true,
+          returnByValue: true,
+        })) as { result?: { value?: SettleReport } };
+        expect(reply.result?.value).toMatchObject({
+          settled: true,
+          quiet: true,
+        });
+        // The premise: the animation ran, and to its end.
+        expect(
+          await page.evaluate(
+            () => document.getElementById("hero")?.style.opacity,
+          ),
+        ).toBe("1");
       } finally {
         await page.close();
       }
