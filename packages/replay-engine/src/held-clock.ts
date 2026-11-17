@@ -591,10 +591,8 @@ export function createHeldClock(deps: {
         // Not only while the connection is open: a stream's last chunk and
         // its end can both land inside one designed frame (review, Session C).
         if (
-          ((following
-            ? network.ignoredDataAt()
-            : network.followedDataAt()) ?? Number.NEGATIVE_INFINITY) >
-          Math.max(looked.real, leftWaitAt)
+          ((following ? network.ignoredDataAt() : network.followedDataAt()) ??
+            Number.NEGATIVE_INFINITY) > Math.max(looked.real, leftWaitAt)
         )
           unpacedAt ??= held;
         if (following && network.waiting()) {

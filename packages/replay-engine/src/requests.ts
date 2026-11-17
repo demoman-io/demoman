@@ -89,8 +89,7 @@ export async function trackRequests(
   };
   return {
     inFlight,
-    openedBy: (at) =>
-      [...open].flatMap(([id, r]) => (r.at <= at ? [id] : [])),
+    openedBy: (at) => [...open].flatMap(([id, r]) => (r.at <= at ? [id] : [])),
     async idle(deadlineMs, sleep, openedAfter) {
       while (inFlight(openedAfter) > 0) {
         if (now() >= deadlineMs) return false;
