@@ -158,6 +158,7 @@ async function setUp(args, extra = {}) {
 async function record(args) {
   const { out, names, keptOf, runFlow } = await setUp(args);
   const { createLibrary } = await dist("executor/library.js");
+  if (Number(process.env.LAG_MS) > 0) await lagCdp(Number(process.env.LAG_MS));
   let failed = false;
   for (const name of names) {
     const kept = keptOf(name);
@@ -548,4 +549,24 @@ function compare([one, two, real]) {
       if (r.degradations?.length)
         console.log(`  said: ${JSON.stringify(r.degradations).slice(0, 400)}`);
   }
+}
+
+/** A slow machine on this one: every CDP command held `ms` (test/lag.ts).
+ *  Playwright's CDPSession prototype is the process's, so the executor's
+ *  sessions are slowed too. */
+async function lagCdp(ms) {
+  const { chromium } = await import("playwright");
+  const { fullChromiumPath } = await dist("executor/browser.js");
+  const browser = await chromium.launch({ executablePath: fullChromiumPath() });
+  const page = await browser.newPage();
+  const proto = Object.getPrototypeOf(await page.context().newCDPSession(page));
+  await browser.close();
+  const send = proto.send;
+  // Emulation's CPU throttle cannot stand in for a slow page: under it
+  // Chrome never answers setVirtualTimePolicy (tried for DEM-205).
+  proto.send = async function (...a) {
+    await new Promise((r) => setTimeout(r, ms));
+    return send.apply(this, a);
+  };
+  say(`every CDP command held ${ms} ms`);
 }
