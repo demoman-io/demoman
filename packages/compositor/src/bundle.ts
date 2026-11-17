@@ -302,6 +302,11 @@ const DegradationSchema = z.object({
     // the held time first seen; the note names it. The video is right, so
     // refresh forgives it.
     "animationUnpinned",
+    // A held take only: data arrived, outside a wait of the script's (in a
+    // pause or a rest), on a connection the recording had followed, so it
+    // landed where the machine put it. Once a take, at the held time first
+    // seen. The page's own, so refresh forgives it.
+    "answerUnpaced",
   ]),
   note: z.string(),
 });

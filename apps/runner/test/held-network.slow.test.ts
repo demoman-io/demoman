@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HELD_FRAME_MS, IDLE_CONNECTION_MS } from "@demoman/replay-engine";
+import { HELD_FRAME_MS, STEP_REQUEST_CAP_MS } from "@demoman/replay-engine";
 import type { FilmReport } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listenOnLoopback } from "../src/loopback.js";
@@ -55,6 +55,24 @@ const STREAM = page(`
 `);
 
 const IDLE = page(`fetch("/poll");`);
+/** A page with a feed open from its load, a byte every 300 ms for as long
+ *  as the page is there, shown as it arrives. */
+const FED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
+<button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>
+<p id=fed style="position:absolute;left:40px;top:120px;margin:0">0</p>
+<script>(async () => {
+  const reader = (await fetch("/feed")).body.getReader();
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    document.getElementById("fed").textContent = String(n);
+  }
+})();</script>`;
+const LATE_MS = 700;
+const LATE = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
+<button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>`;
 
 let home: string;
 let server: Server;
@@ -79,13 +97,27 @@ beforeAll(async () => {
       send();
       return;
     }
+    if (path === "/feed") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.write("x");
+      const timer = setInterval(() => res.write("x"), 300);
+      req.on("close", () => clearInterval(timer));
+      return;
+    }
+    if (path === "/late") {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(LATE);
+      }, LATE_MS);
+      return;
+    }
     if (path === "/poll") {
       // A long poll that never answers, not even its headers.
       open.push(res);
       return;
     }
     res.writeHead(200, { "content-type": "text/html" });
-    res.end(path === "/idle" ? IDLE : STREAM);
+    res.end(path === "/idle" ? IDLE : path === "/fed" ? FED : STREAM);
   });
   url = (await listenOnLoopback(server)).replace(/\/$/, "");
 }, 30_000);
@@ -202,13 +234,16 @@ describe("a held recording that waits on its server", () => {
         said,
       ).toBeLessThanOrEqual(s.frameMs);
       // And from where the wait began: the server answers at once, so its
-      // last chunk is 1800 ms on, within a frame; the stretch lasts no
-      // longer than the stream and a frame either side.
+      // last chunk is 1800 ms on, within a frame, or the held frame after:
+      // the page can run the last chunk's script in the grant after the
+      // wait ends (44 ms here, 2 runs of about 12, 2026-11-16; the next
+      // test allows the same). The stretch lasts no longer than the stream
+      // and a frame either side.
       const start = s.stretch?.startMs ?? Number.NaN;
       expect(
         Math.abs(s.last - start - (CHUNKS - 1) * CHUNK_GAP_MS),
         said,
-      ).toBeLessThanOrEqual(s.frameMs);
+      ).toBeLessThanOrEqual(s.frameMs + HELD_FRAME_MS);
       expect(
         (s.stretch?.endMs ?? Number.NaN) - start,
         said,
@@ -246,34 +281,41 @@ describe("a held recording that waits on its server", () => {
     expect(film.connectionsIgnored, said).toEqual([]);
   });
 
-  // Spec test 6. Red without the idle cut-off (network-watch.ts): the poll
-  // keeps the clock on real time to the end, and nothing is named. 50 s
-  // here; 120 s was not enough on CI's macOS (2026-11-15): 5x, the lane's
-  // rule (vitest.config.ts).
-  it("an idle connection stops counting and is named", async () => {
+  // The author's ruling, 2026-11-16 (DEM-202): the video follows the server
+  // only while the script waits on the page. A request that never answers
+  // is waited on by its step's settle, to the settle's cap, and said; the
+  // pause after it is designed time. (Before, the pause followed the open
+  // connection until the 10 s idle cut-off, which now bounds only a wait.)
+  // Red if a pause follows an open connection, or the settle does not.
+  it("a request that never answers costs its step's settle the cap, and no pause", async () => {
     const r = await record(home, `${url}/idle`, [
       { do: "click", on: { stableId: "ask" }, zoom: false },
-      { do: "pause", ms: IDLE_CONNECTION_MS + 3000 },
+      { do: "pause", ms: 3000 },
     ]);
-    const film = r.report.video as Extract<FilmReport, { steps: unknown }>;
     const poll = (r.bundle.networkSpans ?? []).filter((n) =>
       n.label.includes("GET /poll"),
     );
     const frames = await pageFrames(r, [0, 0, 1, 1]);
     const said = JSON.stringify({
       network: r.bundle.networkSpans,
-      ignored: film.connectionsIgnored,
+      degradations: r.bundle.degradations,
       realMs: r.realMs,
     });
-    expect(film.connectionsIgnored, said).toEqual(["GET /poll"]);
-    // The poll was waited on, for about the idle cut-off, then let go.
+    // The settle waited on the poll, for about its request cap, and said so.
     expect(poll, said).toHaveLength(1);
     const end = poll[0]?.endMs ?? Number.NaN;
-    expect(end - (poll[0]?.startMs ?? 0), said).toBeGreaterThanOrEqual(
-      IDLE_CONNECTION_MS - 1000,
-    );
-    // After it, the clock is held again: no network time, and every frame
-    // on the held grid, one frame apart, for the rest of the pause.
+    const waited = end - (poll[0]?.startMs ?? 0);
+    expect(waited, said).toBeGreaterThanOrEqual(STEP_REQUEST_CAP_MS - 1000);
+    expect(waited, said).toBeLessThanOrEqual(STEP_REQUEST_CAP_MS + 3000);
+    expect(
+      r.bundle.degradations
+        .filter((d) => d.kind === "stepUnsettled")
+        .map((d) => d.note)
+        .join(" "),
+      said,
+    ).toMatch(/request\(s\) in flight/);
+    // After it the clock is held, with the poll still open: no network
+    // time, and every frame on the held grid, one frame apart.
     expect(
       (r.bundle.networkSpans ?? []).filter((n) => n.endMs > end),
       said,
@@ -289,4 +331,50 @@ describe("a held recording that waits on its server", () => {
     });
     expect(offGrid, said).toEqual([]);
   }, 250_000);
+
+  // DEM-202: a feed open from the page's load kept every pause on the
+  // server's time (a 5 s video ran 76 s, compare/held-push.sh). Red if the
+  // pause follows the feed, or what arrived in it goes unsaid, or is said
+  // more than once.
+  it("a feed still sending during a pause is designed time, and said once", async () => {
+    const PAUSE = 2000;
+    const r = await record(home, `${url}/fed`, [
+      { do: "click", on: { stableId: "ask" }, zoom: false },
+      { do: "pause", ms: PAUSE },
+    ]);
+    const spans = r.bundle.networkSpans ?? [];
+    const said = JSON.stringify({
+      network: spans,
+      degradations: r.bundle.degradations,
+      markers: r.bundle.markers.map((m) => m.actEndSourceTimeMs),
+    });
+    expect(
+      r.bundle.degradations
+        .filter((d) => d.kind === "answerUnpaced")
+        .map((d) => d.note),
+      said,
+    ).toEqual([
+      "an answer was still arriving during a pause or a rest, which is not paced by the server",
+    ]);
+    // The feed never ends, so a pause that followed it would be all network
+    // time: here the take's last PAUSE of page time has none in it.
+    const endMs = Math.max(...r.bundle.keyframes.map((k) => k.sourceTimeMs));
+    const inPause = spans.filter((n) => n.endMs > endMs - PAUSE + 500);
+    expect(inPause, said).toEqual([]);
+  }, 120_000);
+
+  // The anti-goal of the same change: a wait left out, so page time outruns
+  // the server. The opening's load is the first wait there is. Red if the
+  // document's wait is not in the video as the server's time.
+  it("the opening's load behind a slow server is the server's time", async () => {
+    const r = await record(home, `${url}/late`, [
+      { do: "click", on: { stableId: "ask" }, zoom: false },
+    ]);
+    const spans = r.bundle.networkSpans ?? [];
+    const late = spans.find((n) => n.label.includes("GET /late"));
+    expect(
+      (late?.endMs ?? 0) - (late?.startMs ?? 0),
+      JSON.stringify(spans),
+    ).toBeGreaterThanOrEqual(LATE_MS - 200);
+  }, 120_000);
 });

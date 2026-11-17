@@ -20,6 +20,12 @@ export interface NetworkWatch {
   waitsSince(realMs: number): { from: number; labels: string[] } | null;
   /** Whether a document's request is open. */
   loading(): boolean;
+  /** The connections counted now are ones the recording followed: data on
+   *  one of them later is an answer the script once waited on. */
+  follow(): void;
+  /** When data last arrived on a connection the recording followed (real
+   *  ms); null when none has. */
+  followedDataAt(): number | null;
   stop(): void;
 }
 
@@ -36,7 +42,11 @@ export async function createNetworkWatch(
   realNow: () => number,
 ): Promise<NetworkWatch> {
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
-  const live = new Map<string, { label: string; lastAt: number }>();
+  const live = new Map<
+    string,
+    { label: string; lastAt: number; followed?: true }
+  >();
+  let followedDataAt: number | null = null;
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
@@ -97,6 +107,7 @@ export async function createNetworkWatch(
     if (c) {
       if (now - c.lastAt > IDLE_CONNECTION_MS) name(c.label);
       c.lastAt = now;
+      if (c.followed) followedDataAt = now;
       return;
     }
     const label = idle.get(id(p));
@@ -196,6 +207,10 @@ export async function createNetworkWatch(
       const open = new Set(documents.values());
       return [...live.keys()].some((k) => open.has(k));
     },
+    follow() {
+      for (const c of live.values()) c.followed = true;
+    },
+    followedDataAt: () => followedDataAt,
     stop,
   };
 }

@@ -261,6 +261,20 @@ export interface HeldClock extends Clock {
    *  owed frames by as much as the machine made it (246 against 248 on a
    *  slowed one, traced 2026-11-16). */
   owing(): boolean;
+  /** Runs `run` as a wait on the page: only a sleep inside one follows the
+   *  server while a connection is open. Any other sleep is designed time (a
+   *  pause, a rest, a journey) and is held frames whatever is open: read off
+   *  the connection alone, a page with a channel that kept answering made a
+   *  5 s video 76 s, a pause cut short on every step (measured 2026-11-16,
+   *  compare/held-push.sh; the author's ruling, DEM-202). Nests. On the way
+   *  out, frames a wait heard over is still owed are played; a connection
+   *  still open is left, and real time that passes outside a wait is never
+   *  credited to one. */
+  waiting<T>(run: () => Promise<T>): Promise<T>;
+  /** The held time data first arrived at, outside a wait, on a connection
+   *  the recording had followed: an answer that landed where the machine put
+   *  it. Null when none did. */
+  unpaced(): number | null;
   /** Re-applies the hold to a new document, continuing the same time. */
   rehold(): Promise<void>;
   /** Lets the page run, a frame of page time at a go and capturing none,
@@ -332,6 +346,9 @@ export function createHeldClock(deps: {
           held: from > pausedAt ? held : looked.held,
         };
   const unpinned: { atMs: number; what: string }[] = [];
+  /** How many waits on the page are running (`waiting`). */
+  let marked = 0;
+  let unpacedAt: number | null = null;
 
   const pause = async (initialVirtualTime: number) => {
     try {
@@ -428,6 +445,50 @@ export function createHeldClock(deps: {
       await listener({ sourceTimeMs: held, ...shot });
   };
 
+  /** Plays the frames a wait that is over is still owed, if any. */
+  const owedPaid = async (looked: { real: number; held: number }) => {
+    // A stretch ends having followed all the real time of its wait,
+    // also what passed inside a grant or a frame: a navigation's old
+    // page answers neither until the new one commits (measured
+    // 2026-11-15: a 1 ms grant took 227 ms, the server's 200).
+    const quiet = network.quietSince();
+    // A wait can also begin and end between two looks, inside one
+    // grant (a cross-site click's whole wait, 1 of 20 times on
+    // 2026-11-15): one more connection of a stretch open up to now, or
+    // a stretch of its own from where the page stood when it began,
+    // kept only if it is owed time.
+    const last = network.waitsSince(looked.real);
+    let unseen: typeof span = null;
+    if (quiet !== null && last !== null) {
+      if (span?.endMs === held) for (const l of last.labels) span.labels.add(l);
+      else {
+        stretchFrom = dated(last.from, looked);
+        unseen = {
+          startMs: stretchFrom.held,
+          endMs: held,
+          labels: new Set(last.labels),
+        };
+      }
+    }
+    const open = unseen ?? (span?.endMs === held ? span : null);
+    const owed =
+      open !== null && quiet !== null
+        ? stretchFrom.held + (quiet - stretchFrom.real) - held
+        : 0;
+    if (open !== null && owed > EPS) {
+      if (open === unseen) {
+        span = open;
+        spans.push(open);
+      }
+      await grant(frameFrom(held + owed));
+      unshot = false;
+      open.endMs = held;
+      await shoot();
+      return true;
+    }
+    return false;
+  };
+
   return {
     scale: deps.scale,
     now: () => held,
@@ -511,7 +572,16 @@ export function createHeldClock(deps: {
       while (end - held > EPS || unshot) {
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
-        if (network.waiting()) {
+        // Only a wait on the page follows the server (`waiting`).
+        const following = marked > 0;
+        if (
+          !following &&
+          network.waiting() &&
+          (network.followedDataAt() ?? Number.NEGATIVE_INFINITY) > looked.real
+        )
+          unpacedAt ??= held;
+        if (following && network.waiting()) {
+          network.follow();
           // The server's pace: page time catches up with all the real time
           // since the stretch began, past the sleep's end if real time is
           // there, as a real clock's sleep overruns (cut at the end, a
@@ -564,46 +634,7 @@ export function createHeldClock(deps: {
           await shoot();
           continue;
         }
-        // A stretch ends having followed all the real time of its wait,
-        // also what passed inside a grant or a frame: a navigation's old
-        // page answers neither until the new one commits (measured
-        // 2026-11-15: a 1 ms grant took 227 ms, the server's 200).
-        const quiet = network.quietSince();
-        // A wait can also begin and end between two looks, inside one
-        // grant (a cross-site click's whole wait, 1 of 20 times on
-        // 2026-11-15): one more connection of a stretch open up to now, or
-        // a stretch of its own from where the page stood when it began,
-        // kept only if it is owed time.
-        const last = network.waitsSince(looked.real);
-        let unseen: typeof span = null;
-        if (quiet !== null && last !== null) {
-          if (span?.endMs === held)
-            for (const l of last.labels) span.labels.add(l);
-          else {
-            stretchFrom = dated(last.from, looked);
-            unseen = {
-              startMs: stretchFrom.held,
-              endMs: held,
-              labels: new Set(last.labels),
-            };
-          }
-        }
-        const open = unseen ?? (span?.endMs === held ? span : null);
-        const owed =
-          open !== null && quiet !== null
-            ? stretchFrom.held + (quiet - stretchFrom.real) - held
-            : 0;
-        if (open !== null && owed > EPS) {
-          if (open === unseen) {
-            span = open;
-            spans.push(open);
-          }
-          await grant(frameFrom(held + owed));
-          unshot = false;
-          open.endMs = held;
-          await shoot();
-          continue;
-        }
+        if (following && (await owedPaid(looked))) continue;
         // A wait shorter than a frame left no stretch: the frame it skipped
         // is taken, at its time, as on a machine that never saw the wait
         // (review of Task 9 round 2, finding 3).
@@ -623,12 +654,32 @@ export function createHeldClock(deps: {
         // capture is the server's, so the frame is the stretch's first, taken
         // where real time is (the next look), not here. Taken here, a
         // stream's first chunks showed a capture early on a slow machine.
-        if (network.waiting()) {
+        if (following && network.waiting()) {
           unshot = true;
           continue;
         }
         await shoot();
       }
     },
+    async waiting(run) {
+      marked++;
+      let out: Awaited<ReturnType<typeof run>>;
+      try {
+        out = await run();
+      } finally {
+        marked--;
+      }
+      if (marked === 0 && startEpochMs !== null) {
+        const looked = lookedAt;
+        lookedAt = { real: realNow(), held };
+        if (!network.waiting()) await owedPaid(looked);
+        if (unshot) {
+          unshot = false;
+          await shoot();
+        }
+      }
+      return out;
+    },
+    unpaced: () => unpacedAt,
   };
 }

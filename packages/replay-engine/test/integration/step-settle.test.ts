@@ -142,6 +142,57 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
+  // Traced 2026-11-16, twice: a window in milliseconds was met a frame
+  // apart by where on the frame grid it began (400 ms from a frame, 383 ms
+  // from half a frame), because the page reads whole milliseconds. Red if
+  // the held window is read off the page's clock again: the frames it takes
+  // then differ between these starts.
+  it("counts a held clock's quiet window in frames, wherever on the grid it began", async () => {
+    await withPage(async (page) => {
+      // A held page: frames a frame of page time apart, run by the test,
+      // and a clock that reads whole milliseconds. `changeAt`: a frame on
+      // which the page changes.
+      const framesToQuiet = (
+        startMs: number,
+        changeAt = -1,
+        firstMs = 1000 / 30,
+      ) =>
+        page.evaluate(`(async () => {
+          let t = ${startMs};
+          Date.now = () => Math.floor(t);
+          let asked = [];
+          window.requestAnimationFrame = (cb) => { asked.push(cb); return 0; };
+          let answer = null;
+          ${stepSettleExpression(400, CAP, 12)}.then((r) => { answer = r; });
+          let frames = 0;
+          while (answer === null && frames < 60) {
+            frames++;
+            t += frames === 1 ? ${firstMs} : 1000 / 30;
+            if (frames === ${changeAt}) document.body.setAttribute("data-n", String(frames));
+            await new Promise((r) => setTimeout(r, 0));
+            const run = asked; asked = [];
+            for (const cb of run) cb();
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          return { frames, quiet: answer && answer.quiet };
+        })()`) as Promise<{ frames: number; quiet: boolean }>;
+      for (const start of [1000, 1000 + 100 / 3, 1016.67, 1011, 999.9999])
+        expect(await framesToQuiet(start), `from ${start}`).toEqual({
+          frames: 12,
+          quiet: true,
+        });
+      // The question a third of a millisecond before a frame, in the same
+      // whole millisecond or the next: that frame counts either way.
+      for (const start of [1000.1, 1000.8])
+        expect(await framesToQuiet(start, -1, 0.33), `from ${start}`).toEqual({
+          frames: 12,
+          quiet: true,
+        });
+      // A change before frame 5 is drawn: 12 frames of quiet from that one.
+      expect(await framesToQuiet(1000, 5)).toEqual({ frames: 16, quiet: true });
+    });
+  });
+
   it("answers unsettled at the cap on a page that never stops", async () => {
     await withPage(async (page) => {
       await page.click("#never");

@@ -40,6 +40,12 @@ function setup(
     ) => { from: number; labels: string[] } | null;
     /** Whether a document's request is open (`NetworkWatch.loading`). */
     loading?: (real: number) => boolean;
+    /** False: the test's sleeps are designed time unless it says
+     *  `clock.waiting` itself. By default every sleep is a wait on the
+     *  page, as before waits were told apart. */
+    waits?: boolean;
+    /** When data last arrived on a followed connection, given the real time. */
+    followedDataAt?: (real: number) => number | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -84,6 +90,8 @@ function setup(
     quietSince: () => o.quietSince?.(real) ?? null,
     waitsSince: (sinceMs) => o.waitsSince?.(sinceMs, real) ?? null,
     loading: () => o.loading?.(real) ?? false,
+    follow: () => void log.push("follow"),
+    followedDataAt: () => o.followedDataAt?.(real) ?? null,
     stop() {},
   };
   const clock = createHeldClock({
@@ -109,6 +117,8 @@ function setup(
       return o.pin ? o.pin(arg) : [];
     },
   });
+  // A wait that never ends: every sleep of the test is inside it.
+  if (o.waits !== false) void clock.waiting(() => new Promise(() => undefined));
   const frames: HeldFrame[] = [];
   if (o.listen !== false)
     clock.onFrame(async (f) => {
@@ -582,6 +592,74 @@ describe("createHeldClock", () => {
     const after = frames.slice(3);
     expect(after.length).toBeGreaterThan(0);
     expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
+  });
+
+  // The author's ruling, 2026-11-16 (DEM-202): the video follows the server
+  // only while the script waits on the page. Red if a sleep outside a wait
+  // follows an open connection (a 5 s video ran 76 s on a page with a
+  // stream), or one inside a wait does not.
+  it("follows the server only inside a wait on the page", async () => {
+    const { clock, frames } = setup({
+      waits: false,
+      waiting: () => true,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(10 * HELD_FRAME_MS);
+    // Designed time: a frame a frame, whatever is open, and no stretch.
+    expect(inFrames(times(frames))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(clock.networkSpans()).toEqual([]);
+    await clock.waiting(() => clock.sleep(2 * HELD_FRAME_MS));
+    // The wait: real time (200 ms a capture, 6 frames), from where it began.
+    expect(clock.networkSpans().map((s) => s.startMs)).toEqual([
+      10 * HELD_FRAME_MS,
+    ]);
+    // One frame, past the sleep's end: where real time was at its capture.
+    const inWait = inFrames(times(frames).slice(10));
+    expect(inWait).toHaveLength(1);
+    expect(inWait[0]).toBeGreaterThan(12);
+    // And designed time again after it.
+    const before = frames.length;
+    await clock.sleep(3 * HELD_FRAME_MS);
+    expect(frames.length - before).toBe(3);
+  });
+
+  // Red if a wait hands back owing frames to designed time: a pause after it
+  // would be shorter by as much as the machine made them.
+  it("plays what a wait heard over is owed before the wait hands back", async () => {
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: (real) => real < 300,
+      quietSince: (real) => (real >= 300 ? 300 : null),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.waiting(async () => {
+      await clock.sleep(HELD_FRAME_MS);
+      advance(200);
+      // Premise: the wait is over and the stretch ends short of it.
+      expect(clock.owing()).toBe(true);
+    });
+    expect(clock.owing()).toBe(false);
+    expect(inFrames(clock.networkSpans().map((s) => s.endMs))).toEqual([9]);
+  });
+
+  // Red if an answer landing in a pause is unsaid, or a connection the
+  // script never waited on (a prefetch, a beacon) is said.
+  it("says when data arrived in designed time on a connection it had followed", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: () => true,
+      followedDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.sleep(3 * HELD_FRAME_MS);
+    expect(clock.unpaced()).toBeNull();
+    advance(50);
+    dataAt = 40;
+    await clock.sleep(HELD_FRAME_MS);
+    expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
   });
 
   // Session A, 2026-11-16: the walk plays frames while a document's request

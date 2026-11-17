@@ -959,23 +959,16 @@ export async function runWalk(
     plannedMs: number,
     since = heldActEnd,
   ): Promise<void> => {
-    const from = at();
-    const giveUpAt = from + plannedMs + NAVIGATE_TIMEOUT_MS;
-    let left = sinceActEnd(plannedMs, since);
-    while (left > HELD_EPS_MS && at() < giveUpAt) {
-      await clock.sleep(left);
-      left = sinceActEnd(plannedMs, since);
-    }
-    if (left > HELD_EPS_MS)
-      degradations.push(
-        degradation(
-          "pacingUnplaced",
-          from,
-          at(),
-          `a pause was cut ${Math.round(left)} ms short: the page waited on its server through ${NAVIGATE_TIMEOUT_MS / 1000} s of it`,
-        ),
-      );
+    // A rest is designed time, which never follows the server
+    // (`HeldClock.waiting`), so what is left is slept once.
+    const left = sinceActEnd(plannedMs, since);
+    if (left > HELD_EPS_MS) await clock.sleep(left);
   };
+  /** Runs `run` as a wait on the page (`HeldClock.waiting`): the opening's
+   *  load, a step's settle and screen, a wait step, a page's answer to a
+   *  question. Everything else the walk sleeps is designed time. */
+  const waitingOn = <T>(run: () => Promise<T>): Promise<T> =>
+    held === undefined ? run() : held.waiting(run);
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
@@ -1612,14 +1605,16 @@ export async function runWalk(
     // Handled here; awaited below once it has answered.
     reply.catch(() => undefined);
     const from = clock.now();
-    while (!done) {
-      if (clock.now() - from >= boundMs) {
-        throw new Error(
-          `the page had not answered after ${Math.round(boundMs)} ms of page time`,
-        );
+    await held.waiting(async () => {
+      while (!done) {
+        if (clock.now() - from >= boundMs) {
+          throw new Error(
+            `the page had not answered after ${Math.round(boundMs)} ms of page time`,
+          );
+        }
+        await clock.sleep(HELD_FRAME_MS);
       }
-      await clock.sleep(HELD_FRAME_MS);
-    }
+    });
     return reply;
   };
 
@@ -1697,10 +1692,14 @@ export async function runWalk(
             cdp.send(
               "Runtime.evaluate",
               {
-                expression: stepSettleExpression(
-                  held === undefined ? STEP_QUIET_MS : HELD_STEP_QUIET_MS,
-                  capMs,
-                ),
+                expression:
+                  held === undefined
+                    ? stepSettleExpression(STEP_QUIET_MS, capMs)
+                    : stepSettleExpression(
+                        HELD_STEP_QUIET_MS,
+                        capMs,
+                        Math.round(HELD_STEP_QUIET_MS / HELD_FRAME_MS),
+                      ),
                 awaitPromise: true,
                 returnByValue: true,
               },
@@ -1712,19 +1711,23 @@ export async function runWalk(
       } catch (error) {
         failure = error;
       }
-      // Held: the page counted its window in page time, and a wait that
+      // Held: the page counted its window in its frames, and a wait that
       // began after it was asked (the new page's icon, which Chrome fetches
-      // once the page has loaded) put the server's frames in it, as many as
-      // the machine made them: the window is played out in held frames, so
-      // its held part is the same on any machine (6 or 7 frames after a
-      // navigation over five recordings on one Mac, 2026-11-16). Within
-      // one more window: a page that waits on its server throughout (a
-      // stream) is on the server's time anyway.
-      if (held !== undefined && failure === null) {
-        const windowMs = at() - asked;
-        const by = at() + windowMs;
+      // once the page has loaded) put the server's frames among them, as
+      // many as the machine made them and each as long as the server took:
+      // the window is then played out to its length in held frames, so its
+      // held part is the same on any machine (6 or 7 frames after a
+      // navigation over five recordings on one Mac, 2026-11-16). Within one
+      // more window: a page that waits on its server throughout (a stream)
+      // is on the server's time anyway.
+      if (
+        held !== undefined &&
+        failure === null &&
+        sinceActEnd(at() - asked, asked) > HELD_EPS_MS
+      ) {
+        const by = at() + HELD_STEP_QUIET_MS;
         for (;;) {
-          const left = sinceActEnd(windowMs, asked);
+          const left = sinceActEnd(HELD_STEP_QUIET_MS, asked);
           if (left <= HELD_EPS_MS || at() >= by) break;
           await clock.sleep(left);
         }
@@ -1922,7 +1925,7 @@ export async function runWalk(
    * way. `pointerStep`: the step just finished moved the pointer (a
    * targeted verb), so its hover is renewed before the settle.
    */
-  const settleAndCapture = async (
+  const settleAndCaptureNow = async (
     after: number,
     actionId: string | null,
     pointerStep = false,
@@ -2057,6 +2060,9 @@ export async function runWalk(
     // take would not have had, nor jitter one across that line.
     roomAdded += at() - from;
   };
+  const settleAndCapture = (
+    ...asked: Parameters<typeof settleAndCaptureNow>
+  ): Promise<void> => waitingOn(() => settleAndCaptureNow(...asked));
 
   // None on a held clock: its frames are filed by `heldFrames`.
   const recorder =
@@ -3019,7 +3025,7 @@ export async function runWalk(
     return null;
   };
 
-  const awaitCondition = async (
+  const awaitConditionNow = async (
     action: SceneAction,
     target: AnchorIntent | null,
   ): Promise<boolean> => {
@@ -3067,6 +3073,9 @@ export async function runWalk(
     }
     return false;
   };
+  const awaitCondition = (
+    ...asked: Parameters<typeof awaitConditionNow>
+  ): Promise<boolean> => waitingOn(() => awaitConditionNow(...asked));
 
   // Everything from here to the loop's end talks to the world through a
   // port, and any of those calls can reject — a detached debugger, a closed
@@ -3253,14 +3262,15 @@ export async function runWalk(
     // The start navigation is the load a step-0 `waitForLoad` waits for, so
     // the count that step compares against is taken before it.
     const navsBeforeStart = navigationsSeen;
-    await deps.occlusion?.install();
-    const unsettled = await settlePaint();
+    await waitingOn(async () => deps.occlusion?.install());
+    const unsettled = await waitingOn(settlePaint);
     if (unsettled !== null) degradations.push(unsettled);
 
     // Before the opening keyframe, so a sign-in page the app redirected to
     // is never filmed (launch C). Frames that arrived so far had no span
     // open and were discarded by the intake.
-    const signedOut = deps.landing === undefined ? null : await deps.landing();
+    const { landing } = deps;
+    const signedOut = landing === undefined ? null : await waitingOn(landing);
     if (signedOut !== null) {
       reason = "signedOut";
       failureNote = signedOut;
@@ -4120,6 +4130,18 @@ export async function runWalk(
     }
     for (const label of held.ignoredConnections()) {
       degradations.push(degradation("connectionIgnored", 0, at(), label));
+    }
+    const unpacedAt = held.unpaced();
+    if (unpacedAt !== null) {
+      const atMs = unpacedAt - started;
+      degradations.push(
+        degradation(
+          "answerUnpaced",
+          atMs,
+          atMs,
+          "an answer was still arriving during a pause or a rest, which is not paced by the server",
+        ),
+      );
     }
   }
 

@@ -187,6 +187,8 @@ const FORGIVEN = new Set<string>([
   // animation ran unpinned, and the report says which.
   "connectionIgnored",
   "animationUnpinned",
+  // An answer arrived in a pause, unpaced by the server, and is said.
+  "answerUnpaced",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 
@@ -255,6 +257,7 @@ const PAGE_ONLY = [
   "requestNotWaited",
   "connectionIgnored",
   "animationUnpinned",
+  "answerUnpaced",
 ];
 const pageOnly = (problems: string[]): boolean =>
   problems.every((p) => PAGE_ONLY.some((kind) => p.endsWith(`(${kind})`)));

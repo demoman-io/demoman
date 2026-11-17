@@ -104,7 +104,12 @@ function fakeHeld(o: {
   roundTrip?: () => Promise<unknown>;
   /** Whether a document is being waited on (`HeldClock.loading`). */
   loading?: () => boolean;
+  /** `HeldClock.unpaced`. */
+  unpacedAt?: number;
 }) {
+  /** Every sleep the walk made, and whether inside a wait on the page. */
+  const sleeps: { ms: number; waiting: boolean }[] = [];
+  let waitDepth = 0;
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const frames: HeldFrame[] = [];
@@ -121,9 +126,19 @@ function fakeHeld(o: {
     ignoredConnections: () => [...IGNORED],
     loading: () => o.loading?.() ?? false,
     owing: () => o.loading?.() ?? false,
+    waiting: async (run) => {
+      waitDepth++;
+      try {
+        return await run();
+      } finally {
+        waitDepth--;
+      }
+    },
+    unpaced: () => o.unpacedAt ?? null,
     through: (read) => read,
     release: async () => undefined,
     sleep: async (ms) => {
+      sleeps.push({ ms, waiting: waitDepth > 0 });
       const end = now + ms;
       for (;;) {
         const next =
@@ -147,7 +162,7 @@ function fakeHeld(o: {
       o.moved?.(now);
     },
   };
-  return { clock, frames };
+  return { clock, frames, sleeps };
 }
 
 const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
@@ -183,13 +198,6 @@ async function run(
     loadIsNetwork?: boolean;
     /** Network stretches the clock reports, on its own time. */
     network?: { startMs: number; endMs: number; label: string }[];
-    /** A request that opens 100 ms of page time after the first click and
-     *  closes this much later, reported as network time when page time
-     *  reaches it: inside the next step's rest. */
-    networkInRestMs?: number;
-    /** The same request, opening 100 ms after the walk's scroll ends:
-     *  inside the scrolled step's after-scroll. */
-    networkAfterScrollMs?: number;
     /** The step-settle probe waits on the page's timers: it answers only
      *  once this much page time has passed since it was asked (null: never). */
     settleAnswersAfterMs?: number | null;
@@ -212,7 +220,6 @@ async function run(
   const loading = () => loadedAt !== null && held.clock.now() < loadedAt;
   let loadingUntil: number | null = null;
   const network = [...(opts.network ?? [])];
-  let restRequestAt: number | null = null;
   /** Settle probes waiting on page time, answered as it passes. */
   const settleWaiters: { due: number; answer: () => void }[] = [];
   const held = fakeHeld({
@@ -221,16 +228,6 @@ async function run(
     loading: () => loadingUntil !== null,
     network,
     moved: (now) => {
-      if (restRequestAt !== null && now >= restRequestAt) {
-        network.push({
-          startMs: restRequestAt,
-          endMs:
-            restRequestAt +
-            (opts.networkInRestMs ?? opts.networkAfterScrollMs ?? 0),
-          label: "GET /beacon",
-        });
-        restRequestAt = null;
-      }
       for (const w of settleWaiters.filter((w) => now >= w.due)) {
         settleWaiters.splice(settleWaiters.indexOf(w), 1);
         w.answer();
@@ -290,8 +287,6 @@ async function run(
       scrollSteps.push(p);
       scrollAsked.steps.push(String(params.objectId));
       if (p === 1) belowFold = false;
-      if (p === 1 && opts.networkAfterScrollMs !== undefined)
-        restRequestAt = held.clock.now() + 100;
       return { result: { type: "undefined" } };
     }
     if (method === "Runtime.evaluate" && expression === "document.readyState") {
@@ -356,8 +351,6 @@ async function run(
       clicks++;
       if (clicks === 1 && opts.unannouncedLoadMs !== undefined)
         loadedAt = held.clock.now() + opts.unannouncedLoadMs;
-      if (clicks === 1 && opts.networkInRestMs !== undefined)
-        restRequestAt = held.clock.now() + 100;
       if (clicks === 1 && opts.loadAfterFirstClickMs !== undefined) {
         const from = held.clock.now();
         loadingUntil = from + opts.loadAfterFirstClickMs;
@@ -469,6 +462,7 @@ async function run(
     result,
     cdp,
     frames: held.frames,
+    sleeps: held.sleeps,
     store,
     progress,
     journeys,
@@ -549,7 +543,9 @@ describe("the walk on a held clock", () => {
     expect(asked.length).toBeGreaterThan(0);
     expect(HELD_STEP_QUIET_MS).not.toBe(STEP_QUIET_MS);
     for (const e of asked)
-      expect(e).toContain(`lastChange >= ${HELD_STEP_QUIET_MS}`);
+      expect(e).toContain(
+        `still >= ${Math.round(HELD_STEP_QUIET_MS / HELD_FRAME_MS)}`,
+      );
   });
 
   // Red if the walk sleeps SETTLE_MS instead of the arrive, sleeps no rest,
@@ -724,42 +720,31 @@ describe("the walk on a held clock", () => {
     );
   });
 
-  // Review of Task 9, finding 3: a request that opens and closes inside a
-  // rest is played on top of it, so the rest's held part is as planned.
-  // Red if the rest is slept once, as it was when it began.
-  it("plays the whole rest around a request inside it", async () => {
-    // The same walk with a request that closes as it opens: the control.
-    const rest = async (ms: number) => {
-      const { result, progress } = await run([click("a"), click("b")], {
-        networkInRestMs: ms,
-      });
-      const evidence = evidenceOf(result, progress);
-      expect(result.outcome, evidence).toBe("complete");
-      const approach = markerOf(result, 1).approachSourceTimeMs ?? 0;
-      return {
-        evidence,
-        beacon: result.bundle?.networkSpans?.[0],
-        actEnd: actEndOf(result, 0),
-        approach,
-        fromClick: approach - markerOf(result, 0).sourceTimeMs,
-      };
-    };
-    const without = await rest(0);
-    const withIt = await rest(300);
-    // Premise: the request is network time, after the act and before the
-    // next step's approach.
-    expect(withIt.beacon?.label, withIt.evidence).toBe("GET /beacon");
-    expect(withIt.beacon?.startMs ?? 0, withIt.evidence).toBeGreaterThan(
-      withIt.actEnd,
-    );
-    expect(withIt.beacon?.endMs ?? 0, withIt.evidence).toBeLessThan(
-      withIt.approach,
-    );
-    // Its 300 ms come on top of the rest, which keeps its held part.
-    expect(withIt.fromClick - without.fromClick, withIt.evidence).toBeCloseTo(
-      300,
-      6,
-    );
+  // The author's ruling, 2026-11-16 (DEM-202): only a wait on the page
+  // follows the server; a rest, a pause and the tail are designed time. Red
+  // if a rest is slept inside a wait (a page with a stream open ran a 5 s
+  // video to 76 s), or the settle and the wait step are not waits (page
+  // time would outrun the server).
+  it("sleeps its rests and pauses as designed time and its settles as waits", async () => {
+    const { result, sleeps, progress } = await run([
+      click("a"),
+      { do: "pause", ms: 500 },
+      click("b"),
+    ]);
+    expect(result.outcome, evidenceOf(result, progress)).toBe("complete");
+    const said = JSON.stringify(sleeps);
+    // Premise: both kinds happened.
+    expect(
+      sleeps.some((s) => s.waiting),
+      said,
+    ).toBe(true);
+    // A rest is one long sleep; a wait polls in short ones.
+    const long = sleeps.filter((s) => s.ms > 200);
+    expect(long.length, said).toBeGreaterThanOrEqual(2);
+    expect(
+      long.filter((s) => s.waiting),
+      said,
+    ).toEqual([]);
   });
 
   it("plays the whole tail after a network wait", async () => {
@@ -798,50 +783,6 @@ describe("the walk on a held clock", () => {
       BASE + HELD_SCROLL_MS + ARRIVE,
       6,
     );
-  });
-
-  // Review of Task 9 round 1, minor: the after-scroll is a rest too.
-  it("plays the whole after-scroll around a request inside it", async () => {
-    const afterScroll = async (ms: number) => {
-      const { result, progress } = await run([click("a"), click("far")], {
-        networkAfterScrollMs: ms,
-      });
-      const evidence = evidenceOf(result, progress);
-      expect(result.outcome, evidence).toBe("complete");
-      const far = markerOf(result, 1);
-      return {
-        evidence,
-        beacon: result.bundle?.networkSpans?.[0],
-        scrollEnd: far.scrollEndSourceTimeMs ?? Number.NaN,
-        fromScrollEnd:
-          (far.approachSourceTimeMs ?? 0) - (far.scrollEndSourceTimeMs ?? 0),
-      };
-    };
-    const without = await afterScroll(0);
-    const withIt = await afterScroll(300);
-    // Premise: the request is network time inside the after-scroll.
-    expect(withIt.beacon?.startMs ?? 0, withIt.evidence).toBeGreaterThan(
-      withIt.scrollEnd,
-    );
-    expect(
-      withIt.fromScrollEnd - without.fromScrollEnd,
-      withIt.evidence,
-    ).toBeCloseTo(300, 6);
-  });
-
-  // Review of Task 9 round 1, minor: report before you forgive.
-  it("says a rest it cut short because the page waited the whole time", async () => {
-    const { result, progress } = await run([click("a"), click("b")], {
-      networkInRestMs: 100_000,
-    });
-    const evidence = evidenceOf(result, progress);
-    expect(result.outcome, evidence).toBe("complete");
-    const cut = (result.bundle?.degradations ?? []).filter(
-      (d) => d.kind === "pacingUnplaced",
-    );
-    // The rest before the second click, and the tail: the request never ends.
-    expect(cut, evidence).toHaveLength(2);
-    for (const d of cut) expect(d.note, evidence).toMatch(/cut \d+ ms short/);
   });
 
   it("returns no pacing plan and a held bundle", async () => {

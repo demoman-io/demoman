@@ -43,6 +43,26 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(false);
   });
 
+  // DEM-202: an answer landing in a pause is said only for a connection the
+  // recording followed. Red if data on any connection counts.
+  it("says when data last arrived on a connection the recording followed", async () => {
+    const { cdp, emit } = setup();
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10;
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.followedDataAt()).toBeNull();
+    w.follow();
+    emit("Network.requestWillBeSent", start("2"));
+    now = 20;
+    emit("Network.dataReceived", { requestId: "2" });
+    expect(w.followedDataAt()).toBeNull();
+    now = 30;
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.followedDataAt()).toBe(30);
+  });
+
   // Session A, 2026-11-16: the walk's held loops ask this, not the
   // browser's load events. Red if another request counts as a document's.
   it("says whether a document's request is open", async () => {

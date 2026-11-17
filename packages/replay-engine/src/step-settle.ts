@@ -36,11 +36,27 @@ export interface StepSettleReport {
   stopped: "quiet" | "cap" | "animationReadFailed" | "unwatched";
 }
 
-export function stepSettleExpression(quietMs: number, capMs: number): string {
+/**
+ * `quietFrames`, on a held clock: the quiet window is counted in the page's
+ * frames, one per frame of held time, not read off its clock. The page reads
+ * whole milliseconds, so a window in milliseconds that ends near a frame was
+ * met a frame apart by where on the grid it began, which follows how long
+ * the server took before it: 400 ms was 12 frames or 13, and 383 ms tipped
+ * the same way from a half-frame start (traced 2026-11-16, twice).
+ */
+export function stepSettleExpression(
+  quietMs: number,
+  capMs: number,
+  quietFrames?: number,
+): string {
   return `(() => {
   const ${STEP_SETTLE_MARKER} = true;
   const t0 = Date.now();
   let lastChange = t0;
+  // Frames drawn since the last change. Every one counts, also one a
+  // fraction of a millisecond after the question: told apart by the page's
+  // clock, it counted or not by which whole millisecond it fell in.
+  let still = 0;
   let painted = false;
   let animations = 0;
   let watcher = null;
@@ -63,7 +79,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
       }).length;
     } catch (e) { failed = true; return 0; }
   };
-  const quietNow = () => Date.now() - lastChange >= ${quietMs};
+  const quietNow = () => ${quietFrames === undefined ? `Date.now() - lastChange >= ${quietMs}` : `still >= ${quietFrames}`};
   const reply = (stopped) => {
     done = true;
     if (watcher) watcher.disconnect();
@@ -82,12 +98,12 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     };
   };
   try {
-    watcher = new MutationObserver(() => { lastChange = Date.now(); });
+    watcher = new MutationObserver(() => { lastChange = Date.now(); still = 0; });
     watcher.observe(document, {
       subtree: true, childList: true, attributes: true, characterData: true,
     });
   } catch (e) { return Promise.resolve(reply("unwatched")); }
-  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const frame = () => new Promise((r) => requestAnimationFrame(() => { still++; r(); }));
   const work = (async () => {
     await frame();
     painted = true;
