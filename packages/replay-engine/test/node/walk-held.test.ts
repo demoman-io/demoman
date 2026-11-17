@@ -10,6 +10,7 @@ import {
   HELD_SCROLL_MS,
   HELD_STEP_QUIET_MS,
   STEP_QUIET_MS,
+  WAIT_TIMEOUT_MS,
 } from "../../src/constants.js";
 import { HELD_FRAME_MS } from "../../src/held-clock.js";
 import type {
@@ -107,8 +108,9 @@ function fakeHeld(o: {
   /** `HeldClock.unpaced`. */
   unpacedAt?: number;
 }) {
-  /** Every sleep the walk made, and whether inside a wait on the page. */
-  const sleeps: { ms: number; waiting: boolean }[] = [];
+  /** Every sleep the walk made, from when (the walk's ms, as markers), and
+   *  whether inside a wait on the page. */
+  const sleeps: { atMs: number; ms: number; waiting: boolean }[] = [];
   let waitDepth = 0;
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -138,7 +140,7 @@ function fakeHeld(o: {
     through: (read) => read,
     release: async () => undefined,
     sleep: async (ms) => {
-      sleeps.push({ ms, waiting: waitDepth > 0 });
+      sleeps.push({ atMs: now - START, ms, waiting: waitDepth > 0 });
       const end = now + ms;
       for (;;) {
         const next =
@@ -745,6 +747,70 @@ describe("the walk on a held clock", () => {
       long.filter((s) => s.waiting),
       said,
     ).toEqual([]);
+  });
+
+  // Review, Session C: each wait on the page is its own region, so each is
+  // asserted alone. Red if that region's sleeps are designed time.
+  type Sleep = { atMs: number; ms: number; waiting: boolean };
+  const waitedMs = (sleeps: Sleep[]) =>
+    sleeps.filter((s) => s.waiting).reduce((sum, s) => sum + s.ms, 0);
+
+  it("waits out the opening as a wait on the page", async () => {
+    const { result, sleeps, progress } = await run([click("a")], {
+      settleAnswersAfterMs: 500,
+    });
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    const still = result.bundle?.keyframes[0]?.sourceTimeMs ?? Number.NaN;
+    const screen = result.bundle?.pageScreens?.[0]?.sourceTimeMs ?? Number.NaN;
+    // The load, its settle, the landing check and the opening screen; not
+    // the one designed frame the opening still is shot after (walk.ts).
+    const frameIn = (s: Sleep) =>
+      Math.abs(s.atMs + s.ms - still) < 1e-6 &&
+      Math.abs(s.ms - HELD_FRAME_MS) < 1e-6;
+    const opening = sleeps.filter((s) => s.atMs < screen && !frameIn(s));
+    // Premise: the opening's settle played its 500 ms of page time.
+    expect(waitedMs(opening), said).toBeGreaterThanOrEqual(500);
+    expect(
+      opening.filter((s) => !s.waiting),
+      said,
+    ).toEqual([]);
+  });
+
+  it("waits for a click's answer as a wait on the page", async () => {
+    const { result, sleeps, progress } = await run([click("a")], {
+      clickReadAnswersAfterMs: 400,
+    });
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    const marker = markerOf(result, 0);
+    const read = sleeps.filter(
+      (s) =>
+        s.atMs >= marker.sourceTimeMs &&
+        s.atMs < (marker.actEndSourceTimeMs ?? 0),
+    );
+    // Premise: the read took page time.
+    expect(read.length, said).toBeGreaterThan(0);
+    expect(
+      read.filter((s) => !s.waiting),
+      said,
+    ).toEqual([]);
+  });
+
+  it("polls a waitFor as a wait on the page", async () => {
+    const { result, sleeps, progress } = await run([
+      { do: "waitFor", on: { stableId: "gone" }, until: "visible" },
+    ]);
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    expect(result.reason, said).toBe("waitTimeout");
+    expect(waitedMs(sleeps), said).toBeGreaterThanOrEqual(WAIT_TIMEOUT_MS);
+  });
+
+  // Review, Session C, finding 1: a target a slow answer draws.
+  it("waits for a step's target the page has not drawn as a wait on the page", async () => {
+    const { result, sleeps, progress } = await run([click("gone")]);
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    // Premise: the step waited its whole bound for the target.
+    expect(result.outcome, said).not.toBe("complete");
+    expect(waitedMs(sleeps), said).toBeGreaterThanOrEqual(WAIT_TIMEOUT_MS);
   });
 
   it("plays the whole tail after a network wait", async () => {

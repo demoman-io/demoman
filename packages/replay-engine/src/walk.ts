@@ -950,11 +950,10 @@ export async function runWalk(
     return Math.max(0, plannedMs - (now - since - networkMs));
   };
   /** Plays a held rest or tail to its planned page time, counted from
-   *  `since` (the last act's end): network time that opens inside it is
-   *  played on top, so the rest's held part is the plan's on any machine
-   *  (review of Task 9, finding 3). A page that waits on its server the
-   *  whole time (an endless stream) ends it after NAVIGATE_TIMEOUT_MS of
-   *  that, short, and says so. */
+   *  `since` (the last act's end): network time a wait before it spent
+   *  since then is not counted against it, so the rest's held part is the
+   *  plan's on any machine (review of Task 9, finding 3). The rest itself
+   *  is designed time and never follows the server. */
   const playRest = async (
     plannedMs: number,
     since = heldActEnd,

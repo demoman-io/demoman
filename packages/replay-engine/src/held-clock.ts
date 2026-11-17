@@ -267,9 +267,10 @@ export interface HeldClock extends Clock {
    *  the connection alone, a page with a channel that kept answering made a
    *  5 s video 76 s, a pause cut short on every step (measured 2026-11-16,
    *  compare/held-push.sh; the author's ruling, DEM-202). Nests. Frames a wait
-   *  heard over is still owed when the wait on the page ends are dropped, a
-   *  connection still open is left, and real time that passes outside a
-   *  wait is never credited to one. */
+   *  heard over is still owed when the wait on the page ends are not played
+   *  on the way out (a wait that follows at once plays them, inside its own
+   *  reported stretch), a connection still open is left, and real time that
+   *  passes outside a wait is not credited to one. */
   waiting<T>(run: () => Promise<T>): Promise<T>;
   /** The held time data first arrived at, outside a wait, on a connection
    *  the recording had followed: an answer that landed where the machine put
@@ -348,6 +349,8 @@ export function createHeldClock(deps: {
   const unpinned: { atMs: number; what: string }[] = [];
   /** How many waits on the page are running (`waiting`). */
   let marked = 0;
+  /** Real ms the last wait on the page ended at: data after it is unpaced. */
+  let leftWaitAt = Number.NEGATIVE_INFINITY;
   let unpacedAt: number | null = null;
 
   const pause = async (initialVirtualTime: number) => {
@@ -390,11 +393,13 @@ export function createHeldClock(deps: {
       // A grant does not expire while a navigation waits on its server
       // (measured, Task 6), so a slow server is not Chrome's failure: while
       // the page is waiting the grant is waited on, and a wait that went
-      // quiet is said as the server's (review of 2026-11-16).
+      // quiet is said as the server's (review of 2026-11-16). Only a
+      // document's request re-arms it: any open connection did, and one that
+      // kept sending (a fetch stream) waited on a hung navigation for good.
       // shortcut: a server silent for the whole of the bound still stops the
       // run, where a real clock goes on; upgrade if a cold route does it.
       const expired = () => {
-        if (network.waiting()) {
+        if (network.loading()) {
           timer = setTimeout(expired, GRANT_EXPIRY_TIMEOUT_MS);
           return;
         }
@@ -574,10 +579,12 @@ export function createHeldClock(deps: {
         lookedAt = { real: realNow(), held };
         // Only a wait on the page follows the server (`waiting`).
         const following = marked > 0;
+        // Not only while the connection is open: a stream's last chunk and
+        // its end can both land inside one designed frame (review, Session C).
         if (
           !following &&
-          network.waiting() &&
-          (network.followedDataAt() ?? Number.NEGATIVE_INFINITY) > looked.real
+          (network.followedDataAt() ?? Number.NEGATIVE_INFINITY) >
+            Math.max(looked.real, leftWaitAt)
         )
           unpacedAt ??= held;
         if (following && network.waiting()) {
@@ -668,6 +675,7 @@ export function createHeldClock(deps: {
         out = await run();
       } finally {
         marked--;
+        if (marked === 0) leftWaitAt = realNow();
       }
       // A frame skipped for a wait is still taken. Frames a wait heard over
       // is owed are not played here: they would be page time added by how

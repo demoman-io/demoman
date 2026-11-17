@@ -822,7 +822,16 @@ export function createAuthoredRun(
         // A target a client-rendered page has not drawn yet is waited for, as a
         // `waitFor` waits, on the same clock and cadence. Only "not there yet"
         // answers retry; a tie, a silent page or a fault says so at once.
-        const captureWaiting = async (
+        // On a held clock it is a wait on the page (`HeldClock.waiting`): a
+        // target drawn by a slow answer then lands at the server's pace, not
+        // after 300 frames shot at the machine's speed.
+        const captureWaiting = (
+          wanted: AnchorIntent,
+        ): Promise<IntentCapture> =>
+          deps.held === undefined
+            ? captureWaitingNow(wanted)
+            : deps.held.waiting(() => captureWaitingNow(wanted));
+        const captureWaitingNow = async (
           wanted: AnchorIntent,
         ): Promise<IntentCapture> => {
           const began = deps.clock.now();

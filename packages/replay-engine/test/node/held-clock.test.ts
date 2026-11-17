@@ -668,6 +668,42 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
   });
 
+  // Review, Session C: a stream's last chunk and its end inside one designed
+  // frame went unsaid. Red if the note needs the connection still open.
+  it("says an answer that finished in designed time, the connection already closed", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: () => false,
+      followedDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.sleep(3 * HELD_FRAME_MS);
+    advance(50);
+    dataAt = 40;
+    await clock.sleep(HELD_FRAME_MS);
+    expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
+  });
+
+  // Red if data the server's time already paced, in a wait's last grant,
+  // is said by the designed sleep after the wait.
+  it("does not say data that arrived inside a wait, once the wait is over", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: () => false,
+      followedDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.waiting(async () => {
+      await clock.sleep(HELD_FRAME_MS);
+      advance(50);
+      dataAt = 40;
+    });
+    await clock.sleep(2 * HELD_FRAME_MS);
+    expect(clock.unpaced()).toBeNull();
+  });
+
   // Session A, 2026-11-16: the walk plays frames while a document's request
   // is open, on the clock's word.
   it("owes while a document's request is open", async () => {
@@ -908,12 +944,13 @@ describe("createHeldClock", () => {
   // Review of 2026-11-16: a grant does not expire while a navigation waits
   // on its server. Red if a slow server is blamed on Chrome, or stops the
   // run while its answer is still arriving.
-  it("waits a grant out while the page waits on its server, and says the server when it went quiet", async () => {
+  it("waits a grant out while a navigation waits on its server, and says the server when it went quiet", async () => {
     vi.useFakeTimers();
-    let waiting = true;
+    let loading = true;
     const { clock } = setup({
       policy: (p) => (p.budget === undefined ? "expire" : "silent"),
-      waiting: () => waiting,
+      waiting: () => loading,
+      loading: () => loading,
       waitsSince: () => ({ from: 0, labels: ["GET /slow"] }),
     });
     await clock.hold(START);
@@ -923,13 +960,31 @@ describe("createHeldClock", () => {
     });
     await vi.advanceTimersByTimeAsync(2 * GRANT_EXPIRY_TIMEOUT_MS);
     expect(failed, "still waited on while the page waits").toBeNull();
-    waiting = false;
+    loading = false;
     await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS);
     await slept;
     expect(String(failed)).toMatch(
       /waiting on its server \(GET \/slow\), which had not answered 15 s on/,
     );
     expect(String(failed)).not.toMatch(/Chrome/);
+  });
+
+  // Review of Session C: a connection that keeps sending (a fetch stream)
+  // re-armed the bound for good, so a grant that never expired hung the run.
+  it("stops a grant that never expires though a stream stays open, when no document is loading", async () => {
+    vi.useFakeTimers();
+    const { clock } = setup({
+      policy: (p) => (p.budget === undefined ? "expire" : "silent"),
+      waiting: () => true,
+      loading: () => false,
+      waitsSince: () => ({ from: 0, labels: ["GET /stream"] }),
+    });
+    await clock.hold(START);
+    const said = expect(clock.sleep(100)).rejects.toThrow(
+      /did not move.*15 s on/,
+    );
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS);
+    await said;
   });
 
   it("a frame listener's failure comes out of sleep", async () => {
