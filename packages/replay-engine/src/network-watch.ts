@@ -14,10 +14,15 @@ export interface NetworkWatch {
   /** When the page stopped waiting (real ms), while it is not; null while
    *  it is, or before it ever waited. */
   quietSince(): number | null;
-  /** The waits heard of after `realMs`, over or not: when the first began
-   *  (when the browser sent its request, which its word can trail) and
-   *  every connection they counted; null when none was. */
-  waitsSince(realMs: number): { from: number; labels: string[] } | null;
+  /** The waits heard of after `realMs`, or sent at or after `pageMs` on the
+   *  page's clock, over or not: when the first began (when the browser sent
+   *  its request, which its word can trail), when on the page's clock if
+   *  every one is the page's own request, and every connection they
+   *  counted; null when none was. */
+  waitsSince(
+    realMs: number,
+    pageMs?: number,
+  ): { from: number; page?: number; labels: string[] } | null;
   /** Whether a document's request is open. */
   loading(): boolean;
   /** The connections counted now are ones the recording followed: data on
@@ -62,7 +67,12 @@ export async function createNetworkWatch(
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
    *  connections it counted. */
-  const waits: { from: number; heard: number; labels: string[] }[] = [];
+  const waits: {
+    from: number;
+    heard: number;
+    page?: number;
+    labels: string[];
+  }[] = [];
   const dropped: string[] = []; // each label named once
   /** A frame's document request, by frame: the one a swap ends. */
   const documents = new Map<string, string>();
@@ -85,11 +95,12 @@ export async function createNetworkWatch(
     label: string,
     now: number,
     sent = now,
+    page?: number,
   ) => {
     // A connection gone silent first, or a new wait takes its start.
     sweep();
     if (counted().length === 0 || waits.length === 0)
-      waits.push({ from: sent, heard: now, labels: [] });
+      waits.push({ from: sent, heard: now, page, labels: [] });
     const last = waits[waits.length - 1] as (typeof waits)[number];
     if (!last.labels.includes(label)) last.labels.push(label);
     live.set(id(p), { label, lastAt: now });
@@ -101,16 +112,20 @@ export async function createNetworkWatch(
   // is stamped by the page, on its held clock (measured 2026-11-15,
   // apps/runner/compare/held-probe-walltime.mjs: a fetch 10 h behind real
   // time under a pin 10 h ago, a document within 2 ms; CI run 3 recorded a
-  // 10.5 h stretch from it).
+  // 10.5 h stretch from it). A fetch's or XHR's page time is kept: it says
+  // where the page stood when it sent the request, whichever side of a look
+  // its word lands (DEM-206; both within 0.01 ms of the held time, measured
+  // 2026-11-17). Only those two: a request the browser makes itself (a
+  // preflight) may be stamped in real time, unmeasured.
   const begin = (p: Record<string, unknown>, label: string) => {
     const now = realNow();
     if (p.type === "Document" && typeof p.frameId === "string")
       documents.set(p.frameId, id(p));
-    const wall =
-      p.type === "Document" && typeof p.wallTime === "number"
-        ? p.wallTime * 1000
-        : now;
-    count(p, label, now, Math.min(now, wall));
+    const wall = typeof p.wallTime === "number" ? p.wallTime * 1000 : null;
+    if (p.type === "Document") count(p, label, now, Math.min(now, wall ?? now));
+    else if (p.type === "Fetch" || p.type === "XHR")
+      count(p, label, now, now, wall ?? undefined);
+    else count(p, label, now);
   };
   const data = (p: Record<string, unknown>) => {
     const now = realNow();
@@ -204,13 +219,20 @@ export async function createNetworkWatch(
       sweep();
       return counted().length > 0 ? null : quietAt;
     },
-    waitsSince(realMs) {
+    waitsSince(realMs, pageMs = Number.POSITIVE_INFINITY) {
       sweep();
-      const since = waits.filter((w) => w.heard > realMs);
+      const since = waits.filter(
+        (w) =>
+          w.heard > realMs || (w.page ?? Number.NEGATIVE_INFINITY) >= pageMs,
+      );
       const first = since[0];
       if (first === undefined) return null;
+      const pages = since.flatMap((w) =>
+        w.page === undefined ? [] : [w.page],
+      );
       return {
         from: Math.min(...since.map((w) => w.from)),
+        ...(pages.length === since.length && { page: Math.min(...pages) }),
         labels: [...new Set(since.flatMap((w) => w.labels))],
       };
     },

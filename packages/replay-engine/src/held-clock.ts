@@ -343,17 +343,40 @@ export function createHeldClock(deps: {
    *  where the page stood then, so `held` if it began after the page last
    *  stopped, or the look before if it began inside that grant. Never
    *  before that look: a wait heard after it is not credited from earlier.
-   *  One rule, whichever branch of the sleep sees the wait. */
+   *  One rule, whichever branch of the sleep sees the wait. A page's own
+   *  request says which by its `page` clock time; a document's, by real
+   *  time. Nylon's click sent its fetch at the start of the next grant or
+   *  10 ms into it, as Chrome had it, and heard 1 ms either side of the
+   *  grant's end: the stretch began at the click or a frame later, and
+   *  the rest of the video stood a frame apart (DEM-206). */
   const dated = (
-    from: number | null,
+    wait: { from: number; page?: number } | null,
     looked: { real: number; held: number },
   ) =>
-    from === null
+    wait === null
       ? { real: realNow(), held }
       : {
-          real: Math.max(from, looked.real),
-          held: from > pausedAt ? held : looked.held,
+          real: Math.max(wait.from, looked.real),
+          held:
+            wait.page !== undefined
+              ? wait.page - (startEpochMs ?? 0) < held - pageSlack()
+                ? looked.held
+                : held
+              : wait.from > pausedAt
+                ? held
+                : looked.held,
         };
+  /** How far the page's clock may read behind `held`: Chrome counts a
+   *  grant in whole µs, so it falls about 8e-6 ms behind per ms (measured
+   *  2026-11-17, 0.03 ms at 4 s on Nylon); 2.5 times that. */
+  const pageSlack = () => 0.05 + held * 2e-5;
+  /** The waits since a look: heard after it, or sent by the page since it
+   *  stood there. */
+  const waitsSinceLook = (looked: { real: number; held: number }) =>
+    network.waitsSince(
+      looked.real,
+      (startEpochMs ?? 0) + looked.held - pageSlack(),
+    );
   const unpinned: { atMs: number; what: string }[] = [];
   /** How many waits on the page are running (`waiting`). */
   let marked = 0;
@@ -471,12 +494,12 @@ export function createHeldClock(deps: {
     // 2026-11-15): one more connection of a stretch open up to now, or
     // a stretch of its own from where the page stood when it began,
     // kept only if it is owed time.
-    const last = network.waitsSince(looked.real);
+    const last = waitsSinceLook(looked);
     let unseen: typeof span = null;
     if (quiet !== null && last !== null) {
       if (span?.endMs === held) for (const l of last.labels) span.labels.add(l);
       else {
-        stretchFrom = dated(last.from, looked);
+        stretchFrom = dated(last, looked);
         unseen = {
           startMs: stretchFrom.held,
           endMs: held,
@@ -614,8 +637,8 @@ export function createHeldClock(deps: {
           // click's whole wait can fall inside one grant, and the new
           // page's favicon be what the next look sees (CI ubuntu,
           // 2026-11-15).
-          const since = network.waitsSince(looked.real);
-          if (!continues) stretchFrom = dated(since?.from ?? null, looked);
+          const since = waitsSinceLook(looked);
+          if (!continues) stretchFrom = dated(since, looked);
           const walked = lookedAt.real - Math.max(shotAt, stretchFrom.real);
           if (walked > WALK_GAP_CREDIT_MS)
             stretchFrom = {

@@ -63,6 +63,43 @@ describe("createNetworkWatch", () => {
     expect(w.followedDataAt()).toBe(30);
   });
 
+  // DEM-206: a page's fetch heard before a look is still one since it, by
+  // the page's clock. Red if real time alone decides.
+  it("finds a page's own request by when the page sent it", async () => {
+    const { cdp, emit } = setup();
+    let now = 100;
+    const w = await createNetworkWatch(cdp, () => now);
+    emit("Network.requestWillBeSent", {
+      ...start("1"),
+      type: "Fetch",
+      wallTime: 5.05,
+    });
+    expect(w.waitsSince(100, 5000)).toEqual({
+      from: 100,
+      page: 5050,
+      labels: ["GET /poll"],
+    });
+    expect(w.waitsSince(100, 5051)).toBeNull();
+    expect(w.waitsSince(100)).toBeNull();
+    // A document's or a script's time is not the page's to say.
+    emit("Network.loadingFinished", { requestId: "1" });
+    now = 200;
+    emit("Network.requestWillBeSent", {
+      ...start("2", "http://app.test/x.js"),
+      type: "Script",
+      wallTime: 5.1,
+    });
+    expect(w.waitsSince(200, 5000)).toEqual({
+      from: 100,
+      page: 5050,
+      labels: ["GET /poll"],
+    });
+    expect(w.waitsSince(150, 5051)).toEqual({
+      from: 200,
+      labels: ["GET /x.js"],
+    });
+  });
+
   // Session A, 2026-11-16: the walk's held loops ask this, not the
   // browser's load events. Red if another request counts as a document's.
   it("says whether a document's request is open", async () => {
@@ -157,6 +194,7 @@ describe("createNetworkWatch", () => {
     });
     expect(w.waitsSince(0)).toEqual({
       from: 36_000_000,
+      page: 333,
       labels: ["GET /answer"],
     });
   });

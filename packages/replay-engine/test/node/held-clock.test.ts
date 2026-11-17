@@ -37,7 +37,8 @@ function setup(
     waitsSince?: (
       sinceMs: number,
       real: number,
-    ) => { from: number; labels: string[] } | null;
+      pageMs?: number,
+    ) => { from: number; page?: number; labels: string[] } | null;
     /** Whether a document's request is open (`NetworkWatch.loading`). */
     loading?: (real: number) => boolean;
     /** False: the test's sleeps are designed time unless it says
@@ -90,7 +91,8 @@ function setup(
     labels: () => ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
     quietSince: () => o.quietSince?.(real) ?? null,
-    waitsSince: (sinceMs) => o.waitsSince?.(sinceMs, real) ?? null,
+    waitsSince: (sinceMs, pageMs) =>
+      o.waitsSince?.(sinceMs, real, pageMs) ?? null,
     loading: () => o.loading?.(real) ?? false,
     follow: () => void log.push("follow"),
     followedDataAt: () => o.followedDataAt?.(real) ?? null,
@@ -152,18 +154,23 @@ function setup(
 
 const times = (frames: HeldFrame[]) => frames.map((f) => f.sourceTimeMs);
 /** A network watch's waits for `waitsSince`: each began at `from`, and is
- *  heard of at `at` (default `from`). */
+ *  heard of at `at` (default `from`); a page's own request sent at `page`
+ *  on the page's clock. */
 const waitsOf =
-  (...list: { from: number; at?: number; labels: string[] }[]) =>
-  (since: number, real: number) => {
+  (...list: { from: number; at?: number; page?: number; labels: string[] }[]) =>
+  (since: number, real: number, pageMs = Number.POSITIVE_INFINITY) => {
     const w = list.filter(
-      (x) => (x.at ?? x.from) > since && real >= (x.at ?? x.from),
+      (x) =>
+        ((x.at ?? x.from) > since || (x.page ?? -Infinity) >= pageMs) &&
+        real >= (x.at ?? x.from),
     );
     const [first] = w;
+    const pages = w.flatMap((x) => (x.page === undefined ? [] : [x.page]));
     return first === undefined
       ? null
       : {
           from: Math.min(...w.map((x) => x.from)),
+          ...(pages.length === w.length && { page: Math.min(...pages) }),
           labels: w.flatMap((x) => x.labels),
         };
   };
@@ -417,6 +424,59 @@ describe("createHeldClock", () => {
     await clock.sleep(100);
     await clock.sleep(1000);
     // The stretch begins at frame 3, where the grant it was sent in began.
+    expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
+  });
+
+  // DEM-206: Nylon's click sent its fetch inside the grant after it, at the
+  // grant's start or 10 ms in as Chrome had it, and its word came 1 ms
+  // either side of the grant's end. By real time the stretch began at the
+  // click or a frame later: the rest of the video stood a frame apart.
+  it.each([
+    [0, 600],
+    [0, 601],
+    [10, 600],
+    [10, 601],
+  ])(
+    "dates a page's own request sent %i ms into a grant from the grant's start, heard at %i",
+    async (into, at) => {
+      // Captures take 200 ms: three designed frames end at real 600, held 100.
+      const { clock } = setup({
+        waits: false,
+        waiting: (real) => real >= at,
+        waitsSince: waitsOf({
+          from: at,
+          at,
+          page: START + 100 + into,
+          labels: ["GET /invoices/1041"],
+        }),
+        captureMs: 200,
+      });
+      await clock.hold(START);
+      await clock.sleep(100);
+      // The click lands at held 100; the click's read looks (real 600) and
+      // grants a frame, in which the fetch is sent; then the step waits.
+      await clock.sleep(HELD_FRAME_MS);
+      await clock.waiting(() => clock.sleep(1000));
+      expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
+    },
+  );
+
+  // A page's request sent while it stood at the held time, after the grant,
+  // began there, not at the grant's start.
+  it("dates a page's own request sent after a grant from where it stopped", async () => {
+    const { clock } = setup({
+      waits: false,
+      waiting: (real) => real >= 600,
+      waitsSince: waitsOf({
+        from: 600,
+        page: START + 100,
+        labels: ["GET /a"],
+      }),
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    await clock.waiting(() => clock.sleep(1000));
     expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
   });
 
