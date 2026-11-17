@@ -213,6 +213,11 @@ async function run(
     /** While that load runs, asking the document fails (it is leaving, or
      *  the next one is not there yet). */
     documentUnreachableWhileLoading?: boolean;
+    /** While the first step-settle probe after the first click is out, the
+     *  top frame says a navigation started: a client-side one (no new
+     *  document, as a Next.js link's `pushState`), or a new document that
+     *  commits. */
+    navigatesInSettle?: "sameDocument" | "newDocument";
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -260,6 +265,9 @@ async function run(
   const send = cdp.send.bind(cdp);
   /** How each settle probe was sent. */
   const probeSends: unknown[] = [];
+  /** Step-settle probes sent after the first click. */
+  let stepProbesAfterClick = 0;
+  let navigatedInSettle = false;
   cdp.send = async (method, params, options) => {
     if (opts.realDelayMs !== undefined) await delay();
     if (
@@ -322,6 +330,20 @@ async function run(
           answer: () => resolve(send(method, params)),
         }),
       );
+    }
+    if (
+      method === "Runtime.evaluate" &&
+      expression.includes(STEP_SETTLE_MARKER) &&
+      clicks > 0
+    ) {
+      stepProbesAfterClick++;
+      if (opts.navigatesInSettle !== undefined && !navigatedInSettle) {
+        navigatedInSettle = true;
+        cdp.emit("Page.frameStartedLoading", { frameId: "top" });
+        if (opts.navigatesInSettle === "newDocument")
+          cdp.emit("Page.frameNavigated", { frame: { id: "top" } });
+        cdp.emit("Page.frameStoppedLoading", { frameId: "top" });
+      }
     }
     if (
       method === "Runtime.evaluate" &&
@@ -472,6 +494,7 @@ async function run(
     scrollSteps,
     scrollAsked,
     probeSends,
+    stepProbesAfterClick: () => stepProbesAfterClick,
   };
 }
 
@@ -1055,6 +1078,43 @@ describe("in-page waits on a held clock", () => {
       expect(k.sourceTimeMs, evidence).toBeGreaterThanOrEqual(opening);
     for (const s of result.bundle?.motionSpans ?? [])
       expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
+  });
+});
+
+describe("a navigation during a step's settle on a held clock", () => {
+  // DEM-205: a Next.js link's client-side navigation sometimes landed inside
+  // the settle's window and sometimes before it, by when the server's answer
+  // ended, and the window was asked again only in the first case: 12 frames
+  // apart between two recordings. Red if a navigation that leaves no
+  // document asks the window again.
+  it("asks the window once when the page navigated within its document", async () => {
+    const plain = await run([click("a")]);
+    const soft = await run([click("a")], { navigatesInSettle: "sameDocument" });
+    const evidence = `${evidenceOf(plain.result, plain.progress)} ${evidenceOf(soft.result, soft.progress)}`;
+    expect(soft.result.outcome, evidence).toBe("complete");
+    // Premise: the step's settle was asked after the click.
+    expect(plain.stepProbesAfterClick(), evidence).toBeGreaterThan(0);
+    expect(soft.stepProbesAfterClick(), evidence).toBe(
+      plain.stepProbesAfterClick(),
+    );
+    expect(markerOf(soft.result, 0), evidence).toEqual(
+      markerOf(plain.result, 0),
+    );
+    expect(soft.result.bundle?.pageScreens, evidence).toEqual(
+      plain.result.bundle?.pageScreens,
+    );
+  });
+
+  // Red if the answer of a document that was replaced while it was asked is
+  // kept: the screen would be the page being left.
+  it("asks the window again when a new document committed", async () => {
+    const plain = await run([click("a")]);
+    const hard = await run([click("a")], { navigatesInSettle: "newDocument" });
+    const evidence = `${evidenceOf(plain.result, plain.progress)} ${evidenceOf(hard.result, hard.progress)}`;
+    expect(hard.result.outcome, evidence).toBe("complete");
+    expect(hard.stepProbesAfterClick(), evidence).toBe(
+      plain.stepProbesAfterClick() + 1,
+    );
   });
 });
 

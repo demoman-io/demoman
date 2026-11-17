@@ -1169,6 +1169,9 @@ export async function runWalk(
   let topFrameId: string | null = null;
   let topLoading = false;
   let navigationsSeen = 0;
+  /** Top-frame documents committed (`Page.frameNavigated`, which a
+   *  navigation within the document never sends). */
+  let documentsCommitted = 0;
   // `navigationsSeen` as it stood when the previous step began (for step 0,
   // before the start navigation): a `waitForLoad` saw a load when the count
   // has moved since.
@@ -1180,6 +1183,7 @@ export async function runWalk(
     const frame = params.frame as { id?: string; parentId?: string };
     if (frame?.parentId === undefined && frame?.id !== undefined) {
       topFrameId = frame.id;
+      documentsCommitted++;
     }
   });
   const offStarted = cdp.on("Page.frameStartedLoading", (params) => {
@@ -1681,6 +1685,7 @@ export async function runWalk(
         return [...(loading() ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
       }
       const navs = navigationsSeen;
+      const commits = documentsCommitted;
       // Read only when held: a clock read is a moment of a real clock's.
       const asked = held === undefined ? 0 : at();
       let report: Partial<StepSettleReport> | undefined;
@@ -1731,7 +1736,17 @@ export async function runWalk(
           await clock.sleep(left);
         }
       }
-      if ((navigationsSeen !== navs || loading()) && at() < deadline) {
+      // Asked again when the answer may be the page being left. Held: only
+      // when a new document committed or one's request is open. A navigation
+      // within the document (a Next.js link's pushState) leaves none, and the
+      // probe's quiet window already restarts on what it changes; counted, it
+      // asked the window again only when it landed inside it, which the
+      // server's timing decided: 12 frames apart (DEM-205, 2026-11-17).
+      const replaced =
+        held === undefined
+          ? navigationsSeen !== navs
+          : documentsCommitted !== commits;
+      if ((replaced || loading()) && at() < deadline) {
         continue;
       }
       const words = loading() ? [STILL_LOADING] : [];
