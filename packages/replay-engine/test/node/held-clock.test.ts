@@ -624,10 +624,12 @@ describe("createHeldClock", () => {
     expect(frames.length - before).toBe(3);
   });
 
-  // Red if a wait hands back owing frames to designed time: a pause after it
-  // would be shorter by as much as the machine made them.
-  it("plays what a wait heard over is owed before the wait hands back", async () => {
-    const { clock, advance } = setup({
+  // CI macOS, 2026-11-16: frames owed when a wait on the page ended were
+  // played on the way out, page time added by how long the server took, and
+  // "the same video twice" stood a frame apart. Red if designed time, or
+  // leaving a wait, plays a finished wait's owed frames.
+  it("drops what a wait heard over is owed when the wait on the page ends", async () => {
+    const { clock, frames, advance } = setup({
       waits: false,
       waiting: (real) => real < 300,
       quietSince: (real) => (real >= 300 ? 300 : null),
@@ -640,8 +642,12 @@ describe("createHeldClock", () => {
       // Premise: the wait is over and the stretch ends short of it.
       expect(clock.owing()).toBe(true);
     });
-    expect(clock.owing()).toBe(false);
-    expect(inFrames(clock.networkSpans().map((s) => s.endMs))).toEqual([9]);
+    const at = clock.now();
+    const before = frames.length;
+    await clock.sleep(2 * HELD_FRAME_MS);
+    expect(clock.now() - at).toBeCloseTo(2 * HELD_FRAME_MS, 6);
+    expect(frames.length - before).toBe(2);
+    expect(inFrames(clock.networkSpans().map((s) => s.endMs))).toEqual([1]);
   });
 
   // Red if an answer landing in a pause is unsaid, or a connection the

@@ -8,6 +8,7 @@ import { HELD_FRAME_MS } from "@demoman/replay-engine";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listenOnLoopback } from "../src/loopback.js";
 import {
+  apartFrames,
   greyDiff,
   NOISE,
   PAGE,
@@ -181,6 +182,19 @@ describe("a held recording", () => {
       // the page says it has loaded, asked between frames (it was 8 frames
       // loose while loops ended on the browser's load events; 2026-11-16).
       expect(two.timing, said).toEqual(one.timing);
+      // And the same pictures, up to the click that leaves the page: what
+      // the page animates itself (the box its animation frames move) stands
+      // where it did, however long each machine's server took. Timing alone
+      // did not see page time added after the page's scripts began, by the
+      // length of the opening's load: CI's macOS did, twice (2026-11-16).
+      const box = async (r: Recorded) => {
+        const leaves = r.bundle.markers.at(-2)?.sourceTimeMs ?? 0;
+        const frames = await pageFrames(r, [0.23, 0.14, 0.43, 0.21]);
+        return frames.filter((f) => f.ms < leaves).map((f) => f.grey);
+      };
+      const boxes = [await box(fast), await box(slow)];
+      expect(boxes[0]?.length, said).toBeGreaterThan(100);
+      expect(apartFrames(boxes[1] ?? [], boxes[0] ?? []), said).toEqual([]);
       expect(one.timing, said).toEqual(
         JSON.parse(readFileSync(GOLDEN, "utf8")),
       );

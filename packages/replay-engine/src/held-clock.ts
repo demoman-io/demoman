@@ -266,10 +266,10 @@ export interface HeldClock extends Clock {
    *  pause, a rest, a journey) and is held frames whatever is open: read off
    *  the connection alone, a page with a channel that kept answering made a
    *  5 s video 76 s, a pause cut short on every step (measured 2026-11-16,
-   *  compare/held-push.sh; the author's ruling, DEM-202). Nests. On the way
-   *  out, frames a wait heard over is still owed are played; a connection
-   *  still open is left, and real time that passes outside a wait is never
-   *  credited to one. */
+   *  compare/held-push.sh; the author's ruling, DEM-202). Nests. Frames a wait
+   *  heard over is still owed when the wait on the page ends are dropped, a
+   *  connection still open is left, and real time that passes outside a
+   *  wait is never credited to one. */
   waiting<T>(run: () => Promise<T>): Promise<T>;
   /** The held time data first arrived at, outside a wait, on a connection
    *  the recording had followed: an answer that landed where the machine put
@@ -669,14 +669,16 @@ export function createHeldClock(deps: {
       } finally {
         marked--;
       }
-      if (marked === 0 && startEpochMs !== null) {
-        const looked = lookedAt;
-        lookedAt = { real: realNow(), held };
-        if (!network.waiting()) await owedPaid(looked);
-        if (unshot) {
-          unshot = false;
-          await shoot();
-        }
+      // A frame skipped for a wait is still taken. Frames a wait heard over
+      // is owed are not played here: they would be page time added by how
+      // long the server took, after the page's own scripts began, and its
+      // animations then stood a frame or more apart between two recordings
+      // (the opening's load: the first frame at 633, 667 or 700 ms by the
+      // machine, CI macOS and a slowed recording here, 2026-11-16). Only a
+      // sleep inside a wait plays them, as part of its own time.
+      if (marked === 0 && startEpochMs !== null && unshot) {
+        unshot = false;
+        await shoot();
       }
       return out;
     },
