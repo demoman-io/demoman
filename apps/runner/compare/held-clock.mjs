@@ -390,7 +390,11 @@ async function framesOf(bundle, store) {
       )
         .split("\n")
         .filter(Boolean)
-        .map(Number);
+        // A span's first frame prints as "0.000000," (an empty side-data
+        // column); Number() made it NaN and every frame number null.
+        .map((l) => Number.parseFloat(l));
+      if (times.some(Number.isNaN))
+        throw new Error(`${file}: ffprobe gave a frame no time`);
       const raw = execFileSync(
         "ffmpeg",
         [
