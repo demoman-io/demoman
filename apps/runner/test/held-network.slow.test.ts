@@ -354,7 +354,7 @@ describe("a held recording that waits on its server", () => {
         .map((d) => d.note),
       said,
     ).toEqual([
-      "an answer was still arriving during a pause or a rest, which is not paced by the server",
+      "an answer was still arriving during a pause, a rest or a step's settle that did not wait for it, which is not paced by the server",
     ]);
     // The feed never ends, so a pause that followed it would be all network
     // time: here the take's last PAUSE of page time has none in it.

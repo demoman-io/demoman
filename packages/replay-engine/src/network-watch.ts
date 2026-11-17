@@ -26,6 +26,13 @@ export interface NetworkWatch {
   /** When data last arrived on a connection the recording followed (real
    *  ms); null when none has. */
   followedDataAt(): number | null;
+  /** Leaves these requests out of every answer above until the next call
+   *  (none: `[]`): requests a step's settle does not wait for, which the
+   *  clock then does not follow either (DEM-204). */
+  ignore(ids: readonly string[]): void;
+  /** When data last arrived on a connection the recording followed while it
+   *  was left out (`ignore`); null when none has. */
+  ignoredDataAt(): number | null;
   stop(): void;
 }
 
@@ -47,6 +54,10 @@ export async function createNetworkWatch(
     { label: string; lastAt: number; followed?: true }
   >();
   let followedDataAt: number | null = null;
+  let ignoring = new Set<string>();
+  let ignoredDataAt: number | null = null;
+  /** The live connections that count: all but those left out. */
+  const counted = () => [...live].filter(([k]) => !ignoring.has(k));
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
@@ -66,7 +77,7 @@ export async function createNetworkWatch(
         name(c.label);
         idle.set(k, c.label);
         live.delete(k);
-        if (live.size === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
+        if (counted().length === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
       }
   };
   const count = (
@@ -77,7 +88,7 @@ export async function createNetworkWatch(
   ) => {
     // A connection gone silent first, or a new wait takes its start.
     sweep();
-    if (live.size === 0 || waits.length === 0)
+    if (counted().length === 0 || waits.length === 0)
       waits.push({ from: sent, heard: now, labels: [] });
     const last = waits[waits.length - 1] as (typeof waits)[number];
     if (!last.labels.includes(label)) last.labels.push(label);
@@ -108,6 +119,7 @@ export async function createNetworkWatch(
       if (now - c.lastAt > IDLE_CONNECTION_MS) name(c.label);
       c.lastAt = now;
       if (c.followed) followedDataAt = now;
+      if (c.followed && ignoring.has(id(p))) ignoredDataAt = now;
       return;
     }
     const label = idle.get(id(p));
@@ -116,10 +128,10 @@ export async function createNetworkWatch(
     count(p, label, now);
   };
   const end = (p: Record<string, unknown>) => {
-    const was = live.size;
+    const was = counted().length;
     live.delete(id(p));
     idle.delete(id(p));
-    if (was > 0 && live.size === 0) quietAt = realNow();
+    if (was > 0 && counted().length === 0) quietAt = realNow();
   };
 
   const offs = [
@@ -178,11 +190,11 @@ export async function createNetworkWatch(
   return {
     waiting() {
       sweep();
-      return live.size > 0;
+      return counted().length > 0;
     },
     labels() {
       sweep();
-      return [...live.values()].map((c) => c.label);
+      return counted().map(([, c]) => c.label);
     },
     ignored() {
       sweep();
@@ -190,7 +202,7 @@ export async function createNetworkWatch(
     },
     quietSince() {
       sweep();
-      return live.size > 0 ? null : quietAt;
+      return counted().length > 0 ? null : quietAt;
     },
     waitsSince(realMs) {
       sweep();
@@ -205,12 +217,16 @@ export async function createNetworkWatch(
     loading() {
       sweep();
       const open = new Set(documents.values());
-      return [...live.keys()].some((k) => open.has(k));
+      return counted().some(([k]) => open.has(k));
     },
     follow() {
-      for (const c of live.values()) c.followed = true;
+      for (const [, c] of counted()) c.followed = true;
     },
     followedDataAt: () => followedDataAt,
+    ignore(ids) {
+      ignoring = new Set(ids);
+    },
+    ignoredDataAt: () => ignoredDataAt,
     stop,
   };
 }

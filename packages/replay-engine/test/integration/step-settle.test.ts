@@ -193,6 +193,37 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
+  // DEM-204: inside a server stretch frames come as fast as the machine
+  // captures them. Red if one counts toward the quiet window or the cap.
+  it("counts no frame that followed the server, toward quiet or the cap", async () => {
+    await withPage(async (page) => {
+      // Frames 1 to `server` follow the server; the page changes on each
+      // frame up to `changing`.
+      const run = (server: number, changing: number) =>
+        page.evaluate(`(async () => {
+          let asked = [];
+          window.requestAnimationFrame = (cb) => { asked.push(cb); return 0; };
+          let answer = null;
+          ${stepSettleExpression(400, CAP, 12, 20)}.then((r) => { answer = r; });
+          let frames = 0;
+          while (answer === null && frames < 100) {
+            frames++;
+            window.__demomanServerFrame = frames <= ${server};
+            if (frames <= ${changing}) document.body.setAttribute("data-n", String(frames));
+            await new Promise((r) => setTimeout(r, 0));
+            const run = asked; asked = [];
+            for (const cb of run) cb();
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          return { frames, stopped: answer && answer.stopped };
+        })()`) as Promise<{ frames: number; stopped: string }>;
+      // Quiet: 12 frames after the server's 30.
+      expect(await run(30, 0)).toEqual({ frames: 42, stopped: "quiet" });
+      // The cap: 20 frames after the server's 30, on a page always changing.
+      expect(await run(30, 100)).toEqual({ frames: 50, stopped: "cap" });
+    });
+  });
+
   it("answers unsettled at the cap on a page that never stops", async () => {
     await withPage(async (page) => {
       await page.click("#never");

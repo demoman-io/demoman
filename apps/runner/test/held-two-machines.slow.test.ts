@@ -201,4 +201,59 @@ describe("a held recording", () => {
     },
     BOTH_MS,
   );
+
+  // DEM-204. The click asks for a streamed answer a moment later, so the
+  // step's settle is asked before it opens and runs over it. Chunks 600 ms
+  // apart: 12 captured frames fit in a gap on a fast machine and not on a
+  // slowed one, and the settle's cap ran on the page's clock, which follows
+  // the server there. Red while either decides where the settle ends.
+  it(
+    "a settle over a streamed answer ends on the same frame on any machine",
+    async () => {
+      const s = createServer((req, res) => {
+        if (req.url === "/answer") {
+          res.writeHead(200, { "content-type": "text/plain" });
+          let n = 0;
+          const send = () => {
+            res.write(`chunk ${++n} `);
+            if (n < 3) setTimeout(send, 600);
+            else setTimeout(() => res.end(), 100);
+          };
+          send();
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(
+          `<!doctype html><meta charset=utf-8><link rel=icon href="data:,"><style>body{margin:0;font:16px monospace}button{position:absolute;left:40px;width:160px;height:40px}#ask{top:40px}#next{top:120px}#log{position:absolute;left:240px;top:40px;margin:0}</style><button id=ask>Ask</button><button id=next>Next</button><p id=log>-</p><script>ask.onclick=()=>setTimeout(async()=>{const r=(await fetch("/answer")).body.getReader();const d=new TextDecoder();let t="";for(;;){const c=await r.read();if(c.done)break;t+=d.decode(c.value);log.textContent=t}},100)</script>`,
+        );
+      });
+      const at = await listenOnLoopback(s);
+      try {
+        const steps = [
+          { do: "click", on: { stableId: "ask" }, zoom: false },
+          { do: "click", on: { stableId: "next" }, zoom: false },
+        ];
+        const fast = await timingOf(await record(home, at, steps));
+        const slowed = await record(home, at, steps, {}, LAG_MS);
+        const slow = await timingOf(slowed);
+        const said = JSON.stringify({
+          network: slowed.bundle.networkSpans,
+          fast: fast.timing,
+          slow: slow.timing,
+        });
+        // Premise: the answer was a network stretch.
+        expect(
+          (slowed.bundle.networkSpans ?? []).some((n) =>
+            n.label.includes("GET /answer"),
+          ),
+          said,
+        ).toBe(true);
+        expect(slow.timing.stepFrames, said).toEqual(fast.timing.stepFrames);
+        expect(slow.timing.frames, said).toBe(fast.timing.frames);
+      } finally {
+        s.close();
+      }
+    },
+    BOTH_MS,
+  );
 });

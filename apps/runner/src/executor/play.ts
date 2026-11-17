@@ -328,9 +328,9 @@ async function holdClock(
       const bytes = decodeBase64(String(reply.data ?? ""));
       return { bytes, ...jpegSize(bytes) };
     },
-    evaluate: async (source, arg) => {
+    evaluate: async (source, arg, server) => {
       const reply = await cdp.send("Runtime.evaluate", {
-        expression: `(${source})(${JSON.stringify(arg)})`,
+        expression: `(${source})(${JSON.stringify(arg)}, ${server})`,
         returnByValue: true,
       });
       const thrown = reply.exceptionDetails as

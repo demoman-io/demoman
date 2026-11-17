@@ -48,9 +48,9 @@ const EPS = HELD_EPS_MS;
  *  shortcut: said, not held, and only a video of this document (none in a
  *  shadow root or a frame); holding one means seeking it every frame.
  *  Upgrade if recordings of pages with video matter. */
-export const PIN_ANIMATIONS = `(v) => {
+export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
-    typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v) : [];
+    typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v, server) : [];
   const cssPaused = (a) => {
     const el = a.animationName && a.effect && a.effect.target;
     if (!el) return false;
@@ -118,9 +118,11 @@ export const PIN_ANIMATIONS = `(v) => {
  *  animation frames on its real clock even while page time is held
  *  (measured 2026-11-15, apps/runner/compare/held-probe-matrix.mjs), so the
  *  page's `requestAnimationFrame` queues instead, and `PIN_ANIMATIONS` runs
- *  the queue once per captured frame (`__demomanFlushFrames(heldMs)`), as a
- *  browser runs one frame's callbacks. A callback asked for inside a frame
- *  runs on the next.
+ *  the queue once per captured frame (`__demomanFlushFrames(heldMs, server)`),
+ *  as a browser runs one frame's callbacks. A callback asked for inside a
+ *  frame runs on the next. `server`: the frame was shot following the
+ *  server, which a callback reads as `window.__demomanServerFrame` (a held
+ *  settle counts no such frame, DEM-204).
  *
  *  The callbacks' timestamp is the held time on this document's clock, not a
  *  read of `performance.now()`, which Chrome clamps to 100 µs with a jitter
@@ -196,8 +198,9 @@ export const HELD_FRAMES_SCRIPT = `(() => {
   ])
     for (const name of on ? names : [])
       if (typeof on[name] === "function") on[name] = watched(on[name]);
-  const flush = (v) => {
+  const flush = (v, server) => {
     if (origin === null) origin = FRAME * Math.round((v - performance.now()) / FRAME);
+    window.__demomanServerFrame = !!server;
     const due = [...queue.keys()];
     const t = v - origin;
     for (const id of due) {
@@ -219,7 +222,7 @@ export const HELD_FRAMES_SCRIPT = `(() => {
         if (!said.has(what)) { said.add(what); out.push(what); }
         continue;
       }
-      if (run) for (const what of run(v)) if (!said.has(what)) { said.add(what); out.push(what); }
+      if (run) for (const what of run(v, server)) if (!said.has(what)) { said.add(what); out.push(what); }
     }
     return out;
   };
@@ -270,11 +273,14 @@ export interface HeldClock extends Clock {
    *  heard over is still owed when the wait on the page ends are not played
    *  on the way out (a wait that follows at once plays them, inside its own
    *  reported stretch), a connection still open is left, and real time that
-   *  passes outside a wait is not credited to one. */
-  waiting<T>(run: () => Promise<T>): Promise<T>;
-  /** The held time data first arrived at, outside a wait, on a connection
-   *  the recording had followed: an answer that landed where the machine put
-   *  it. Null when none did. */
+   *  passes outside a wait is not credited to one. `ignore`: requests this
+   *  wait does not wait for (a step's settle: ones opened before its
+   *  request cap), which it does not follow either; data on one during it
+   *  is unpaced (DEM-204). */
+  waiting<T>(run: () => Promise<T>, ignore?: readonly string[]): Promise<T>;
+  /** The held time data first arrived at, outside a wait or on a request
+   *  the wait left out, on a connection the recording had followed: an
+   *  answer that landed where the machine put it. Null when none did. */
   unpaced(): number | null;
   /** Re-applies the hold to a new document, continuing the same time. */
   rehold(): Promise<void>;
@@ -297,7 +303,9 @@ export function createHeldClock(deps: {
   scale: number;
   realNow: () => number;
   capture: () => Promise<{ bytes: Uint8Array; width: number; height: number }>;
-  evaluate: (source: string, arg: number) => Promise<unknown>;
+  /** Runs `source`, a page function, with the held time and whether the
+   *  frame follows the server (`PIN_ANIMATIONS`). */
+  evaluate: (source: string, arg: number, server: boolean) => Promise<unknown>;
   /** Waits real time (default: a timer). */
   wait?: (ms: number) => Promise<void>;
 }): HeldClock {
@@ -426,10 +434,11 @@ export function createHeldClock(deps: {
         );
     });
 
-  const shoot = async () => {
+  /** `server`: the frame was shot following the server (a stretch's). */
+  const shoot = async (server = false) => {
     let failed: unknown;
     try {
-      failed = await deps.evaluate(PIN_ANIMATIONS, held);
+      failed = await deps.evaluate(PIN_ANIMATIONS, held, server);
     } catch (e) {
       throw new Error(
         `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
@@ -488,7 +497,7 @@ export function createHeldClock(deps: {
       await grant(frameFrom(held + owed));
       unshot = false;
       open.endMs = held;
-      await shoot();
+      await shoot(true);
       return true;
     }
     return false;
@@ -582,9 +591,10 @@ export function createHeldClock(deps: {
         // Not only while the connection is open: a stream's last chunk and
         // its end can both land inside one designed frame (review, Session C).
         if (
-          !following &&
-          (network.followedDataAt() ?? Number.NEGATIVE_INFINITY) >
-            Math.max(looked.real, leftWaitAt)
+          ((following
+            ? network.ignoredDataAt()
+            : network.followedDataAt()) ?? Number.NEGATIVE_INFINITY) >
+          Math.max(looked.real, leftWaitAt)
         )
           unpacedAt ??= held;
         if (following && network.waiting()) {
@@ -638,7 +648,7 @@ export function createHeldClock(deps: {
           }
           span.endMs = held;
           for (const l of labels) span.labels.add(l);
-          await shoot();
+          await shoot(true);
           continue;
         }
         if (following && (await owedPaid(looked))) continue;
@@ -668,13 +678,15 @@ export function createHeldClock(deps: {
         await shoot();
       }
     },
-    async waiting(run) {
+    async waiting(run, ignore) {
+      if (ignore !== undefined) network.ignore(ignore);
       marked++;
       let out: Awaited<ReturnType<typeof run>>;
       try {
         out = await run();
       } finally {
         marked--;
+        if (ignore !== undefined) network.ignore([]);
         if (marked === 0) leftWaitAt = realNow();
       }
       // A frame skipped for a wait is still taken. Frames a wait heard over

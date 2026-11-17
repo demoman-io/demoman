@@ -16,6 +16,9 @@ const POLL_MS = 25;
 export interface RequestTracker {
   /** Requests in flight that opened after `openedAfter` (every one when it is left out). */
   inFlight(openedAfter?: number): number;
+  /** The ids of the requests in flight that opened at or before `at`: the
+   *  ones a step's wait leaves out (`inFlight`). */
+  openedBy(at: number): string[];
   /** True once none opened after `openedAfter` is in flight; false when `deadlineMs` arrives first. */
   idle(
     deadlineMs: number,
@@ -86,6 +89,8 @@ export async function trackRequests(
   };
   return {
     inFlight,
+    openedBy: (at) =>
+      [...open].flatMap(([id, r]) => (r.at <= at ? [id] : [])),
     async idle(deadlineMs, sleep, openedAfter) {
       while (inFlight(openedAfter) > 0) {
         if (now() >= deadlineMs) return false;

@@ -44,10 +44,21 @@ export interface StepSettleReport {
  * the server took before it: 400 ms was 12 frames or 13, and 383 ms tipped
  * the same way from a half-frame start (traced 2026-11-16, twice).
  */
+/**
+ * `capFrames`, with `quietFrames`: the cap too is counted in frames, and a
+ * frame shot while following the server (`window.__demomanServerFrame`)
+ * counts toward neither. Both then end at the same page frame on any
+ * machine however long the server took: inside a server stretch frames come
+ * as fast as the machine captures them and the page's clock follows real
+ * time, so a settle over a streamed answer ended at its cap on one run and
+ * quiet on another, 7 frames apart (DEM-204, Chatbot, 2026-11-16). `capMs`
+ * is then only the bound with the server's time in it.
+ */
 export function stepSettleExpression(
   quietMs: number,
   capMs: number,
   quietFrames?: number,
+  capFrames?: number,
 ): string {
   return `(() => {
   const ${STEP_SETTLE_MARKER} = true;
@@ -57,6 +68,8 @@ export function stepSettleExpression(
   // fraction of a millisecond after the question: told apart by the page's
   // clock, it counted or not by which whole millisecond it fell in.
   let still = 0;
+  // Frames counted toward a cap in frames.
+  let counted = 0;
   let painted = false;
   let animations = 0;
   let watcher = null;
@@ -103,7 +116,10 @@ export function stepSettleExpression(
       subtree: true, childList: true, attributes: true, characterData: true,
     });
   } catch (e) { return Promise.resolve(reply("unwatched")); }
-  const frame = () => new Promise((r) => requestAnimationFrame(() => { still++; r(); }));
+  const frame = () => new Promise((r) => requestAnimationFrame(() => {
+    ${capFrames === undefined ? "still++;" : "if (!window.__demomanServerFrame) { still++; counted++; }"}
+    r();
+  }));
   const work = (async () => {
     await frame();
     painted = true;
@@ -112,6 +128,7 @@ export function stepSettleExpression(
       const n = countAnimations();
       if (failed) return "animationReadFailed";
       if (n === 0 && quietNow()) return "quiet";
+      ${capFrames === undefined ? "" : `if (counted >= ${capFrames}) return "cap";`}
       await frame();
     }
   })();

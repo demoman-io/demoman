@@ -1672,22 +1672,36 @@ export async function runWalk(
    * page mid-unload (Review Focus 2).
    */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
+    // Held: the budget is page time outside server stretches, as the probe
+    // counts its cap (`stepSettleExpression`), so the server never spends
+    // it (DEM-204); with the server's time in it, the settle stops a
+    // request cap later.
+    // Read only when held: a clock read is a moment of a real clock's.
+    const began = held === undefined ? 0 : at();
+    const outer = deadline + STEP_REQUEST_CAP_MS;
+    const left = () =>
+      held === undefined
+        ? deadline - at()
+        : at() < outer
+          ? sinceActEnd(deadline - began, began)
+          : 0;
     for (;;) {
       // Held: also while the clock owes the server frames, which the
       // probe's quiet window would otherwise run inside (`HeldClock.owing`).
       if (held === undefined)
         while (topLoading && at() < deadline) await clock.sleep(50);
       else
-        while ((held.owing() || (await documentLoading())) && at() < deadline)
+        while (
+          (held.owing() || (await documentLoading())) &&
+          left() > HELD_EPS_MS
+        )
           await clock.sleep(HELD_FRAME_MS);
-      const capMs = deadline - at();
-      if (capMs <= 0) {
+      const capMs = left();
+      if (capMs <= HELD_EPS_MS) {
         return [...(loading() ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
       }
       const navs = navigationsSeen;
       const commits = documentsCommitted;
-      // Read only when held: a clock read is a moment of a real clock's.
-      const asked = held === undefined ? 0 : at();
       let report: Partial<StepSettleReport> | undefined;
       let failure: unknown = null;
       try {
@@ -1701,40 +1715,20 @@ export async function runWalk(
                     ? stepSettleExpression(STEP_QUIET_MS, capMs)
                     : stepSettleExpression(
                         HELD_STEP_QUIET_MS,
-                        capMs,
+                        outer - at(),
                         Math.round(HELD_STEP_QUIET_MS / HELD_FRAME_MS),
+                        Math.round(capMs / HELD_FRAME_MS),
                       ),
                 awaitPromise: true,
                 returnByValue: true,
               },
               heldProbe,
             ),
-            capMs + PROBE_GRACE_MS,
+            (held === undefined ? capMs : outer - at()) + PROBE_GRACE_MS,
           ),
         ) as Partial<StepSettleReport> | undefined;
       } catch (error) {
         failure = error;
-      }
-      // Held: the page counted its window in its frames, and a wait that
-      // began after it was asked (the new page's icon, which Chrome fetches
-      // once the page has loaded) put the server's frames among them, as
-      // many as the machine made them and each as long as the server took:
-      // the window is then played out to its length in held frames, so its
-      // held part is the same on any machine (6 or 7 frames after a
-      // navigation over five recordings on one Mac, 2026-11-16). Within one
-      // more window: a page that waits on its server throughout (a stream)
-      // is on the server's time anyway.
-      if (
-        held !== undefined &&
-        failure === null &&
-        sinceActEnd(at() - asked, asked) > HELD_EPS_MS
-      ) {
-        const by = at() + HELD_STEP_QUIET_MS;
-        for (;;) {
-          const left = sinceActEnd(HELD_STEP_QUIET_MS, asked);
-          if (left <= HELD_EPS_MS || at() >= by) break;
-          await clock.sleep(left);
-        }
       }
       // Asked again when the answer may be the page being left. Held: only
       // when a new document committed or one's request is open. A navigation
@@ -1746,7 +1740,7 @@ export async function runWalk(
         held === undefined
           ? navigationsSeen !== navs
           : documentsCommitted !== commits;
-      if ((replaced || loading()) && at() < deadline) {
+      if ((replaced || loading()) && left() > HELD_EPS_MS) {
         continue;
       }
       const words = loading() ? [STILL_LOADING] : [];
@@ -2074,9 +2068,18 @@ export async function runWalk(
     // take would not have had, nor jitter one across that line.
     roomAdded += at() - from;
   };
+  /** Held: the requests the settle leaves out (`settleAndCaptureNow`'s
+   *  `openedAfter`) are not followed either, or a stream opened before it
+   *  kept every settle in a stretch that never ended (DEM-204). */
   const settleAndCapture = (
     ...asked: Parameters<typeof settleAndCaptureNow>
-  ): Promise<void> => waitingOn(() => settleAndCaptureNow(...asked));
+  ): Promise<void> =>
+    held === undefined
+      ? settleAndCaptureNow(...asked)
+      : held.waiting(
+          () => settleAndCaptureNow(...asked),
+          tracker?.openedBy(at() - STEP_REQUEST_CAP_MS),
+        );
 
   // None on a held clock: its frames are filed by `heldFrames`.
   const recorder =
@@ -4153,7 +4156,7 @@ export async function runWalk(
           "answerUnpaced",
           atMs,
           atMs,
-          "an answer was still arriving during a pause or a rest, which is not paced by the server",
+          "an answer was still arriving during a pause, a rest or a step's settle that did not wait for it, which is not paced by the server",
         ),
       );
     }

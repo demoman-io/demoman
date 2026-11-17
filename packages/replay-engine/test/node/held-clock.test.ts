@@ -46,12 +46,14 @@ function setup(
     waits?: boolean;
     /** When data last arrived on a followed connection, given the real time. */
     followedDataAt?: (real: number) => number | null;
+    /** When data last arrived on a left-out followed connection. */
+    ignoredDataAt?: (real: number) => number | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
   const policies: Record<string, unknown>[] = [];
   const log: string[] = [];
-  const pins: { source: string; arg: number }[] = [];
+  const pins: { source: string; arg: number; server: boolean }[] = [];
   const sent: string[] = [];
   let real = 0;
   let shots = 0;
@@ -92,6 +94,8 @@ function setup(
     loading: () => o.loading?.(real) ?? false,
     follow: () => void log.push("follow"),
     followedDataAt: () => o.followedDataAt?.(real) ?? null,
+    ignore: (ids) => void log.push(`ignore ${ids.join(",")}`),
+    ignoredDataAt: () => o.ignoredDataAt?.(real) ?? null,
     stop() {},
   };
   const clock = createHeldClock({
@@ -111,9 +115,9 @@ function setup(
       log.push(`wait ${ms}`);
       real += ms;
     },
-    evaluate: async (source, arg) => {
+    evaluate: async (source, arg, server) => {
       log.push(`pin ${arg}`);
-      pins.push({ source, arg });
+      pins.push({ source, arg, server });
       return o.pin ? o.pin(arg) : [];
     },
   });
@@ -702,6 +706,51 @@ describe("createHeldClock", () => {
     });
     await clock.sleep(2 * HELD_FRAME_MS);
     expect(clock.unpaced()).toBeNull();
+  });
+
+  // DEM-204: a step's settle leaves out requests it does not wait for, and
+  // an answer arriving on one then landed where the machine put it. Red if
+  // the left-out set outlives the wait, or that answer is unsaid.
+  it("leaves out a wait's ignored requests for that wait, and says data on them", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance, log } = setup({
+      waits: false,
+      ignoredDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.waiting(async () => {
+      await clock.sleep(HELD_FRAME_MS);
+      expect(clock.unpaced()).toBeNull();
+      advance(50);
+      dataAt = 40;
+      await clock.sleep(HELD_FRAME_MS);
+    }, ["7"]);
+    expect(log.filter((l) => l.startsWith("ignore"))).toEqual([
+      "ignore 7",
+      "ignore ",
+    ]);
+    expect(clock.unpaced()).toBe(HELD_FRAME_MS);
+  });
+
+  // DEM-204: a held settle counts no frame shot following the server. Red
+  // if the page is not told which frames those are.
+  it("tells the page which frames followed the server", async () => {
+    const { clock, pins } = setup({
+      waiting: (real) => real >= 40 && real < 140,
+      quietSince: (real) => (real >= 140 ? 140 : null),
+      waitsSince: waitsOf({ from: 40, labels: ["GET /a"] }),
+      grantMs: 20,
+    });
+    await clock.hold(START);
+    await clock.sleep(10 * HELD_FRAME_MS);
+    const spans = clock.networkSpans();
+    expect(spans.length).toBe(1);
+    const inSpan = (ms: number) =>
+      spans.some((s) => ms > s.startMs && ms <= s.endMs);
+    // Premise: frames on both sides.
+    expect(pins.some((p) => p.server)).toBe(true);
+    expect(pins.some((p) => !p.server)).toBe(true);
+    for (const p of pins) expect(p.server, `at ${p.arg}`).toBe(inSpan(p.arg));
   });
 
   // Session A, 2026-11-16: the walk plays frames while a document's request
