@@ -138,6 +138,7 @@ describe("launch", () => {
       const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
       await cdp.detach();
       const pid = processInfo.find((p) => p.type === "browser")?.id;
+      expect(pid, JSON.stringify(processInfo)).toBeTypeOf("number");
       const argv = execFileSync(
         "ps",
         ["-ww", "-o", "args=", "-p", String(pid)],
@@ -149,7 +150,7 @@ describe("launch", () => {
       // Premise: this is the command line launch() built, not some other.
       expect(argv, evidence).toContain("--headless");
       const without = logs.some((l) =>
-        l.includes("cannot run Chromium's sandbox"),
+        l.includes("would not start with Chromium's sandbox"),
       );
       if (process.platform === "darwin") expect(without, evidence).toBe(false);
       expect(argv.includes("--no-sandbox"), evidence).toBe(without);
@@ -158,29 +159,59 @@ describe("launch", () => {
     }
   }, 30_000);
 
-  // Red: rethrow instead of relaunching, or relaunch without the log line.
-  it("launches without the sandbox on a machine that cannot run it, and says so", async () => {
+  // Red: rethrow instead of relaunching, relaunch without the log line, or
+  // relaunch only on Playwright's "Chromium sandboxing failed!" rewrite.
+  it("launches without the sandbox on a machine that cannot run it, and says so once", async () => {
     const dir = await mkdtemp(join(tmpdir(), "demoman-nosandbox-"));
     const exe = join(dir, "chrome");
-    // Fails as Chromium does where user namespaces are closed, unless told
-    // --no-sandbox; then it is the real browser.
+    // Fails unless told --no-sandbox, then is the real browser. Its words
+    // are a namespace failure Playwright does not rewrite.
     await writeFile(
       exe,
-      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho "No usable sandbox! (stand-in)" >&2\nexit 1\n`,
+      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho "Failed to move to new namespace (stand-in)" >&2\nexit 1\n`,
     );
     await chmod(exe, 0o755);
     const logs: string[] = [];
-    const launched = await launch({
-      executablePath: exe,
-      log: (l) => logs.push(l),
-    });
+    const log = (l: string) => logs.push(l);
+    const launched = await launch({ executablePath: exe, log });
     try {
       // Premise: the relaunch reached a real browser.
       expect(launched.browser.isConnected()).toBe(true);
-      expect(logs.join("\n")).toContain("cannot run Chromium's sandbox");
+      expect(logs.join("\n")).toContain(
+        "would not start with Chromium's sandbox",
+      );
     } finally {
       await launched.close();
     }
+    // The next launch goes straight without it, and does not say so again.
+    const again = await launch({ executablePath: exe, log });
+    try {
+      expect(again.browser.isConnected()).toBe(true);
+      expect(logs, logs.join("\n")).toHaveLength(1);
+    } finally {
+      await again.close();
+    }
+  }, 30_000);
+
+  // Red: throw the relaunch's error without the first one's words.
+  it("names both failures when the browser will not start either way", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-nobrowser-"));
+    const exe = join(dir, "chrome");
+    await writeFile(
+      exe,
+      `#!/bin/sh\necho "nothing here (stand-in)" >&2\nexit 1\n`,
+    );
+    await chmod(exe, 0o755);
+    const logs: string[] = [];
+    const failed = await launch({
+      executablePath: exe,
+      log: (l) => logs.push(l),
+    })
+      .then(() => null)
+      .catch((error: unknown) => String(error));
+    expect(failed).toContain("with its sandbox, it had failed first");
+    // Nothing claims a browser runs.
+    expect(logs).toEqual([]);
   }, 30_000);
 
   // Red: drop endBrowser's kill, leaving only `browser.close()`, which waits

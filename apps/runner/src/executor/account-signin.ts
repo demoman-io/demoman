@@ -243,16 +243,19 @@ async function runSteps(
             .locator(`[${SIGN_IN_MARK}="${i}"]`)
             .elementHandle({ timeout: left() });
           try {
-            // The main frame's URL, which the browser keeps: a page locator
+            // The main frame's URL (`page.url()`), which the browser keeps: a page locator
             // resolves only there, so that is the field's frame. Never
             // `handle.ownerFrame()`: Playwright asks the page for
             // `ownerDocument.documentElement`, and a field whose getter
             // answers an iframe of the site reads as that iframe (DEM-116).
-            const here = new URL(page.mainFrame().url()).origin;
+            const url = page.url();
+            const here = URL.canParse(url) ? new URL(url).origin : null;
             if (here !== origin && /\{secret:/.test(step.text)) {
               throw new StepFailed(
                 "secretOffOrigin",
-                `the page is on ${here}, not ${origin}, so the secret was not typed — a sign-in never types a secret off its own site`,
+                here === null
+                  ? `the field's page could not be told, so the secret was not typed — a sign-in never types a secret off its own site`
+                  : `the page is on ${here}, not ${origin}, so the secret was not typed — a sign-in never types a secret off its own site`,
               );
             }
             pathNow();

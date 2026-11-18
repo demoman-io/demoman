@@ -196,30 +196,47 @@ async function visibleUserAgentOr(
   }
 }
 
-/** Playwright's own rewrite of Chromium's "No usable sandbox!" and its kin
- *  (`doRewriteStartupLog`), so one marker covers every such cause. */
-export const SANDBOX_FAILED = "Chromium sandboxing failed!";
+/** Per executable, why it would not start with its sandbox in this process:
+ *  later launches go straight without it instead of failing first again. */
+const sandboxRefused = new Map<string, string>();
 
 /**
  * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
  * asked not to, and nearly every page a run opens is a third party's
  * (DEM-120). A machine that cannot sandbox (a container running as root, a
  * Linux whose user namespaces are closed) still launches, without it, and
- * says so.
+ * says so once. Any failure counts, not only Playwright's "Chromium
+ * sandboxing failed!": Chromium's namespace and zygote failures do not all
+ * carry it, and a browser that would not start either way still fails.
  */
 async function launchSandboxed(
   options: LaunchOptions,
   log: ((line: string) => void) | undefined,
 ): Promise<Browser> {
+  const exe = options.executablePath ?? "";
+  if (sandboxRefused.has(exe))
+    return chromium.launch({ ...options, chromiumSandbox: false });
+  let first: string;
   try {
     return await chromium.launch({ ...options, chromiumSandbox: true });
   } catch (error) {
-    if (!String(error).includes(SANDBOX_FAILED)) throw error;
-    log?.(
-      "this machine cannot run Chromium's sandbox, so the browser runs without it: the pages it opens are not walled off from this machine",
-    );
-    return chromium.launch({ ...options, chromiumSandbox: false });
+    first = String(error instanceof Error ? error.message : error).split(
+      "\n",
+    )[0] as string;
   }
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ ...options, chromiumSandbox: false });
+  } catch (error) {
+    if (error instanceof Error)
+      error.message += `\n(with its sandbox, it had failed first: ${first})`;
+    throw error;
+  }
+  sandboxRefused.set(exe, first);
+  log?.(
+    `the browser would not start with Chromium's sandbox (${first}), so it runs without it: the pages it opens are not walled off from this machine`,
+  );
+  return browser;
 }
 
 /**
