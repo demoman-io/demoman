@@ -274,8 +274,9 @@ const steps: Record<number, MigrationStep> = {
   // v12 -> v13 (audit run 1): a mask's ends move to the frames' own time,
   // as removed pieces are, so a later cut cannot slide or drop a redaction.
   // The output offset is taken as the source one: exact for a mask with no
-  // cut, gap or hold between its step and its edge.
-  12: (doc) => {
+  // cut, gap or hold between its step and its edge. Not converted where
+  // there is one, but said (DEM-115): the author checks the mask.
+  12: (doc, notes) => {
     const edits = doc.edits;
     if (edits === null || typeof edits !== "object") {
       return { ...doc, schemaVersion: 13 };
@@ -299,6 +300,23 @@ const steps: Record<number, MigrationStep> = {
           };
         })
       : e.masks;
+    const ranged = (Array.isArray(e.masks) ? e.masks : []).filter(
+      (m) =>
+        m !== null &&
+        typeof m === "object" &&
+        [
+          (m as Record<string, unknown>).start,
+          (m as Record<string, unknown>).end,
+        ].some((p) => p !== null && typeof p === "object" && "offsetMs" in p),
+    ).length;
+    const retimed = ["gaps", "holds", "removed"].some(
+      (k) => Array.isArray(e[k]) && (e[k] as unknown[]).length > 0,
+    );
+    if (ranged > 0 && retimed) {
+      notes.push(
+        `${ranged} ${ranged === 1 ? "mask on this take was" : "masks on this take were"} drawn before Demoman 0.7.3, timed on the edited video. A changed gap, a hold or a removed piece can move where ${ranged === 1 ? "it starts or ends" : "they start or end"} now: check ${ranged === 1 ? "it still covers" : "each still covers"} what it should.`,
+      );
+    }
     return { ...doc, edits: { ...e, masks }, schemaVersion: 13 };
   },
   // v13 -> v14 (2026-10-30): a click may carry `at`, and a `press` action
@@ -440,7 +458,8 @@ export function migrateHoldsToGaps(doc: SceneDocument): SceneDocument {
 
 /**
  * `notes` collects a sentence for each thing a step took away that the
- * author made (spec split-tool: text overlays); the caller shows them.
+ * author made (spec split-tool: text overlays), or may have moved (a
+ * pre-0.7.3 mask, DEM-115); the caller shows them.
  */
 export function migrateToCurrent(
   raw: unknown,
