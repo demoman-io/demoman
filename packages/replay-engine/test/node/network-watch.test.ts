@@ -478,6 +478,33 @@ describe("createNetworkWatch", () => {
     expect(await w.idle(page + 50, sleep)).toBe(true);
   });
 
+  // Review of DEM-202, finding 1: a request quiet past the cut-off that
+  // speaks again is the request it was, opened when it first did. Red if
+  // it is stamped anew and so falls inside a later wait's window.
+  it("keeps a resumed connection's first opening", async () => {
+    const { cdp, emit } = setup();
+    let page = 0;
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now, {
+      pageNow: () => page,
+    });
+    emit("Network.requestWillBeSent", start("1"));
+    now = 10_001;
+    page = 20_000;
+    expect(w.inFlight()).toBe(0); // premise: dropped for silence
+    emit("Network.dataReceived", { requestId: "1" });
+    expect(w.inFlight()).toBe(1);
+    expect(w.inFlight(14_000)).toBe(0);
+    // A redirect of a dropped request too.
+    emit("Network.requestWillBeSent", start("2"));
+    now = 20_002;
+    page = 40_000;
+    expect(w.inFlight(30_000)).toBe(0);
+    emit("Network.requestWillBeSent", start("2"));
+    expect(w.inFlight(30_000)).toBe(0);
+    expect(w.openedBefore(30_000)).toBe(1); // "2"; "1" is quiet again
+  });
+
   it("counts what opened before a window", async () => {
     const { cdp, emit } = setup();
     let page = 0;

@@ -90,17 +90,15 @@ export async function createNetworkWatch(
   const { pageOfWall } = clocks;
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
   // page: when it opened on the page's clock; seq: the order it opened in.
-  const live = new Map<
-    string,
-    {
-      label: string;
-      lastAt: number;
-      page: number;
-      seq: number;
-      frame?: string;
-      followed?: true;
-    }
-  >();
+  type Entry = {
+    label: string;
+    lastAt: number;
+    page: number;
+    seq: number;
+    frame?: string;
+    followed?: true;
+  };
+  const live = new Map<string, Entry>();
   let seq = 0;
   let followedDataAt: number | null = null;
   let since = Number.NEGATIVE_INFINITY;
@@ -109,7 +107,9 @@ export async function createNetworkWatch(
   let topId: string | null = null;
   /** The live connections that count: those in the window. */
   const counted = () => [...live].filter(([, c]) => c.page >= since);
-  const idle = new Map<string, string>(); // dropped for silence, may resume
+  /** Dropped for silence, kept whole: one that resumes is the request it
+   *  was, opened when it first did (review of DEM-202, finding 1). */
+  const idle = new Map<string, Entry>();
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
    *  connections it counted. */
@@ -131,7 +131,7 @@ export async function createNetworkWatch(
     for (const [k, c] of live)
       if (now - c.lastAt > IDLE_CONNECTION_MS) {
         name(c.label);
-        idle.set(k, c.label);
+        idle.set(k, c);
         live.delete(k);
         if (counted().length === 0) quietAt = c.lastAt + IDLE_CONNECTION_MS;
       }
@@ -140,7 +140,7 @@ export async function createNetworkWatch(
     p: Record<string, unknown>,
     label: string,
     now: number,
-    opened: { page: number; seq: number; frame?: string },
+    opened: Omit<Entry, "label" | "lastAt">,
     sent = now,
     page?: number,
   ) => {
@@ -176,6 +176,7 @@ export async function createNetworkWatch(
       known.lastAt = now;
       return;
     }
+    if (resume(p, now)) return;
     const wall = typeof p.wallTime === "number" ? p.wallTime * 1000 : null;
     const own = p.type === "Fetch" || p.type === "XHR";
     const opened = {
@@ -210,18 +211,22 @@ export async function createNetworkWatch(
       if (c.followed && c.page < since) outsideDataAt = now;
       return;
     }
-    const label = idle.get(id(p));
-    if (label === undefined) return;
-    idle.delete(id(p));
-    count(p, label, now, { page: pageNow(), seq: seq++ });
+    resume(p, now);
   };
+  /** A request dropped for silence heard from again counts again. */
+  function resume(p: Record<string, unknown>, now: number): boolean {
+    const { label, lastAt: _, ...opened } = idle.get(id(p)) ?? {};
+    if (label === undefined) return false;
+    idle.delete(id(p));
+    count(p, label, now, opened as Omit<Entry, "label" | "lastAt">);
+    return true;
+  }
   const forget = (
     gone: (k: string, c: { seq: number; frame?: string }) => boolean,
   ) => {
     const was = counted().length;
     for (const [k, c] of live) if (gone(k, c)) live.delete(k);
-    for (const k of idle.keys())
-      if (gone(k, { seq: Number.NEGATIVE_INFINITY })) idle.delete(k);
+    for (const [k, c] of idle) if (gone(k, c)) idle.delete(k);
     if (was > 0 && counted().length === 0) quietAt = realNow();
   };
   const end = (p: Record<string, unknown>) => forget((k) => k === id(p));

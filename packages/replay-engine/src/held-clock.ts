@@ -52,8 +52,11 @@ const VIDEO_STALL_PINS = 15;
  *  one apart between two held recordings).
  *  shortcut: said, not held, and only a video of this document (none in a
  *  shadow root or a frame); holding one means seeking it every frame.
- *  One that stays on one frame while playing (its data stalled, or the
- *  recording froze it) is said too, once per video (`VIDEO_STALL_PINS`).
+ *  One whose `currentTime` stands still while playing (its data stalled)
+ *  is said too, once per video (`VIDEO_STALL_PINS`).
+ *  shortcut: a picture that stands still while `currentTime` moves (what
+ *  DEM-207 saw on a held recording) is not seen; upgrade by counting the
+ *  frames it presents (`requestVideoFrameCallback`) once that is measured.
  *  Upgrade if recordings of pages with video matter. */
 export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
