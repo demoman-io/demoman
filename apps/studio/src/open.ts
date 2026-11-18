@@ -31,7 +31,7 @@ export type StudioAnswer =
 
 const STALE_NOTE = "A stale Studio record was replaced.";
 const REPLACED_LATER_NOTE =
-  "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.";
+  "An older Studio is running an export, an add to a repo or a CI setup; it stays open until that work ends and its window closes, and the next Studio call starts the new version.";
 const PING_TIMEOUT_MS = 2_000;
 const PING_TRIES = 3;
 const WINDOW_TIMEOUT_MS = 30_000;
