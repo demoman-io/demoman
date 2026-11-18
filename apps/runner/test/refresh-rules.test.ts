@@ -154,6 +154,26 @@ describe("recordWithRetry", () => {
     expect(got.answer).toBe(degraded);
     expect(got.verdict).toMatchObject({ kind: "degraded" });
   });
+  // Review of 2026-11-16. Red when a held recording of a page with a frame
+  // from another site, a playing video or a quiet connection is recorded
+  // twice: the second recording has them too.
+  it("does not record again for what a held recording could not hold", async () => {
+    const unheld = {
+      ...clean,
+      frames: {
+        spans: 2,
+        degradations: ["animationUnpinned", "connectionIgnored"],
+      },
+    };
+    const r = runs(unheld, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(1);
+    expect(got.verdict).toMatchObject({ kind: "degraded" });
+    if (got.verdict.kind !== "degraded") throw new Error("premise");
+    expect(degradedNote(got.verdict.problems)).toMatch(
+      /^recorded with problems the page itself made/,
+    );
+  });
   // Red when a step that never settled sends the flow round again: a stream
   // does not settle on the second recording either (DEM-138 trial).
   it("does not record again for an unsettled step, and still says why", async () => {

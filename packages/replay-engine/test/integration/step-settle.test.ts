@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
+  PIN_ANIMATIONS,
   type StepSettleReport,
   stepSettleExpression,
 } from "../../src/index.js";
@@ -138,6 +139,88 @@ describe("the step-settle probe in a real page", () => {
       expect(report.quiet, JSON.stringify(report)).toBe(true);
       expect(report.stopped, JSON.stringify(report)).toBe("quiet");
       expect(report.waitedMs, JSON.stringify(report)).toBeLessThan(CAP);
+    });
+  });
+
+  // Traced 2026-11-16, twice: a window in milliseconds was met a frame
+  // apart by where on the frame grid it began (400 ms from a frame, 383 ms
+  // from half a frame), because the page reads whole milliseconds. Red if
+  // the held window is read off the page's clock again: the frames it takes
+  // then differ between these starts.
+  it("counts a held clock's quiet window in frames, wherever on the grid it began", async () => {
+    await withPage(async (page) => {
+      // A held page: frames a frame of page time apart, run by the test,
+      // and a clock that reads whole milliseconds. `changeAt`: a frame on
+      // which the page changes.
+      const framesToQuiet = (
+        startMs: number,
+        changeAt = -1,
+        firstMs = 1000 / 30,
+      ) =>
+        page.evaluate(`(async () => {
+          let t = ${startMs};
+          Date.now = () => Math.floor(t);
+          let asked = [];
+          window.requestAnimationFrame = (cb) => { asked.push(cb); return 0; };
+          let answer = null;
+          ${stepSettleExpression(400, CAP, 12)}.then((r) => { answer = r; });
+          let frames = 0;
+          while (answer === null && frames < 60) {
+            frames++;
+            t += frames === 1 ? ${firstMs} : 1000 / 30;
+            if (frames === ${changeAt}) document.body.setAttribute("data-n", String(frames));
+            await new Promise((r) => setTimeout(r, 0));
+            const run = asked; asked = [];
+            for (const cb of run) cb();
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          return { frames, quiet: answer && answer.quiet };
+        })()`) as Promise<{ frames: number; quiet: boolean }>;
+      for (const start of [1000, 1000 + 100 / 3, 1016.67, 1011, 999.9999])
+        expect(await framesToQuiet(start), `from ${start}`).toEqual({
+          frames: 12,
+          quiet: true,
+        });
+      // The question a third of a millisecond before a frame, in the same
+      // whole millisecond or the next: that frame counts either way.
+      for (const start of [1000.1, 1000.8])
+        expect(await framesToQuiet(start, -1, 0.33), `from ${start}`).toEqual({
+          frames: 12,
+          quiet: true,
+        });
+      // A change before frame 5 is drawn: 12 frames of quiet from that one.
+      expect(await framesToQuiet(1000, 5)).toEqual({ frames: 16, quiet: true });
+    });
+  });
+
+  // DEM-204: inside a server stretch frames come as fast as the machine
+  // captures them. Red if one counts toward the quiet window or the cap.
+  it("counts no frame that followed the server, toward quiet or the cap", async () => {
+    await withPage(async (page) => {
+      // Frames 1 to `server` follow the server; the page changes on each
+      // frame up to `changing`.
+      const run = (server: number, changing: number) =>
+        page.evaluate(`(async () => {
+          let asked = [];
+          window.requestAnimationFrame = (cb) => { asked.push(cb); return 0; };
+          let answer = null;
+          ${stepSettleExpression(400, CAP, 12, 20)}.then((r) => { answer = r; });
+          let frames = 0;
+          while (answer === null && frames < 100) {
+            frames++;
+            window.__demomanServerFrame = frames <= ${server};
+            if (frames <= ${changing}) document.body.setAttribute("data-n", String(frames));
+            await new Promise((r) => setTimeout(r, 0));
+            const run = asked; asked = [];
+            for (const cb of run) cb();
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          return { frames, stopped: answer && answer.stopped };
+        })()`) as Promise<{ frames: number; stopped: string }>;
+      // Quiet: 12 frames after the server's 30.
+      expect(await run(30, 0)).toEqual({ frames: 42, stopped: "quiet" });
+      // The cap: 20 frames after the server's 30, on a page always changing.
+      expect(await run(30, 100)).toEqual({ frames: 50, stopped: "cap" });
     });
   });
 
@@ -282,6 +365,174 @@ describe("the step-settle probe in a real page", () => {
         style: false,
         state: "running",
       });
+    });
+  });
+
+  // A held recording's pin leaves every animation paused where the held time
+  // puts it, and that is a frame further for every frame the server took:
+  // red if the screen shows the spinner there instead of at 0, or if RELEASE
+  // sets it running under a held clock.
+  it("HOLD also holds an endless animation the held clock paused, and RELEASE leaves it paused", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(`(${PIN_ANIMATIONS})(1000)`);
+      await page.evaluate(`(${PIN_ANIMATIONS})(1400)`);
+      const spin = () =>
+        page.evaluate(() => {
+          const a = document.getElementById("spin")?.getAnimations()[0];
+          return { at: a?.currentTime, state: a?.playState };
+        });
+      expect(await spin(), "premise: pinned 400 ms in, paused").toEqual({
+        at: 400,
+        state: "paused",
+      });
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      expect(held.held).toBe(1);
+      expect(await spin()).toEqual({ at: 0, state: "paused" });
+      expect(await page.evaluate(PAGE_CAPTURE_RELEASE)).toBe(1);
+      expect(await spin()).toEqual({ at: 400, state: "paused" });
+    });
+  });
+
+  // Red if a spinner the page itself stopped is moved to 0 for the screen:
+  // where it stopped is the page's picture.
+  it("HOLD leaves an endless animation the page paused where it is", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(() => {
+        const a = document.getElementById("spin")?.getAnimations()[0];
+        if (!a) throw new Error("no spinner");
+        a.pause();
+        a.currentTime = 250;
+      });
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(held.held).toBe(0);
+      expect(
+        await page.evaluate(
+          () =>
+            document.getElementById("spin")?.getAnimations()[0]?.currentTime,
+        ),
+      ).toBe(250);
+    });
+  });
+
+  // A playing video is not held (measured 2026-11-15: every frame of one
+  // apart between two held recordings). Red if the pin says nothing, so the
+  // report reads as if the whole page were on the video's clock.
+  it("the held clock's pin says a playing video once, and not a paused one", async () => {
+    await withPage(async (page) => {
+      const pin = (v: number) =>
+        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      await page.evaluate(() => {
+        const canvas = document.createElement("canvas");
+        canvas.getContext("2d")?.fillRect(0, 0, 10, 10);
+        const video = document.createElement("video");
+        video.id = "clip";
+        video.muted = true;
+        video.srcObject = canvas.captureStream();
+        document.body.append(video);
+      });
+      expect(await pin(0), "premise: not yet playing").toEqual([]);
+      await page.evaluate(() =>
+        (document.getElementById("clip") as HTMLVideoElement).play(),
+      );
+      expect(await pin(33)).toEqual([
+        "a playing video runs on its own clock: it was not held",
+      ]);
+      expect(await pin(66)).toEqual([]);
+    });
+  });
+
+  // Review of 2026-11-16: the pin reset and played every animation, also one
+  // the page holds paused (a progress ring scrubbed by a negative delay).
+  // Red if such an animation moves, or the screen's hold resets it.
+  it("the held clock's pin leaves an animation the page paused where it is, and plays it on from there", async () => {
+    await withPage(async (page) => {
+      const pin = (v: number) =>
+        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      await page.evaluate(() => {
+        const style = document.createElement("style");
+        style.textContent =
+          "@keyframes fill{to{width:100px}}#ring{width:0;height:4px;background:#06c;animation:fill 10s linear infinite;animation-delay:-4s;animation-play-state:paused}";
+        document.head.append(style);
+        const ring = document.createElement("div");
+        ring.id = "ring";
+        document.body.append(ring);
+      });
+      // How far through its 10 s the ring is drawn (its delay counts).
+      const at = () =>
+        page.evaluate(() =>
+          Math.round(
+            1000 *
+              (document
+                .getElementById("ring")
+                ?.getAnimations()[0]
+                ?.effect?.getComputedTiming().progress ?? -1),
+          ),
+        );
+      expect(await at(), "premise: scrubbed to 4 s by its delay").toBe(400);
+      expect(await pin(1000)).toEqual([]);
+      await pin(1500);
+      expect(await at()).toBe(400);
+      const held = (await page.evaluate(PAGE_CAPTURE_HOLD)) as { held: number };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(held.held).toBe(0);
+      expect(await at()).toBe(400);
+      // The page plays it: it goes on from 4 s on the held clock.
+      await page.evaluate(() => {
+        (
+          document.getElementById("ring") as HTMLElement
+        ).style.animationPlayState = "running";
+      });
+      await pin(2000);
+      await pin(2300);
+      expect(await at()).toBe(430);
+      // And pauses it again by its style: it stays, whatever the held time.
+      await page.evaluate(() => {
+        (
+          document.getElementById("ring") as HTMLElement
+        ).style.animationPlayState = "paused";
+      });
+      await pin(3000);
+      expect(await at()).toBe(430);
+    });
+  });
+
+  // Red if a reversed animation is played forward by the pin (it ran to its
+  // end and snapped back) without a word.
+  it("the held clock's pin says an animation at another rate, and does not play it", async () => {
+    await withPage(async (page) => {
+      await page.click("#spinbtn");
+      await page.evaluate(() => {
+        const a = document.getElementById("spin")?.getAnimations()[0];
+        if (a) a.playbackRate = -1;
+      });
+      const said = (await page.evaluate(
+        `(${PIN_ANIMATIONS})(1000)`,
+      )) as string[];
+      expect(said).toEqual([
+        "spin on div: plays at rate -1, which the held clock does not play",
+      ]);
+      expect(await page.evaluate(`(${PIN_ANIMATIONS})(1033)`)).toEqual([]);
+    });
+  });
+
+  // Measured 2026-11-16: under the held clock's pin every animation is
+  // paused, the probe counted only running ones, and a toast was pictured
+  // half slid in. Red if a finite animation the pin holds mid-way reads as
+  // settled.
+  it("does not call the page settled while the held clock's pin holds a finite animation mid-way", async () => {
+    await withPage(async (page) => {
+      await page.click("#toastbtn");
+      await page.evaluate(`(${PIN_ANIMATIONS})(1000)`);
+      await page.evaluate(`(${PIN_ANIMATIONS})(1033)`);
+      const report = await ask(page, QUIET, 700);
+      expect(report, JSON.stringify(report)).toMatchObject({
+        quiet: false,
+        stopped: "cap",
+      });
+      expect(report.animations).toBeGreaterThan(0);
     });
   });
 });

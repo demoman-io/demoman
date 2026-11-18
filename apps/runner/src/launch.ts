@@ -6,6 +6,7 @@ import {
   chromium,
   type Page,
 } from "playwright";
+import { HELD_FLAGS } from "./executor/held.js";
 
 /**
  * What the browser context is created with — and deliberately **not** what
@@ -249,6 +250,9 @@ export async function launch(options?: {
   scale?: number;
   /** Where a launch that went on past a cosmetic failure says so. */
   log?: (line: string) => void;
+  /** Headless only: launched for recordings on a held clock (`HELD_FLAGS`).
+   *  Every other launch is as it was. */
+  held?: boolean;
   /** Tests only: stands in for reading the browser's user agent. */
   userAgentOf?: (browser: Browser) => Promise<string>;
 }): Promise<Launched> {
@@ -266,6 +270,7 @@ export async function launch(options?: {
           ? [`--screen-info={devicePixelRatio=${options.scale}}`]
           : []),
       ...(headless ? HEADLESS_GPU_ARGS : []),
+      ...(headless && options?.held === true ? HELD_FLAGS : []),
     ],
   });
   let pid: number | null = null;

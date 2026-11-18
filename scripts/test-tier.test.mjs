@@ -90,9 +90,21 @@ test("on CI, one retry, and a pass on it or a noted skip is annotated", () => {
   onTestCaseResult(testCase({ state: "skipped", note: "too slow" }, false));
   onTestCaseResult(testCase({ state: "passed" }, false));
   onTestCaseResult(testCase({ state: "skipped" }, false));
+  // A retried pass says what its first attempt failed on.
+  onTestCaseResult(
+    testCase(
+      {
+        state: "passed",
+        errors: [{ message: "x", stack: "AssertionError: x\n    at a.ts:1" }],
+      },
+      true,
+    ),
+  );
   assert.deepEqual(lines, [
     "::warning title=Passed on retry::/a.test.ts > it",
     "::warning title=Skipped::/a.test.ts > it: too slow",
+    "::warning title=Passed on retry::/a.test.ts > it",
+    "First attempt of /a.test.ts > it failed: AssertionError: x\n    at a.ts:1",
   ]);
 });
 

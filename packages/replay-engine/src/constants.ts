@@ -155,6 +155,13 @@ export const SETTLE_QUIET_TIMEOUT_MS = 5000;
  * `scrollUnsettled` degradation saying so.
  */
 export const SCROLL_SETTLE_TIMEOUT_MS = 1500;
+/**
+ * How long the walk's own scroll takes on a held clock, whatever the
+ * distance: about as long as Chrome's smooth scroll took across 1800px when
+ * `SCROLL_SETTLE_TIMEOUT_MS` was measured. Nothing else designs a scroll's
+ * length (the renderer plays the scroll as recorded).
+ */
+export const HELD_SCROLL_MS = 600;
 export const WAIT_POLL_MS = 150;
 /** How long a paused replay waits for its window to become visible again. */
 export const OCCLUSION_TIMEOUT_MS = 60_000;
@@ -323,6 +330,23 @@ export const ACT_CEILING_MS = 1000;
  * stylesheet, DEM-176) is condition 2's, and is waited out.
  */
 export const STEP_QUIET_MS = 200;
+/**
+ * `STEP_QUIET_MS` on a held clock. There the window is exact page time: a
+ * 250 ms search debounce, which a real clock gets past on the walk's own
+ * latency, is never reached at 200, and the settled screen was the page
+ * before its result on every held recording (Nylon's filter, measured
+ * 2026-11-16 against a real-time baseline; the video itself was right).
+ * 400 covers the debounces apps commonly use (250, 300). It is in the
+ * video: about 5 frames more a step on the held fixture (225 frames to 252
+ * over five steps, 2026-11-16).
+ * shortcut: a fixed window, so a timer-only delay longer than it is still
+ * captured early, as `STEP_QUIET_MS` says; upgrade to watching the page's
+ * pending timers if an app shows it.
+ *
+ * Counted in frames of held time (12), not read off the page's clock
+ * (`stepSettleExpression`).
+ */
+export const HELD_STEP_QUIET_MS = 400;
 /**
  * The most the walk waits for one step's page (paint, finite animations, DOM
  * quiet) once its requests are idle. A page that never stops (a ticker)

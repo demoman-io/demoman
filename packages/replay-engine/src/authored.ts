@@ -65,7 +65,12 @@ import {
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
-import { SETTLE_MS, WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
+import {
+  SETTLE_MS,
+  STEP_REQUEST_CAP_MS,
+  WAIT_POLL_MS,
+  WAIT_TIMEOUT_MS,
+} from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -732,7 +737,10 @@ export function createAuthoredRun(
       for (const [index, step] of script.steps.entries()) {
         if (step.do === "pause") {
           // The clock moves and nothing enters the log. A duration, not a beat.
-          await deps.clock.sleep(step.ms);
+          // A held plan plays it inside the next rest or the tail instead.
+          if (deps.held === undefined || deps.beats === undefined) {
+            await deps.clock.sleep(step.ms);
+          }
           paused += step.ms;
           continue;
         }
@@ -819,7 +827,19 @@ export function createAuthoredRun(
         // A target a client-rendered page has not drawn yet is waited for, as a
         // `waitFor` waits, on the same clock and cadence. Only "not there yet"
         // answers retry; a tie, a silent page or a fault says so at once.
-        const captureWaiting = async (
+        // On a held clock it is a wait on the page (`HeldClock.waiting`): a
+        // target drawn by a slow answer then lands at the server's pace, not
+        // after 300 frames shot at the machine's speed.
+        const captureWaiting = (
+          wanted: AnchorIntent,
+        ): Promise<IntentCapture> =>
+          deps.held === undefined
+            ? captureWaitingNow(wanted)
+            : deps.held.waiting(
+                () => captureWaitingNow(wanted),
+                deps.held.now() - STEP_REQUEST_CAP_MS,
+              );
+        const captureWaitingNow = async (
           wanted: AnchorIntent,
         ): Promise<IntentCapture> => {
           const began = deps.clock.now();
@@ -1787,7 +1807,12 @@ export async function runAuthored(
       "runAuthored: the script names no device and no viewport, and the caller measured none",
     );
   }
-  const run = createAuthoredRun(script, deps, viewport);
+  // A held take's pauses, stamps and capture waits are page time, as the walk's are.
+  const run = createAuthoredRun(
+    script,
+    deps.held === undefined ? deps : { ...deps, clock: deps.held },
+    viewport,
+  );
 
   // Each click's zoom is decided once, by the walk; the take is handed what
   // it was decided on (`ReplayResult.decided`, `cameraInputs`).
@@ -1878,8 +1903,12 @@ export async function runAuthored(
     // be mid-run: a source that stopped left the walk's loop by ending, so the
     // only reason the walk can add afterwards is a failure to assemble or
     // persist the bundle — which is the LATER fact, and the first stop reason
-    // is the one that explains the run.
-    reason: run.stop() ?? walked.reason,
+    // is the one that explains the run. Except a page the held clock gave up
+    // on: the source's stop is a call on the closed page failing after it.
+    reason:
+      deps.held?.failed() != null
+        ? walked.reason
+        : (run.stop() ?? walked.reason),
     document: assembled.document,
     documentError: assembled.error,
     steps: run.steps,

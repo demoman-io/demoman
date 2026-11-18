@@ -16,6 +16,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { withAnswerDeadline } from "./answer-deadline.js";
 import { NAVIGATE_TIMEOUT_MS } from "./constants.js";
+import { HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import type { CdpSession, ReplayResult } from "./types.js";
 
@@ -38,6 +39,9 @@ export interface NavigatingGuardDeps {
   /** The run's clock — never a bare `setTimeout`; see `nodeClock` in
    *  apps/runner/src/launch.ts. */
   sleep: (ms: number) => Promise<void>;
+  /** A held recording's clock: the page loads only as page time moves, so
+   *  the load is waited for a frame at a time, within `timeoutMs` of it. */
+  held?: Pick<HeldClock, "now" | "sleep">;
 }
 
 /**
@@ -78,17 +82,27 @@ export function createNavigatingGuard(
       if (navigated) return;
       await guard.install();
       let off = (): void => undefined;
+      let loadedYet = false;
       // Subscribed before the navigate is sent, so the load cannot land in
       // the gap between the two.
       const loaded = new Promise<void>((resolve) => {
-        off = cdp.on("Page.loadEventFired", () => resolve());
+        off = cdp.on("Page.loadEventFired", () => {
+          loadedYet = true;
+          resolve();
+        });
       });
       try {
         await cdp.send("Page.navigate", { url });
         // A page that never fires `load` still gets its shot at resolving:
         // the engine's own wait and resolve timeouts then say something more
         // specific than "navigation timed out" would.
-        await Promise.race([loaded, wait(timeoutMs)]);
+        const { held } = deps;
+        if (held === undefined) await Promise.race([loaded, wait(timeoutMs)]);
+        else {
+          const from = held.now();
+          while (!loadedYet && held.now() - from < timeoutMs)
+            await held.sleep(HELD_FRAME_MS);
+        }
       } finally {
         off();
         // Set even if the load never arrived: the document was asked for,

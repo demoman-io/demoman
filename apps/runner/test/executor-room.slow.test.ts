@@ -103,7 +103,11 @@ const kits: BrandKitsRead = {
   migrationPending: false,
 };
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a held run plays its planned beats while recording, so the scene carries none for the renderer, which is what this file reads. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(req.url === "/next" ? NEXT_PAGE : PAGE);
@@ -113,6 +117,8 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => {
   await session.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   server.close();
   await rm(home, { recursive: true, force: true });
 });

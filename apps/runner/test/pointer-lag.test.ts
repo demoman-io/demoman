@@ -1,6 +1,7 @@
 // Records a take through a real browser whose pointer moves are answered
 // unevenly, renders it, and finds the drawn cursor in the decoded frames.
-// About 14 s here; the timeout below allows CI's 5x.
+// About 14 s here. ubuntu-latest took 91 s before held became the default (CI,
+// 2026-11-17) and ran past 120 s beside held files (DEM-210): 300 s.
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -63,7 +64,13 @@ let url: string;
 let server: ReturnType<typeof createServer>;
 let home: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a held clock keeps the machine's lag
+ *  out of page time, which is this file's premise; held, each 400 ms answer
+ *  is paid per frame, and ubuntu-latest ran past 240 s (DEM-210). */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(PAGE);
@@ -73,6 +80,8 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => {
   server.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await rm(home, { recursive: true, force: true });
 });
 
@@ -247,5 +256,5 @@ describe("a take whose pointer moves the page answers unevenly", () => {
     // eased journey drawn on its grid peaks at 17 px a frame; one sample per
     // answered move (the walk before) drew single frames of 85 and 261 px.
     expect(Math.max(...steps), evidence).toBeLessThanOrEqual(40);
-  }, 120_000);
+  }, 300_000);
 });

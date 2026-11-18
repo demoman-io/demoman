@@ -88,6 +88,7 @@ export {
   CAPTURE_SPAN_MIN_FRAMES,
   HEAP_HIGH_WATER, // test-only, see header
   HEARTBEAT_STALL_MS, // test-only, see header
+  HELD_STEP_QUIET_MS,
   KEYFRAME_QUALITY,
   MAX_ENCODE_QUEUE, // test-only, see header
   MAX_FRAMES_IN_FLIGHT, // test-only, see header
@@ -146,6 +147,19 @@ export {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
+export {
+  createHeldClock,
+  HELD_FRAME_MS,
+  HELD_FRAMES_SCRIPT,
+  type HeldClock,
+  type HeldFrame,
+  PIN_ANIMATIONS,
+} from "./held-clock.js";
+export {
+  createHeldFrames,
+  type HeldFrames,
+  HOLD_MIN_FRAMES,
+} from "./held-frames.js";
 export { decodeBase64, jpegSize, pngSize } from "./image.js";
 // Test-only, see header: the runner lane drives it against real Chromium.
 export { createInputGate, type InputGate } from "./input-gate.js";
@@ -167,6 +181,8 @@ export {
   type NavigatingGuardDeps, // runner API, see header
   replayUrl,
 } from "./navigate.js";
+export type { NetworkWatch, NetworkWatchClocks } from "./network-watch.js";
+export { createNetworkWatch, IDLE_CONNECTION_MS } from "./network-watch.js";
 export { createOcclusionGuard, type OcclusionGuard } from "./occlusion.js";
 export {
   classifyOrigin,
@@ -185,6 +201,9 @@ export {
 } from "./policy.js";
 // Whole block is test-only, see header.
 export {
+  HELD_SCROLL_MARKER,
+  HELD_SCROLL_STEP,
+  heldScrollPlanFunction,
   SCROLL_MARKER,
   type ScrollAim,
   scrollIntoViewFunction,
@@ -228,4 +247,5 @@ export type {
   ReplayStopReason,
   ResolveFailure,
   ResolveReport,
+  SendOptions,
 } from "./types.js";

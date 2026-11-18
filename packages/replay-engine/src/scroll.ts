@@ -106,10 +106,50 @@ export function scrollIntoViewFunction(
 }`;
 }
 
+/**
+ * Held (the corrective scroll on a held clock): Chrome's smooth scroll runs
+ * on its real clock, so the walk plays the scroll itself. Called on the
+ * target like {@link scrollIntoViewFunction}: it takes the scroll instantly
+ * to see where every scroll container lands, puts them back, and leaves
+ * `window.__demomanHeldScroll(p)` to put them `p` (0 to 1) of the way there.
+ * Answers how far the element will travel, in CSS pixels.
+ */
+export const HELD_SCROLL_MARKER = "__demomanHeldScrollPlan";
+export function heldScrollPlanFunction(aim: ScrollAim): string {
+  return `function(){
+  const ${HELD_SCROLL_MARKER} = true;
+  // Every box that can hold it scrolled, out through shadow hosts and the
+  // frames of this page it is reachable from.
+  const up = (el) => {
+    if (el.parentElement) return el.parentElement;
+    if (el.parentNode && el.parentNode.host) return el.parentNode.host;
+    try { return el.ownerDocument.defaultView.frameElement; } catch (e) { return null; } // a frame of another origin: its boxes are not ours
+  };
+  const boxes = [];
+  for (let el = up(this); el; el = up(el)) boxes.push(el);
+  const before = boxes.map((el) => [el.scrollLeft, el.scrollTop]);
+  ${scrollStatement(aim, "instant")}
+  const moves = boxes
+    .map((el, i) => ({ el, x0: before[i][0], y0: before[i][1], x1: el.scrollLeft, y1: el.scrollTop }))
+    .filter((m) => m.x0 !== m.x1 || m.y0 !== m.y1);
+  const put = (p) => { for (const m of moves) m.el.scrollTo({ left: m.x0 + (m.x1 - m.x0) * p, top: m.y0 + (m.y1 - m.y0) * p, behavior: "instant" }); };
+  put(0);
+  this.__demomanHeldScroll = put;
+  return { movedPx: Math.round(Math.max(0, ...moves.map((m) => Math.hypot(m.x1 - m.x0, m.y1 - m.y0)))) };
+}`;
+}
+
+/** One step of the walk's own scroll, called on the same target as its plan
+ *  (so in that target's own frame) with how far along it is, 0 to 1. */
+export const HELD_SCROLL_STEP = "function(p){ this.__demomanHeldScroll(p); }";
+
 /** The one statement that starts the scroll, for {@link scrollIntoViewFunction}. */
-function scrollStatement(aim: ScrollAim): string {
+function scrollStatement(
+  aim: ScrollAim,
+  behavior: "smooth" | "instant" = "smooth",
+): string {
   if (typeof aim === "string") {
-    return `this.scrollIntoView({ behavior: "smooth", block: "${aim}", inline: "nearest" });`;
+    return `this.scrollIntoView({ behavior: "${behavior}", block: "${aim}", inline: "nearest" });`;
   }
   // Interpolated into page source, so it must be a number and nothing else.
   if (!Number.isFinite(aim.top)) {
@@ -124,7 +164,7 @@ function scrollStatement(aim: ScrollAim): string {
     }
     return document.scrollingElement ?? document.documentElement;
   })();
-  scroller.scrollBy({ top: from.y - (${aim.top}), behavior: "smooth" });`;
+  scroller.scrollBy({ top: from.y - (${aim.top}), behavior: "${behavior}" });`;
 }
 
 /**

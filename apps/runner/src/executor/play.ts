@@ -2,10 +2,19 @@
 import {
   type AuthoredResult,
   assertSceneWasLoaded,
+  type CdpSession,
+  createHeldClock,
   createNavigatingGuard,
+  createNetworkWatch,
   createOcclusionGuard,
+  decodeBase64,
   type EngineStore,
   type FrameEncoder,
+  HELD_FRAMES_SCRIPT,
+  type HeldClock,
+  jpegSize,
+  KEYFRAME_QUALITY,
+  type NetworkWatch,
   type ReplayProgress,
   type ReplayStopReason,
   reasonSentence,
@@ -41,6 +50,7 @@ import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
 import { closedShadowHolds, targetWords } from "./closed-shadow.js";
 import { readDatesOnScreen } from "./dates-on-screen.js";
+import { HELD_CARET_SCRIPT, heldClockAsked, shouldHold } from "./held.js";
 import {
   fileForLanding,
   fileIsForLanding,
@@ -88,6 +98,11 @@ export type Prepared =
       /** The scale this run records at: headless's own, else the screen's
        *  as read; absent when a visible window's screen could not be read. */
       recordedAt?: number;
+      /** Unless `DEMOMAN_HELD_CLOCK=0`: whether the page's clock is held,
+       *  and why not when not. Absent, the run is in real time as asked. */
+      recording?: { clock: "held" } | { clock: "real"; why: string };
+      /** The held clock, already holding the page, and what feeds it. */
+      held?: { clock: HeldClock; network: NetworkWatch };
     }
   | { ok: false; reason: ReplayStopReason; detail: string };
 
@@ -98,6 +113,24 @@ export async function prepareStage(
   deps: PlayDeps,
 ): Promise<Prepared> {
   const { log } = deps;
+  const verdict = heldClockAsked()
+    ? shouldHold({
+        headed: !deps.session.headless,
+        device: script.device !== undefined,
+      })
+    : null;
+  // The browser is launched for this recording's clock, and launched again
+  // when the live one was for the other, so one that records in real time
+  // launches exactly as before held capture. Said with held capture off too:
+  // a session made while it was on launches held (DEM-210).
+  if (deps.session.headless) {
+    const ensured = await deps.session.ensure({
+      held: verdict?.hold === true,
+    });
+    if (!ensured.ok) {
+      return { ok: false, reason: "portFailure", detail: ensured.detail };
+    }
+  }
   // Ensured at the door already; a failure here is a race with the author
   // closing the browser in between, said in the session's own words. A page
   // of its own, so nothing an earlier call emulated or installed is on it
@@ -109,11 +142,36 @@ export async function prepareStage(
   const launched = staged.stage;
   const { page } = launched;
 
+  const recording =
+    verdict === null
+      ? undefined
+      : verdict.hold
+        ? ({ clock: "held" } as const)
+        : ({ clock: "real", why: verdict.why } as const);
+  // Held: every document gets the held animation frames and a hidden caret
+  // before its first script, and the held clock starts at the pinned instant
+  // in place of the Date offset below. A script Chrome refuses stops the run.
+  if (recording?.clock === "held") {
+    try {
+      for (const source of [HELD_FRAMES_SCRIPT, HELD_CARET_SCRIPT]) {
+        await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+          source,
+        });
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be held: its frame and caret scripts were refused (${messageOf(error)})`,
+      };
+    }
+  }
+
   // Before the first navigation, on this flow's own target: every document
   // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
   // be installed stops the run: a video at the real date would be compared
   // with pinned ones and read as changed.
-  if (deps.pinnedNow !== undefined) {
+  if (deps.pinnedNow !== undefined && recording?.clock !== "held") {
     try {
       await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: pinnedClockSource(pinnedOffsetMs(deps.pinnedNow)),
@@ -214,6 +272,27 @@ export async function prepareStage(
   // (spec 2026-10-10), so it is handed no viewport.
   const viewport =
     size.from === "device" ? null : { width: size.width, height: size.height };
+  let held: { clock: HeldClock; network: NetworkWatch } | undefined;
+  if (recording?.clock === "held") {
+    // Last, after every read above, and before the walk's first navigation.
+    // A clock Chrome will not hold stops the run, as a pin that cannot be
+    // installed does: recorded in real time it would read as another video.
+    try {
+      // Headless with no display to stand in for records at 1x (launch.ts).
+      held = await holdClock(
+        launched.cdp,
+        deps.pinnedNow,
+        recordedAt ?? 1,
+        () => launched.page.close({ runBeforeUnload: false }),
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be held (${messageOf(error)})`,
+      };
+    }
+  }
   return {
     ok: true,
     stage: launched,
@@ -221,6 +300,125 @@ export async function prepareStage(
     size,
     viewport,
     ...(recordedAt === undefined ? {} : { recordedAt }),
+    ...(recording === undefined ? {} : { recording }),
+    ...(held === undefined ? {} : { held }),
+  };
+}
+
+/**
+ * The page's clock, held at the pinned instant (or now) with the network
+ * watch that turns it to real time while the page waits on the server. A
+ * frame from another site is its own target, whose timers, animations and
+ * requests this clock cannot reach: each such origin is said once, with
+ * what the clock could not pin.
+ */
+/** The origin a frame's sentence names ("a frame from <origin> ..."), or
+ *  null for any other sentence. */
+const originOf = (what: string): string | null =>
+  /^a frame from (\S+) /.exec(what)?.[1] ?? null;
+
+async function holdClock(
+  cdp: CdpSession,
+  pinnedNow: string | undefined,
+  scale: number,
+  abandon: () => Promise<void>,
+): Promise<{ clock: HeldClock; network: NetworkWatch }> {
+  // The watch stamps requests on the page's clock (DEM-202): before the
+  // hold, a request opens at its start, 0.
+  let holding: HeldClock | undefined;
+  const network = await createNetworkWatch(cdp, Date.now, {
+    pageNow: () => holding?.now() ?? 0,
+    pageOfWall: (wallMs) => holding?.pageOf(wallMs) ?? 0,
+    scrubUrl,
+  });
+  const clock = createHeldClock({
+    cdp,
+    network,
+    scale,
+    abandon,
+    realNow: Date.now,
+    capture: async () => {
+      const reply = await cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: KEYFRAME_QUALITY,
+      });
+      const bytes = decodeBase64(String(reply.data ?? ""));
+      return { bytes, ...jpegSize(bytes) };
+    },
+    evaluate: async (source, arg, server) => {
+      const reply = await cdp.send("Runtime.evaluate", {
+        expression: `(${source})(${JSON.stringify(arg)}, ${server})`,
+        returnByValue: true,
+      });
+      const thrown = reply.exceptionDetails as
+        | { text?: string; exception?: { description?: string } }
+        | undefined;
+      if (thrown !== undefined) {
+        throw new Error(
+          thrown.exception?.description ?? thrown.text ?? "the page threw",
+        );
+      }
+      return (reply.result as { value?: unknown } | undefined)?.value;
+    },
+  });
+  // A frame target is attached before it navigates, with no URL yet: its
+  // address is read as it changes, and the origins said at the end.
+  const frames = new Map<string, { atMs: number; url: string }>();
+  const seen = (params: Record<string, unknown>, attached: boolean) => {
+    const info = params.targetInfo as
+      | { targetId?: string; type?: string; url?: string }
+      | undefined;
+    if (info?.type !== "iframe" || info.targetId === undefined) return;
+    const known = frames.get(info.targetId);
+    if (known === undefined && !attached) return;
+    frames.set(info.targetId, {
+      atMs: known?.atMs ?? clock.now(),
+      url: info.url || (known?.url ?? ""),
+    });
+  };
+  cdp.on("Target.attachedToTarget", (p) => seen(p, true));
+  cdp.on("Target.targetInfoChanged", (p) => seen(p, false));
+  const framesSaid = () => {
+    const said = new Map<string, number>();
+    for (const { atMs, url } of frames.values()) {
+      let origin = "an address it never named";
+      try {
+        origin = new URL(url).origin;
+      } catch {
+        // Said as such: the origin is the address it never named.
+      }
+      if (!said.has(origin)) said.set(origin, atMs);
+    }
+    return [...said].map(([origin, atMs]) => ({
+      atMs,
+      what: `a frame from ${origin} runs on its own clock: its timers, animations and requests were not held`,
+    }));
+  };
+  await cdp.send("Target.setAutoAttach", {
+    autoAttach: true,
+    waitForDebuggerOnStart: false,
+    flatten: true,
+  });
+  await cdp.send("Target.setDiscoverTargets", { discover: true });
+  await clock.hold(
+    pinnedNow === undefined ? Date.now() : Date.parse(pinnedNow),
+  );
+  holding = clock;
+  return {
+    clock: {
+      ...clock,
+      // A frame from another site the page also names (it could not reach
+      // it) is said once, in the target's words, which say more.
+      unpinned: () => {
+        const targets = framesSaid();
+        const named = new Set(targets.map((t) => originOf(t.what)));
+        return [
+          ...clock.unpinned().filter((u) => !named.has(originOf(u.what) ?? "")),
+          ...targets,
+        ];
+      },
+    },
+    network,
   };
 }
 
@@ -244,6 +442,8 @@ export interface Played {
   failedNote: string | undefined;
   signedOutAfter: string | null;
   lostHeadlessPage: boolean;
+  /** `HeldClock.failed`'s sentence: the stop's whole detail. */
+  heldFailed: string | undefined;
   landingNote: RunReport["landing"];
   arrival: Arrival;
   /** Date-looking text on the last screen, [] when none or unreadable
@@ -285,11 +485,13 @@ export async function playOnStage(
   const cdp = navigation.cdp;
   // `createNavigatingGuard`, NEVER a bare `createOcclusionGuard`: the
   // navigation rides `install()` (see `replay.ts`'s `replayPhase`).
+  const held = prepared.held?.clock;
   const occlusion = createNavigatingGuard({
     guard: createOcclusionGuard({ cdp, clock }),
     cdp,
     url: script.target,
     sleep: clock.sleep,
+    ...(held === undefined ? {} : { held }),
   });
 
   // The walk's own `failed` note: a port that threw mid-run says what it
@@ -325,50 +527,59 @@ export async function playOnStage(
     }
     return null;
   };
-  const authored = await runAuthored(script, {
-    cdp,
-    page: createHeadlessPageAgent(page, log),
-    captureResolved: pageCapture(page, log),
-    encoder,
-    store,
-    clock,
-    // Every CLI run may replay: see "No gate" in `runScript`.
-    mayReplay: true,
-    occlusion,
-    landing,
-    // Spec 2026-10-03: keep every frame the page paints, real time.
-    recording: "continuous",
-    onProgress: (progress) => {
-      if (progress.state === "failed" && progress.note !== null) {
-        failedNote = progress.note;
-      }
-      onProgress(progress);
-    },
-    newId,
-    sceneId,
-    // This package has no wall clock — `Clock.now()` is contracted for
-    // deltas only — so the take's `createdAt` is the caller's to supply.
-    createdAt: new Date().toISOString(),
-    // Null only for a device script, whose size runAuthored takes from
-    // the device.
-    ...(viewport === null ? {} : { viewport }),
-    // Decided once, at launch; the take records it for keep and the
-    // flow's next run to read. A visible window's is its screen's, as read:
-    // left out, the next run inferred it from the widest motion span to the
-    // nearest quarter and told a 1.3125x screen it had changed scale.
-    ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
-    // Spec 2026-10-01 §1: the take starts as a recorded one does — the
-    // author's kit and a zoom on every click.
-    startingBranding,
-    cameraFor: zoomsForClicks,
-    // Spec 2026-10-19: the camera never sets off toward a zoom while an
-    // earlier step is still acting; the replay waits for room instead.
-    roomFor: (vp, intentOf) =>
-      createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
-    // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
-    // instead of waiting the camera's room out live.
-    beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
-  });
+  let authored: AuthoredResult;
+  try {
+    authored = await runAuthored(script, {
+      cdp,
+      page: createHeadlessPageAgent(page, log),
+      captureResolved: pageCapture(page, log),
+      encoder,
+      store,
+      clock,
+      // Every CLI run may replay: see "No gate" in `runScript`.
+      mayReplay: true,
+      occlusion,
+      landing,
+      // Spec 2026-10-03: keep every frame the page paints, real time.
+      recording: "continuous",
+      onProgress: (progress) => {
+        if (progress.state === "failed" && progress.note !== null) {
+          failedNote = progress.note;
+        }
+        onProgress(progress);
+      },
+      newId,
+      sceneId,
+      // This package has no wall clock — `Clock.now()` is contracted for
+      // deltas only — so the take's `createdAt` is the caller's to supply.
+      createdAt: new Date().toISOString(),
+      // Null only for a device script, whose size runAuthored takes from
+      // the device.
+      ...(viewport === null ? {} : { viewport }),
+      // Decided once, at launch; the take records it for keep and the
+      // flow's next run to read. A visible window's is its screen's, as read:
+      // left out, the next run inferred it from the widest motion span to the
+      // nearest quarter and told a 1.3125x screen it had changed scale.
+      ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
+      // Spec 2026-10-01 §1: the take starts as a recorded one does — the
+      // author's kit and a zoom on every click.
+      startingBranding,
+      cameraFor: zoomsForClicks,
+      // Spec 2026-10-19: the camera never sets off toward a zoom while an
+      // earlier step is still acting; the replay waits for room instead.
+      roomFor: (vp, intentOf) =>
+        createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
+      // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
+      // instead of waiting the camera's room out live.
+      beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
+      ...(prepared.held === undefined
+        ? {}
+        : { held: prepared.held.clock, network: prepared.held.network }),
+    });
+  } finally {
+    // Whatever the walk did, the watch's listeners leave with it.
+    prepared.held?.network.stop();
+  }
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop
   // reason and returns a `ReplayResult`, which would drop `document`,
@@ -377,7 +588,10 @@ export async function playOnStage(
   // none: its page going away is the browser crashing or the page closing
   // itself, which stays `portFailure` and says so (`lostHeadlessPage`).
   const pageLost = deps.session.closedSinceEnsure();
-  const lostHeadlessPage = pageLost && deps.session.headless;
+  const heldFailed = prepared.held?.clock.failed()?.message;
+  // A page the held clock closed is not lost: `heldFailed` says why.
+  const lostHeadlessPage =
+    pageLost && deps.session.headless && heldFailed === undefined;
   const result: AuthoredResult = {
     ...authored,
     ...attributeClosedWindow(authored, pageLost && !deps.session.headless),
@@ -470,6 +684,7 @@ export async function playOnStage(
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    heldFailed,
     landingNote,
     arrival,
   };
@@ -516,6 +731,7 @@ export function stopDetail(target: string, played: Played): string | undefined {
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    heldFailed,
     closedShadowRoot,
   } = played;
   const waitSaw =
@@ -523,25 +739,27 @@ export function stopDetail(target: string, played: Played): string | undefined {
   // `ownDetail` is the run's own, read off the walk before any re-label: a
   // run re-labelled `signedOut` after it stopped still says why it stopped.
   const ownDetail =
-    result.reason === "portFailure" && lostHeadlessPage
-      ? `Demoman's headless browser lost the run's page before the run finished: the browser crashed, or the page closed itself. There is no window anyone could have closed, and nothing in the script is at fault — run it once more${failedNote === undefined ? "" : ` (${failedNote})`}`
-      : result.reason === "portFailure" && failedNote !== undefined
-        ? portFailureDetail(failedNote)
-        : result.reason === "deviceFailed" && failedNote !== undefined
-          ? failedNote
-          : result.reason === "clickNotDelivered" && failedNote !== undefined
-            ? clickNotDeliveredDetail(failedNote)
-            : waitSaw === "notVisible"
-              ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
-              : waitSaw === "ambiguous"
-                ? "the step waited for an element whose target matched more than one element on the page, so the wait could not tell which to watch — name a more precise target (a stableId, or a role with a fuller name, from a snapshot of the page)"
-                : waitSaw === "pageSilent" || waitSaw === "pageFaulted"
-                  ? reasonSentence(waitSaw)
-                  : navigationError !== null && result.outcome !== "complete"
-                    ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-                    : closedShadowRoot && notFound(result) && result.reason
-                      ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
-                      : undefined;
+    heldFailed !== undefined
+      ? heldFailed
+      : result.reason === "portFailure" && lostHeadlessPage
+        ? `Demoman's headless browser lost the run's page before the run finished: the browser crashed, or the page closed itself. There is no window anyone could have closed, and nothing in the script is at fault — run it once more${failedNote === undefined ? "" : ` (${failedNote})`}`
+        : result.reason === "portFailure" && failedNote !== undefined
+          ? portFailureDetail(failedNote)
+          : result.reason === "deviceFailed" && failedNote !== undefined
+            ? failedNote
+            : result.reason === "clickNotDelivered" && failedNote !== undefined
+              ? clickNotDeliveredDetail(failedNote)
+              : waitSaw === "notVisible"
+                ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
+                : waitSaw === "ambiguous"
+                  ? "the step waited for an element whose target matched more than one element on the page, so the wait could not tell which to watch — name a more precise target (a stableId, or a role with a fuller name, from a snapshot of the page)"
+                  : waitSaw === "pageSilent" || waitSaw === "pageFaulted"
+                    ? reasonSentence(waitSaw)
+                    : navigationError !== null && result.outcome !== "complete"
+                      ? `${target} did not load (${navigationError}) — check that the app is running at that address`
+                      : closedShadowRoot && notFound(result) && result.reason
+                        ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
+                        : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The video was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

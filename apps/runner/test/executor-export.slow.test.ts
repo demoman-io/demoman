@@ -53,7 +53,11 @@ let takeId: string;
 let videoName: string;
 const lines: string[] = [];
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a test executor holds at 1x, which leaves a 4K export nothing to cap to the 1080p tier. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-export-"));
   outDir = join(home, "out");
@@ -78,6 +82,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await executor.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   app.close();
   await chmod(outDir, 0o700).catch(() => undefined);
   await rm(home, { recursive: true, force: true });

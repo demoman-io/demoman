@@ -71,7 +71,11 @@ let home: string;
 let executor: LocalExecutor;
 let takeId: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): its page busy-waits on performance.now(), which never ends on a held clock, and a held plan plays its beats rather than handing them to the renderer. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(PAGE);
@@ -119,6 +123,8 @@ beforeAll(async () => {
 }, RUN_MS);
 
 afterAll(async () => {
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await executor.close();
   server.close();
   await rm(home, { recursive: true, force: true });

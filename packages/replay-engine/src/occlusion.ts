@@ -88,14 +88,16 @@ export function createOcclusionGuard(deps: OcclusionDeps): OcclusionGuard {
         source: `
           (() => {
             let last = 0;
+            // Chrome's own frames on a held clock, whose page frames wait for a capture.
+            const frame = (cb) => (window.__demomanRaf || requestAnimationFrame)(cb);
             const tick = (ts) => {
               if (ts - last >= ${BEAT_EVERY_MS}) {
                 last = ts;
                 window.${BINDING}(String(ts));
               }
-              requestAnimationFrame(tick);
+              frame(tick);
             };
-            requestAnimationFrame(tick);
+            frame(tick);
           })();
         `,
       });

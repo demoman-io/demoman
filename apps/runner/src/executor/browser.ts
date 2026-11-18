@@ -26,6 +26,7 @@ import {
 } from "../launch.js";
 import { recorderPlatform } from "../platform.js";
 import { messageOf } from "../report.js";
+import { heldClockAsked } from "./held.js";
 import { readScreen } from "./page-ops.js";
 
 export type BrowserFailure = {
@@ -171,6 +172,11 @@ export interface BrowserSession {
    */
   ensure(options?: {
     scale?: number;
+    /** Headless only: whether the next recording holds the page's clock,
+     *  which launches with `HELD_FLAGS`. A browser launched the other way
+     *  is launched again, so a recording on the real clock launches exactly
+     *  as it did before held capture. Absent, the browser is used as it is. */
+    held?: boolean;
   }): Promise<{ ok: true; launched: Launched } | BrowserFailure>;
   /**
    * A page for one call (a snapshot, a run) that carries nothing from any
@@ -340,6 +346,10 @@ export function createBrowserSession(options: {
   const readDisplay = options.headless ? options.readDisplay : undefined;
   /** The scale the next stand-in launch is at: the latest one asked for. */
   let wantScale: number = options.defaultScale ?? CAPTURE_SCALE.desktop;
+  /** Whether the next headless launch is for a held clock, and whether the
+   *  live one was: the latest asked for, else whether held capture is on. */
+  let wantHeld = options.headless && heldClockAsked();
+  let liveHeld = false;
 
   /** The display this launch stands in for, or why there is none. Never
    *  throws: a read that throws is a read that failed, and says what threw. */
@@ -397,10 +407,12 @@ export function createBrowserSession(options: {
         screenUnknown = null;
       }
     }
+    const held = wantHeld;
     try {
       launched = await launchFn({
         headless: options.headless,
         log: options.log,
+        ...(held ? { held } : {}),
         ...(display === undefined ? {} : { display }),
         ...(readDisplay !== undefined && display === undefined
           ? { scale }
@@ -450,6 +462,7 @@ export function createBrowserSession(options: {
       }
     }
     live = launched;
+    liveHeld = held;
     filmScale = options.headless
       ? readDisplay === undefined
         ? 1
@@ -631,7 +644,7 @@ export function createBrowserSession(options: {
   }
 
   async function ensure(
-    asked: { scale?: number } = {},
+    asked: { scale?: number; held?: boolean } = {},
   ): Promise<{ ok: true; launched: Launched } | BrowserFailure> {
     if (closed) return SESSION_CLOSED;
     // One launch at a time: a call that arrives during one waits for it and
@@ -643,10 +656,12 @@ export function createBrowserSession(options: {
     if (readDisplay !== undefined && asked.scale !== undefined) {
       wantScale = asked.scale;
     }
+    if (options.headless && asked.held !== undefined) wantHeld = asked.held;
     const lost = live !== null && (pageClosed || !live.browser.isConnected());
     const rescale =
       readDisplay !== undefined && live !== null && filmScale !== wantScale;
-    if (live !== null && (lost || rescale)) {
+    const reclock = live !== null && liveHeld !== wantHeld;
+    if (live !== null && (lost || rescale || reclock)) {
       const was = live;
       const wasScale = filmScale;
       live = null;
@@ -657,11 +672,15 @@ export function createBrowserSession(options: {
         options.log(
           crashed
             ? "the browser had died; starting a new one"
-            : !lost
-              ? `the headless browser records at ${wasScale}x and this call records at ${wantScale}x; starting a new one`
-              : options.headless
-                ? "the headless browser's page closed; starting a new one"
-                : "the browser window was closed; starting a new one",
+            : !lost && !rescale
+              ? wantHeld
+                ? "this call records on a held clock and the headless browser was launched for the real one; starting a new one"
+                : "this call records on the real clock and the headless browser was launched for a held one; starting a new one"
+              : !lost
+                ? `the headless browser records at ${wasScale}x and this call records at ${wantScale}x; starting a new one`
+                : options.headless
+                  ? "the headless browser's page closed; starting a new one"
+                  : "the browser window was closed; starting a new one",
         );
       } catch (error) {
         options.log(

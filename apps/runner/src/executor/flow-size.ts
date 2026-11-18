@@ -110,8 +110,9 @@ export async function flowScaleOf(
 /**
  * The scale the take's motion was filmed at, or null with no motion frames:
  * for takes filmed before `meta.capture.displayScale` was recorded.
- * Screencast spans follow the display's DPR; `meta.capture.dpr` is
- * REPLAY_DPR on every authored take, the stills' scale, not the display's.
+ * Screencast spans follow the display's DPR; `meta.capture.dpr` is the
+ * stills' scale, not the display's (REPLAY_DPR on every authored take but a
+ * held one, which is all stills at the recording's scale).
  * The widest span, since the encoder may keep a span smaller than it
  * arrived; to the nearest quarter, since an encoder's even-pixel width is
  * not another display and displays come at 1, 1.25, 1.5, 2; never under 1.

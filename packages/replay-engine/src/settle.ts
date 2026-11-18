@@ -128,13 +128,17 @@ export function settlePaintExpression(
     }
     // Only once the images are in: a page still missing its pictures has
     // already lost, and the reply says so by its count.
-    if (!parsing && pending === 0) {
-      const tq = Date.now();
+    let tq = null;
+    const quietWait = async () => {
       deadline = Math.max(deadline, tq + QUIET_TIMEOUT + 250);
       while (!quietNow() && Date.now() - tq < QUIET_TIMEOUT) await sleep(50);
       // Back to what the fonts and the frame had before: whatever is left
       // of TIMEOUT, or the 250 ms grace. The quiet budget is not theirs.
       deadline = Math.max(t0 + TIMEOUT, Date.now()) + 250;
+    };
+    if (!parsing && pending === 0) {
+      tq = Date.now();
+      await quietWait();
     }
     if (document.fonts) {
       await document.fonts.ready.then(
@@ -145,7 +149,16 @@ export function settlePaintExpression(
       fonts = "unsupported";
     }
     // One painted frame, so "settled" means drawn and not merely loaded.
-    await new Promise((r) => requestAnimationFrame(() => r()));
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    await frame();
+    // A page that began changing in that frame waits for quiet again, inside
+    // the same budget: an entrance animation whose first frame was the
+    // probe's last read as "never settled" after 0.6 s of 5, and the video
+    // then began before it (Chatbot, DEM-208).
+    while (tq !== null && !quietNow() && Date.now() - tq < QUIET_TIMEOUT) {
+      await quietWait();
+      await frame();
+    }
   })();
   const ready = () => document.readyState;
   // Read at the reply, not when the wait ended: the rAF and the fonts wait

@@ -406,10 +406,11 @@ describe("runScript", () => {
       // reason.
       const ensured = await blind.ensure();
       if (!ensured.ok) throw new Error(JSON.stringify(ensured));
-      const standIn = await ensured.launched.page.evaluate(() => [
-        screen.width,
-        screen.height,
-      ]);
+      // A page of its own: a held run sends its page to about:blank as it
+      // ends, which can destroy the context mid-read (DEM-210).
+      const look = await ensured.launched.context.newPage();
+      const standIn = await look.evaluate(() => [screen.width, screen.height]);
+      await look.close();
       expect(standIn[0], JSON.stringify(standIn)).toBeGreaterThan(0);
       expect(report.outcome, JSON.stringify({ report, lines })).toBe(
         "complete",

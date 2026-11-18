@@ -2,7 +2,7 @@
 import { type AuthoredResult, reasonSentence } from "@demoman/replay-engine";
 import { clickNotDeliveredDetail, screenScaleNote } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserSession } from "../src/executor/browser.js";
 import {
   type PlayDeps,
@@ -24,6 +24,7 @@ function played(
     failedNote: undefined,
     signedOutAfter: null,
     lostHeadlessPage: false,
+    heldFailed: undefined,
     landingNote: undefined,
     arrival: null,
     datesOnScreen: [],
@@ -219,5 +220,28 @@ describe("prepareStage's word on the scale", () => {
     expect(out.ok && out.size.error).toBe(
       "The flow's recorded scale could not be read (video t1 is missing), so this run recorded at 2x.",
     );
+  });
+});
+
+describe("prepareStage's word on the clock", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  // DEM-210: with held capture off it said nothing, so a session made while
+  // it was on launched Chrome held (no smooth scroll) for a real-time run.
+  it("asks a headless session for a real-clock browser when held capture is off", async () => {
+    vi.stubEnv("DEMOMAN_HELD_CLOCK", "0");
+    const asked: unknown[] = [];
+    const deps = stagedOn(1, 1);
+    Object.assign(deps.session, {
+      headless: true,
+      ensure: async (a: unknown) => {
+        asked.push(a);
+        return { ok: true };
+      },
+    });
+    const out = await prepareStage(sized, deps);
+    expect(out.ok, JSON.stringify(out)).toBe(true);
+    expect(asked).toEqual([{ held: false }]);
   });
 });

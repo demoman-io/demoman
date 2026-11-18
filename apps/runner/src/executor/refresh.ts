@@ -183,6 +183,12 @@ const FORGIVEN = new Set<string>([
   "requestNotWaited",
   // The video is right; the cursor arrives before a slow page's hover.
   "pointerLate",
+  // The video is right; a connection was dropped from the count, or an
+  // animation ran unpinned, and the report says which.
+  "connectionIgnored",
+  "animationUnpinned",
+  // An answer arrived in a pause, unpaced by the server, and is said.
+  "answerUnpaced",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 
@@ -241,13 +247,20 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
   };
 }
 
-/** Every problem is the page's own (a stream, a long poll): recording again
- *  settles it no better, and the machine is not why. A settle the machine
- *  failed is `stepSettleFailed`, never one of these, and is recorded again. */
+/** Every problem is the page's own (a stream, a long poll, a part a held
+ *  recording could not hold: a frame from another site, a playing video):
+ *  recording again settles it no better, and the machine is not why. A settle
+ *  the machine failed is `stepSettleFailed`, never one of these, and is
+ *  recorded again. */
+const PAGE_ONLY = [
+  "stepUnsettled",
+  "requestNotWaited",
+  "connectionIgnored",
+  "animationUnpinned",
+  "answerUnpaced",
+];
 const pageOnly = (problems: string[]): boolean =>
-  problems.every(
-    (p) => p.endsWith("(stepUnsettled)") || p.endsWith("(requestNotWaited)"),
-  );
+  problems.every((p) => PAGE_ONLY.some((kind) => p.endsWith(`(${kind})`)));
 
 /** The note a degraded run that stands is delivered with. Problems that are
  *  all the page's own are said as the page's, not blamed on this machine. */

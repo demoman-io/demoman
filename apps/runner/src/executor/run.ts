@@ -3,6 +3,8 @@ import type { Degradation, FrameBundle } from "@demoman/compositor";
 import {
   type AuthoredResult,
   authoredTotal,
+  CAPTURE_SPAN_MIN_FRAMES,
+  type HeldClock,
   type ReplayProgress,
   type ReplayStopReason,
 } from "@demoman/replay-engine";
@@ -378,6 +380,7 @@ export async function runScript(
 
   const prepared = await prepareStage(script, deps);
   if (!prepared.ok) return noTake(prepared.reason, prepared.detail);
+  if (prepared.recording !== undefined) run.recording = prepared.recording;
   const { stage: launched, sessions, size } = prepared;
   const { page } = launched;
 
@@ -391,7 +394,12 @@ export async function runScript(
   /** The walk and the encode: everything that writes into the take's folder
    *  before the take exists. Its caller removes that folder on any throw. */
   const filmAndEncode = async () => {
-    const encoder = createParkingEncoder(store, sceneId);
+    // Held: every captured frame is the page as drawn, so a span of one is
+    // kept, not read as a repaint.
+    const encoder =
+      prepared.held === undefined
+        ? createParkingEncoder(store, sceneId)
+        : createParkingEncoder(store, sceneId, CAPTURE_SPAN_MIN_FRAMES);
     const played = await playOnStage(
       toFilm,
       prepared,
@@ -638,8 +646,18 @@ export async function runScript(
       { ...deps, sessions },
       notStored,
       log,
+      prepared.held?.clock,
     );
   }
+  // The page's last read is done: a held page is let go before the final
+  // still, which renders in this browser. Said, not thrown: the take is whole.
+  // One the clock gave up on is closed already.
+  if (prepared.held?.clock.failed() === null)
+    await prepared.held.clock.release().catch((error: unknown) => {
+      log(
+        `the held page could not be let go (${messageOf(error)}); the rest of this call may be slow`,
+      );
+    });
 
   const built = buildRunReport({
     film,
@@ -757,6 +775,7 @@ async function writeSessionBack(
   deps: Pick<RunDeps, "sessions" | "sessionStore" | "signinCommand">,
   notStored: NonNullable<RunReport["notStored"]>,
   log: (line: string) => void,
+  held?: Pick<HeldClock, "through">,
 ): Promise<void> {
   const fileFor = (url: string): SessionFile | undefined => {
     const s = siteOf(url);
@@ -791,7 +810,10 @@ async function writeSessionBack(
   try {
     // The state first: it is the slow read. The store is read after it, so
     // a `signin` that lands meanwhile is seen and not overwritten.
-    const state = await context.storageState({ indexedDB: true });
+    // A held page answers no storage read while its clock is paused (it
+    // hung every signed-in held recording, 2026-11-15): it is let run.
+    const reading = context.storageState({ indexedDB: true });
+    const state = await (held === undefined ? reading : held.through(reading));
     const slice = writeBackOf(state, loaded);
     // A cookie past its own expiry is gone by the browser's clock, not by a
     // sign-out: counting it would stop every later write-back for good once

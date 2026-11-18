@@ -46,6 +46,27 @@ describe("a deadline over every CDP call", () => {
     );
   });
 
+  // Fix round 1, finding 2: a held recording's probe is bounded in page time
+  // by its caller, which a slow machine takes longer to play; the deadline
+  // in real time would cut it at a machine's own frame.
+  it("puts no deadline on a call its caller bounds itself, through two wrappers", async () => {
+    const inner = withAnswerDeadline(session("Runtime.evaluate"));
+    const { cdp } = withAnswerDeadline(inner.cdp);
+    const probe = cdp.send("Runtime.evaluate", {}, { unbounded: true });
+    let settled = false;
+    probe.finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(ANSWER_DEADLINE_MS * 3);
+    expect(settled).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    // Premise: the same call without it is refused.
+    const bounded = cdp.send("Runtime.evaluate", {});
+    const said = expect(bounded).rejects.toThrow(/got no answer/);
+    await vi.advanceTimersByTimeAsync(ANSWER_DEADLINE_MS);
+    await said;
+  });
+
   it("passes an answer through and leaves no timer behind", async () => {
     const { cdp } = withAnswerDeadline(session("never"));
     expect(await cdp.send("DOM.getBoxModel", {})).toEqual({

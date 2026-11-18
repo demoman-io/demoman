@@ -3,7 +3,8 @@
  * step of a continuous walk, and the capture hold that follows it.
  *
  * Settled here means: the input is painted (one rAF round trip), no finite
- * animation or transition is running, and no DOM mutation for `quietMs`.
+ * animation or transition is running (or held mid-way by a held clock's
+ * pin), and no DOM mutation for `quietMs`.
  * Endless animations (a spinner) are ignored: they never finish, and waiting
  * on them would cost the cap on every step of a page that has one. In-flight
  * requests are a separate question, asked from outside the page.
@@ -35,11 +36,40 @@ export interface StepSettleReport {
   stopped: "quiet" | "cap" | "animationReadFailed" | "unwatched";
 }
 
-export function stepSettleExpression(quietMs: number, capMs: number): string {
+/**
+ * `quietFrames`, on a held clock: the quiet window is counted in the page's
+ * frames, one per frame of held time, not read off its clock. The page reads
+ * whole milliseconds, so a window in milliseconds that ends near a frame was
+ * met a frame apart by where on the grid it began, which follows how long
+ * the server took before it: 400 ms was 12 frames or 13, and 383 ms tipped
+ * the same way from a half-frame start (traced 2026-11-16, twice).
+ */
+/**
+ * `capFrames`, with `quietFrames`: the cap too is counted in frames, and a
+ * frame shot while following the server (`window.__demomanServerFrame`)
+ * counts toward neither. Both then end at the same page frame on any
+ * machine however long the server took: inside a server stretch frames come
+ * as fast as the machine captures them and the page's clock follows real
+ * time, so a settle over a streamed answer ended at its cap on one run and
+ * quiet on another, 7 frames apart (DEM-204, Chatbot, 2026-11-16). `capMs`
+ * is then only the bound with the server's time in it.
+ */
+export function stepSettleExpression(
+  quietMs: number,
+  capMs: number,
+  quietFrames?: number,
+  capFrames?: number,
+): string {
   return `(() => {
   const ${STEP_SETTLE_MARKER} = true;
   const t0 = Date.now();
   let lastChange = t0;
+  // Frames drawn since the last change. Every one counts, also one a
+  // fraction of a millisecond after the question: told apart by the page's
+  // clock, it counted or not by which whole millisecond it fell in.
+  let still = 0;
+  // Frames counted toward a cap in frames.
+  let counted = 0;
   let painted = false;
   let animations = 0;
   let watcher = null;
@@ -52,13 +82,17 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     try {
       if (!document.getAnimations) { failed = true; return 0; }
       return document.getAnimations().filter((a) => {
-        if (a.playState !== "running") return false;
+        // Running, or held mid-way by the held clock's pin (PIN_ANIMATIONS),
+        // which leaves every animation paused: unseen, a toast was pictured
+        // half slid in (measured 2026-11-16).
+        const pinned = a.playState === "paused" && a.__v0 !== undefined && !a.__done && !a.__pagePaused;
+        if (a.playState !== "running" && !pinned) return false;
         const t = a.effect && a.effect.getComputedTiming();
         return !t || t.iterations !== Infinity;
       }).length;
     } catch (e) { failed = true; return 0; }
   };
-  const quietNow = () => Date.now() - lastChange >= ${quietMs};
+  const quietNow = () => ${quietFrames === undefined ? `Date.now() - lastChange >= ${quietMs}` : `still >= ${quietFrames}`};
   const reply = (stopped) => {
     done = true;
     if (watcher) watcher.disconnect();
@@ -77,12 +111,15 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     };
   };
   try {
-    watcher = new MutationObserver(() => { lastChange = Date.now(); });
+    watcher = new MutationObserver(() => { lastChange = Date.now(); still = 0; });
     watcher.observe(document, {
       subtree: true, childList: true, attributes: true, characterData: true,
     });
   } catch (e) { return Promise.resolve(reply("unwatched")); }
-  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const frame = () => new Promise((r) => requestAnimationFrame(() => {
+    ${capFrames === undefined ? "still++;" : "if (!window.__demomanServerFrame) { still++; counted++; }"}
+    r();
+  }));
   const work = (async () => {
     await frame();
     painted = true;
@@ -91,6 +128,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
       const n = countAnimations();
       if (failed) return "animationReadFailed";
       if (n === 0 && quietNow()) return "quiet";
+      ${capFrames === undefined ? "" : `if (counted >= ${capFrames}) return "cap";`}
       await frame();
     }
   })();
@@ -107,7 +145,12 @@ const CARET_RULE = "*{caret-color:transparent!important}";
  * Before a page capture: hide the caret and freeze endless animations at
  * time 0, so two captures of the same page agree. Only animations whose
  * iterations are `Infinity` are held; a finished `fill: forwards` one stays
- * as it is. Replies with the capture geometry, and `caretShown`: a focused
+ * as it is. One the held clock's pin paused (`__v0`, `PIN_ANIMATIONS`) is
+ * held too, and left paused after: its pose follows how many frames the
+ * server took before it, so two held recordings of one page showed it a
+ * frame apart (traced 2026-11-16: one more frame of server wait, one more
+ * frame of spin on every screen after). One the page itself paused is its
+ * picture, and stays. Replies with the capture geometry, and `caretShown`: a focused
  * field whose caret is still drawn (its own `!important` inline colour, say),
  * which the screen must then say.
  *
@@ -151,8 +194,9 @@ export const PAGE_CAPTURE_HOLD = `(() => {
   const held = window.__demomanHeld || (window.__demomanHeld = []);
   for (const a of document.getAnimations ? document.getAnimations() : []) {
     const t = a.effect && a.effect.getComputedTiming();
-    if (a.playState !== "running" || !t || t.iterations !== Infinity) continue;
-    held.push({ a, t: a.currentTime });
+    const run = a.playState === "running";
+    if ((!run && (a.__v0 === undefined || a.__pagePaused)) || !t || t.iterations !== Infinity) continue;
+    held.push({ a, t: a.currentTime, run });
     a.pause();
     a.currentTime = 0;
   }
@@ -172,7 +216,7 @@ export const PAGE_CAPTURE_RELEASE = `(() => {
     delete window.__demomanCaretSheet;
   }
   const held = window.__demomanHeld || [];
-  for (const { a, t } of held) { a.currentTime = t; a.play(); }
+  for (const { a, t, run } of held) { a.currentTime = t; if (run) a.play(); }
   window.__demomanHeld = [];
   return held.length;
 })()`;

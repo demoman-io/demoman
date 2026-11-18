@@ -359,7 +359,11 @@ function pushInOf(
  *  cannot fall back to the frame before. */
 const onFrame = (sec: number) => Math.round(sec * 30) / 30 + 0.001;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a test executor holds at 1x, which leaves a 1080p share no room to push in. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-share-quality-"));
   executor = createLocalExecutor({
@@ -499,6 +503,8 @@ beforeAll(async () => {
 }, RUN_MS + RENDERS_MS);
 
 afterAll(async () => {
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await executor?.close();
   app?.close();
   if (home !== undefined) await rm(home, { recursive: true, force: true });

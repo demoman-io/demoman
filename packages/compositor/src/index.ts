@@ -8,6 +8,7 @@ export {
   type FrameBundle,
   FrameBundleSchema,
   gapPacedLive,
+  isHeld,
   isRealTime,
   type KeyframeEntry,
   keyframeAt,

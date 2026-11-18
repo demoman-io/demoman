@@ -49,6 +49,27 @@ CI's pace: a local, never-pushed vite plugin in helpdesk's `nuxt.config.ts`
 that holds each `/_nuxt/…/pages/` module 1.5 s. Then every round took the
 empty reader, and with the fix every round showed the ticket.
 
+## Held clock on a house app
+
+`held-clock.sh <app checkout> <out dir> [flow…]` records each kept flow
+held twice and once in real time (`DEMOMAN_HELD_CLOCK=0`) with this
+checkout's runner (`pnpm -r build` first), exports every recording to
+`<out dir>/{held-1,held-2,real}/<flow>.mp4`, and prints per flow the held
+frame count, step frames, picture-change frames, network stretches, record
+time and video length, and whether the two held runs match outside the
+stretches. The app must already be serving (`pnpm dev` in it); its
+`reset` (app.json, or `RESET="pnpm reset"` for Nylon) runs before each
+recording. Each recording is a refresh's own run in a throwaway home:
+nothing in the checkout is written. `node held-clock.mjs trial --app …
+--out … [--rounds 3]` is a refresh trial the same way (a baseline, then
+rounds judged by refresh's own `sameScreens`), for checkouts where
+`house-trial.sh`'s local commit is not wanted. `held-risks.sh <out dir>`
+runs it on one small page per risk of the held-clock spec (`<video>`, the
+app's smooth scroll, a cross-origin iframe, WebGL, a phone). `held-push.sh <out dir>`
+does the same for a page per push channel (an EventSource, one that goes
+quiet, a long poll, a fetch stream that never ends) beside a page with none. Measured
+2026-11-15 in the held-clock spec's "Measured: held capture as built".
+
 ## Export cost
 
 Three scripts for where an export's time goes, all headless, all against a

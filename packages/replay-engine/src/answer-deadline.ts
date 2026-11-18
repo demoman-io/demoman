@@ -43,7 +43,8 @@ export function withAnswerDeadline(
   const running = new Set<ReturnType<typeof setTimeout>>();
   return {
     cdp: {
-      send(method, params) {
+      send(method, params, options) {
+        if (options?.unbounded) return cdp.send(method, params, options);
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             running.delete(timer);

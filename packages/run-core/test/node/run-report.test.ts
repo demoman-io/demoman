@@ -632,6 +632,19 @@ describe("RunReport", () => {
     expect(prVerdict(build(["pageHoldNotReleased"])).clause).toMatch(
       /with notes$/,
     );
+    // What a held recording could not hold lost no frame: red if it reads
+    // as a loss, or beside it the video is called intact (review 2026-11-16).
+    const own = verdictLine(
+      build(["animationUnpinned", "connectionIgnored", "stepUnsettled"]),
+    );
+    expect(own).not.toContain("not everything was kept");
+    expect(own).toContain(
+      "Every frame was kept, but not all of the page was on the video's clock:",
+    );
+    expect(own).toContain("(animationUnpinned)");
+    expect(own).toContain("(connectionIgnored)");
+    expect(own).not.toContain("The video is intact");
+    expect(own).toContain(" For refresh: ");
   });
 
   // The sentence is pinned whole: since 2026-09-30 a landing is either a

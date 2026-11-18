@@ -16,6 +16,7 @@ import {
   type CursorSegment,
   coversViewport,
   type Degradation,
+  easings,
   type FrameBundle,
   heldThroughEndMs,
   type KeyframeEntry,
@@ -40,13 +41,17 @@ import {
   type ClickVerdict,
   createClickSightings,
   discardClickProbe,
+  isClickRead,
   placeClickProbe,
   readClickProbe,
   TYPE_FIELD_UNFOCUSED,
 } from "./click-probe.js";
 import {
   ACT_CEILING_MS,
+  HELD_SCROLL_MS,
+  HELD_STEP_QUIET_MS,
   KEYFRAME_QUALITY,
+  NAVIGATE_TIMEOUT_MS,
   NEXT_FRAME_WAIT_MS,
   REPLAY_DPR,
   REPLAY_TARGETS,
@@ -94,14 +99,18 @@ import {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
+import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
+import { createHeldFrames } from "./held-frames.js";
 import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
+import { createNetworkWatch, type NetworkWatch } from "./network-watch.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
-import { type RequestTracker, trackRequests } from "./requests.js";
 import {
+  HELD_SCROLL_STEP,
+  heldScrollPlanFunction,
   type ScrollAim,
   type ScrollReport,
   scrollIntoViewFunction,
@@ -130,6 +139,7 @@ import type {
   ReplayStopReason,
   ResolveFailure,
   ResolveReport,
+  SendOptions,
   TargetHandle,
   ZoomDecision,
 } from "./types.js";
@@ -493,7 +503,9 @@ export interface BeatRules {
   /** Dead air before a step's journey; `roomMs` is what the camera needs
    *  from the last act's designed end to this click, 0 when none;
    *  `returnShortMs` what a return still lacks (`RoomPolicy.returnShortMs`),
-   *  absent when none. */
+   *  absent when none. On a held clock a step its approach scrolls to is
+   *  asked before the scroll, with `roomMs` and `journeyMs` 0: its rest
+   *  keeps its base, and the room goes into `afterScroll`. */
   restBefore(i: {
     first: boolean;
     pauseMs: number;
@@ -585,6 +597,18 @@ export interface EngineDeps {
    * that, as for `runReplay`.
    */
   beats?: BeatRules;
+  /**
+   * The page's held clock (held-clock spec §1-§3). Continuous recording
+   * only; given, the walk's clock, held already by the caller. The walk
+   * starts no screencast and no motion recorder, files the clock's frames
+   * (`createHeldFrames`), plays its beat plan as page time instead of
+   * returning `ReplayResult.pacing`, and marks the bundle `clock: "held"`.
+   */
+  held?: HeldClock;
+  /** The held clock's network watch, which the walk's settle reads too: one
+   *  rule for "the page is waiting on its server" (DEM-202). Absent, a
+   *  continuous walk watches the page itself, on its clock. */
+  network?: NetworkWatch;
 }
 /** The shortest gap between two mouse moves of a dispatched path. Chrome's
  *  own answer, about a frame, is the real pace; this only bounds the rate
@@ -709,6 +733,11 @@ export function stopForResolveFailure(
 }
 
 /** What to put in a degradation note for a failed settle probe. */
+/** Held: page time past an in-page probe's own backstop before the walk
+ *  stops waiting for its answer. The backstops answer within 250 ms of
+ *  their cap, polling every 50 ms; past this, the probe is not answering. */
+const PROBE_GRACE_MS = 1000;
+
 function describeSettleError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -802,7 +831,20 @@ export async function runWalk(
   deps: EngineDeps,
   config: WalkConfig,
 ): Promise<ReplayResult> {
-  const { page, encoder, store, clock } = deps;
+  const { page, encoder, store, held } = deps;
+  /** The scale the page is rendered at: the stills' 3x, or a held
+   *  recording's own (`HeldClock.scale`), whose every frame is a still. */
+  const stillScale = held?.scale ?? REPLAY_DPR;
+  if (held !== undefined && deps.recording !== "continuous") {
+    throw new Error(
+      `runWalk: a held clock records only on continuous recording, not ${deps.recording ?? "sampled"}`,
+    );
+  }
+  const clock = held ?? deps.clock;
+  /** Held: a probe's send, bounded by `answered` in page time rather than
+   *  by the real-time answer deadline. Off a held clock, none. */
+  const heldProbe: SendOptions | undefined =
+    held === undefined ? undefined : { unbounded: true };
   // Every call the walk makes has a deadline: a call the browser never
   // answers becomes a reported stop rather than a run that never returns
   // (`answer-deadline.ts`). Cleared at the very end of teardown.
@@ -893,6 +935,50 @@ export async function runWalk(
    * (`commitPlan`), so a step that never counts plans nothing.
    */
   const beats = continuous ? deps.beats : undefined;
+  /** On a held clock the plan is played as page time, not returned. */
+  const heldPlan = held !== undefined && beats !== undefined;
+  /** The last act's end on the walk's clock; the walk's start before any. */
+  let heldActEnd = 0;
+  /** A held plan's rest or tail, slept as what is left of it since the last
+   *  act ended: page time the step's settle played counts toward it, as the
+   *  renderer folds that idle into the rest. Network time does not: it is
+   *  the server's, played on top of the designed clock (spec §2), or a
+   *  slower server would leave a different rest on another machine. */
+  const sinceActEnd = (plannedMs: number, since = heldActEnd): number => {
+    const now = at();
+    let networkMs = 0;
+    for (const s of held?.networkSpans() ?? []) {
+      const from = Math.max(s.startMs - started, since);
+      networkMs += Math.max(0, Math.min(s.endMs - started, now) - from);
+    }
+    return Math.max(0, plannedMs - (now - since - networkMs));
+  };
+  /** Plays a held rest or tail to its planned page time, counted from
+   *  `since` (the last act's end): network time a wait before it spent
+   *  since then is not counted against it, so the rest's held part is the
+   *  plan's on any machine (review of Task 9, finding 3). The rest itself
+   *  is designed time and never follows the server. */
+  const playRest = async (
+    plannedMs: number,
+    since = heldActEnd,
+  ): Promise<void> => {
+    // A rest is designed time, which never follows the server
+    // (`HeldClock.waiting`), so what is left is slept once.
+    const left = sinceActEnd(plannedMs, since);
+    if (left > HELD_EPS_MS) await clock.sleep(left);
+  };
+  /** Runs `run` as a wait on the page (`HeldClock.waiting`): the opening's
+   *  load, a step's settle and screen, a wait step, a page's answer to a
+   *  question. Everything else the walk sleeps is designed time.
+   *  `windowed`: the wait follows only what opened in its window
+   *  (`windowOf`); the opening's load follows everything. */
+  const waitingOn = <T>(run: () => Promise<T>, windowed = false): Promise<T> =>
+    held === undefined
+      ? run()
+      : held.waiting(run, windowed ? windowOf() : null);
+  /** A wait beginning now follows what opened from a request cap before
+   *  it, on the clock (DEM-202). */
+  const windowOf = (): number => clock.now() - STEP_REQUEST_CAP_MS;
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
@@ -915,9 +1001,10 @@ export async function runWalk(
   let pausedSinceCounted = 0;
   /** The beat for a step with no journey and no arrive (a wait, a key
    *  press), marked now. Approved: `arriveMs` 0 and the approach at the
-   *  marker, since the walk sleeps no arrive before either. */
-  const planUnplaced = (step: WalkStep): void => {
-    if (beats === undefined) return;
+   *  marker, since the walk sleeps no arrive before either. Answers the
+   *  rest, which a held plan plays before the step. */
+  const planUnplaced = (step: WalkStep): number => {
+    if (beats === undefined) return 0;
     const restMs = beats.restBefore({
       first: plannedBeats.length === 0,
       pauseMs: step.pauseMs ?? 0,
@@ -930,6 +1017,7 @@ export async function runWalk(
       roomMs: 0,
       zoomed: false,
     };
+    return restMs;
   };
   /** Where the last zoom held through an `after: "action"` cut lands, and
    *  a settle, on the designed clock; -Infinity with none held. */
@@ -940,6 +1028,24 @@ export async function runWalk(
         : heldThroughEndMs(designedHeldUntil, designed + config.tail.ms);
     return landsAt === null ? Number.NEGATIVE_INFINITY : landsAt + SETTLE_MS;
   };
+  /** The plan's tail past its last counted step's designed act end
+   *  (`pacing.tailMs`), asked once the steps are done. */
+  const plannedTailMs = (rules: BeatRules): number =>
+    Math.max(
+      rules.tailMs({
+        zoomSettleMs:
+          room === undefined || designedHeldUntil === null
+            ? null
+            : Math.max(0, room.settledAfterMs(designedHeldUntil) - designed),
+        trimEndMs: config.tail?.ms ?? null,
+        trimAfterAction: config.tail?.after === "action",
+        pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
+      }),
+      // A zoom held through an `after: "action"` cut (DEM-178)
+      // lands after it: the tail plays through that landing and a
+      // settle, as the unplanned walk films through it.
+      plannedHeldEnd() - designed,
+    );
   /** A counted step's plan, onto the designed clock. */
   const commitPlan = (action: SceneAction): void => {
     const plan = stepPlan;
@@ -1009,6 +1115,7 @@ export async function runWalk(
   const markers: FrameBundle["markers"] = [];
   const degradations: Degradation[] = [];
   const counters = blankCounters(viewport, total);
+  counters.dpr = stillScale;
 
   // Where the cursor enters, taken from the plan rather than from the origin
   // — see `WalkConfig.firstCursor`, and `runReplay` for where it comes from.
@@ -1073,6 +1180,9 @@ export async function runWalk(
   let topFrameId: string | null = null;
   let topLoading = false;
   let navigationsSeen = 0;
+  /** Top-frame documents committed (`Page.frameNavigated`, which a
+   *  navigation within the document never sends). */
+  let documentsCommitted = 0;
   // `navigationsSeen` as it stood when the previous step began (for step 0,
   // before the start navigation): a `waitForLoad` saw a load when the count
   // has moved since.
@@ -1084,6 +1194,7 @@ export async function runWalk(
     const frame = params.frame as { id?: string; parentId?: string };
     if (frame?.parentId === undefined && frame?.id !== undefined) {
       topFrameId = frame.id;
+      documentsCommitted++;
     }
   });
   const offStarted = cdp.on("Page.frameStartedLoading", (params) => {
@@ -1091,6 +1202,13 @@ export async function runWalk(
     navigationsSeen++;
     topLoading = true;
   });
+  /** Whether the top document is loading. Held: whether a document's
+   *  request is open, which the clock's frames account for as the server's
+   *  time; `topLoading` ends on whichever frame the browser's event happens
+   *  to arrive in. What the page does after its last byte is asked of it
+   *  between frames (`documentLoading`). */
+  const loading = (): boolean =>
+    held === undefined ? topLoading : held.loading();
   const offStopped = cdp.on("Page.frameStoppedLoading", (params) => {
     if (isTop(params)) topLoading = false;
   });
@@ -1123,7 +1241,9 @@ export async function runWalk(
   const applyMetrics = async (): Promise<void> => {
     await cdp.send(
       "Emulation.setDeviceMetricsOverride",
-      device === null ? desktopMetrics(viewport) : deviceMetrics(device),
+      device === null
+        ? { ...desktopMetrics(viewport), deviceScaleFactor: stillScale }
+        : deviceMetrics(device),
     );
   };
 
@@ -1152,6 +1272,18 @@ export async function runWalk(
     capture: (take) => sharedGate.capture(take),
   };
   const takeShot = async (actionId: string | null): Promise<void> => {
+    if (heldFrames !== null) {
+      // Held: the page has not moved since its newest frame.
+      const frame = heldFrames.latest();
+      if (frame === null) {
+        throw new Error(
+          `no held frame had been captured at ${at()} ms to file as a still`,
+        );
+      }
+      if (sealed) return;
+      await fileStill(frame.bytes, actionId, at());
+      return;
+    }
     const reply = await gate.capture(() =>
       cdp.send("Page.captureScreenshot", {
         format: "jpeg",
@@ -1186,6 +1318,33 @@ export async function runWalk(
       note: null,
     });
   };
+  const heldFrames =
+    held === undefined
+      ? null
+      : createHeldFrames({
+          encoder,
+          fileStill: (bytes, atMs) => fileStill(bytes, null, atMs),
+          onSpan: (entry) => motionSpans.push(entry),
+          degradations,
+        });
+  // Before the walk's first sleep, which captures the first frame.
+  /** Held: frames are filed from the opening on. The load and settle
+   *  before it play page time too, unfilmed, as a real-time recording
+   *  keeps no frame before its opening still. */
+  let filing = false;
+  if (held !== undefined && heldFrames !== null) {
+    held.onFrame(async (frame) => {
+      if (!filing) return;
+      const atMs = frame.sourceTimeMs - started;
+      try {
+        await heldFrames.add({ ...frame, sourceTimeMs: atMs });
+      } catch (error) {
+        throw new Error(
+          `the held frame at ${atMs} ms could not be filed (${describeSettleError(error)})`,
+        );
+      }
+    });
+  }
 
   /**
    * Every still goes through one line. A settled still is requested from
@@ -1258,6 +1417,8 @@ export async function runWalk(
    * left open on purpose is in `standInFrame`.
    */
   const stepStill = (actionId: string): Promise<void> => {
+    // Held: no screencast to stand in, and the held frame is the page now.
+    if (heldFrames !== null) return shot(actionId);
     const run = shooting.then(async () => {
       const frame = await standInFrame(
         {
@@ -1339,6 +1500,12 @@ export async function runWalk(
   };
 
   const drainShots = async (): Promise<boolean> => {
+    // Held: a still is a frame already in hand, and a sleep raced here
+    // would move page time beside the walk's own.
+    if (held !== undefined) {
+      await shooting;
+      return true;
+    }
     let drained = false;
     await Promise.race([
       shooting.then(() => {
@@ -1423,11 +1590,89 @@ export async function runWalk(
     };
   })();
 
-  /** Continuous only: what counts the page's requests in flight, or why
-   *  nothing does (`Network.enable` refused), which every screen then says. */
-  let tracker = null as RequestTracker | null;
+  /** Continuous only: what counts the page's requests in flight (the held
+   *  clock's own, when held), or why nothing does (`Network.enable`
+   *  refused), which every screen then says. On the clock (`clock.now()`). */
+  let tracker = (deps.network ?? null) as NetworkWatch | null;
   let untracked = "they were never asked about";
+  let ownTracker = false;
   const pageScreens: PageScreen[] = [];
+
+  /**
+   * Held: an in-page wait on the page's own timers answers only as page time
+   * moves, so page time is played a frame at a time until it answers, within
+   * `boundMs` of page time; past that it throws, in words. The answer is
+   * looked for only after a frame, whose page call is a round trip behind
+   * it, so it lands on the same frame on any machine. Off a held clock, the
+   * call as it was.
+   */
+  const answered = async (
+    asked: Promise<Record<string, unknown>>,
+    boundMs: number,
+  ): Promise<Record<string, unknown>> => {
+    // `asked` goes out `heldProbe`: bounded here in page time, which a slow
+    // machine takes longer to play, never by the real-time answer deadline;
+    // each frame's grant and page call keep theirs.
+    if (held === undefined) return asked;
+    let done = false;
+    const reply = asked.finally(() => {
+      done = true;
+    });
+    // Handled here; awaited below once it has answered.
+    reply.catch(() => undefined);
+    const from = clock.now();
+    await held.waiting(async () => {
+      while (!done) {
+        if (clock.now() - from >= boundMs) {
+          throw new Error(
+            `the page had not answered after ${Math.round(boundMs)} ms of page time`,
+          );
+        }
+        await clock.sleep(HELD_FRAME_MS);
+      }
+    }, windowOf());
+    return reply;
+  };
+
+  /**
+   * Held: the walk reads a click from the page clicked, and when the click
+   * navigated to another site Chrome answers that read only once the new
+   * page commits (measured 2026-11-15: 214 ms against the server's 200).
+   * Played as page time, network time while the request is open, so the
+   * server's wait is in the video as any other is; a click that stays on its
+   * page answers after one frame. Off a held clock, the session as it is.
+   */
+  const verbCdp: CdpSession =
+    held === undefined
+      ? cdp
+      : {
+          ...cdp,
+          send: (method, params, options) =>
+            isClickRead(method, params)
+              ? answered(
+                  cdp.send(method, params, heldProbe),
+                  NAVIGATE_TIMEOUT_MS,
+                )
+              : cdp.send(method, params, options),
+        };
+
+  /** Whether the top document says it is still loading. A page that
+   *  cannot answer (one leaving, or not yet there) counts as loading: the
+   *  caller keeps playing frames within its cap rather than racing a move
+   *  into Chrome's hold on the next document. */
+  const documentLoading = async (): Promise<boolean> => {
+    try {
+      const state = evaluatedValue(
+        await cdp.send("Runtime.evaluate", {
+          expression: "document.readyState",
+          returnByValue: true,
+        }),
+      );
+      return state === "loading" || state === "interactive";
+    } catch {
+      return true;
+    }
+  };
 
   /**
    * The page-side half of a step's settle (`step-settle.ts`), within
@@ -1440,30 +1685,78 @@ export async function runWalk(
    * page mid-unload (Review Focus 2).
    */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
+    // Held: the budget is page time outside server stretches, as the probe
+    // counts its cap (`stepSettleExpression`), so the server never spends
+    // it (DEM-204); with the server's time in it, the settle stops a
+    // request cap later.
+    // Read only when held: a clock read is a moment of a real clock's.
+    const began = held === undefined ? 0 : at();
+    const outer = deadline + STEP_REQUEST_CAP_MS;
+    const left = () =>
+      held === undefined
+        ? deadline - at()
+        : at() < outer
+          ? sinceActEnd(deadline - began, began)
+          : 0;
     for (;;) {
-      while (topLoading && at() < deadline) await clock.sleep(50);
-      const capMs = deadline - at();
-      if (capMs <= 0) {
-        return [...(topLoading ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
+      // Held: also while the clock owes the server frames, which the
+      // probe's quiet window would otherwise run inside (`HeldClock.owing`).
+      if (held === undefined)
+        while (topLoading && at() < deadline) await clock.sleep(50);
+      else
+        while (
+          (held.owing() || (await documentLoading())) &&
+          left() > HELD_EPS_MS
+        )
+          await clock.sleep(HELD_FRAME_MS);
+      const capMs = left();
+      if (capMs <= HELD_EPS_MS) {
+        return [...(loading() ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
       }
       const navs = navigationsSeen;
+      const commits = documentsCommitted;
       let report: Partial<StepSettleReport> | undefined;
       let failure: unknown = null;
       try {
         report = evaluatedValue(
-          await cdp.send("Runtime.evaluate", {
-            expression: stepSettleExpression(STEP_QUIET_MS, capMs),
-            awaitPromise: true,
-            returnByValue: true,
-          }),
+          await answered(
+            cdp.send(
+              "Runtime.evaluate",
+              {
+                expression:
+                  held === undefined
+                    ? stepSettleExpression(STEP_QUIET_MS, capMs)
+                    : stepSettleExpression(
+                        HELD_STEP_QUIET_MS,
+                        outer - at(),
+                        Math.round(HELD_STEP_QUIET_MS / HELD_FRAME_MS),
+                        Math.round(capMs / HELD_FRAME_MS),
+                      ),
+                awaitPromise: true,
+                returnByValue: true,
+              },
+              heldProbe,
+            ),
+            (held === undefined ? capMs : outer - at()) + PROBE_GRACE_MS,
+          ),
         ) as Partial<StepSettleReport> | undefined;
       } catch (error) {
         failure = error;
       }
-      if ((navigationsSeen !== navs || topLoading) && at() < deadline) {
+      // Asked again when the answer may be the page being left. Held: only
+      // when a new document committed or one's request is open. A navigation
+      // within the document (a Next.js link's pushState) leaves none, and the
+      // probe's quiet window already restarts on what it changes; counted, it
+      // asked the window again only when it landed inside it, which the
+      // server's timing decided: 12 frames apart (DEM-205, 2026-11-17).
+      const replaced =
+        held === undefined
+          ? navigationsSeen !== navs
+          : documentsCommitted !== commits;
+      if ((replaced || loading()) && left() > HELD_EPS_MS) {
         continue;
       }
-      const words = topLoading ? [STILL_LOADING] : [];
+      const words = loading() ? [STILL_LOADING] : [];
       if (failure !== null) {
         return [
           ...words,
@@ -1492,7 +1785,7 @@ export async function runWalk(
    * own `STEP_SETTLE_CAP_MS`. A request still in flight when the cap runs
    * out leaves the page not asked.
    *
-   * Only requests that opened after `openedAfter` are waited for. One open
+   * Only requests that opened at or after `openedAfter` are waited for. One open
    * longer than a whole request cap before the step began (a long poll, a
    * channel that never closes) had its step's wait already: waiting again
    * would cost every later step the cap and its screen.
@@ -1508,17 +1801,19 @@ export async function runWalk(
           ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
         ];
       }
-      if (!(await tracker.idle(requestBy, clock.sleep, openedAfter))) {
+      // The watch is on the clock, the walk on `at()`.
+      const since = started + openedAfter;
+      if (!(await tracker.idle(started + requestBy, clock.sleep, since))) {
         return [
-          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          pageMade(`${tracker.inFlight(since)} request(s) in flight`),
           PAGE_NOT_ASKED,
         ];
       }
       const page = await settlePage(at() + STEP_SETTLE_CAP_MS);
-      if (tracker.inFlight(openedAfter) === 0) return page;
+      if (tracker.inFlight(since) === 0) return page;
       if (at() >= requestBy) {
         return [
-          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          pageMade(`${tracker.inFlight(since)} request(s) in flight`),
           ...page,
         ];
       }
@@ -1544,6 +1839,11 @@ export async function runWalk(
    *  otherwise wait forever behind a still of a page that stopped painting. */
   const stillLineFree = async (): Promise<boolean> => {
     let free = stillsWaiting === 0;
+    // Held: as `drainShots`; a page screen in the line has its own bound.
+    if (!free && held !== undefined) {
+      await shooting;
+      free = true;
+    }
     if (!free) {
       await Promise.race([
         shooting.then(() => {
@@ -1648,7 +1948,7 @@ export async function runWalk(
    * way. `pointerStep`: the step just finished moved the pointer (a
    * targeted verb), so its hover is renewed before the settle.
    */
-  const settleAndCapture = async (
+  const settleAndCaptureNow = async (
     after: number,
     actionId: string | null,
     pointerStep = false,
@@ -1668,17 +1968,26 @@ export async function runWalk(
     // move and would lose the keys' selection (review of 301982b4).
     const moved: Unmet[] = [];
     if (pointerStep && cursorSamples.length > 0) {
+      // Held: Chrome holds input for a document still loading until it
+      // loads, which on a held clock is only as page time moves (measured
+      // 2026-11-15: this move after a navigating click waited out Chrome's
+      // own 30 s), so the load is played first, within the settle's cap:
+      // while the clock is in the server's time (a document's request open,
+      // `HeldClock.owing`), or the document says it is not yet complete
+      // (a load no request announced, review of Task 9 round 1, finding C).
+      // Both are asked between frames, never heard from a browser event, so
+      // the frame the loop ends on is the same on any machine.
+      if (held !== undefined) {
+        const loadBy = at() + STEP_SETTLE_CAP_MS;
+        while ((held.owing() || (await documentLoading())) && at() < loadBy)
+          await clock.sleep(HELD_FRAME_MS);
+      }
       try {
         // A section waits for any still in flight, and one of a page that
         // stopped painting never ends.
         if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
-        await gate.section(() =>
-          cdp.send("Input.dispatchMouseEvent", {
-            type: "mouseMoved",
-            x: cursor.x,
-            y: cursor.y,
-          }),
-        );
+        const move = { type: "mouseMoved", x: cursor.x, y: cursor.y };
+        await gate.section(() => cdp.send("Input.dispatchMouseEvent", move));
       } catch (error) {
         moved.push(
           machineMade(
@@ -1693,7 +2002,7 @@ export async function runWalk(
     ];
     const waitedMs = Math.max(0, at() - from);
     const leftOut =
-      tracker === null ? 0 : tracker.inFlight() - tracker.inFlight(openedAfter);
+      tracker === null ? 0 : tracker.openedBefore(started + openedAfter);
     const place =
       actionId === null
         ? "the opening page"
@@ -1774,28 +2083,38 @@ export async function runWalk(
     // take would not have had, nor jitter one across that line.
     roomAdded += at() - from;
   };
+  /** Held: the requests the settle leaves out (`settleAndCaptureNow`'s
+   *  `openedAfter`) are not followed either, or a stream opened before it
+   *  kept every settle in a stretch that never ended (DEM-204). */
+  const settleAndCapture = (
+    ...asked: Parameters<typeof settleAndCaptureNow>
+  ): Promise<void> => waitingOn(() => settleAndCaptureNow(...asked), true);
 
-  const recorder = createMotionRecorder({
-    encoder,
-    clock,
-    at,
-    viewport,
-    counters,
-    degradations,
-    applyMetrics,
-    onSpan: (entry) => motionSpans.push(entry),
-    mode: continuous ? "continuous" : "sampled",
-    // A quiet page earns a sharp still when what just ended was motion, or
-    // when a verb has happened since the last still and so the page may
-    // look different. Not for every blip: a focused field's caret repaints
-    // one frame about every 500 ms, and a 3x still each time was ~1.2 MB/s
-    // and a queue the marker stills waited in (final review I2).
-    onSettled: (settledAt, frames) => {
-      if (frames < SPAN_MIN_FRAMES && !stillOwed) return;
-      stillOwed = false;
-      void settledStill(settledAt);
-    },
-  });
+  // None on a held clock: its frames are filed by `heldFrames`.
+  const recorder =
+    held === undefined
+      ? createMotionRecorder({
+          encoder,
+          clock,
+          at,
+          viewport,
+          counters,
+          degradations,
+          applyMetrics,
+          onSpan: (entry) => motionSpans.push(entry),
+          mode: continuous ? "continuous" : "sampled",
+          // A quiet page earns a sharp still when what just ended was motion, or
+          // when a verb has happened since the last still and so the page may
+          // look different. Not for every blip: a focused field's caret repaints
+          // one frame about every 500 ms, and a 3x still each time was ~1.2 MB/s
+          // and a queue the marker stills waited in (final review I2).
+          onSettled: (settledAt, frames) => {
+            if (frames < SPAN_MIN_FRAMES && !stillOwed) return;
+            stillOwed = false;
+            void settledStill(settledAt);
+          },
+        })
+      : null;
 
   const offFrame = cdp.on("Page.screencastFrame", (params) => {
     // Ack first and unconditionally: Chrome stops sending frames until the
@@ -1824,7 +2143,7 @@ export async function runWalk(
     priorFrame = newestFrame;
     newestFrame = seen;
     for (const waiter of frameWaiters.splice(0)) waiter(seen);
-    recorder.onFrame(params);
+    recorder?.onFrame(params);
   });
 
   /**
@@ -2098,6 +2417,52 @@ export async function runWalk(
   };
 
   /**
+   * `bringIntoView` on a held clock. Chrome's smooth scroll runs on its real
+   * clock (and held recordings launch with it off), so the walk plays the
+   * scroll itself: one step a captured frame, over `HELD_SCROLL_MS` on the
+   * cursor's minimum-jerk ease, each step asked of the target itself, so in
+   * its own frame. Ends with the last step landed, so the re-measure and
+   * `scrollEndAt` are taken where the scroll stopped.
+   */
+  const playScroll = async (
+    handle: TargetHandle,
+    aim: ScrollAim,
+  ): Promise<TargetHandle | null> => {
+    const planned = evaluatedValue(
+      await cdp.send("Runtime.callFunctionOn", {
+        objectId: handle.objectId,
+        functionDeclaration: heldScrollPlanFunction(aim),
+        returnByValue: true,
+      }),
+    ) as Partial<ScrollReport> | undefined;
+    if (typeof planned?.movedPx !== "number") {
+      degradations.push(
+        degradation(
+          "scrollUnsettled",
+          at(),
+          at(),
+          "the scroll plan answered with nothing this could read",
+        ),
+      );
+    } else if (planned.movedPx > 0) {
+      const frames = Math.ceil(HELD_SCROLL_MS / HELD_FRAME_MS - HELD_EPS_MS);
+      for (let k = 1; k <= frames; k++) {
+        const p = easings.minimumJerk(Math.min(1, k / frames));
+        evaluatedValue(
+          await cdp.send("Runtime.callFunctionOn", {
+            objectId: handle.objectId,
+            functionDeclaration: HELD_SCROLL_STEP,
+            arguments: [{ value: p }],
+          }),
+        );
+        await clock.sleep(HELD_FRAME_MS);
+      }
+    }
+    const rect = await measure(handle.objectId);
+    return rect === null ? null : { objectId: handle.objectId, rect };
+  };
+
+  /**
    * Put the target on screen before anything is dispatched at it.
    *
    * `DOM.getBoxModel` quads are **viewport-relative** — measured against real
@@ -2128,6 +2493,7 @@ export async function runWalk(
     handle: TargetHandle,
     aim: ScrollAim,
   ): Promise<TargetHandle | null> => {
+    if (held !== undefined) return playScroll(handle, aim);
     const reply = await cdp.send("Runtime.callFunctionOn", {
       objectId: handle.objectId,
       functionDeclaration: scrollIntoViewFunction(
@@ -2207,8 +2573,21 @@ export async function runWalk(
         await send(pathPointAt(segment, elapsed));
         answered = elapsed;
         const now = at();
-        if (elapsed >= segment.durationMs) break;
-        const wait = PATH_STEP_MS - (now - sentAt);
+        // Held: within the clock's own tolerance, or a remainder it will not
+        // move would spin here.
+        if (
+          elapsed >=
+          segment.durationMs - (held === undefined ? 0 : HELD_EPS_MS)
+        )
+          break;
+        // Held: one move per frame of page time, the last at the path's end.
+        const wait =
+          held === undefined
+            ? PATH_STEP_MS - (now - sentAt)
+            : Math.min(
+                HELD_FRAME_MS - (now - sentAt),
+                segment.durationMs - elapsed,
+              );
         if (wait > 0) await clock.sleep(wait);
         sentAt = at();
       }
@@ -2352,13 +2731,16 @@ export async function runWalk(
     let pictureShown = false;
     const move = async (p: { x: number; y: number }): Promise<void> => {
       if (native) {
+        // The picture first, as an OS drag image is: the page's dragover
+        // finds it under the pointer, not a step behind (a held step is a
+        // 33 ms frame, which left it off the pointer, DEM-210).
+        if (pictureShown) await onPage(DRAG_PICTURE_MOVE, [p.x, p.y]);
         await cdp.send("Input.dispatchDragEvent", {
           type: "dragOver",
           x: p.x,
           y: p.y,
           data: dragData,
         });
-        if (pictureShown) await onPage(DRAG_PICTURE_MOVE, [p.x, p.y]);
       } else if (touch) {
         await cdp.send("Input.dispatchTouchEvent", {
           type: "touchMove",
@@ -2489,10 +2871,16 @@ export async function runWalk(
     const releaseMs = at();
     heldPresses.push({ actionId, pressMs, releaseMs });
     cursor = plan.end;
-    const verdict = await readClickProbe(cdp, probe, plan.start, sightings, {
-      releasedAt: plan.end,
-      touch,
-    });
+    const verdict = await readClickProbe(
+      verbCdp,
+      probe,
+      plan.start,
+      sightings,
+      {
+        releasedAt: plan.end,
+        touch,
+      },
+    );
     const seen = await changes();
     // A native drop nothing accepted (final review, finding 3): the page
     // ignored the drag at its end, which is the same fact as `notDragged`.
@@ -2588,11 +2976,18 @@ export async function runWalk(
   const settlePaint = async (): Promise<Degradation | null> => {
     let reply: Record<string, unknown>;
     try {
-      reply = await cdp.send("Runtime.evaluate", {
-        expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
-        awaitPromise: true,
-        returnByValue: true,
-      });
+      reply = await answered(
+        cdp.send(
+          "Runtime.evaluate",
+          {
+            expression: settlePaintExpression(SETTLE_PAINT_TIMEOUT_MS),
+            awaitPromise: true,
+            returnByValue: true,
+          },
+          heldProbe,
+        ),
+        SETTLE_PAINT_TIMEOUT_MS + SETTLE_QUIET_TIMEOUT_MS + PROBE_GRACE_MS,
+      );
     } catch (error) {
       // A page that navigates out from under an in-flight evaluate destroys
       // the context it was running in, and CDP reports that as a rejection.
@@ -2659,7 +3054,7 @@ export async function runWalk(
     return null;
   };
 
-  const awaitCondition = async (
+  const awaitConditionNow = async (
     action: SceneAction,
     target: AnchorIntent | null,
   ): Promise<boolean> => {
@@ -2676,7 +3071,7 @@ export async function runWalk(
         // and then answers for it, so the window this closes is the first
         // few milliseconds of a load. Skipping a read costs one poll.
         const seenBefore = navigationsSeen;
-        const state = topLoading
+        const state = loading()
           ? undefined
           : ((
               await cdp.send("Runtime.evaluate", {
@@ -2707,6 +3102,9 @@ export async function runWalk(
     }
     return false;
   };
+  const awaitCondition = (
+    ...asked: Parameters<typeof awaitConditionNow>
+  ): Promise<boolean> => waitingOn(() => awaitConditionNow(...asked), true);
 
   // Everything from here to the loop's end talks to the world through a
   // port, and any of those calls can reject — a detached debugger, a closed
@@ -2752,7 +3150,7 @@ export async function runWalk(
     let slept = false;
     if (act !== null) {
       const ceiling = act.verbEndMs + ACT_CEILING_MS;
-      while (recorder.isOpen() && at() < ceiling) {
+      while (recorder?.isOpen() && at() < ceiling) {
         slept = true;
         await clock.sleep(50);
       }
@@ -2770,7 +3168,7 @@ export async function runWalk(
     const act = pendingAct;
     pendingAct = null;
     if (act === null || !markers.includes(act.marker)) return;
-    const end = actEndOf(act.verbEndMs, recorder.lastMotionMs());
+    const end = actEndOf(act.verbEndMs, recorder?.lastMotionMs() ?? null);
     act.marker.actEndSourceTimeMs = end;
     latestActEnd = Math.max(latestActEnd ?? end, end);
   };
@@ -2869,16 +3267,23 @@ export async function runWalk(
     // (2026-08-31-continuous-capture-design.md). Before `install()` below,
     // so the exemption already covers the navigation it triggers. Frames
     // that arrive with no span open are acked and discarded by the intake.
-    await cdp.send("Page.startScreencast", {
-      format: "jpeg",
-      quality: 80,
-      everyNthFrame: 1,
-    });
+    // Held: the held clock captures every frame itself.
+    if (held === undefined) {
+      await cdp.send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 80,
+        everyNthFrame: 1,
+      });
+    }
     // Before `install()`'s navigation, so a request the first page makes is
-    // counted. A refusal does not stop the run: every screen says it.
-    if (continuous) {
+    // counted. A refusal does not stop the run: every screen says it. Held,
+    // the runner's watch was listening already.
+    if (continuous && tracker === null) {
       try {
-        tracker = await trackRequests(cdp, at);
+        tracker = await createNetworkWatch(cdp, Date.now, {
+          pageNow: clock.now,
+        });
+        ownTracker = true;
       } catch (error) {
         untracked = describeSettleError(error);
       }
@@ -2890,19 +3295,25 @@ export async function runWalk(
     // The start navigation is the load a step-0 `waitForLoad` waits for, so
     // the count that step compares against is taken before it.
     const navsBeforeStart = navigationsSeen;
-    await deps.occlusion?.install();
-    const unsettled = await settlePaint();
+    await waitingOn(async () => deps.occlusion?.install());
+    const unsettled = await waitingOn(settlePaint);
     if (unsettled !== null) degradations.push(unsettled);
 
     // Before the opening keyframe, so a sign-in page the app redirected to
     // is never filmed (launch C). Frames that arrived so far had no span
     // open and were discarded by the intake.
-    const signedOut = deps.landing === undefined ? null : await deps.landing();
+    const { landing } = deps;
+    const signedOut = landing === undefined ? null : await waitingOn(landing);
     if (signedOut !== null) {
       reason = "signedOut";
       failureNote = signedOut;
     } else {
+      // Held: the opening still is the take's first frame, one frame in,
+      // and the opening rest is played from it.
+      filing = true;
+      if (held !== undefined) await clock.sleep(HELD_FRAME_MS);
       await shot(null);
+      if (heldPlan) heldActEnd = at();
       filming = true;
       if (continuous) await settleAndCapture(0, null);
     }
@@ -2964,6 +3375,8 @@ export async function runWalk(
       }
 
       if (step.action.kind === "waitFor") {
+        // A held plan plans the wait here and plays its rest before it.
+        if (heldPlan) await playRest(planUnplaced(step));
         if (!(await awaitCondition(step.action, step.target))) {
           // Only a wait for something to show can have found it unseen. The
           // resolver's word decides (`waitSawOf`): an element it found with no box
@@ -3011,7 +3424,7 @@ export async function runWalk(
           ...(continuous ? { approachSourceTimeMs: metAt } : {}),
         };
         markers.push(waitMarker);
-        planUnplaced(step);
+        if (!heldPlan) planUnplaced(step);
         // The picture of what the wait was waiting for.
         //
         // This branch used to mark the beat and take no frame at all, and a
@@ -3047,6 +3460,7 @@ export async function runWalk(
         if (room !== undefined) {
           pendingAct = { marker: waitMarker, verbEndMs: metAt };
         }
+        heldActEnd = metAt;
         continue;
       }
 
@@ -3081,6 +3495,8 @@ export async function runWalk(
         // rests. Marked, pictured and counted like any verb.
         const keyAction = step.action;
         await keepRhythm();
+        // A held plan plans the key here and plays its rest before it.
+        if (heldPlan) await playRest(planUnplaced(step));
         pressMarked = true;
         inFlight = keyAction.id;
         const pressedAt = at();
@@ -3091,17 +3507,18 @@ export async function runWalk(
           ...(continuous ? { approachSourceTimeMs: pressedAt } : {}),
         };
         markers.push(marker);
-        planUnplaced(step);
+        if (!heldPlan) planUnplaced(step);
         await stepStill(keyAction.id);
-        if (!continuous) recorder.open();
+        if (!continuous) recorder?.open();
         await gate.section(() => pressKey(cdp, keyAction.key));
         if (!continuous) {
-          await recorder.close();
+          await recorder?.close();
           await shot(null);
         }
         stillOwed = true;
         verbs++;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        if (heldPlan) heldActEnd = at();
         if (continuous) await settleAndCapture(completed + 1, keyAction.id);
         completed++;
         lastCompletedActionId = keyAction.id;
@@ -3156,14 +3573,30 @@ export async function runWalk(
         roomHere += await quietThenFinalize();
         if (latestActEnd !== null) {
           const settleFor = latestActEnd + CAMERA_DEFAULTS.actSettleMs - at();
-          if (settleFor > 0) {
+          // A held plan plays its rest instead, which the renderer gives this idle.
+          if (settleFor > 0 && !heldPlan) {
             await clock.sleep(settleFor);
             roomHere += settleFor;
             heldHere = Math.max(heldHere, settleFor);
           }
         }
       }
-      if (record) recorder.open();
+      // A held plan decides a scrolled step's rest once, here, and plays it
+      // before the scroll, where the renderer's rest ends. It is the base,
+      // whatever the journey: the camera's room goes after the scroll.
+      const restBeforeScroll =
+        heldPlan && scrolls && beats !== undefined
+          ? beats.restBefore({
+              first: plannedBeats.length === 0,
+              pauseMs: step.pauseMs ?? 0,
+              roomMs: 0,
+              journeyMs: 0,
+            })
+          : null;
+      if (restBeforeScroll !== null) {
+        await playRest(restBeforeScroll);
+      }
+      if (record) recorder?.open();
       // Scroll the target on screen, then re-measure: the quad is
       // viewport-relative, so the rect from before the scroll is stale by
       // definition. An element that vanished between the two reports the same
@@ -3172,7 +3605,7 @@ export async function runWalk(
         located.handle === null
           ? null
           : await bringIntoView(located.handle, aim);
-      if (record) await recorder.close();
+      if (record) await recorder?.close();
       if (handle === null) {
         reason = stopForResolveFailure(located.failureReason);
         break;
@@ -3266,7 +3699,7 @@ export async function runWalk(
           : 0;
       const designedAt = (restMs: number): number =>
         designed + restMs + afterScrollMs + journeyMs + arriveMs;
-      let restMs = restWith(0);
+      let restMs = restBeforeScroll ?? restWith(0);
       const unroomedMs = designedAt(restMs);
       // Whether it zooms is asked with every room taken out, earlier steps'
       // too: `designed` holds theirs, and left in, a click 900 ms after a
@@ -3401,6 +3834,13 @@ export async function runWalk(
         zoomedDrag = zooms && dragPlan !== null;
       }
       roomAdded += roomHere;
+      // A held plan plays the rest here (or, for a scrolled step, the
+      // after-scroll: its rest was played before the scroll), decided above;
+      // the arrive below replaces the settle.
+      if (heldPlan) {
+        if (restBeforeScroll === null) await playRest(restMs);
+        else await playRest(afterScrollMs, scrollEndAt ?? at());
+      }
       const pathFrom = at();
       if (segment !== undefined) {
         await gate.section(() =>
@@ -3410,7 +3850,7 @@ export async function runWalk(
 
       // SP1 §5: a tooltip lands ~275 ms after the path does. Harvesting before
       // that gives a keyframe with the hover UI missing from it.
-      await clock.sleep(SETTLE_MS);
+      await clock.sleep(heldPlan ? arriveMs : SETTLE_MS);
       if (
         continuous &&
         step.action.kind === "moveTo" &&
@@ -3483,7 +3923,7 @@ export async function runWalk(
             : performVerb(
                 step.action,
                 text,
-                cdp,
+                verbCdp,
                 cursor,
                 device?.touch === true,
                 handle.objectId,
@@ -3499,6 +3939,7 @@ export async function runWalk(
         verbs++;
         if (clickStopped(step.action.kind, clicked)) break;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        if (heldPlan) heldActEnd = at();
         // A drag holds the zoom it is pressed in until it lets go, zoomed or
         // not: the camera's `heldUntilOf` — pressed after the zoom's action
         // and before it would start back out.
@@ -3516,7 +3957,7 @@ export async function runWalk(
           moveToWindows.push({ startMs: markedAt, endMs: at() });
         }
       } else {
-        recorder.open();
+        recorder?.open();
         const clicked = await gate.section(() =>
           dragPlan !== null
             ? performDrag(
@@ -3528,7 +3969,7 @@ export async function runWalk(
             : performVerb(
                 step.action,
                 text,
-                cdp,
+                verbCdp,
                 cursor,
                 device?.touch === true,
                 handle.objectId,
@@ -3539,7 +3980,7 @@ export async function runWalk(
               ),
         );
         const spansBefore = motionSpans.length;
-        await recorder.close();
+        await recorder?.close();
         if (clickStopped(step.action.kind, clicked)) break;
         // v9: "did any DOM mutation follow a pure moveTo span?" A hover that
         // changed the page repaints, and a repaint is exactly what the
@@ -3606,20 +4047,26 @@ export async function runWalk(
             ? Number.NEGATIVE_INFINITY
             : lastHeldEndAt + SETTLE_MS;
         // Under a plan the pull-out and the trim are in `pacing.tailMs`,
-        // played by the renderer: only the floor is recorded.
-        const tail =
-          (beats === undefined
-            ? Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held)
-            : lastMarkerAt + TAKE_TAIL_MS) - at();
-        if (tail > 0) await clock.sleep(tail);
+        // played by the renderer: only the floor is recorded. A held plan
+        // plays its tail here instead.
+        if (beats !== undefined && heldPlan)
+          await playRest(plannedTailMs(beats));
+        else {
+          const tail =
+            (beats === undefined
+              ? Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked, held)
+              : lastMarkerAt + TAKE_TAIL_MS) - at();
+          if (tail > 0) await clock.sleep(tail);
+        }
       }
-      await clock.sleep(SPAN_QUIET_MS);
+      // Held: no span to let close.
+      if (recorder !== null) await clock.sleep(SPAN_QUIET_MS);
       // Bounded: a page that never stops painting (a hero video) reopens a
       // span the moment the last one closes, and an unbounded wait here hung
       // the run (2026-10-03). Past the ceiling the still is of the moving
       // page, which the stream already holds in motion either side of it.
       const giveUpAt = at() + SPAN_MAX_MS;
-      while (recorder.isOpen() && at() < giveUpAt) await clock.sleep(50);
+      while (recorder?.isOpen() && at() < giveUpAt) await clock.sleep(50);
       if (room !== undefined) finalizeAct();
       // Through `settledStill`: a closing still that cannot be taken is a
       // `stillFailed`, said and forgiven — never a port failure that would
@@ -3655,9 +4102,22 @@ export async function runWalk(
     // say: the detach that follows in the runner tears the stream down
     // regardless, the frames are already encoded, and a stop the page
     // refuses must not turn a finished run into a failed one.
-    await cdp.send("Page.stopScreencast").catch(() => undefined);
-    tracker?.dispose();
-    await recorder.teardown();
+    if (held === undefined) {
+      await cdp.send("Page.stopScreencast").catch(() => undefined);
+    }
+    if (ownTracker) tracker?.stop();
+    await recorder?.teardown();
+    // Held: what was captured since the last hold, closed once however the
+    // run ended. Not forgiven: what it shows would be missing from the video.
+    if (heldFrames !== null) {
+      try {
+        await heldFrames.finish(at());
+      } catch (error) {
+        reason ??= "portFailure";
+        const note = `the held frames could not be closed at ${at()} ms (${describeSettleError(error)})`;
+        failureNote = failureNote === null ? note : `${failureNote}; ${note}`;
+      }
+    }
     // A settled still the last span asked for may still be in the line.
     // Already said if the closing still's drain gave up on it.
     if (!sealed) await drainShots();
@@ -3675,6 +4135,11 @@ export async function runWalk(
   // Spans are sorted first because their closes finish in any order.
   if (continuous) {
     motionSpans.sort((a, b) => a.startMs - b.startMs);
+    // Held: a hold's still is filed at its first frame, after any step's
+    // still taken since.
+    if (held !== undefined) {
+      keyframes.sort((a, b) => a.sourceTimeMs - b.sourceTimeMs);
+    }
     for (const w of moveToWindows) {
       if (
         motionSpans.some(
@@ -3683,6 +4148,33 @@ export async function runWalk(
       ) {
         hoverSensitive = true;
       }
+    }
+  }
+
+  // Held: what the clock could not hold, each said once.
+  if (held !== undefined) {
+    // Once each: a playing video is answered by every document that has one.
+    const said = new Set<string>();
+    for (const u of held.unpinned()) {
+      if (said.has(u.what)) continue;
+      said.add(u.what);
+      const atMs = u.atMs - started;
+      degradations.push(degradation("animationUnpinned", atMs, atMs, u.what));
+    }
+    for (const label of held.ignoredConnections()) {
+      degradations.push(degradation("connectionIgnored", 0, at(), label));
+    }
+    const unpacedAt = held.unpaced();
+    if (unpacedAt !== null) {
+      const atMs = unpacedAt - started;
+      degradations.push(
+        degradation(
+          "answerUnpaced",
+          atMs,
+          atMs,
+          "an answer was still arriving during a pause, a rest or a step's settle that did not wait for it, which is not paced by the server",
+        ),
+      );
     }
   }
 
@@ -3743,8 +4235,18 @@ export async function runWalk(
         sceneId,
         source: "replay",
         ...(continuous ? { timing: "real" as const } : {}),
+        ...(held === undefined
+          ? {}
+          : {
+              clock: "held" as const,
+              networkSpans: held.networkSpans().map((s) => ({
+                ...s,
+                startMs: s.startMs - started,
+                endMs: s.endMs - started,
+              })),
+            }),
         ...(pacedGaps.length > 0 ? { pacedGaps } : {}),
-        dpr: REPLAY_DPR,
+        dpr: stillScale,
         viewport,
         keyframes,
         motionSpans,
@@ -3785,6 +4287,13 @@ export async function runWalk(
     reason ??= "portFailure";
     failureNote = failureNote === null ? note : `${failureNote}; ${note}`;
   }
+  // The held clock closed a page that stopped answering: whatever a call
+  // on it said after, that is why the run stopped.
+  const heldFailed = held?.failed() ?? null;
+  if (heldFailed !== null) {
+    reason = "portFailure";
+    failureNote = heldFailed.message;
+  }
 
   if (failureNote !== null) {
     deps.onProgress?.({
@@ -3815,30 +4324,11 @@ export async function runWalk(
     ...(room === undefined ? {} : { decided }),
     // Planned through the last counted step, however the run ended: the
     // tail is that step's, from its designed act end (`designed`).
-    ...(beats === undefined
+    // A held plan was played, not handed on.
+    ...(beats === undefined || heldPlan
       ? {}
       : {
-          pacing: {
-            beats: plannedBeats,
-            tailMs: Math.max(
-              beats.tailMs({
-                zoomSettleMs:
-                  room === undefined || designedHeldUntil === null
-                    ? null
-                    : Math.max(
-                        0,
-                        room.settledAfterMs(designedHeldUntil) - designed,
-                      ),
-                trimEndMs: config.tail?.ms ?? null,
-                trimAfterAction: config.tail?.after === "action",
-                pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
-              }),
-              // A zoom held through an `after: "action"` cut (DEM-178)
-              // lands after it: the tail plays through that landing and a
-              // settle, as the unplanned walk films through it.
-              plannedHeldEnd() - designed,
-            ),
-          },
+          pacing: { beats: plannedBeats, tailMs: plannedTailMs(beats) },
         }),
   };
 }
@@ -4057,7 +4547,7 @@ async function lastKeyPainted(
     const drawn = evaluatedValue(
       await cdp.send("Runtime.callFunctionOn", {
         objectId,
-        functionDeclaration: `function () { const w = this.ownerDocument.defaultView; return new Promise((r) => { const t = w.setTimeout(() => r(false), ${ACT_CEILING_MS}); w.requestAnimationFrame(() => w.requestAnimationFrame(() => { w.clearTimeout(t); r(true); })); }); }`,
+        functionDeclaration: `function () { const w = this.ownerDocument.defaultView; const raf = w.__demomanRaf || w.requestAnimationFrame.bind(w); return new Promise((r) => { const t = w.setTimeout(() => r(false), ${ACT_CEILING_MS}); raf(() => raf(() => { w.clearTimeout(t); r(true); })); }); }`,
         awaitPromise: true,
         returnByValue: true,
       }),

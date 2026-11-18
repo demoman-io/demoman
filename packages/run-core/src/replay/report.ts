@@ -7,6 +7,7 @@ import {
   type AuthoredStep,
   type CaptureFailure,
   failedPerformedStep,
+  IDLE_CONNECTION_MS,
   type Rect,
   type ReplayCounters,
   type ReplayPolicy,
@@ -155,6 +156,9 @@ export interface RunReport {
     target: string;
     executor: Executor;
     script: ScriptRef;
+    /** Unless held-clock capture was turned off (`DEMOMAN_HELD_CLOCK=0`):
+     *  whether the page's clock was held, and why not when it was not. */
+    recording?: { clock: "held" } | { clock: "real"; why: string };
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";
@@ -1014,10 +1018,11 @@ export function verdictLine(report: RunReport): string {
     // A session alone leaves the video whole, as `take` above says.
     const intact =
       unstored.every((w) => w.what === "session") &&
-      framesClause(report) === "";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${screensClause(report, intact)}${lookClause(report)}${otherRepoClause(report)}`;
+      framesClause(report) === "" &&
+      ownClockClause(report) === "";
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${screensClause(report, framesClause(report) === "")}${lookClause(report)}${otherRepoClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**
@@ -1135,6 +1140,11 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   pageHoldNotReleased:
     "a page screen's hold could not be undone, so the video after that step may show no caret and frozen animations",
   requestNotWaited: `a request opened more than ${STEP_REQUEST_CAP_MS / 1000} seconds before a step's wait began (a long poll, say) was not waited for, so that step's page screen may have been taken before it answered`,
+  connectionIgnored: `a connection with no data for ${IDLE_CONNECTION_MS / 1000} seconds was not counted as waiting on the server, so the video may show the page before that connection answered`,
+  answerUnpaced:
+    "an answer from the server was still arriving during a pause or a rest, which the video does not pace by the server, so it landed where this machine put it; wait for it with a waitFor step to have it paced",
+  animationUnpinned:
+    "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */
@@ -1166,7 +1176,7 @@ function lookClause(report: RunReport): string {
  */
 function framesClause(report: RunReport): string {
   const kinds = [...new Set(report.frames.degradations)].filter(
-    (k) => !SCREENS_ONLY.has(k),
+    (k) => !SCREENS_ONLY.has(k) && !OWN_CLOCK.has(k),
   );
   const said = kinds.map((kind) =>
     kind === "pacingUnplaced" && report.frames.unplacedBeats !== undefined
@@ -1191,6 +1201,29 @@ const SCREENS_ONLY = new Set<Degradation["kind"]>([
   "stepSettleFailed",
   "requestNotWaited",
 ]);
+
+/**
+ * The kinds a held recording says of what it could not hold on the video's
+ * clock (a frame from another site, a playing video, a connection gone
+ * quiet). Every frame was kept, so they never say one was lost
+ * (`ownClockClause`), and they are the page's own: refresh does not record
+ * again for them (review of 2026-11-16).
+ */
+const OWN_CLOCK = new Set<Degradation["kind"]>([
+  "connectionIgnored",
+  "animationUnpinned",
+  "answerUnpaced",
+]);
+
+function ownClockClause(report: RunReport): string {
+  const kinds = [...new Set(report.frames.degradations)].filter((k) =>
+    OWN_CLOCK.has(k),
+  );
+  const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
+  return said.length === 0
+    ? ""
+    : ` Every frame was kept, but not all of the page was on the video's clock: ${said.join("; ")}.`;
+}
 
 /** The page screens' sentence: what refresh will not compare, or compared
  *  early. It calls the video intact only when nothing else on the line says
