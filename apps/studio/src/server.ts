@@ -5,6 +5,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { WALLPAPER_MAX_BYTES } from "@demoman/run-core";
 import { type Library, listenOnLoopback } from "@demoman/runner/studio";
 import {
   matchRoute,
@@ -62,6 +63,11 @@ export const noTake = (library: Library, id: string): StudioResponse =>
 
 export const noVideo = (id: string): StudioResponse =>
   refuse(404, "videoNotFound", `There is no flow "${id}".`);
+
+/** The most bytes a request body may carry. The largest body a route stores
+ *  is a wallpaper at `WALLPAPER_MAX_BYTES`; twice that leaves its route's own
+ *  sentence to answer anything near its line. */
+export const BODY_MAX_BYTES = 2 * WALLPAPER_MAX_BYTES;
 
 export type Handler = (req: StudioRequest) => Promise<StudioResponse>;
 /** Mapped, so a route without a handler is a compile error. */
@@ -135,7 +141,10 @@ export async function createStudioServer(o: {
   token?: string;
   /** Tests: the clock entry tickets expire by. */
   now?: () => number;
+  /** Tests: a smaller body cap than `BODY_MAX_BYTES`. */
+  bodyMaxBytes?: number;
 }): Promise<StudioServer> {
+  const bodyMax = o.bodyMaxBytes ?? BODY_MAX_BYTES;
   const token = o.token ?? randomBytes(32).toString("base64url");
   const tickets = createTicketBook(o.now === undefined ? {} : { now: o.now });
   let port = 0;
@@ -187,14 +196,33 @@ export async function createStudioServer(o: {
       sendRefusal(res, 404, "routeNotFound", REASON_DETAIL.routeNotFound, true);
       return;
     }
-    const answer = await o.handlers[m.id]({
-      method: req.method ?? "GET",
-      params: m.params,
-      query: url.searchParams,
-      headers: req.headers,
-      body: () => readBody(req),
-      raw: req,
-    });
+    const read = { overCap: false };
+    let answer: StudioResponse | null = null;
+    try {
+      answer = await o.handlers[m.id]({
+        method: req.method ?? "GET",
+        params: m.params,
+        query: url.searchParams,
+        headers: req.headers,
+        body: () => readBody(req, bodyMax, read),
+        raw: req,
+      });
+    } catch (e) {
+      if (!read.overCap) throw e;
+    }
+    if (read.overCap || answer === null) {
+      // Decided here, not by the handler: whatever it made of the refused
+      // read (a parse error, a swallowed throw), the caller hears the cap.
+      // `Connection: close` ends the upload the server stopped reading.
+      const body: Refusal = {
+        reason: "bodyTooLarge",
+        detail: `The request carried more than the Studio accepts (${bodyMax / 1024 / 1024} MB).`,
+      };
+      send(res, 413, "application/json", JSON.stringify(body), {
+        Connection: "close",
+      });
+      return;
+    }
     if ("stream" in answer) {
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
         res.setHeader(k, v);
@@ -246,10 +274,28 @@ export async function createStudioServer(o: {
   };
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+/** The body, counted as it arrives: past `max` bytes it stops reading, sets
+ *  `read.overCap` and rejects, so an oversized body is never held whole. */
+function readBody(
+  req: IncomingMessage,
+  max: number,
+  read: { overCap: boolean },
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
+    let size = 0;
+    const onData = (c: Buffer) => {
+      size += c.byteLength;
+      if (size > max) {
+        req.off("data", onData);
+        req.pause();
+        read.overCap = true;
+        reject(new Error(`the request body is past ${max} bytes`));
+        return;
+      }
+      chunks.push(c);
+    };
+    req.on("data", onData);
     req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });

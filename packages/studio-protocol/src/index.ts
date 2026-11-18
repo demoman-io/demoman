@@ -201,6 +201,8 @@ export type StudioReason =
   /** The take library would not read or write (the runner's LibraryError). */
   | "libraryUnreadable"
   | "libraryUnwritable"
+  /** A request body past the server's cap, refused before it was read whole. */
+  | "bodyTooLarge"
   /** A handler or the page server threw; `detail` is the error's message. */
   | "internalError";
 
