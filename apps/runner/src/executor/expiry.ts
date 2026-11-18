@@ -23,6 +23,10 @@ export type ExpiryResult =
       expired: number;
       freedBytes: number;
       skippedLeased: number;
+      /** One sentence per video or version left alone because a file it
+       *  is judged by would not read (DEM-127); empty when none. Absent from
+       *  a state file saved before 2026-11-18. */
+      skippedUnreadable: string[];
     }
   | { ranAt: string; failed: string };
 
@@ -134,7 +138,12 @@ export async function expireOld(
     // A state file that will not read only costs the throttle: this run
     // writes a fresh one, and until then `status` says it is unreadable.
   }
-  const tally = { expired: 0, freedBytes: 0, skippedLeased: 0 };
+  const tally: Tally = {
+    expired: 0,
+    freedBytes: 0,
+    skippedLeased: 0,
+    skippedUnreadable: [],
+  };
   let result: ExpiryResult;
   try {
     const held = await expire(store, library, now, tally);
@@ -166,7 +175,12 @@ export async function expireOld(
   return result;
 }
 
-type Tally = { expired: number; freedBytes: number; skippedLeased: number };
+type Tally = {
+  expired: number;
+  freedBytes: number;
+  skippedLeased: number;
+  skippedUnreadable: string[];
+};
 
 /** Take by take, as before: judged, marked, then its files removed. Only the
  *  mark holds the videos lock, so a merge cannot land between its read and
@@ -185,14 +199,32 @@ async function expire(
     // are left alone rather than judged without it.
     if ("unreadable" in video) continue;
     const versions = await store.versions(video.id);
-    const kept = await keptOf(versions, library);
+    // A file that will not read leaves its video or version alone and is
+    // said, rather than failing every pass at the same place (DEM-127).
+    let kept: Set<string>;
+    try {
+      kept = await keptOf(versions, library);
+    } catch (error) {
+      tally.skippedUnreadable.push(
+        `video ${video.id}: ${messageOf(error)}, so none of its versions were judged`,
+      );
+      continue;
+    }
     for (const v of versions) {
       if (v.expired !== null || kept.has(v.takeId)) continue;
       // NaN (an unreadable date) is never old.
       if (!(now.getTime() - Date.parse(v.createdAt) > EXPIRE_AFTER_MS))
         continue;
       const dir = library.takeDir(v.takeId);
-      const leases = await readLeases(join(dir, ".busy"));
+      let leases: Awaited<ReturnType<typeof readLeases>>;
+      try {
+        leases = await readLeases(join(dir, ".busy"));
+      } catch (error) {
+        tally.skippedUnreadable.push(
+          `version ${v.takeId}: ${messageOf(error)}, so it was kept`,
+        );
+        continue;
+      }
       if (leases.some((l) => pidAlive(l.holder.pid))) {
         tally.skippedLeased++;
         continue;
