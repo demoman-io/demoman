@@ -79,6 +79,9 @@ export interface NetworkWatchClocks {
   /** A Fetch's or XHR's `wallTime` (ms) on the page's clock: held only,
    *  where the page stamps them on its held clock (DEM-206). */
   pageOfWall?: (wallMs: number) => number;
+  /** Scrubs a request's address before it names the request: labels reach
+   *  the run report (`@demoman/run-core`'s `scrubUrl`). Default: kept. */
+  scrubUrl?: (url: string) => string;
 }
 
 export async function createNetworkWatch(
@@ -87,7 +90,7 @@ export async function createNetworkWatch(
   clocks: NetworkWatchClocks = {},
 ): Promise<NetworkWatch> {
   const pageNow = clocks.pageNow ?? realNow;
-  const { pageOfWall } = clocks;
+  const { pageOfWall, scrubUrl = (url: string) => url } = clocks;
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
   // page: when it opened on the page's clock; seq: the order it opened in.
   type Entry = {
@@ -252,7 +255,7 @@ export async function createNetworkWatch(
       // another site is its own process already, unseen here.
       if (NEVER.has(String(p.type)) || !isTop(p.frameId)) return;
       const r = (p.request ?? {}) as Record<string, unknown>;
-      begin(p, `${r.method} ${pathOf(r.url)}`);
+      begin(p, `${r.method} ${pathOf(scrubUrl(String(r.url)))}`);
     }),
     // A new top document: what the old one asked for died with it, and
     // Chrome does not always say so with `loadingFailed`; its own request

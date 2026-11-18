@@ -35,6 +35,19 @@ const start = (id: string, url = "http://app.test/poll?x=1") => ({
 });
 
 describe("createNetworkWatch", () => {
+  // A label reaches the run report: a record's id in a path must not.
+  it("names a request by its scrubbed address", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0, {
+      scrubUrl: (url) => url.replace(/\/orders\/\w+/, "/orders/redacted"),
+    });
+    emit(
+      "Network.requestWillBeSent",
+      start("1", "http://app.test/orders/507f1f77bcf86cd799439011?x=1"),
+    );
+    expect(w.labels()).toEqual(["GET /orders/redacted"]);
+  });
+
   it("is waiting from a request's start until it finishes", async () => {
     const { cdp, emit, sent } = setup();
     const w = await createNetworkWatch(cdp, () => 0);

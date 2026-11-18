@@ -320,6 +320,7 @@ async function holdClock(
   const network = await createNetworkWatch(cdp, Date.now, {
     pageNow: () => holding?.now() ?? 0,
     pageOfWall: (wallMs) => holding?.pageOf(wallMs) ?? 0,
+    scrubUrl,
   });
   const clock = createHeldClock({
     cdp,
