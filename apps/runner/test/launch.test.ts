@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPLAY_DPR } from "@demoman/replay-engine";
@@ -149,9 +149,9 @@ describe("launch", () => {
       const evidence = `${argv.join(" ")}\nlog: ${logs.join("\n")}`;
       // Premise: this is the command line launch() built, not some other.
       expect(argv, evidence).toContain("--headless");
-      const without = logs.some((l) =>
-        l.includes("would not start with Chromium's sandbox"),
-      );
+      // Either line: this launch's own failure, or one earlier in the file
+      // (a launch with no log, as GitHub's Ubuntu runners give, 2026-11-18).
+      const without = logs.some((l) => l.includes("runs without"));
       if (process.platform === "darwin") expect(without, evidence).toBe(false);
       expect(argv.includes("--no-sandbox"), evidence).toBe(without);
     } finally {
@@ -159,16 +159,19 @@ describe("launch", () => {
     }
   }, 30_000);
 
-  // Red: rethrow instead of relaunching, relaunch without the log line, or
-  // relaunch only on Playwright's "Chromium sandboxing failed!" rewrite.
-  it("launches without the sandbox on a machine that cannot run it, and says so once", async () => {
+  // Red: rethrow instead of relaunching, relaunch without the log line,
+  // relaunch only on Playwright's "Chromium sandboxing failed!" rewrite, or
+  // stay quiet on a launch after the first.
+  it("launches without the sandbox on a machine that cannot run it, and says so every time", async () => {
     const dir = await mkdtemp(join(tmpdir(), "demoman-nosandbox-"));
     const exe = join(dir, "chrome");
+    const tries = join(dir, "tries");
     // Fails unless told --no-sandbox, then is the real browser. Its words
-    // are a namespace failure Playwright does not rewrite.
+    // are a namespace failure Playwright does not rewrite. Each sandboxed
+    // try leaves a line in `tries`.
     await writeFile(
       exe,
-      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho "Failed to move to new namespace (stand-in)" >&2\nexit 1\n`,
+      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho x >> "${tries}"\necho "Failed to move to new namespace (stand-in)" >&2\nexit 1\n`,
     );
     await chmod(exe, 0o755);
     const logs: string[] = [];
@@ -183,11 +186,17 @@ describe("launch", () => {
     } finally {
       await launched.close();
     }
-    // The next launch goes straight without it, and does not say so again.
-    const again = await launch({ executablePath: exe, log });
+    // The next launch, with another log, goes straight without it (no
+    // second sandboxed try) and still says so.
+    const later: string[] = [];
+    const again = await launch({
+      executablePath: exe,
+      log: (l) => later.push(l),
+    });
     try {
       expect(again.browser.isConnected()).toBe(true);
-      expect(logs, logs.join("\n")).toHaveLength(1);
+      expect(await readFile(tries, "utf8")).toBe("x\n");
+      expect(later.join("\n")).toContain("earlier in this process");
     } finally {
       await again.close();
     }

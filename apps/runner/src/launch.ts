@@ -204,8 +204,8 @@ const sandboxRefused = new Map<string, string>();
  * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
  * asked not to, and nearly every page a run opens is a third party's
  * (DEM-120). A machine that cannot sandbox (a container running as root, a
- * Linux whose user namespaces are closed) still launches, without it, and
- * says so once. Any failure counts, not only Playwright's "Chromium
+ * Linux whose user namespaces are closed, as GitHub's Ubuntu runners are)
+ * still launches, without it, and says so every time. Any failure counts, not only Playwright's "Chromium
  * sandboxing failed!": Chromium's namespace and zygote failures do not all
  * carry it, and a browser that would not start either way still fails.
  */
@@ -214,8 +214,19 @@ async function launchSandboxed(
   log: ((line: string) => void) | undefined,
 ): Promise<Browser> {
   const exe = options.executablePath ?? "";
-  if (sandboxRefused.has(exe))
-    return chromium.launch({ ...options, chromiumSandbox: false });
+  const earlier = sandboxRefused.get(exe);
+  if (earlier !== undefined) {
+    const browser = await chromium.launch({
+      ...options,
+      chromiumSandbox: false,
+    });
+    // Said on every such launch: the caller that asked first may not be
+    // the one reading (CI, 2026-11-18: a test with no log took the line).
+    log?.(
+      `the browser runs without Chromium's sandbox, which would not start earlier in this process (${earlier}): the pages it opens are not walled off from this machine`,
+    );
+    return browser;
+  }
   let first: string;
   try {
     return await chromium.launch({ ...options, chromiumSandbox: true });
