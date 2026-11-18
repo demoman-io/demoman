@@ -253,6 +253,63 @@ describe("readFilmedCode", () => {
     );
   });
 
+  // DEM-113. Red: drop the `-c filter.<name>.clean=` the add carries; the
+  // folder's own clean and process programs run as the user.
+  it("never runs a filter the folder's own config names, keeps the global ones, and says so", async () => {
+    const dir = committed("film-filters");
+    const marks = join(scratch, "film-filters-marks");
+    mkdirSync(marks);
+    const program = (name: string) => {
+      const path = join(scratch, `filter-${name}.sh`);
+      writeFileSync(path, `#!/bin/sh\ntouch '${join(marks, name)}'\ncat\n`, {
+        mode: 0o755,
+      });
+      return path;
+    };
+    git(dir, "config", "filter.evil.clean", program("local-clean"));
+    git(dir, "config", "filter.evil2.process", program("local-process"));
+    const globalConfig = join(scratch, "film-filters-global");
+    writeFileSync(
+      globalConfig,
+      `[filter "kept"]\n\tclean = ${program("global-clean")}\n`,
+    );
+    writeFileSync(
+      join(dir, ".gitattributes"),
+      "*.a filter=evil\n*.b filter=evil2\n*.c filter=kept\n",
+    );
+    for (const f of ["f.a", "f.b", "f.c"]) writeFileSync(join(dir, f), "hi\n");
+    const was = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    try {
+      // Premise: a plain add here runs the local clean filter and the
+      // global one (a process filter that fails is git's to report).
+      execFileSync("git", ["add", "f.a", "f.c"], {
+        cwd: dir,
+        env: { ...process.env, GIT_INDEX_FILE: join(scratch, "film-idx") },
+      });
+      expect(existsSync(join(marks, "local-clean"))).toBe(true);
+      expect(existsSync(join(marks, "global-clean"))).toBe(true);
+      rmSync(marks, { recursive: true });
+      mkdirSync(marks);
+
+      const logs: string[] = [];
+      const filmed = await readFilmedCode(dir, undefined, undefined, (l) =>
+        logs.push(l),
+      );
+      expect(filmed).toMatchObject({
+        dirty: true,
+        unfiltered: ["evil", "evil2"],
+      });
+      expect(existsSync(join(marks, "local-clean"))).toBe(false);
+      expect(existsSync(join(marks, "local-process"))).toBe(false);
+      expect(existsSync(join(marks, "global-clean"))).toBe(true);
+      expect(logs.join("\n")).toContain("(evil, evil2)");
+    } finally {
+      if (was === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = was;
+    }
+  });
+
   it("a git that never answers is cut off, saying so", async () => {
     const dir = committed("film-hang");
     const filmed = await readFilmedCode(dir, () => new Promise(() => {}), 50);

@@ -206,7 +206,7 @@ export async function readFilmedCode(
   }
   try {
     return await Promise.race([
-      treeOf(root, run, join(temp, "index")),
+      treeOf(root, run, join(temp, "index"), log),
       deadline,
     ]);
   } finally {
@@ -225,6 +225,7 @@ async function treeOf(
   root: string,
   run: GitRunner,
   index: string,
+  log: (line: string) => void,
 ): Promise<FilmedCode> {
   try {
     const failed = (step: string, r: { code: number; stderr: string }) => ({
@@ -239,10 +240,48 @@ async function treeOf(
       if ((error as { code?: unknown }).code !== "ENOENT")
         return { none: `the index could not be copied: ${messageOf(error)}` };
     }
+    // A clean or process filter runs as the user on `add`. The ones the
+    // user's own global or system config sets up (git-lfs's install) stay
+    // on, so the tree is the one git would commit; the ones this folder's
+    // own config names are off, since the folder is the caller's choice
+    // (DEM-113). Exit 1 is "no such key".
+    const listed = await run(
+      [
+        "config",
+        "--show-scope",
+        "--name-only",
+        "--get-regexp",
+        "^filter\\..+\\.(clean|process)$",
+      ],
+      root,
+    );
+    if (listed.code !== 0 && listed.code !== 1)
+      return failed("config --get-regexp filter", listed);
+    const own = new Set<string>();
+    for (const line of listed.stdout.split("\n")) {
+      const [scope, key] = line.split("\t");
+      if (key === undefined || (scope !== "local" && scope !== "worktree"))
+        continue;
+      own.add(key.slice("filter.".length, key.lastIndexOf(".")));
+    }
+    const off = [...own].flatMap((name) => [
+      "-c",
+      `filter.${name}.clean=`,
+      "-c",
+      `filter.${name}.process=`,
+      "-c",
+      `filter.${name}.required=false`,
+    ]);
+    const unfiltered = [...own].sort();
+    if (unfiltered.length > 0)
+      log(
+        `the filmed tree was read without the filters this folder's own git config names (${unfiltered.join(", ")}): Demoman does not run them`,
+      );
     const env = { GIT_INDEX_FILE: index };
-    const add = await run(["add", "-A"], root, env);
+    const add = await run([...off, "add", "-A"], root, env);
     if (add.code !== 0) return failed("add -A", add);
-    const write = await run(["write-tree"], root, env);
+    // write-tree re-hashes racily clean files, filters and all: same -c.
+    const write = await run([...off, "write-tree"], root, env);
     if (write.code !== 0) return failed("write-tree", write);
     const tree = write.stdout.trim();
     const head = await run(["rev-parse", "HEAD"], root);
@@ -256,6 +295,7 @@ async function treeOf(
         headTree === null ||
         headTree.code !== 0 ||
         headTree.stdout.trim() !== tree,
+      ...(unfiltered.length > 0 ? { unfiltered } : {}),
     };
   } catch (error) {
     return { none: `git failed: ${messageOf(error)}` };
