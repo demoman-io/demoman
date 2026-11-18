@@ -1,7 +1,12 @@
 // The kept-flow file: everything a re-film needs, committed under .demoman/flows/
 // (.demoman/videos/ is the legacy folder, still read).
 import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
-import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
+import {
+  cutToBytes,
+  EXPORT_QUALITY_VALUES,
+  type ExportQuality,
+  MAX_NAME_BYTES,
+} from "../export/target.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptReceipt } from "./receipt.js";
@@ -215,12 +220,13 @@ export function parseKept(text: string, file: string): Parsed {
 }
 
 /** A file's name from the flow's, its words as written: "Filter invoices"
- *  is filter-invoices. The video, the recipe and its receipt all use it. */
+ *  is filter-invoices. The video, the recipe and its receipt all use it;
+ *  cut to 200 UTF-8 bytes, so any name is a file (DEM-132). */
 export const videoSlug = (name: string): string =>
-  name
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "") || "video";
+  cutToBytes(
+    name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-"),
+    MAX_NAME_BYTES,
+  ).replace(/^-+|-+$/g, "") || "video";
 
 /** The recipe's file name, and its receipt's. Until DEM-68 it dropped stop
  *  words and a trailing s; an add moves a recipe still named that way. */

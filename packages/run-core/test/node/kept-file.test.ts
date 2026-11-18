@@ -199,6 +199,14 @@ describe("the kept file", () => {
     expect(keptFileName("Filter invoices")).toBe("filter-invoices.json");
     expect(keptFileName("Search — results!")).toBe("search-results.json");
     expect(keptFileName("!!!")).toBe("video.json");
+    // DEM-132: any name is a file. Red: no cut — 260 ASCII characters and
+    // 100 CJK characters (300 bytes) both pass 255.
+    expect(keptFileName("a".repeat(260))).toBe(`${"a".repeat(200)}.json`);
+    const cjk = keptFileName("請".repeat(100));
+    expect(cjk).toBe(`${"請".repeat(66)}.json`);
+    expect(Buffer.byteLength(`${cjk.replace(/\.json$/, "")}.screens`)).toBe(
+      206,
+    );
   });
 
   // Its screens are a picture refresh no longer compares: a v1 file is
