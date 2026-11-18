@@ -139,3 +139,36 @@ test("two acquirers never both hold it", async () => {
   assert.equal(log[0].replace("in", "out"), log[1], log.join(", "));
   assert.equal(log[2].replace("in", "out"), log[3], log.join(", "));
 });
+
+test("two waiters that read the same dead holder never both take it", async () => {
+  const file = fresh();
+  writeFileSync(file, holder(333));
+  const alive = new Set([1, 2]);
+  const log = [];
+  let readers = 0;
+  const run = async (pid) => {
+    const release = await acquireSuiteLock({
+      file,
+      pid,
+      say() {},
+      // Yields after both waiters read the dead record and before either
+      // removes it: the interleaving a 2 s poll makes realistic.
+      isAlive: async (p) => {
+        if (p !== 333) return alive.has(p);
+        readers++;
+        await new Promise((r) => setTimeout(r, 10));
+        return false;
+      },
+      sleep: () => new Promise((r) => setTimeout(r, 1)),
+    });
+    log.push(`in ${pid}`);
+    await new Promise((r) => setTimeout(r, 30));
+    log.push(`out ${pid}`);
+    release();
+  };
+  await Promise.all([run(1), run(2)]);
+  assert.ok(readers >= 2, `both read the dead holder (${readers})`);
+  assert.equal(log.length, 4, log.join(", "));
+  assert.equal(log[0].replace("in", "out"), log[1], log.join(", "));
+  assert.equal(log[2].replace("in", "out"), log[3], log.join(", "));
+});

@@ -45,7 +45,7 @@ const unlinkQuietly = (/** @type {string} */ file) => {
  *
  * @param {{
  *   file?: string, pid?: number, command?: string, cwd?: string,
- *   isAlive?: (pid: number) => boolean,
+ *   isAlive?: (pid: number) => boolean | Promise<boolean>,
  *   sleep?: (ms: number) => Promise<void>,
  *   say?: (line: string) => void,
  *   now?: () => number, pollMs?: number, sayEveryMs?: number,
@@ -67,16 +67,53 @@ export async function acquireSuiteLock(opts = {}) {
   } = opts;
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.${pid}.tmp`;
-  let lastSaid = -Infinity;
-  for (;;) {
-    // Link, not write: a reader never sees a half-written record.
+  const takeover = `${file}.takeover`;
+  /** Create `target` holding our record, atomically; false if it exists. Link, not write: a reader never sees a half-written record. */
+  const tryCreate = (/** @type {string} */ target) => {
     writeFileSync(
       tmp,
       JSON.stringify({ pid, command, cwd, startedAt: new Date().toISOString() }),
     );
     try {
-      linkSync(tmp, file);
+      linkSync(tmp, target);
+      return true;
+    } catch (err) {
+      if (/** @type {any} */ (err).code !== "EEXIST") throw err;
+      return false;
+    } finally {
       unlinkQuietly(tmp);
+    }
+  };
+  /**
+   * Remove the main lock only if it still holds `raw`, the record we judged
+   * stale, and only under the takeover lock. Without that, two waiters that
+   * read the same dead record both unlink, and the second removes the
+   * first's live lock. False when someone else is mid-takeover (poll again).
+   */
+  const removeStale = async (/** @type {string} */ raw) => {
+    if (!tryCreate(takeover)) {
+      try {
+        const other = JSON.parse(readFileSync(takeover, "utf8"));
+        // A dead taker is cleared like any dead holder; the race only delays
+        // us, because the re-check below protects a live lock.
+        if (!(await isAlive(other.pid))) unlinkQuietly(takeover);
+      } catch {
+        // gone or mid-replace: the next poll sees it
+      }
+      return false;
+    }
+    try {
+      if (readFileSync(file, "utf8") === raw) unlinkQuietly(file);
+    } catch (err) {
+      if (/** @type {any} */ (err).code !== "ENOENT") throw err;
+    } finally {
+      unlinkQuietly(takeover);
+    }
+    return true;
+  };
+  let lastSaid = -Infinity;
+  for (;;) {
+    if (tryCreate(file)) {
       return () => {
         try {
           if (JSON.parse(readFileSync(file, "utf8")).pid === pid) {
@@ -89,25 +126,28 @@ export async function acquireSuiteLock(opts = {}) {
           }
         }
       };
+    }
+    let raw;
+    try {
+      raw = readFileSync(file, "utf8");
     } catch (err) {
-      unlinkQuietly(tmp);
-      if (/** @type {any} */ (err).code !== "EEXIST") throw err;
+      if (/** @type {any} */ (err).code === "ENOENT") continue; // released meanwhile
+      throw err;
     }
     let held;
     try {
-      held = JSON.parse(readFileSync(file, "utf8"));
-    } catch (err) {
-      if (/** @type {any} */ (err).code === "ENOENT") continue; // released meanwhile
+      held = JSON.parse(raw);
+    } catch {
       say(`demoman suite lock: ${file} is unreadable; taking it`);
-      unlinkQuietly(file);
+      if (!(await removeStale(raw))) await sleep(pollMs);
       continue;
     }
     // shortcut: a reused pid makes a dead holder look alive and the waiter waits; the waiting line names pid and cwd so it can be killed by hand. Upgrade to comparing process start time if it bites.
-    if (!isAlive(held.pid)) {
+    if (!(await isAlive(held.pid))) {
       say(
         `demoman suite lock: pid ${held.pid} (${held.command} in ${held.cwd}) held it and is gone; taking it`,
       );
-      unlinkQuietly(file);
+      if (!(await removeStale(raw))) await sleep(pollMs);
       continue;
     }
     if (now() - lastSaid >= sayEveryMs) {
