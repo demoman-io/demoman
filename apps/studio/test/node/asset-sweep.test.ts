@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -121,5 +122,64 @@ describe("the upkeep's asset sweep (DEM-136)", () => {
     expect(s.stopped).toContain(join(takes, "t1", "scene.json"));
     expect(s.stopped).toContain("could not be read");
     expect(await left()).toEqual(["orphan.webp"]);
+  });
+
+  // Red if only a reset's own backups are read for names: a backup a person
+  // named by hand would come back pointing at deleted files.
+  it("reads a hand-named backup for names, and never ages it out", async () => {
+    await writeFile(
+      join(home, "kits.json.bak-2026-10-18-nylon"),
+      kitsNaming("assets/nylon.png"),
+    );
+    await asset("nylon.png", ASSET_GRACE_MS + DAY);
+    const s = await sweepAssets(home, takes, NOW);
+    expect(s).toEqual({ removed: [], failed: [] });
+    expect(await backupsLeft()).toEqual(["kits.json.bak-2026-10-18-nylon"]);
+    expect(await left()).toEqual(["nylon.png"]);
+  });
+
+  // Red if a backup that would not go is dropped from the names anyway.
+  it("still reads a backup it could not remove, and keeps what it names", async () => {
+    const newest = NOW - DAY;
+    const old = NOW - BACKUP_KEEP_MS - DAY;
+    await writeFile(join(home, `kits.json.bak-${newest}`), "{}");
+    await writeFile(
+      join(home, `kits.json.bak-${old}`),
+      kitsNaming("assets/o.png"),
+    );
+    await asset("o.png", ASSET_GRACE_MS + DAY);
+    // The home refuses removals; assets/ is its own folder and does not.
+    await chmod(home, 0o555);
+    try {
+      const s = await sweepAssets(home, takes, NOW);
+      expect(s.failed, "premise: the old backup would not go").toEqual([
+        expect.stringContaining(`kits.json.bak-${old}`),
+      ]);
+      expect(s.removed).toEqual([]);
+    } finally {
+      await chmod(home, 0o755);
+    }
+    expect(await left()).toEqual(["o.png"]);
+  });
+
+  // Red if the name has to use a forward slash: a Windows path in a scene
+  // would not keep its file.
+  it("counts a name written with backslashes", async () => {
+    await asset("win.webp", ASSET_GRACE_MS + DAY);
+    await take("t1", "scene.json", "C:\\Users\\me\\.demoman\\assets\\win.webp");
+    const s = await sweepAssets(home, takes, NOW);
+    expect(s).toEqual({ removed: [], failed: [] });
+    expect(await left()).toEqual(["win.webp"]);
+  });
+
+  // Red if a run's own wallpaper copy is swept by age: a run reuses it
+  // without rewriting it, before any scene names it.
+  it("leaves a run's own wallpaper copy, however old", async () => {
+    const owned = `${"a1".repeat(32)}.webp`;
+    await asset(owned, ASSET_GRACE_MS + 100 * DAY);
+    await asset("orphan.webp", ASSET_GRACE_MS + DAY);
+    const s = await sweepAssets(home, takes, NOW);
+    expect(s.removed).toEqual([join(home, "assets", "orphan.webp")]);
+    expect(await left()).toEqual([owned]);
   });
 });

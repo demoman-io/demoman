@@ -293,6 +293,9 @@ export function createRoutes(o: {
   const swept = async (): Promise<UnreadableTake[]> => {
     if (lastSweep !== null && now() - lastSweep.at < sweepEvery)
       return lastSweep.rows;
+    // A queued export renders a scene pinned in memory, not on disk: what it
+    // names is not read here, so the sweep waits for an empty queue.
+    if (o.queued() > 0) return lastSweep?.rows ?? [];
     const at = now();
     const s = await sweepAssets(home, library.root, at);
     if (s.removed.length > 0) {

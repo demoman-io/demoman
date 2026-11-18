@@ -16,17 +16,26 @@ export const ASSET_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A reset's `kits.json.bak-<ms>` is the person's way back: the newest is
  *  always kept, and any younger than this. */
 export const BACKUP_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
-const ASSET_REF = /assets\/([A-Za-z0-9._-]+)/g;
-const BACKUP = /^kits\.json\.bak-(\d+)$/;
+/** `assets/<file>` or `assets\<file>` (a Windows path, `\\` in JSON). */
+const ASSET_REF = /assets[\\/]+([A-Za-z0-9._-]+)/g;
+/** Every backup is read for names; only a reset's own (`-<ms>`) ages out. */
+const ANY_BACKUP = /^kits\.json\.bak-/;
+const RESET_BACKUP = /^kits\.json\.bak-(\d+)$/;
+/** The runner's own copy of a script's wallpaper (`ownWallpaperImage`):
+ *  reused by a run without being rewritten, and named by no scene until the
+ *  run ends, so its age says nothing. */
+const RUN_OWNED = /^[0-9a-f]{64}\.webp$/;
 
 /**
- * The upkeep's sweep of `<home>/assets` (DEM-136): removes kit backups past
- * `BACKUP_KEEP_MS` but the newest, then each asset past `ASSET_GRACE_MS`
- * that no kit, kept backup or take names. A name is any `assets/<file>` in
- * those files' text, so a field this sweep does not know still keeps its
- * file. A file that will not read stops it before any asset goes: what it
- * names cannot be told. What went, what would not, and why it stopped are
- * all answered.
+ * The upkeep's sweep of `<home>/assets` (DEM-136): removes a reset's kit
+ * backups past `BACKUP_KEEP_MS` but the newest, then each asset past
+ * `ASSET_GRACE_MS` that no kit, backup or take names. A name is any
+ * `assets/<file>` in those files' text, so a field this sweep does not know
+ * still keeps its file. A file that will not read stops it before any asset
+ * goes: what it names cannot be told. What went, what would not, and why it
+ * stopped are all answered.
+ * shortcut: a run's own wallpaper copies (`RUN_OWNED`) are never removed;
+ * remove them once a run marks the ones it is using.
  */
 export async function sweepAssets(
   home: string,
@@ -35,12 +44,16 @@ export async function sweepAssets(
 ): Promise<{ removed: string[]; failed: string[]; stopped?: string }> {
   const removed: string[] = [];
   const failed: string[] = [];
-  const remove = async (path: string) => {
+  /** Whether `path` is gone. */
+  const remove = async (path: string): Promise<boolean> => {
     try {
       await rm(path);
       removed.push(path);
+      return true;
     } catch (error) {
-      if (!isMissing(error)) failed.push(`${path} (${messageOf(error)})`);
+      if (isMissing(error)) return true;
+      failed.push(`${path} (${messageOf(error)})`);
+      return false;
     }
   };
   const list = async (dir: string) => {
@@ -64,28 +77,36 @@ export async function sweepAssets(
   };
 
   try {
-    const backups = (await list(home))
+    const backups = (await list(home)).filter(
+      (d) => d.isFile() && ANY_BACKUP.test(d.name),
+    );
+    const resets = backups
       .flatMap((d) => {
-        const m = d.isFile() ? BACKUP.exec(d.name) : null;
+        const m = RESET_BACKUP.exec(d.name);
         return m === null ? [] : [{ name: d.name, at: Number(m[1]) }];
       })
       .sort((a, b) => b.at - a.at);
-    const kept = backups.filter(
-      (b, i) => i === 0 || now - b.at < BACKUP_KEEP_MS,
-    );
-    for (const b of backups) {
-      if (!kept.includes(b)) await remove(join(home, b.name));
+    const gone = new Set<string>();
+    for (const [i, b] of resets.entries()) {
+      if (i === 0 || now - b.at < BACKUP_KEEP_MS) continue;
+      if (await remove(join(home, b.name))) gone.add(b.name);
     }
-    await readNames(join(home, "kits.json"));
-    for (const b of kept) await readNames(join(home, b.name));
+    // What stays on disk, a backup that would not go included, is read.
+    const texts = [
+      join(home, "kits.json"),
+      ...backups
+        .filter((d) => !gone.has(d.name))
+        .map((d) => join(home, d.name)),
+    ];
     for (const d of await list(takesRoot)) {
       if (!d.isDirectory()) continue;
-      await readNames(join(takesRoot, d.name, "scene.json"));
-      await readNames(join(takesRoot, d.name, "script.json"));
+      texts.push(join(takesRoot, d.name, "scene.json"));
+      texts.push(join(takesRoot, d.name, "script.json"));
     }
+    await Promise.all(texts.map(readNames));
     const dir = join(home, "assets");
     for (const d of await list(dir)) {
-      if (!d.isFile() || named.has(d.name)) continue;
+      if (!d.isFile() || named.has(d.name) || RUN_OWNED.test(d.name)) continue;
       const path = join(dir, d.name);
       const s = await stat(path).catch((error: unknown) => {
         if (isMissing(error)) return null;

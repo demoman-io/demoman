@@ -291,6 +291,21 @@ describe("the takes listing's videos", () => {
     },
   );
 
+  it("an asset sweep that stops says why, as an upkeep row", async () => {
+    // Red: drop swept() from the upkeep, or its stopped row (DEM-136).
+    // A folder where a take's scene.json should be: it will not read.
+    const broken = join(home, "takes", "broken-take", "scene.json");
+    await mkdir(broken, { recursive: true });
+    const body = await listing();
+    const said = JSON.stringify(body.unreadable);
+    const row = body.unreadable.find(
+      (u) => u.folder === "removing unused logos, wallpapers and kit backups",
+    );
+    expect(row?.kind, said).toBe("upkeep");
+    expect(row?.reason, said).toContain(`${broken} could not be read`);
+    expect(row?.reason, said).toContain("no further file was removed");
+  });
+
   it("an upkeep that cannot key a mark says which", async () => {
     // Red: drop the keyKeptMarks pass (or its row) from the upkeep — no row
     // names the flow and its root; or name the flow by its id alone.
