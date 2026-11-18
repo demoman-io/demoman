@@ -2731,13 +2731,16 @@ export async function runWalk(
     let pictureShown = false;
     const move = async (p: { x: number; y: number }): Promise<void> => {
       if (native) {
+        // The picture first, as an OS drag image is: the page's dragover
+        // finds it under the pointer, not a step behind (a held step is a
+        // 33 ms frame, which left it off the pointer, DEM-210).
+        if (pictureShown) await onPage(DRAG_PICTURE_MOVE, [p.x, p.y]);
         await cdp.send("Input.dispatchDragEvent", {
           type: "dragOver",
           x: p.x,
           y: p.y,
           data: dragData,
         });
-        if (pictureShown) await onPage(DRAG_PICTURE_MOVE, [p.x, p.y]);
       } else if (touch) {
         await cdp.send("Input.dispatchTouchEvent", {
           type: "touchMove",
