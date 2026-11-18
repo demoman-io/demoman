@@ -5,7 +5,6 @@ import {
   cutToBytes,
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
-  MAX_NAME_BYTES,
 } from "../export/target.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
@@ -219,13 +218,18 @@ export function parseKept(text: string, file: string): Parsed {
   };
 }
 
+/** The longest slug, in UTF-8 bytes (DEM-132): its receipt's `.screens`
+ *  folder, written through a `.<uuid>.tmp` beside it, is 49 bytes more, and
+ *  255 is the file system's limit. Every slug that ever fully wrote is at
+ *  most this, so no kept file is renamed by the cut. */
+const MAX_SLUG_BYTES = 206;
+
 /** A file's name from the flow's, its words as written: "Filter invoices"
- *  is filter-invoices. The video, the recipe and its receipt all use it;
- *  cut to 200 UTF-8 bytes, so any name is a file (DEM-132). */
+ *  is filter-invoices. The video, the recipe and its receipt all use it. */
 export const videoSlug = (name: string): string =>
   cutToBytes(
     name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-"),
-    MAX_NAME_BYTES,
+    MAX_SLUG_BYTES,
   ).replace(/^-+|-+$/g, "") || "video";
 
 /** The recipe's file name, and its receipt's. Until DEM-68 it dropped stop

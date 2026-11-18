@@ -292,9 +292,8 @@ export const GIF_BUDGET_BYTES = 10_000_000;
 const MAX_BASE = 120;
 
 /** And in UTF-8 bytes, since 120 CJK characters are 360 (DEM-132): 200
- *  leaves 55 for those suffixes, or a kept file's `.screens` and the
- *  `.<uuid>.tmp` it is written through. */
-export const MAX_NAME_BYTES = 200;
+ *  leaves 55 of the 255 for those suffixes. */
+const MAX_NAME_BYTES = 200;
 
 /** `text` cut to at most `maxBytes` of UTF-8, between code points. */
 export function cutToBytes(text: string, maxBytes: number): string {

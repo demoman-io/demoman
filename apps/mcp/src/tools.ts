@@ -9,9 +9,8 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   AGENT_ARG,
-  AGENT_NAME_MAX,
-  cleanAgentText,
   type AgentName,
+  agentField,
   JOBS_KEPT,
   type Outcome,
   RUN_TOOL_CAP_MS,
@@ -357,16 +356,13 @@ const REPORT_CALL_SHARE = 0.8;
 
 /** The MCP client's own `clientInfo`, which the executor records with the
  *  video (spec §5.4, amended 2026-10-03). Read per call: it is known only
- *  once the client has initialized. A field over `AGENT_NAME_MAX`, or
- *  with nothing visible once `cleanAgentText` has run (a lone zero-width
- *  space), is left out here rather than sent: `agentOf` refuses the whole
- *  agent for a bad title, which would cost a valid name (DEM-144). */
+ *  once the client has initialized. A field `agentField` refuses (over
+ *  `AGENT_NAME_MAX`, or nothing visible, like a lone zero-width space) is
+ *  left out here rather than sent: `agentOf` refuses the whole agent for a
+ *  bad title, which would cost a valid name (DEM-144). */
 function agentName(server: McpServer): AgentName | null {
   const info = server.server.getClientVersion();
-  const fits = (v: unknown): v is string =>
-    typeof v === "string" &&
-    cleanAgentText(v) !== "" &&
-    v.length <= AGENT_NAME_MAX;
+  const fits = (v: unknown): v is string => agentField(v) !== null;
   if (info === undefined || !fits(info.name)) return null;
   return fits(info.title)
     ? { name: info.name, title: info.title }

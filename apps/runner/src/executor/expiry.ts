@@ -25,8 +25,8 @@ export type ExpiryResult =
       skippedLeased: number;
       /** One sentence per video or version left alone because a file it
        *  is judged by would not read (DEM-127); empty when none. Absent from
-       *  a state file saved before 2026-11-18. */
-      skippedUnreadable: string[];
+       *  a state file saved before 0.9.7. */
+      skippedUnreadable?: string[];
     }
   | { ranAt: string; failed: string };
 
@@ -153,7 +153,7 @@ export async function expireOld(
     // What was marked before the failure is said too: those versions are gone.
     result = {
       ranAt,
-      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes)`,
+      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${tally.skippedUnreadable.join("; ")}`})`,
     };
   }
   const path = statePath(library);
@@ -198,11 +198,12 @@ async function expire(
     // An unreadable record is listed as such by the videos tool; its takes
     // are left alone rather than judged without it.
     if ("unreadable" in video) continue;
-    const versions = await store.versions(video.id);
     // A file that will not read leaves its video or version alone and is
     // said, rather than failing every pass at the same place (DEM-127).
+    let versions: Version[];
     let kept: Set<string>;
     try {
+      versions = await store.versions(video.id);
       kept = await keptOf(versions, library);
     } catch (error) {
       tally.skippedUnreadable.push(
@@ -232,12 +233,20 @@ async function expire(
       // shortcut: a lease taken between this check and the rm is not seen; one process, fine; lock when two servers share a library.
       const paths = [join(dir, "frames"), join(dir, "thumbs")];
       let bytes = 0;
+      let unmeasured: string | null = null;
       for (const path of paths) {
         try {
           bytes += await sizeOf(path);
         } catch (error) {
-          throw new Error(`could not measure ${path} (${messageOf(error)})`);
+          unmeasured = `could not measure ${path} (${messageOf(error)})`;
+          break;
         }
+      }
+      if (unmeasured !== null) {
+        tally.skippedUnreadable.push(
+          `version ${v.takeId}: ${unmeasured}, so it was kept`,
+        );
+        continue;
       }
       // Marked before anything goes: a removal that stops part-way leaves a
       // take that says it expired, never files gone with no record. A mark

@@ -32,7 +32,8 @@ describe("the job table report(id) answers from", () => {
   });
 
   it("lets go of the call that settled first, so a long one that settles late stays (DEM-141)", () => {
-    // Red: order by start only — the long call is let go at the next set.
+    // Red: settle answers the job without moving it — ordered by start, the
+    // long call is let go at the next set.
     const jobs = createJobTable();
     const long = inFlight();
     jobs.set("long", long);
@@ -41,7 +42,7 @@ describe("the job table report(id) answers from", () => {
     expect(jobs.get("long")).toBe(long);
     expect(jobs.get("call-0")).toBeUndefined();
     expect(jobs.get("call-1")).toBeDefined();
-    long.final = { ok: true, value: { outcome: "complete" } };
+    jobs.settle(long, { ok: true, value: { outcome: "complete" } });
     jobs.set("next", settled());
     expect(jobs.get("long")).toBe(long);
     expect(jobs.get("long")?.final).toEqual({

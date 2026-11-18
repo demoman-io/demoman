@@ -71,8 +71,9 @@ export function cleanAgentText(text: string): string {
 }
 
 /** The field cleaned, or null when nothing visible is left or it was over
- *  the cap to begin with. */
-const agentField = (v: unknown): string | null => {
+ *  the cap to begin with. demoman-mcp asks it before sending a field, so the
+ *  two sides keep one rule (DEM-144). */
+export const agentField = (v: unknown): string | null => {
   if (typeof v !== "string" || v.length > AGENT_NAME_MAX) return null;
   const clean = cleanAgentText(v);
   return clean === "" ? null : clean;

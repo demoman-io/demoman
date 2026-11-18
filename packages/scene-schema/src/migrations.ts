@@ -275,7 +275,7 @@ const steps: Record<number, MigrationStep> = {
   // as removed pieces are, so a later cut cannot slide or drop a redaction.
   // The output offset is taken as the source one: exact for a mask with no
   // cut, gap or hold between its step and its edge. Not converted where
-  // there is one, but said (DEM-115): the author checks the mask.
+  // there is one, but said (DEM-115, `maskMayHaveMoved`).
   12: (doc, notes) => {
     const edits = doc.edits;
     if (edits === null || typeof edits !== "object") {
@@ -300,21 +300,12 @@ const steps: Record<number, MigrationStep> = {
           };
         })
       : e.masks;
-    const ranged = (Array.isArray(e.masks) ? e.masks : []).filter(
-      (m) =>
-        m !== null &&
-        typeof m === "object" &&
-        [
-          (m as Record<string, unknown>).start,
-          (m as Record<string, unknown>).end,
-        ].some((p) => p !== null && typeof p === "object" && "offsetMs" in p),
+    const moved = (Array.isArray(e.masks) ? e.masks : []).filter((m) =>
+      maskMayHaveMoved(m, doc.actions, e),
     ).length;
-    const retimed = ["gaps", "holds", "removed"].some(
-      (k) => Array.isArray(e[k]) && (e[k] as unknown[]).length > 0,
-    );
-    if (ranged > 0 && retimed) {
+    if (moved > 0) {
       notes.push(
-        `${ranged} ${ranged === 1 ? "mask on this take was" : "masks on this take were"} drawn before Demoman 0.7.3, timed on the edited video. A changed gap, a hold or a removed piece can move where ${ranged === 1 ? "it starts or ends" : "they start or end"} now: check ${ranged === 1 ? "it still covers" : "each still covers"} what it should.`,
+        `${moved} ${moved === 1 ? "mask on this take was" : "masks on this take were"} drawn before Demoman 0.7.3, timed on the edited video, with a changed gap, a hold or a removed piece between ${moved === 1 ? "its step and its edge" : "their steps and their edges"}. ${moved === 1 ? "That edge" : "Those edges"} may have moved: check ${moved === 1 ? "it still covers" : "each still covers"} what it should.`,
       );
     }
     return { ...doc, edits: { ...e, masks }, schemaVersion: 13 };
@@ -454,6 +445,72 @@ export function migrateHoldsToGaps(doc: SceneDocument): SceneDocument {
   }
 
   return { ...doc, edits: { ...doc.edits, holds: kept, gaps } };
+}
+
+/**
+ * Whether a v12 mask has an edge whose output offset an authored edit
+ * retimes (DEM-115): a gap, hold or removed piece inside the stretch
+ * between the edge's step and the edge, on the actions' own timestamps. An
+ * edge or edit that names no known step counts as moved: said, not guessed.
+ */
+function maskMayHaveMoved(
+  m: unknown,
+  actions: unknown,
+  edits: Record<string, unknown>,
+): boolean {
+  if (m === null || typeof m !== "object") return false;
+  const at = new Map<unknown, number>();
+  const order: number[] = [];
+  for (const a of Array.isArray(actions) ? actions : []) {
+    const { id, timestamp } = (a ?? {}) as Record<string, unknown>;
+    if (typeof timestamp !== "number") continue;
+    at.set(id, timestamp);
+    order.push(timestamp);
+  }
+  order.sort((x, y) => x - y);
+  const list = (k: string) =>
+    (Array.isArray(edits[k]) ? edits[k] : []) as Record<string, unknown>[];
+  // Where a point lands: its step's time plus its offset; NaN when unknown.
+  const point = (p: unknown, key: string): number => {
+    const r = (p ?? {}) as Record<string, unknown>;
+    const t = at.get(r.actionId);
+    const o = r[key];
+    return t === undefined || typeof o !== "number" ? Number.NaN : t + o;
+  };
+  // Each edit as the stretch of the recording it retimes.
+  const retimed: [number, number][] = [
+    ...list("gaps").map((g): [number, number] => {
+      const t = at.get(g.afterActionId);
+      if (t === undefined) return [Number.NaN, Number.NaN];
+      return [t, order.find((x) => x > t) ?? Number.POSITIVE_INFINITY];
+    }),
+    ...list("holds").map((h): [number, number] => {
+      const p = point(h.marker, "offsetMs");
+      return [p, p];
+    }),
+    ...list("removed").map((r): [number, number] => [
+      r.start === null
+        ? Number.NEGATIVE_INFINITY
+        : point(r.start, "sourceOffsetMs"),
+      r.end === null
+        ? Number.POSITIVE_INFINITY
+        : point(r.end, "sourceOffsetMs"),
+    ]),
+  ];
+  const mask = m as Record<string, unknown>;
+  return [mask.start, mask.end].some((edge) => {
+    if (edge === null || typeof edge !== "object" || !("offsetMs" in edge))
+      return false;
+    const step = at.get((edge as Record<string, unknown>).actionId);
+    const end = point(edge, "offsetMs");
+    if (step === undefined || Number.isNaN(end)) return retimed.length > 0;
+    const lo = Math.min(step, end);
+    const hi = Math.max(step, end);
+    if (lo === hi) return false;
+    return retimed.some(
+      ([a, b]) => Number.isNaN(a) || Number.isNaN(b) || (a <= hi && lo <= b),
+    );
+  });
 }
 
 /**

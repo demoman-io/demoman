@@ -58,52 +58,58 @@ describe("schema 13: masks in the frames' own time (audit run 1)", () => {
 });
 
 describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
-  const mask = (doc: ReturnType<typeof v12>) =>
-    (doc.edits.masks as { id: string; start?: { actionId: string } }[]).find(
-      (m) => m.id === "mask-ranged",
-    );
+  type Doc = ReturnType<typeof v12>;
+  const timeOf = (doc: Doc, id: string) =>
+    (doc.actions as { id: string; timestamp: number }[]).find(
+      (a) => a.id === id,
+    )?.timestamp as number;
+  /** The stretch between the ranged mask's end step and its end. */
+  const endStretch = (doc: Doc) => {
+    const step = timeOf(doc, "act-3");
+    return [step, step + 400] as const;
+  };
+  const removedAt = (actionId: string, from: number, to: number) => ({
+    id: "rm-1",
+    start: { actionId, sourceOffsetMs: from },
+    end: { actionId, sourceOffsetMs: to },
+  });
   // Red: the 12 -> 13 step pushes no note — the mask is read on the source
   // axis, an edit between its step and its edge moves it, and nothing says.
   it.each([
     [
       "a removed piece",
-      (d: ReturnType<typeof v12>) => {
-        d.edits.removed = [
-          {
-            id: "rm-1",
-            start: { actionId: "act-2", sourceOffsetMs: 50 },
-            end: { actionId: "act-2", sourceOffsetMs: 300 },
-          },
-        ];
+      (d: Doc) => {
+        d.edits.removed = [removedAt("act-3", 100, 300)];
+        return timeOf(d, "act-3") + 100;
       },
     ],
     [
       "a shortened gap",
-      (d: ReturnType<typeof v12>) => {
-        d.edits.gaps = [{ id: "gap-1", afterActionId: "act-2", durationMs: 0 }];
+      (d: Doc) => {
+        d.edits.gaps = [{ id: "gap-1", afterActionId: "act-3", durationMs: 0 }];
+        return timeOf(d, "act-3");
       },
     ],
     [
       "a hold",
-      (d: ReturnType<typeof v12>) => {
+      (d: Doc) => {
         d.edits.holds = [
           {
             id: "hold-1",
-            marker: { actionId: "act-2", offsetMs: 100 },
+            marker: { actionId: "act-3", offsetMs: 100 },
             durationMs: 500,
           },
         ];
+        return timeOf(d, "act-3") + 100;
       },
     ],
-  ])("says so with %s after the mask's step", (_, edit) => {
+  ])("says so with %s between the mask's step and its edge", (_, edit) => {
     const before = v12();
-    edit(before);
-    // Premise: the mask starts at act-2, and the edit is at act-2, between
-    // its step and its end at act-3.
-    expect(mask(before)?.start?.actionId).toBe("act-2");
-    expect(JSON.stringify(before.edits)).toMatch(
-      /"(afterActionId|actionId)":"act-2"/,
-    );
+    const at = edit(before);
+    // Premise: the edit lies inside the end's stretch (act-3 to +400 ms).
+    const [lo, hi] = endStretch(before);
+    expect(at, `${at} in [${lo}, ${hi}]`).toBeGreaterThanOrEqual(lo);
+    expect(at).toBeLessThan(hi);
     const notes: string[] = [];
     migrateToCurrent(before, notes);
     expect(notes).toHaveLength(1);
@@ -112,9 +118,22 @@ describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
     );
   });
 
-  it("says nothing when no edit can have moved it, or no mask is ranged", () => {
+  // Red: note on any edit anywhere (review of DEM-115) — the removed piece
+  // below lies outside both of the mask's stretches.
+  it("says nothing when no edit lies between a step and its edge, or no mask is ranged", () => {
     const notes: string[] = [];
     migrateToCurrent(v12(), notes);
+    const outside = v12();
+    outside.edits.removed = [removedAt("act-2", 50, 300)];
+    // Premise: the piece (act-2 +50..+300) misses the start's stretch
+    // (act-2 -120..0) and the end's (act-3 ..+400).
+    const piece = [
+      timeOf(outside, "act-2") + 50,
+      timeOf(outside, "act-2") + 300,
+    ];
+    expect(piece[0]).toBeGreaterThan(timeOf(outside, "act-2"));
+    expect(piece[1]).toBeLessThan(endStretch(outside)[0]);
+    migrateToCurrent(outside, notes);
     const whole = v12();
     whole.edits.masks = (whole.edits.masks as unknown[]).slice(0, 1);
     whole.edits.gaps = [{ id: "gap-1", afterActionId: "act-2", durationMs: 0 }];
