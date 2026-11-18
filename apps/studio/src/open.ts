@@ -17,6 +17,7 @@ import {
   STUDIO_HEADER,
   type WindowAnswer,
 } from "@demoman/studio-protocol";
+import { messageOf } from "./files.js";
 import {
   readStudioState,
   removeStudioState,
@@ -35,9 +36,6 @@ const PING_TIMEOUT_MS = 2_000;
 const PING_TRIES = 3;
 const WINDOW_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 10;
-
-const messageOf = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e);
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 

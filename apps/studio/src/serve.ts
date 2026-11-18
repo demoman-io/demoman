@@ -26,16 +26,14 @@ import {
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
-  Refusal,
   RepoAddBody,
   RepoAddStarted,
   RepoRemoveAnswer,
   StudioEvent,
-  StudioReason,
   WindowAnswer,
 } from "@demoman/studio-protocol";
 import { createEventHub, type EventHub } from "./events.js";
-import { messageOf, noTakeRefusal, readIfPresent } from "./files.js";
+import { messageOf, readIfPresent } from "./files.js";
 import { createPageServer } from "./pages.js";
 import {
   createExportQueue,
@@ -49,6 +47,10 @@ import { createRunExport } from "./run-export.js";
 import {
   createStudioServer,
   type Handler,
+  json,
+  noTake,
+  noVideo,
+  refuse,
   type StudioHandlers,
   type StudioResponse,
 } from "./server.js";
@@ -70,19 +72,6 @@ const QUEUE_STATUS: Record<QueueRefusal["reason"], number> = {
   takeNotFound: 404,
   sceneNotSaved: 409,
   libraryUnreadable: 500,
-};
-
-const json = (status: number, body: unknown): StudioResponse => ({
-  status,
-  json: body,
-});
-const refuse = (
-  status: number,
-  reason: StudioReason,
-  detail: string,
-): StudioResponse => {
-  const body: Refusal = { reason, detail };
-  return { status, json: body };
 };
 
 /** The body as JSON; an empty body is `{}` (a window with no take). */
@@ -127,8 +116,6 @@ export function buildHandlers(o: {
   ci?: CiJobs;
 }): StudioHandlers {
   const { library } = o;
-  const noTake = (id: string): StudioResponse =>
-    json(404, noTakeRefusal(library, id));
 
   /** Whether `id` is a take that loads: parsed, not only stat'd as
    *  `takeExists` does, so the window never opens on one that will not. */
@@ -138,8 +125,6 @@ export function buildHandlers(o: {
   const videos = createVideoStore(o.home, library, { log: o.log });
   const keep = o.keep ?? keepVideo;
   const removeFlow = o.removeFlow ?? removeRepoFlow;
-  const noVideo = (id: string): StudioResponse =>
-    refuse(404, "videoNotFound", `There is no flow "${id}".`);
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -201,7 +186,7 @@ export function buildHandlers(o: {
       if (takeId !== undefined) {
         // An unknown take is refused; the library is not opened instead.
         try {
-          if (!(await loads(takeId))) return noTake(takeId);
+          if (!(await loads(takeId))) return noTake(library, takeId);
         } catch (error) {
           return libraryRefusal(error);
         }
@@ -372,7 +357,7 @@ export function buildHandlers(o: {
 
     async exportStart(req) {
       const id = req.params.id as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       const body = await bodyOf(req);
       if (!body.ok) {
         return refuse(
