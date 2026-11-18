@@ -427,6 +427,26 @@ describe("signInAccount", () => {
     expect(other.bodies().slice(bodies).join("\n")).not.toContain(PASSWORD);
   }, 60_000); // 0.7 s here; 5x is 3.5 s
 
+  // DEM-116. Red: read the origin from `handle.ownerFrame()`, which asks the
+  // page for `ownerDocument.documentElement`; a frame owner element answers
+  // as the frame it holds, here one on the bound origin.
+  it("never types a secret on another origin whose field claims an iframe of the site", async () => {
+    const { deps: d } = deps();
+    const framed = `${other.url}/framed-login?claim=${encodeURIComponent(app.url)}`;
+    const bounce = `/bounce?to=${encodeURIComponent(framed)}`;
+    const bodies = other.bodies().length;
+    const frames = app.gets("/login");
+    const r = await signInAccount(chosen(steps(bounce)), d);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason, r.detail).toBe("secretOffOrigin");
+    expect(r.detail).toContain(other.url);
+    // Premise: the forging page loaded and its iframe of the site did too.
+    expect(other.gets("/framed-login")).toBeGreaterThan(0);
+    expect(app.gets("/login")).toBeGreaterThan(frames);
+    expect(other.bodies().slice(bodies).join("\n")).not.toContain(PASSWORD);
+  }, 60_000); // ~1 s here; 5x is 5 s
+
   it("names a missing secret before opening anything", async () => {
     const gets = app.gets("/login");
     const { deps: d } = deps({});
