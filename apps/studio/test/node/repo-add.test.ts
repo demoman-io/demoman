@@ -523,7 +523,7 @@ describe("adding a flow to its repo, and removing it", () => {
     const ended = told.filter((e) => e.type === "repo");
     expect(ended).toHaveLength(1);
     expect(endedSentence(ended[0] as StudioEvent)).toBe(
-      "Add to repo stopped: git refused the commit",
+      "Not added to the repo: git refused the commit",
     );
   });
 
@@ -534,62 +534,36 @@ describe("adding a flow to its repo, and removing it", () => {
     const ended = told.filter((e) => e.type === "repo");
     expect(ended).toHaveLength(1);
     expect(endedSentence(ended[0] as StudioEvent)).toBe(
-      "Added flow.json to the repo",
+      "Added flow.mp4 to the repo.",
     );
   });
-
-  // Red if the add renders whatever is on disk at its turn (DEM-140).
-  it("an add whose video was edited while it waited is refused, never added", async () => {
-    const library = createLibrary(home);
-    const read = await library.getSceneRead("add-take");
-    if (read === null) throw new Error("the seeded take has no scene");
-    await queue.start("add-take", { fileType: "mp4", revision: read.revision });
-    await until(() => exportRuns.length === 1);
-    expect(await add(good)).toMatchObject({ status: 202 });
-    await library.putScene({
-      ...read.scene,
-      canvas: { ...read.scene.canvas, aspect: "9:16" },
+  // Red if Add stops handing keep the version vetted as it was pressed
+  // (DEM-140): keep would add whatever is on disk at its turn.
+  it("an add hands keep the version it was pressed on", async () => {
+    const rev = (await createLibrary(home).getSceneRead("add-take"))?.revision;
+    expect(rev, "premise: the seeded take has a revision").toBeTruthy();
+    await add(good);
+    await until(() => calls.length === 1);
+    expect(calls[0]?.[0].pressed).toEqual({
+      takeId: "add-take",
+      revision: rev,
     });
-    // The premise: the edit replaced the revision Add was pressed on.
-    const after = await library.getSceneRead("add-take");
-    expect(after?.revision).toBeDefined();
-    expect(after?.revision).not.toBe(read.revision);
-    exportRuns[0]?.finish({ outcome: "failed" } as unknown as ExportAnswer);
+  });
+
+  // Red if keep's videoChanged is not said, in studio.log and to the page.
+  it("a video that changed since Add was pressed is failed with keep's words", async () => {
+    keep = async () =>
+      ({
+        ok: false,
+        reason: "videoChanged",
+        detail: '"Flow" changed after it was asked to be added',
+      }) as KeepAnswer;
+    await add(good);
     await until(() => phases().includes("failed"));
-    expect(calls).toHaveLength(0);
     expect(
       sent.find((e) => e.type === "repo" && e.phase === "failed"),
     ).toMatchObject({ reason: "videoChanged" });
     expect(logged.some((l) => l.includes("failed (videoChanged)"))).toBe(true);
-  });
-
-  // Red if keep's receipt is not checked against the pressed revision.
-  it("an edit saved while keep ran is said on the added event, and only then", async () => {
-    const rev = (await createLibrary(home).getSceneRead("add-take"))
-      ?.revision as string;
-    expect(rev).toBeTruthy();
-    const receiptAt =
-      (recordedRevision: string) =>
-      async (...a: KeepCall) => {
-        calls.push(a);
-        return keptOk({
-          receipt: { video: "add-take", recordedRevision } as never,
-        });
-      };
-    const notesOf = () =>
-      sent.flatMap((e) =>
-        e.type === "repo" && e.phase === "added" ? [e.notes] : [],
-      );
-    keep = receiptAt(rev);
-    await add(good);
-    await until(() => notesOf().length === 1);
-    expect(notesOf()[0]).toEqual([]);
-    keep = receiptAt("a-later-revision");
-    await add(good);
-    await until(() => notesOf().length === 2);
-    expect(notesOf()[1]).toEqual([
-      expect.stringContaining("was edited while it was being added"),
-    ]);
   });
 });
 

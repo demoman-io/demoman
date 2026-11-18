@@ -24,7 +24,6 @@ export {
   exportTake,
   type PinnedScene,
 } from "./executor/export.js";
-export { latestOf } from "./executor/flow-size.js";
 export {
   type KeepAnswer,
   keepVideo,

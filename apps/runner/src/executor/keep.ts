@@ -55,7 +55,7 @@ import {
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { type AccountsFound, chooseAccount, findAccounts } from "./accounts.js";
-import { type ExportDeps, exportTake } from "./export.js";
+import { type ExportDeps, exportTake, type PinnedScene } from "./export.js";
 import { filmedScale } from "./flow-size.js";
 import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
@@ -90,7 +90,14 @@ export type KeepRefusal =
   | "keepRefused"
   /** The DemoScript was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
-  | "repoFlowUnwritable";
+  | "repoFlowUnwritable"
+  /** The video is no longer the version `pressed` names: an edit saved
+   *  after the add was asked for. Nothing is written. */
+  | "videoChanged";
+
+/** The version an add was asked for (`checkAddable`'s answer): keep adds
+ *  that one or refuses `videoChanged` (DEM-140). */
+export type KeepPressed = { takeId: string; revision: string };
 
 /** What a built kept file was made from. */
 type KeptFrom = { takeId: string; recordedRevision: string };
@@ -157,6 +164,8 @@ export async function keepVideo(
     /** `commit` (the default) renders the outputs into the repo; `files`
      *  writes the recipe alone and leaves delivery to `--out-dir`. */
     deliver?: KeptDeliver;
+    /** The Studio's: the version Add was pressed on. */
+    pressed?: KeepPressed;
   },
   deps: KeepDeps,
 ): Promise<KeepAnswer> {
@@ -358,10 +367,17 @@ export async function keepVideo(
       })),
       report,
       deliver,
+      ...(args.pressed === undefined ? {} : { pressed: args.pressed }),
     },
     deps,
   );
   if (!made.ok) return refuse(made.reason, made.detail);
+  // Every render below shows the scene the recipe was built from, not
+  // scene.json as it is when that render starts (DEM-140, as DEM-100).
+  const pinned: PinnedScene = {
+    scene: made.read.scene,
+    notes: made.read.notes,
+  };
   // A recipe its own reader refuses (an empty name, say) is never written:
   // every later run and refresh would refuse it.
   const reread = parseKept(serializeKept(made.kept), fileRel);
@@ -393,7 +409,7 @@ export async function keepVideo(
           screensOnly: true,
           ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
         },
-        { ...deps.export, outDir: temp },
+        { ...deps.export, outDir: temp, pinned },
         () => undefined,
       );
       if (shot.outcome !== "saved" || shot.fileType !== "screens") {
@@ -435,7 +451,7 @@ export async function keepVideo(
           // A GIF has no quality to choose; export refuses one.
           ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
         },
-        { ...deps.export, outDir: temp },
+        { ...deps.export, outDir: temp, pinned },
         () => undefined,
       );
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
@@ -593,7 +609,8 @@ type Built =
       kept: KeptVideo;
       from: KeptFrom;
       built: { takeId: string };
-      read: { revision: string };
+      /** The one scene read the file is built from and every render pins. */
+      read: NonNullable<Awaited<ReturnType<Library["getSceneRead"]>>>;
       /** The logo's bytes when they are to be copied into the repo. */
       logoBytes: Uint8Array | null;
       /** The uploaded image's, likewise. */
@@ -744,6 +761,7 @@ async function buildKept(
     outputs: (Omit<KeptOutput, "aspect"> & { aspect?: KeptOutput["aspect"] })[];
     report: string | null;
     deliver: KeptDeliver;
+    pressed?: KeepPressed;
   },
   deps: KeepDeps,
 ): Promise<Built> {
@@ -758,6 +776,15 @@ async function buildKept(
   const vetted = await vetForAdd(a.video, root, deps);
   if (!vetted.ok) return refuse(vetted.reason, vetted.detail);
   const { built, read } = vetted;
+  if (
+    a.pressed !== undefined &&
+    (built.takeId !== a.pressed.takeId || read.revision !== a.pressed.revision)
+  ) {
+    return refuse(
+      "videoChanged",
+      `"${video.name}" changed after it was asked to be added, so nothing was written — add it again to add it as it is now`,
+    );
+  }
   const { scene } = read;
   const bundle = await deps.library
     .frameStore(built.takeId)

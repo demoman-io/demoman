@@ -363,6 +363,140 @@ describe("keep, a clean take", () => {
   );
 });
 
+describe("keep adds the version it was asked for (DEM-140)", () => {
+  const mp4 = (path: string) => ({
+    path,
+    fileType: "mp4" as const,
+    aspect: "16:9" as const,
+    quality: "share" as const,
+  });
+  /** A take of the clean frames with the magenta logo. */
+  const withLogo = async (takeId: string, name: string) => {
+    const { scene } = await videoOf(takeId, name, (d) => ({
+      ...d,
+      branding: {
+        ...d.branding,
+        logo: { ref: "acme.svg", corner: "top-right", size: 0.06, opacity: 1 },
+      },
+    }));
+    await copyFrames(scene.meta.id);
+    return scene;
+  };
+  /** The library as an edit saved mid-render leaves it: every scene read
+   *  answers a later version of the take, without its logo. */
+  const logoRemoved = (): Library =>
+    new Proxy(library, {
+      get(target, key) {
+        if (key === "getSceneRead") {
+          return async (id: string) => {
+            const r = await target.getSceneRead(id);
+            return r === null
+              ? null
+              : {
+                  ...r,
+                  revision: `${r.revision}-later`,
+                  scene: {
+                    ...r.scene,
+                    branding: { ...r.scene.branding, logo: null },
+                  },
+                };
+          };
+        }
+        if (key === "getScene") {
+          return async (id: string) => {
+            const s = await target.getScene(id);
+            return s === null
+              ? null
+              : { ...s, branding: { ...s.branding, logo: null } };
+          };
+        }
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  const magentaOf = async (bytes: Buffer) => {
+    const read = await sampleMp4(bytes, { colors: [MAGENTA] });
+    return Math.max(...read.readings.map((r) => r.colorCounts[0] ?? 0));
+  };
+
+  // Red if keep stops comparing its read with the version asked for.
+  it("refuses a video that changed since it was asked for, writing nothing", async () => {
+    await withLogo("scene-changed", "Changed");
+    const read = await library.getSceneRead("scene-changed");
+    if (read === null) throw new Error("the take has no scene");
+    const before = await repoFiles();
+    const from = lines.length;
+    const out = await keepVideo(
+      {
+        video: "Changed",
+        to: [mp4("docs/changed.mp4")],
+        repoRoot: repo,
+        pressed: {
+          takeId: "scene-changed",
+          revision: `${read.revision}-earlier`,
+        },
+      },
+      deps(),
+    );
+    expect(out).toMatchObject({ ok: false, reason: "videoChanged" });
+    expect(await repoFiles(), "the repo's files").toEqual(before);
+    expect(
+      lines.slice(from).filter((l) => l.startsWith("add: exporting")),
+    ).toEqual([]);
+  });
+
+  // Red if keep's renders read scene.json again instead of its own read.
+  it(
+    "renders the read it was built from, not one saved during the render",
+    async () => {
+      const scene = await withLogo("scene-pinned", "Pinned");
+      const later = { ...deps().export, library: logoRemoved() };
+      // Premise: an export reading through that library draws no logo, so
+      // the logo below comes from keep's own read.
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-pinned-"));
+      try {
+        const plain = await exportTake(
+          {
+            takeId: scene.meta.id,
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+            unlisted: true,
+          },
+          { ...later, outDir },
+          () => undefined,
+        );
+        if (plain.outcome !== "saved" || plain.fileType !== "mp4")
+          throw new Error(JSON.stringify(plain));
+        expect(
+          await magentaOf(await readFile(plain.file.path)),
+          "logo pixels in a render of the later version",
+        ).toBe(0);
+      } finally {
+        await rm(outDir, { recursive: true, force: true });
+      }
+      const read = await library.getSceneRead(scene.meta.id);
+      if (read === null) throw new Error("the take has no scene");
+      const out = await keepVideo(
+        {
+          video: "Pinned",
+          to: [mp4("docs/pinned.mp4")],
+          repoRoot: repo,
+          pressed: { takeId: scene.meta.id, revision: read.revision },
+        },
+        { ...deps(), export: later },
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.receipt?.recordedRevision).toBe(read.revision);
+      expect(
+        await magentaOf(await readFile(join(repo, "docs/pinned.mp4"))),
+        "logo (magenta) pixels in the added video",
+      ).toBeGreaterThan(50);
+    },
+    KEEP_MS,
+  );
+});
+
 describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   const gif = (path: string) => ({
     path,
