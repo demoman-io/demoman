@@ -1,4 +1,5 @@
-import type { Server } from "node:http";
+import { randomBytes } from "node:crypto";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 /**
@@ -44,4 +45,36 @@ export async function listenOnLoopback(server: Server): Promise<string> {
   });
   const { port } = server.address() as AddressInfo;
   return `http://${LOOPBACK_HOST}:${port}/`;
+}
+
+/**
+ * For a loopback server that hands out files (the refresh comparison, the
+ * compare measurer). A port on 127.0.0.1 answers every account on this
+ * machine and, through DNS rebinding, a page that names another host. So the
+ * files sit under a random path segment only the server's own page is told
+ * (`prefix`), and a request whose Host is not the server's own gets a 404
+ * (DEM-114).
+ */
+export function loopbackGuard(): {
+  prefix: string;
+  /** `listenOnLoopback`, remembering the Host the server answers to. */
+  listen(server: Server): Promise<string>;
+  /** True, with a 404 sent, when `req` named another Host. */
+  refused(req: IncomingMessage, res: ServerResponse): boolean;
+} {
+  const prefix = `/${randomBytes(16).toString("hex")}`;
+  let host: string | null = null;
+  return {
+    prefix,
+    async listen(server) {
+      const origin = await listenOnLoopback(server);
+      host = new URL(origin).host;
+      return origin;
+    },
+    refused(req, res) {
+      if (host !== null && req.headers.host === host) return false;
+      res.writeHead(404).end();
+      return true;
+    },
+  };
 }

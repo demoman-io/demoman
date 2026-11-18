@@ -7,7 +7,7 @@ import { bundleEntry } from "../bundle-js.js";
 import type { DecodeProbeEntry, FrameTimes } from "../decode-probe-entry.js";
 import { DECODE_PROBE_GLOBAL } from "../entry-globals.js";
 import { launch } from "../launch.js";
-import { listenOnLoopback } from "../loopback.js";
+import { loopbackGuard } from "../loopback.js";
 import { stills } from "./numbers.js";
 
 /** The in-page decode entry, as this module is running: the .ts under
@@ -67,7 +67,9 @@ export async function createMeasurer(options?: {
   /** Why the server could not hand the page the file, for the measure that
    *  asked; the page sees only a failed fetch. */
   let serveFailed: string | null = null;
+  const guard = loopbackGuard();
   const server = createServer((req, res) => {
+    if (guard.refused(req, res)) return;
     if (req.url === "/") {
       res
         .writeHead(200, { "content-type": "text/html" })
@@ -76,7 +78,7 @@ export async function createMeasurer(options?: {
     }
     if (
       served === null ||
-      req.url !== `/${encodeURIComponent(basename(served))}`
+      req.url !== `${guard.prefix}/${encodeURIComponent(basename(served))}`
     ) {
       res.writeHead(404).end();
       return;
@@ -99,7 +101,7 @@ export async function createMeasurer(options?: {
   let origin: string;
   const page = launched.page;
   try {
-    origin = await listenOnLoopback(server);
+    origin = await guard.listen(server);
     await page.goto(origin);
     await page.addScriptTag({
       content: await bundleEntry(options?.entryPath ?? ENTRY_PATH),
@@ -141,7 +143,10 @@ export async function createMeasurer(options?: {
           },
           [
             DECODE_PROBE_GLOBAL,
-            new URL(`/${encodeURIComponent(basename(path))}`, origin).href,
+            new URL(
+              `${guard.prefix}/${encodeURIComponent(basename(path))}`,
+              origin,
+            ).href,
           ] as const,
         );
       } catch (error) {
