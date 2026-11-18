@@ -105,9 +105,9 @@ import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
+import { createNetworkWatch, type NetworkWatch } from "./network-watch.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
-import { type RequestTracker, trackRequests } from "./requests.js";
 import {
   HELD_SCROLL_STEP,
   heldScrollPlanFunction,
@@ -605,6 +605,10 @@ export interface EngineDeps {
    * returning `ReplayResult.pacing`, and marks the bundle `clock: "held"`.
    */
   held?: HeldClock;
+  /** The held clock's network watch, which the walk's settle reads too: one
+   *  rule for "the page is waiting on its server" (DEM-202). Absent, a
+   *  continuous walk watches the page itself, on its clock. */
+  network?: NetworkWatch;
 }
 /** The shortest gap between two mouse moves of a dispatched path. Chrome's
  *  own answer, about a frame, is the real pace; this only bounds the rate
@@ -965,9 +969,16 @@ export async function runWalk(
   };
   /** Runs `run` as a wait on the page (`HeldClock.waiting`): the opening's
    *  load, a step's settle and screen, a wait step, a page's answer to a
-   *  question. Everything else the walk sleeps is designed time. */
-  const waitingOn = <T>(run: () => Promise<T>): Promise<T> =>
-    held === undefined ? run() : held.waiting(run);
+   *  question. Everything else the walk sleeps is designed time.
+   *  `windowed`: the wait follows only what opened in its window
+   *  (`windowOf`); the opening's load follows everything. */
+  const waitingOn = <T>(run: () => Promise<T>, windowed = false): Promise<T> =>
+    held === undefined
+      ? run()
+      : held.waiting(run, windowed ? windowOf() : null);
+  /** A wait beginning now follows what opened from a request cap before
+   *  it, on the clock (DEM-202). */
+  const windowOf = (): number => clock.now() - STEP_REQUEST_CAP_MS;
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
@@ -1579,10 +1590,12 @@ export async function runWalk(
     };
   })();
 
-  /** Continuous only: what counts the page's requests in flight, or why
-   *  nothing does (`Network.enable` refused), which every screen then says. */
-  let tracker = null as RequestTracker | null;
+  /** Continuous only: what counts the page's requests in flight (the held
+   *  clock's own, when held), or why nothing does (`Network.enable`
+   *  refused), which every screen then says. On the clock (`clock.now()`). */
+  let tracker = (deps.network ?? null) as NetworkWatch | null;
   let untracked = "they were never asked about";
+  let ownTracker = false;
   const pageScreens: PageScreen[] = [];
 
   /**
@@ -1617,7 +1630,7 @@ export async function runWalk(
         }
         await clock.sleep(HELD_FRAME_MS);
       }
-    });
+    }, windowOf());
     return reply;
   };
 
@@ -1772,7 +1785,7 @@ export async function runWalk(
    * own `STEP_SETTLE_CAP_MS`. A request still in flight when the cap runs
    * out leaves the page not asked.
    *
-   * Only requests that opened after `openedAfter` are waited for. One open
+   * Only requests that opened at or after `openedAfter` are waited for. One open
    * longer than a whole request cap before the step began (a long poll, a
    * channel that never closes) had its step's wait already: waiting again
    * would cost every later step the cap and its screen.
@@ -1788,17 +1801,19 @@ export async function runWalk(
           ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
         ];
       }
-      if (!(await tracker.idle(requestBy, clock.sleep, openedAfter))) {
+      // The watch is on the clock, the walk on `at()`.
+      const since = started + openedAfter;
+      if (!(await tracker.idle(started + requestBy, clock.sleep, since))) {
         return [
-          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          pageMade(`${tracker.inFlight(since)} request(s) in flight`),
           PAGE_NOT_ASKED,
         ];
       }
       const page = await settlePage(at() + STEP_SETTLE_CAP_MS);
-      if (tracker.inFlight(openedAfter) === 0) return page;
+      if (tracker.inFlight(since) === 0) return page;
       if (at() >= requestBy) {
         return [
-          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          pageMade(`${tracker.inFlight(since)} request(s) in flight`),
           ...page,
         ];
       }
@@ -1987,7 +2002,7 @@ export async function runWalk(
     ];
     const waitedMs = Math.max(0, at() - from);
     const leftOut =
-      tracker === null ? 0 : tracker.inFlight() - tracker.inFlight(openedAfter);
+      tracker === null ? 0 : tracker.openedBefore(started + openedAfter);
     const place =
       actionId === null
         ? "the opening page"
@@ -2073,13 +2088,7 @@ export async function runWalk(
    *  kept every settle in a stretch that never ended (DEM-204). */
   const settleAndCapture = (
     ...asked: Parameters<typeof settleAndCaptureNow>
-  ): Promise<void> =>
-    held === undefined
-      ? settleAndCaptureNow(...asked)
-      : held.waiting(
-          () => settleAndCaptureNow(...asked),
-          tracker?.openedBy(at() - STEP_REQUEST_CAP_MS),
-        );
+  ): Promise<void> => waitingOn(() => settleAndCaptureNow(...asked), true);
 
   // None on a held clock: its frames are filed by `heldFrames`.
   const recorder =
@@ -3092,7 +3101,7 @@ export async function runWalk(
   };
   const awaitCondition = (
     ...asked: Parameters<typeof awaitConditionNow>
-  ): Promise<boolean> => waitingOn(() => awaitConditionNow(...asked));
+  ): Promise<boolean> => waitingOn(() => awaitConditionNow(...asked), true);
 
   // Everything from here to the loop's end talks to the world through a
   // port, and any of those calls can reject — a detached debugger, a closed
@@ -3264,10 +3273,14 @@ export async function runWalk(
       });
     }
     // Before `install()`'s navigation, so a request the first page makes is
-    // counted. A refusal does not stop the run: every screen says it.
-    if (continuous) {
+    // counted. A refusal does not stop the run: every screen says it. Held,
+    // the runner's watch was listening already.
+    if (continuous && tracker === null) {
       try {
-        tracker = await trackRequests(cdp, at);
+        tracker = await createNetworkWatch(cdp, Date.now, {
+          pageNow: clock.now,
+        });
+        ownTracker = true;
       } catch (error) {
         untracked = describeSettleError(error);
       }
@@ -4089,7 +4102,7 @@ export async function runWalk(
     if (held === undefined) {
       await cdp.send("Page.stopScreencast").catch(() => undefined);
     }
-    tracker?.dispose();
+    if (ownTracker) tracker?.stop();
     await recorder?.teardown();
     // Held: what was captured since the last hold, closed once however the
     // run ended. Not forgiven: what it shows would be missing from the video.

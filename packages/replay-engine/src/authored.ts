@@ -65,7 +65,12 @@ import {
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
-import { SETTLE_MS, WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
+import {
+  SETTLE_MS,
+  STEP_REQUEST_CAP_MS,
+  WAIT_POLL_MS,
+  WAIT_TIMEOUT_MS,
+} from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -830,7 +835,10 @@ export function createAuthoredRun(
         ): Promise<IntentCapture> =>
           deps.held === undefined
             ? captureWaitingNow(wanted)
-            : deps.held.waiting(() => captureWaitingNow(wanted));
+            : deps.held.waiting(
+                () => captureWaitingNow(wanted),
+                deps.held.now() - STEP_REQUEST_CAP_MS,
+              );
         const captureWaitingNow = async (
           wanted: AnchorIntent,
         ): Promise<IntentCapture> => {

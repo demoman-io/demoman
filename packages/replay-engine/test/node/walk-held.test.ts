@@ -10,6 +10,7 @@ import {
   HELD_SCROLL_MS,
   HELD_STEP_QUIET_MS,
   STEP_QUIET_MS,
+  STEP_REQUEST_CAP_MS,
   WAIT_TIMEOUT_MS,
 } from "../../src/constants.js";
 import { HELD_FRAME_MS } from "../../src/held-clock.js";
@@ -111,6 +112,9 @@ function fakeHeld(o: {
   /** Every sleep the walk made, from when (the walk's ms, as markers), and
    *  whether inside a wait on the page. */
   const sleeps: { atMs: number; ms: number; waiting: boolean }[] = [];
+  /** Every wait on the page, when it began and the window it named, both
+   *  on the clock (`now()`). */
+  const waits: { now: number; since: number | null }[] = [];
   let waitDepth = 0;
   let now = START;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -128,7 +132,9 @@ function fakeHeld(o: {
     ignoredConnections: () => [...IGNORED],
     loading: () => o.loading?.() ?? false,
     owing: () => o.loading?.() ?? false,
-    waiting: async (run) => {
+    pageOf: (wallMs) => wallMs - START,
+    waiting: async (run, since) => {
+      waits.push({ now, since: since ?? null });
       waitDepth++;
       try {
         return await run();
@@ -164,7 +170,7 @@ function fakeHeld(o: {
       o.moved?.(now);
     },
   };
-  return { clock, frames, sleeps };
+  return { clock, frames, sleeps, waits };
 }
 
 const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
@@ -487,6 +493,7 @@ async function run(
     cdp,
     frames: held.frames,
     sleeps: held.sleeps,
+    waits: held.waits,
     store,
     progress,
     journeys,
@@ -834,6 +841,41 @@ describe("the walk on a held clock", () => {
     // Premise: the step waited its whole bound for the target.
     expect(result.outcome, said).not.toBe("complete");
     expect(waitedMs(sleeps), said).toBeGreaterThanOrEqual(WAIT_TIMEOUT_MS);
+  });
+
+  // DEM-202: every wait follows only what opened in its window, the step
+  // settle's 6 s look-back; the opening's load has no lower bound. Red if a
+  // wait follows a request older than it (DEM-204's fault, by another wait).
+  it.each([
+    [
+      "a step's settle, a click's answer and a waitFor",
+      [
+        click("a"),
+        { do: "waitFor", on: { stableId: "gone" }, until: "visible" },
+      ],
+    ],
+    ["a target the page has not drawn", [click("gone")]],
+  ] as const)("gives every wait its window: %s", async (_, steps) => {
+    const { result, waits, progress } = await run(
+      [...steps] as DemoScript["steps"],
+      {
+        clickReadAnswersAfterMs: 100,
+      },
+    );
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(waits)}`;
+    // The opening's load and its settle: everything.
+    const opening = waits.findIndex((w) => w.since !== null);
+    expect(opening, said).toBeGreaterThanOrEqual(2);
+    expect(
+      waits.slice(0, opening).every((w) => w.since === null),
+      said,
+    ).toBe(true);
+    // Every later wait: from 6 s before it began. Premise: the opening's
+    // screen, the click's read, its settle and the waitFor or target wait.
+    const later = waits.slice(opening);
+    expect(later.length, said).toBeGreaterThanOrEqual(3);
+    for (const w of later)
+      expect(w.since, said).toBe(w.now - STEP_REQUEST_CAP_MS);
   });
 
   it("plays the whole tail after a network wait", async () => {

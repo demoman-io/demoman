@@ -314,7 +314,13 @@ async function holdClock(
   pinnedNow: string | undefined,
   scale: number,
 ): Promise<{ clock: HeldClock; network: NetworkWatch }> {
-  const network = await createNetworkWatch(cdp, Date.now);
+  // The watch stamps requests on the page's clock (DEM-202): before the
+  // hold, a request opens at its start, 0.
+  let holding: HeldClock | undefined;
+  const network = await createNetworkWatch(cdp, Date.now, {
+    pageNow: () => holding?.now() ?? 0,
+    pageOfWall: (wallMs) => holding?.pageOf(wallMs) ?? 0,
+  });
   const clock = createHeldClock({
     cdp,
     network,
@@ -386,6 +392,7 @@ async function holdClock(
   await clock.hold(
     pinnedNow === undefined ? Date.now() : Date.parse(pinnedNow),
   );
+  holding = clock;
   return {
     clock: {
       ...clock,
@@ -552,7 +559,9 @@ export async function playOnStage(
       // Spec 2026-11-13: a scripted run plans its pauses on a designed clock
       // instead of waiting the camera's room out live.
       beats: { restBefore, afterScroll, actMs, tailMs, arriveMs: ARRIVE_MS },
-      ...(held === undefined ? {} : { held }),
+      ...(prepared.held === undefined
+        ? {}
+        : { held: prepared.held.clock, network: prepared.held.network }),
     });
   } finally {
     // Whatever the walk did, the watch's listeners leave with it.
