@@ -434,7 +434,8 @@ export async function openStudio(o: {
 }
 
 /**
- * Ends the studio now. `cutShort` is how many exports it was holding. Only a
+ * Ends the studio now. `cutShort` is how much work it was holding: exports
+ * and adds queued or running, and CI setups running. Only a
  * studio that answers as the pid its file names is signalled: a pid the
  * system has reused is left alone.
  */

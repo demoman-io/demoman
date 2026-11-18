@@ -8,7 +8,15 @@ import type { SessionFile } from "./sessions.js";
 import type { VideoRecord, VideoStore } from "./videos.js";
 
 export type Addable =
-  | { ok: true; root: string; defaultPath: string }
+  | {
+      ok: true;
+      root: string;
+      defaultPath: string;
+      /** The version vetted: what an add pressed now must add (`keepVideo`'s
+       *  `pressed`). */
+      takeId: string;
+      revision: string;
+    }
   | {
       ok: false;
       reason: KeepRefusal | "noCheckout";
@@ -133,5 +141,7 @@ export async function checkAddable(
     ok: true,
     root: where.root,
     defaultPath: `docs/demos/${videoSlug(video.name)}.mp4`,
+    takeId: vetted.built.takeId,
+    revision: vetted.read.revision,
   };
 }

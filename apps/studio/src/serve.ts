@@ -21,7 +21,6 @@ import {
   keepVideo,
   type Library,
   LibraryError,
-  latestOf,
   ownHome,
   removeRepoFlow,
 } from "@demoman/runner/studio";
@@ -128,18 +127,6 @@ export function buildHandlers(o: {
   const videos = createVideoStore(o.home, library, { log: o.log });
   const keep = o.keep ?? keepVideo;
   const removeFlow = o.removeFlow ?? removeRepoFlow;
-  /** The take an add renders, chosen as keep chooses it (`latestOf`), and
-   *  its scene's revision now; null when it has none that reads. */
-  const addedVersion = async (
-    video: NonNullable<Awaited<ReturnType<typeof videos.get>>>,
-  ): Promise<{ takeId: string; revision: string } | null> => {
-    const latest = await latestOf(videos, video);
-    if (latest === undefined) return null;
-    const read = await library.getSceneRead(latest.takeId);
-    return read === null
-      ? null
-      : { takeId: latest.takeId, revision: read.revision };
-  };
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -267,15 +254,6 @@ export function buildHandlers(o: {
           [can.label, can.detail].filter((x) => x !== "").join(". "),
         );
       }
-      // The version Add was pressed on: what the add must commit (DEM-140).
-      const pressed = await addedVersion(video);
-      if (pressed === null) {
-        return refuse(
-          409,
-          "notAddable",
-          `Nothing was added: "${video.name}" has no video whose scene reads.`,
-        );
-      }
       const jobId = randomUUID();
       const at = { type: "repo", videoId: id, jobId } as const;
       const ended = (e: StudioEvent) => {
@@ -291,29 +269,15 @@ export function buildHandlers(o: {
       void o.queue
         .serial(
           async () => {
-            const current = await videos.get(id);
-            const turn = current === null ? null : await addedVersion(current);
-            // A gone flow or scene is keep's to refuse, in its own words.
-            if (
-              turn !== null &&
-              (turn.takeId !== pressed.takeId ||
-                turn.revision !== pressed.revision)
-            ) {
-              failed(
-                "videoChanged",
-                `"${video.name}" changed after Add to repo was pressed, so nothing was added. Press Add to repo again to add it as it is now.`,
-              );
-              return;
-            }
-            // shortcut: an edit saved while keep itself runs still lands (keep
-            // reads the scene again); it is said below, not prevented. Prevent
-            // it by handing keep the pinned read, a runner change (lane C).
             const answer = await keep(
               {
                 video: id,
                 repoRoot: can.root,
                 deliver: add.deliver,
                 to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
+                // The version vetted as Add was pressed: keep adds that one,
+                // or refuses videoChanged (DEM-140).
+                pressed: { takeId: can.takeId, revision: can.revision },
               },
               {
                 home: o.home,
@@ -341,17 +305,6 @@ export function buildHandlers(o: {
               return;
             }
             ci.added(can.root, answer.written);
-            const r = answer.receipt;
-            const drifted =
-              r !== null &&
-              (r.video !== pressed.takeId ||
-                r.recordedRevision !== pressed.revision);
-            const driftNote = drifted
-              ? `"${video.name}" was edited while it was being added: the repo has the version saved then, not the one Add to repo was pressed on.`
-              : undefined;
-            if (driftNote !== undefined) {
-              o.log(`studio: add ${jobId}: ${driftNote}`);
-            }
             ended({
               ...at,
               phase: "added",
@@ -359,7 +312,7 @@ export function buildHandlers(o: {
               written: answer.written,
               // Only what a person acts on: the platform and screens notes
               // are the terminal's (DEM-49, the author's ruling).
-              notes: [driftNote, answer.markNote, answer.scaleGuess].filter(
+              notes: [answer.markNote, answer.scaleGuess].filter(
                 (n): n is string => n !== undefined,
               ),
               marked: answer.markNote === undefined,
@@ -571,9 +524,11 @@ export function notifyOnMac(title: string, body: string): Promise<void> {
  *  null for any other event. */
 export function endedSentence(e: StudioEvent): string | null {
   if (e.type === "repo") {
-    if (e.phase === "failed") return `Add to repo stopped: ${e.detail}`;
+    if (e.phase === "failed") return `Not added to the repo: ${e.detail}`;
     if (e.phase !== "added") return null;
-    return [`Added ${basename(e.file)} to the repo`, ...e.notes].join(" ");
+    // The video, when one was rendered; the DemoScript alone otherwise.
+    const added = basename(e.written[0] ?? e.file);
+    return [`Added ${added} to the repo.`, ...e.notes].join(" ");
   }
   if (e.type === "ci") {
     if (e.phase !== "done" || e.step !== "apply") return null;
@@ -832,11 +787,19 @@ export async function runServe(o: ServeOptions): Promise<never> {
   noWindow.unref?.();
 
   const onSignal = (name: string) => () => {
-    const left = queue.size();
+    // The queue holds exports and adds; a CI apply runs beside it.
+    const queued = queue.size();
+    const applies = ci.running();
+    const left = [
+      queued > 0
+        ? `${queued} export${queued === 1 ? "" : "s"} or add${queued === 1 ? "" : "s"}`
+        : "",
+      applies > 0 ? `${applies} CI setup${applies === 1 ? "" : "s"}` : "",
+    ].filter((s) => s !== "");
     log(
-      left === 0
+      left.length === 0
         ? `studio: ${name}; stopping`
-        : `studio: ${name}; stopping with ${left} export${left === 1 ? "" : "s"} unfinished`,
+        : `studio: ${name}; stopping with ${left.join(" and ")} unfinished`,
     );
     void stop(0);
   };

@@ -155,10 +155,15 @@ describe("checkAddable", () => {
         takeId,
       );
       expect(notCarriedOf(scene)).toEqual([]);
+      // The version vetted: what an add pressed now hands keep (DEM-140).
+      const read = await library.getSceneRead(takeId);
+      expect(read?.revision, "premise: the take has a revision").toBeTruthy();
       expect(await addable(record)).toEqual({
         ok: true,
         root: repo,
         defaultPath: "docs/demos/create-an-invoice.mp4",
+        takeId,
+        revision: read?.revision,
       });
       expect((await keepSays("Create an invoice")).ok).toBe(true);
     },
