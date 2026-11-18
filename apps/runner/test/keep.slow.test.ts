@@ -927,6 +927,42 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     KEEP_MS,
   );
 
+  // Review of DEM-132. Red: drop `name === uncutName` from keep.ts's move —
+  // a "files" recipe saved under its whole 208-byte name before the 206-byte
+  // cut is refused with "already holds this flow".
+  it("an add moves a files recipe saved under its uncut long name", async () => {
+    // "the" is a stop word, so its pre-DEM-68 trimmed name differs from its
+    // uncut slug: only the uncut rule can find it.
+    const name = `the ${"b".repeat(204)}`;
+    const slug = `the-${"b".repeat(204)}`;
+    await freshVideo("scene-uncut-1", name);
+    const args = {
+      video: name,
+      to: [gif("uncut.gif")],
+      deliver: "files" as const,
+      repoRoot: repo,
+    };
+    const first = await keepVideo(args, deps());
+    if (!first.ok) throw new Error(JSON.stringify(first));
+    expect(first.file).toBe(`.demoman/flows/${slug.slice(0, 206)}.json`);
+    // As an add before the cut left it: the whole slug, which fit then.
+    const uncut = `.demoman/flows/${slug}.json`;
+    await rename(join(repo, first.file), join(repo, uncut));
+    // Premise: only the uncut name is in the repo, it is past the cut, and
+    // it is not the trimmed name the DEM-68 rule already moves.
+    expect(Buffer.byteLength(`${slug}.json`)).toBe(213);
+    expect(`${slug}.json`).not.toBe(`${"b".repeat(204)}.json`);
+    expect(await repoFiles()).toContain(uncut);
+    expect(await repoFiles()).not.toContain(first.file);
+
+    const out = await keepVideo(args, deps());
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.file).toBe(first.file);
+    expect(out.moved).toBe(uncut);
+    expect(await repoFiles()).not.toContain(uncut);
+    await rm(join(repo, out.file));
+  });
+
   // Red: drop keep.ts's `moveFrom !== null` refusal — the add moves one
   // and leaves the other as a second recipe.
   it("two old files of one flow refuse the add, naming both, and move neither", async () => {

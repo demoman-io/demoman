@@ -25,6 +25,8 @@ import {
   EXPIRE_AFTER_MS,
   expireOld,
   expiryStatus,
+  SKIPPED_SAID,
+  skippedOf,
 } from "../src/executor/expiry.js";
 import { exportTake } from "../src/executor/export.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
@@ -391,6 +393,90 @@ describe("expireOld", () => {
     });
     for (const t of [o, l, m])
       expect(await exists(join(t.dir, "frames")), t.dir).toBe(false);
+  });
+
+  // Review of DEM-127. Red: judge every flow — a corrupt outputs.json on a
+  // flow recorded today is said as an old video left alone, every hour.
+  it("does not judge, or say, a flow with nothing old to expire", async () => {
+    const young = await newVideo("Young");
+    const y = await take(young, "y-1", ago(2), { exportedAt: ago(1) });
+    await take(young, "y-2", ago(1));
+    await writeFile(join(y.dir, "outputs.json"), "{nope");
+    // Positive control: the same file on an old flow is said.
+    const old = await newVideo("Old");
+    const o = await take(old, "o-1", ago(40), { exportedAt: ago(35) });
+    await take(old, "o-2", ago(1));
+    await writeFile(join(o.dir, "outputs.json"), "{nope");
+    // Premise: nothing of "Young" is old.
+    expect(
+      (await store.versions(young)).every(
+        (v) => NOW.getTime() - Date.parse(v.createdAt) < EXPIRE_AFTER_MS,
+      ),
+    ).toBe(true);
+    const said = skippedOf(await expireOld(store, lib, NOW));
+    expect(said, JSON.stringify(said)).toHaveLength(1);
+    expect(said[0]).toMatch(new RegExp(`^flow ${old}:`));
+  });
+
+  // Review of DEM-127. Red: no cap — every skip goes into status, the state
+  // file and a Studio row each.
+  it("names at most SKIPPED_SAID skips, and counts the rest", async () => {
+    const video = await newVideo("Many");
+    const extra = 2;
+    for (let i = 0; i < SKIPPED_SAID + extra; i++) {
+      const t = await take(
+        video,
+        `m-${String(i).padStart(2, "0")}`,
+        ago(40 + i),
+        {
+          leasePid: deadPid(),
+          frames: 20,
+          thumbs: 0,
+        },
+      );
+      await writeFile(join(t.dir, ".busy", "broken.json"), "{nope");
+    }
+    await take(video, "m-current", ago(1));
+    const result = await expireOld(store, lib, NOW);
+    const said = skippedOf(result);
+    expect(said, JSON.stringify(result)).toHaveLength(SKIPPED_SAID + 1);
+    expect(
+      said.slice(0, SKIPPED_SAID).every((s) => s.includes("broken.json")),
+    ).toBe(true);
+    expect(said.at(-1)).toBe(
+      `and ${extra} more flows or videos left alone the same way`,
+    );
+    expect(skippedOf(await expiryStatus(lib))).toEqual(said);
+  });
+
+  // Review of DEM-127. Red: read the list off a status only — a pass the
+  // lock put off would say nothing of its own skips.
+  it("skippedOf reads any answer: a result, a pass the lock put off, a status from before 0.9.7, none", async () => {
+    const video = await newVideo("Locked");
+    const z = await take(video, "z-old", ago(45), { leasePid: deadPid() });
+    await writeFile(join(z.dir, ".busy", "broken.json"), "{nope");
+    await take(video, "z-mid", ago(40));
+    await take(video, "z-new", ago(1));
+    const lock = join(home, "videos", ".lock");
+    await writeFile(lock, `${process.pid} another-holder\n`);
+    try {
+      const held = await expireOld(store, lib, NOW);
+      expect(held).toMatchObject({ skipped: "lockHeld" });
+      expect(skippedOf(held), JSON.stringify(held)).toEqual([
+        expect.stringContaining("video z-old:"),
+      ]);
+    } finally {
+      await rm(lock);
+    }
+    expect(
+      skippedOf({
+        ranAt: "x",
+        expired: 0,
+        freedBytes: 0,
+        skippedLeased: 0,
+      }),
+    ).toEqual([]);
+    expect(skippedOf({ never: true })).toEqual([]);
   });
 
   it("runs at most once an hour", async () => {

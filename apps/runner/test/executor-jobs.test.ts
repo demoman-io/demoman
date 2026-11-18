@@ -42,7 +42,7 @@ describe("the job table report(id) answers from", () => {
     expect(jobs.get("long")).toBe(long);
     expect(jobs.get("call-0")).toBeUndefined();
     expect(jobs.get("call-1")).toBeDefined();
-    jobs.settle(long, { ok: true, value: { outcome: "complete" } });
+    jobs.settle("long", long, { ok: true, value: { outcome: "complete" } });
     jobs.set("next", settled());
     expect(jobs.get("long")).toBe(long);
     expect(jobs.get("long")?.final).toEqual({

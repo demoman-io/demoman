@@ -23,9 +23,10 @@ export type ExpiryResult =
       expired: number;
       freedBytes: number;
       skippedLeased: number;
-      /** One sentence per video or version left alone because a file it
-       *  is judged by would not read (DEM-127); empty when none. Absent from
-       *  a state file saved before 0.9.7. */
+      /** One sentence per flow or video left alone because a file it is
+       *  judged by would not read (DEM-127); empty when none, at most
+       *  SKIPPED_SAID and a count of the rest. Absent from a state file saved
+       *  before 0.9.7: read it through `skippedOf`. */
       skippedUnreadable?: string[];
     }
   | { ranAt: string; failed: string };
@@ -36,6 +37,32 @@ export type ExpiryStatus =
   | ExpiryResult
   | { never: true }
   | { unreadable: string };
+
+/** The most skips a result names: one cause across a library (a restore
+ *  with the wrong owner) would otherwise put thousands of sentences into
+ *  status, the state file and the Studio. */
+export const SKIPPED_SAID = 20;
+
+const capped = (list: string[]): string[] =>
+  list.length <= SKIPPED_SAID
+    ? list
+    : [
+        ...list.slice(0, SKIPPED_SAID),
+        `and ${list.length - SKIPPED_SAID} more flows or videos left alone the same way`,
+      ];
+
+/** What any expiry answer says it left alone: a result, a status, a pass put
+ *  off by the lock (its own list, never the last saved one), or none. */
+export function skippedOf(answer: object): string[] {
+  return "skippedUnreadable" in answer &&
+    Array.isArray(answer.skippedUnreadable)
+    ? answer.skippedUnreadable
+    : [];
+}
+
+const isOld = (v: Version, now: Date) =>
+  // NaN (an unreadable date) is never old.
+  now.getTime() - Date.parse(v.createdAt) > EXPIRE_AFTER_MS;
 
 const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
 
@@ -147,13 +174,17 @@ export async function expireOld(
   let result: ExpiryResult;
   try {
     const held = await expire(store, library, now, tally);
-    if (held !== null) return { skipped: "lockHeld", held, ...tally };
-    result = { ranAt, ...tally };
+    const said = {
+      ...tally,
+      skippedUnreadable: capped(tally.skippedUnreadable),
+    };
+    if (held !== null) return { skipped: "lockHeld", held, ...said };
+    result = { ranAt, ...said };
   } catch (error) {
     // What was marked before the failure is said too: those versions are gone.
     result = {
       ranAt,
-      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${tally.skippedUnreadable.join("; ")}`})`,
+      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${capped(tally.skippedUnreadable).join("; ")}`})`,
     };
   }
   const path = statePath(library);
@@ -198,24 +229,32 @@ async function expire(
     // An unreadable record is listed as such by the videos tool; its takes
     // are left alone rather than judged without it.
     if ("unreadable" in video) continue;
-    // A file that will not read leaves its video or version alone and is
+    // A file that will not read leaves its flow or video alone and is
     // said, rather than failing every pass at the same place (DEM-127).
+    const notJudged = (error: unknown) =>
+      tally.skippedUnreadable.push(
+        `flow ${video.id}: ${messageOf(error)}, so none of its old videos were judged`,
+      );
     let versions: Version[];
-    let kept: Set<string>;
     try {
       versions = await store.versions(video.id);
+    } catch (error) {
+      notJudged(error);
+      continue;
+    }
+    // A flow with nothing old to expire is not judged, so a file of it that
+    // will not read costs expiry nothing and is no skip (review of DEM-127).
+    if (!versions.some((v) => v.expired === null && isOld(v, now))) continue;
+    let kept: Set<string>;
+    try {
       kept = await keptOf(versions, library);
     } catch (error) {
-      tally.skippedUnreadable.push(
-        `flow ${video.id}: ${messageOf(error)}, so none of its videos were judged`,
-      );
+      notJudged(error);
       continue;
     }
     for (const v of versions) {
       if (v.expired !== null || kept.has(v.takeId)) continue;
-      // NaN (an unreadable date) is never old.
-      if (!(now.getTime() - Date.parse(v.createdAt) > EXPIRE_AFTER_MS))
-        continue;
+      if (!isOld(v, now)) continue;
       const dir = library.takeDir(v.takeId);
       let leases: Awaited<ReturnType<typeof readLeases>>;
       try {

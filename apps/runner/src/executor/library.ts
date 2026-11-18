@@ -118,6 +118,10 @@ const sha256 = (text: string): string =>
 
 const LOCK_WAIT_MS = 2000;
 
+/** Beside a take's scene.json: what reading an older one said, kept by the
+ *  save that replaced it. */
+export const MIGRATION_NOTES_FILE = "migration-notes.json";
+
 const isMissing = (error: unknown): boolean =>
   (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 
@@ -245,7 +249,9 @@ export function createLibrary(
       );
     }
     let doc: SceneDocument;
-    const notes: string[] = [];
+    // Notes a save kept from an older read come first: the document on disk
+    // no longer says them (`keepMigrationNotes`).
+    const notes = await savedNotes(id);
     try {
       doc = migrateToCurrent(JSON.parse(text), notes);
     } catch (error) {
@@ -270,6 +276,55 @@ export function createLibrary(
       );
     }
     return { doc, revision: sha256(text), notes };
+  }
+
+  const notesPath = (id: string) => join(takeDir(id), MIGRATION_NOTES_FILE);
+
+  /** The notes a save kept, none when it kept none. A file that will not
+   *  read is said as a note of its own rather than read as none. */
+  async function savedNotes(id: string): Promise<string[]> {
+    const path = notesPath(id);
+    try {
+      const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+      if (Array.isArray(parsed) && parsed.every((n) => typeof n === "string"))
+        return parsed;
+      return [
+        `${path} is not a list of notes, so what an older Demoman said about this video is lost`,
+      ];
+    } catch (error) {
+      if (isMissing(error)) return [];
+      return [
+        `${path} would not read (${messageOf(error)}), so what an older Demoman said about this video is lost`,
+      ];
+    }
+  }
+
+  /**
+   * Before a write replaces `scene.json`, keeps what reading the one on disk
+   * said (DEM-115 review): a pre-0.7.3 mask's note is true of the take until
+   * the author moves it, but a save writes the current schema, so no later
+   * read migrates and says it. Kept in `migration-notes.json`, which every
+   * read returns first. A scene that will not read has nothing to keep.
+   */
+  async function keepMigrationNotes(id: string): Promise<void> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await readFile(join(takeDir(id), "scene.json"), "utf8"));
+    } catch {
+      // Absent or unreadable: this write replaces it, and no read of it can
+      // have said anything the author was shown.
+      return;
+    }
+    const notes: string[] = [];
+    try {
+      migrateToCurrent(raw, notes);
+    } catch {
+      return;
+    }
+    const saved = await savedNotes(id);
+    const fresh = notes.filter((n) => !saved.includes(n));
+    if (fresh.length === 0) return;
+    await write(notesPath(id), JSON.stringify([...saved, ...fresh]));
   }
 
   async function readTake(id: string): Promise<SceneDocument | null> {
@@ -309,6 +364,7 @@ export function createLibrary(
     frameStore: (id) => createFileFrameStore(join(takeDir(id), "frames")),
     async putScene(doc) {
       guard(doc.meta.id, "libraryUnwritable");
+      await keepMigrationNotes(doc.meta.id);
       await write(
         join(takeDir(doc.meta.id), "scene.json"),
         JSON.stringify(doc),
@@ -345,6 +401,7 @@ export function createLibrary(
       // the studio is the only scene writer for an existing take and it
       // serialises saves per take, so no second writer races this gap.
       const text = JSON.stringify(doc);
+      await keepMigrationNotes(doc.meta.id);
       await write(path, text);
       return { ok: true, revision: sha256(text) };
     },

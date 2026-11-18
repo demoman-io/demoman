@@ -249,16 +249,17 @@ export function parseKept(text: string, file: string): Parsed {
 
 /** The longest slug, in UTF-8 bytes (DEM-132): its receipt's `.screens`
  *  folder, written through a `.<uuid>.tmp` beside it, is 49 bytes more, and
- *  255 is the file system's limit. Every slug that ever fully wrote is at
- *  most this, so no kept file is renamed by the cut. */
+ *  255 is the file system's limit. A "files" recipe has no receipt, so one
+ *  of up to 209 bytes did write: an add finds it under its uncut name and
+ *  moves it (keep.ts). */
 const MAX_SLUG_BYTES = 206;
 
 /** A file's name from the flow's, its words as written: "Filter invoices"
  *  is filter-invoices. The video, the recipe and its receipt all use it. */
-export const videoSlug = (name: string): string =>
+export const videoSlug = (name: string, maxBytes = MAX_SLUG_BYTES): string =>
   cutToBytes(
     name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-"),
-    MAX_SLUG_BYTES,
+    maxBytes,
   ).replace(/^-+|-+$/g, "") || "video";
 
 /** The recipe's file name, and its receipt's. Until DEM-68 it dropped stop
