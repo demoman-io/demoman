@@ -348,6 +348,108 @@ describe("every answer", () => {
     }
   });
 
+  it("a body past the cap answers 413 before it is read whole, whatever the handler made of it", async () => {
+    await studio.close();
+    const seen: string[] = [];
+    studio = await createStudioServer({
+      bodyMaxBytes: 1024,
+      handlers: {
+        ...handlers,
+        // Swallows the refused read and claims success: the server's 413
+        // must win over it.
+        assetPut: async (req) => {
+          try {
+            seen.push(`read ${(await req.body()).byteLength}`);
+          } catch (e) {
+            seen.push(`refused: ${(e as Error).message}`);
+          }
+          return { status: 200, json: { ref: "assets/x.webp" } };
+        },
+      },
+      pages: { async serve() {} },
+    });
+    // 4 KB written and the upload never ended: an answer can only arrive if
+    // the server refused before the body was whole.
+    const r = await new Promise<{ status: number; text: string }>(
+      (resolve, reject) => {
+        const req = request(
+          {
+            host: "127.0.0.1",
+            port: studio.port,
+            path: "/api/assets",
+            method: "POST",
+            headers: {
+              Host: `127.0.0.1:${studio.port}`,
+              ...good(),
+              "Content-Type": "image/webp",
+            },
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () =>
+              resolve({
+                status: res.statusCode ?? 0,
+                text: Buffer.concat(chunks).toString("utf8"),
+              }),
+            );
+          },
+        );
+        req.on("error", reject);
+        req.write(Buffer.alloc(4096));
+        setTimeout(
+          () =>
+            resolve({
+              status: 0,
+              text: "no answer in 2 s while the upload stayed open: the server is waiting for the whole body",
+            }),
+          2_000,
+        ).unref();
+      },
+    );
+    expect(r.status, r.text).toBe(413);
+    expect(JSON.parse(r.text)).toEqual({
+      reason: "bodyTooLarge",
+      detail: `The request carried more than the Studio accepts (${1024 / 1024 / 1024} MB).`,
+    });
+    expect(seen).toEqual(["refused: the request body is past 1024 bytes"]);
+  });
+
+  it("a body at the cap is read whole", async () => {
+    await studio.close();
+    const seen: number[] = [];
+    studio = await createStudioServer({
+      bodyMaxBytes: 1024,
+      handlers: {
+        ...handlers,
+        assetPut: async (req) => {
+          seen.push((await req.body()).byteLength);
+          return { status: 200, json: {} };
+        },
+      },
+      pages: { async serve() {} },
+    });
+    const r = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: studio.port,
+          path: "/api/assets",
+          method: "POST",
+          headers: { Host: `127.0.0.1:${studio.port}`, ...good() },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode ?? 0));
+        },
+      );
+      req.on("error", reject);
+      req.end(Buffer.alloc(1024));
+    });
+    expect(r).toBe(200);
+    expect(seen).toEqual([1024]);
+  });
+
   it("the page server is handed the parsed pathname, and no theme", async () => {
     await studio.close();
     const seen: unknown[] = [];
