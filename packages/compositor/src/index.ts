@@ -47,6 +47,7 @@ export {
   FOLLOW_STEP_MS,
   type FollowStretch,
   frameTrack,
+  legalFor,
   sampleTrack,
   solveFollow,
 } from "./plan/camera-follow.js";
@@ -156,6 +157,7 @@ export { cssRectToOutput, cssToOutput, renderFrame } from "./render/compose.js";
 export {
   type Composition,
   composeForTarget,
+  followInReach,
 } from "./render/compose-for-target.js";
 export {
   cursorPressScale,

@@ -1,7 +1,8 @@
 import { BRANDING_DEFAULTS, type SceneDocument } from "@demoman/scene-schema";
 import type { FrameBundle } from "../bundle.js";
-import type { Rect, Vec } from "../geometry.js";
-import { frameCamera } from "../plan/camera.js";
+import type { Rect } from "../geometry.js";
+import type { CameraKey } from "../plan/camera.js";
+import { type FollowStretch, legalFor } from "../plan/camera-follow.js";
 import {
   type ResolvedPlan,
   resolveCameraFollow,
@@ -58,6 +59,37 @@ function coverWindow(
   if (target.fit !== "cover") return null;
   const k = contentScale(frameRect, viewport);
   return { width: frameRect.width / k, height: frameRect.height / k };
+}
+
+/**
+ * The pointer-follow for `keys`, solved with the canvas clamp the frame is
+ * drawn with (`legalFor`), so it aims where the camera can stand (DEM-211).
+ * `composeForTarget` and the film check (`filmForRun`) both read it: the
+ * camera they measure is the camera that is drawn.
+ */
+export function followInReach(
+  resolved: ResolvedPlan,
+  bundle: FrameBundle,
+  keys: CameraKey[],
+  frameRect: Rect,
+  viewport: { width: number; height: number },
+  canvas: { width: number; height: number },
+): FollowStretch[] {
+  return resolveCameraFollow({
+    keys,
+    plan: resolved.plan,
+    bundle,
+    timeline: resolved.timeline,
+    cursor: resolved.cursor,
+    motion: resolved.motion,
+    drawsPointer: !resolved.touch && !resolved.cursorLook.hidden,
+    legal: legalFor(
+      contentScale(frameRect, viewport),
+      frameRect,
+      viewport,
+      canvas,
+    ),
+  });
 }
 
 /**
@@ -144,24 +176,14 @@ export function composeForTarget(args: {
     resolved: {
       ...resolved,
       cameraKeys: detail.keys,
-      cameraFollow: resolveCameraFollow({
-        keys: detail.keys,
-        plan: resolved.plan,
+      cameraFollow: followInReach(
+        resolved,
         bundle,
-        timeline: resolved.timeline,
-        cursor: resolved.cursor,
-        motion: resolved.motion,
-        drawsPointer: !resolved.touch && !resolved.cursorLook.hidden,
-        // The clamp `sceneCameraAt` draws with: the follow aims in reach.
-        legal: (center: Vec, scale: number) =>
-          frameCamera(
-            { center, scale },
-            contentScale(presentation.frameRect, resolved.plan.viewport),
-            presentation.frameRect,
-            resolved.plan.viewport,
-            target,
-          ).center,
-      }),
+        detail.keys,
+        presentation.frameRect,
+        resolved.plan.viewport,
+        target,
+      ),
     },
     presentation,
     violations: detail.violations,
