@@ -74,6 +74,18 @@ const LATE_MS = 700;
 const LATE = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
 <button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>`;
 
+/** A same-origin frame its server answers after `FRAME_MS`, past a step's
+ *  request cap, inserted by a click: the page itself is done at once. */
+const FRAME_MS = 8000;
+const FRAMED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
+<button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>
+<script>document.getElementById("ask").addEventListener("click", () => {
+  const f = document.createElement("iframe");
+  f.src = "/slowframe";
+  f.style.cssText = "position:absolute;left:40px;top:120px;width:300px;height:100px";
+  document.body.append(f);
+});</script>`;
+
 let home: string;
 let server: Server;
 let url: string;
@@ -109,6 +121,19 @@ beforeAll(async () => {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(LATE);
       }, LATE_MS);
+      return;
+    }
+    if (path === "/slowframe") {
+      const timer = setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<p>framed</p>");
+      }, FRAME_MS);
+      req.on("close", () => clearTimeout(timer));
+      return;
+    }
+    if (path === "/framed") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(FRAMED);
       return;
     }
     if (path === "/poll") {
@@ -376,5 +401,28 @@ describe("a held recording that waits on its server", () => {
       (late?.endMs ?? 0) - (late?.startMs ?? 0),
       JSON.stringify(spans),
     ).toBeGreaterThanOrEqual(LATE_MS - 200);
+  }, 120_000);
+
+  // DEM-203: an iframe's document was counted as the page loading, so a
+  // step that added a slow widget held its settle on the widget's server.
+  // Red if the step's screen waits on the frame, or the run says it did.
+  it("a slow iframe does not hold a step's settle", async () => {
+    const r = await record(home, `${url}/framed`, [
+      { do: "click", on: { stableId: "ask" }, zoom: false },
+    ]);
+    const spans = r.bundle.networkSpans ?? [];
+    const unsettled = r.bundle.degradations
+      .filter((d) => d.kind === "stepUnsettled")
+      .map((d) => d.note);
+    const click = r.bundle.markers[0]?.sourceTimeMs ?? Number.NaN;
+    const screen = r.bundle.pageScreens?.at(-1)?.sourceTimeMs ?? Number.NaN;
+    const said = JSON.stringify({ spans, unsettled, click, screen });
+    expect(unsettled, said).toEqual([]);
+    expect(
+      spans.filter((n) => n.label.includes("/slowframe")),
+      said,
+    ).toEqual([]);
+    // The step's screen is taken long before the frame answers.
+    expect(screen - click, said).toBeLessThan(FRAME_MS / 2);
   }, 120_000);
 });
