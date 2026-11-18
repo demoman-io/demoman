@@ -114,7 +114,8 @@ export const PIN_ANIMATIONS = `(v, server) => {
     }
   }
   const stalls = (window.__demomanVideoStalls ??= new WeakMap());
-  for (const m of document.querySelectorAll("video")) {
+  const query = window.__demomanQuery ?? ((s) => document.querySelectorAll(s));
+  for (const m of query("video")) {
     if (m.paused || m.ended) continue;
     if (!window.__demomanVideoSaid) {
       window.__demomanVideoSaid = true;
@@ -173,6 +174,10 @@ export const HELD_FRAMES_SCRIPT = `(() => {
     try { if (!window.parent.__demomanFlushFrames) return; } catch (e) { return; }
   }
   const request = window.requestAnimationFrame.bind(window);
+  // Read before the page's own scripts run: a page that replaces it (DEM-210's
+  // hostile page) would otherwise stop the pin on every frame.
+  const all = document.querySelectorAll;
+  const query = (s) => all.call(document, s);
   const FRAME = 1000 / 30;
   const queue = new Map();
   const said = new Set();
@@ -236,7 +241,7 @@ export const HELD_FRAMES_SCRIPT = `(() => {
       const w = window.frames[i];
       let run;
       try { run = w.__demomanFlushFrames; } catch (e) {
-        const el = [...document.querySelectorAll("iframe, frame")].find((f) => f.contentWindow === w);
+        const el = [...query("iframe, frame")].find((f) => f.contentWindow === w);
         const what = (el ? named(el) : "a frame from another origin") + " runs its animations on its own clock: they were not held";
         if (!said.has(what)) { said.add(what); out.push(what); }
         continue;
@@ -247,6 +252,7 @@ export const HELD_FRAMES_SCRIPT = `(() => {
   };
   Object.defineProperty(window, "__demomanRaf", { value: request });
   Object.defineProperty(window, "__demomanFlushFrames", { value: flush });
+  Object.defineProperty(window, "__demomanQuery", { value: query });
 })()`;
 
 export interface HeldFrame {

@@ -1249,6 +1249,35 @@ describe("PIN_ANIMATIONS", () => {
       () => ({ animationName: "", animationPlayState: "running" }),
     ) as (heldMs: number) => string[];
 
+  // DEM-210: a page that replaced querySelectorAll stopped every held run
+  // ("could not pin the page's animations ... hostile page").
+  it("finds the page's videos with the querySelectorAll the page started with", () => {
+    const video = { paused: false, ended: false, currentTime: 0 };
+    const document = {
+      getAnimations: () => [],
+      querySelectorAll: (s: string) => (s === "video" ? [video] : []),
+    };
+    const window: Record<string, unknown> = {
+      requestAnimationFrame: () => 0,
+      cancelAnimationFrame: () => undefined,
+      frames: [],
+    };
+    window.parent = window;
+    new Function("window", "document", HELD_FRAMES_SCRIPT)(window, document);
+    document.querySelectorAll = () => {
+      throw new Error("hostile page");
+    };
+    const pin = new Function(
+      "document",
+      "DocumentTimeline",
+      "window",
+      `return (${PIN_ANIMATIONS})`,
+    )(document, DocumentTimeline, window) as (heldMs: number) => string[];
+    expect(pin(40)).toEqual([
+      "a playing video runs on its own clock: it was not held",
+    ]);
+  });
+
   // R4: one page call a frame, the page's animation frames before the pin.
   it("runs the page's animation frames before it pins", () => {
     const order: string[] = [];
