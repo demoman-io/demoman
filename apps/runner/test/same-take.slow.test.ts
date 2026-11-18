@@ -91,7 +91,11 @@ let url: string;
 let server: ReturnType<typeof createServer>;
 let home: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a held recording gives a slowed machine the same timing, and plays its beats rather than planning them; this file is about the renderer evening out a slowed real-time take. held-two-machines.slow covers the held side. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(PAGE);
@@ -101,6 +105,8 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => {
   server.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await rm(home, { recursive: true, force: true });
 });
 

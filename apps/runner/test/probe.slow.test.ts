@@ -203,8 +203,8 @@ describe("probeOp", () => {
       script([openFilters, { do: "click", on: listed?.target }]),
     );
     expect(report.outcome, JSON.stringify({ report, lines })).toBe("complete");
-    const page = await stagePage("");
-    expect(await page.locator("#shown").textContent()).toBe("Showing Live");
+    // Read from the report: a held run blanks its page once it is done.
+    expect(JSON.stringify(report.endPage)).toContain("Showing Live");
   }, 240_000);
 
   it("says which step stopped, with the run's reason, and lists the page where it stopped", async () => {

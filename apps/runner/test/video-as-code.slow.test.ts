@@ -65,7 +65,11 @@ let app: { url: string; close(): void };
 let home: string;
 let executor: LocalExecutor;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a test executor holds at 1x, which leaves a click no room to zoom, and this file reads the zoom's crop. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-video-as-code-"));
   executor = createLocalExecutor({
@@ -81,6 +85,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await executor?.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   app?.close();
   if (home) await rm(home, { recursive: true, force: true });
 });

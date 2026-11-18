@@ -769,6 +769,14 @@ describe("an agent take that ends on a click", () => {
   // A run of one click and a default export, through the CLI executor as an
   // agent's take is made. Measured locally at ~20 s; x5 for CI.
   it("the last 200 ms of an agent take that ends on a click are still", async () => {
+    // Real time (`DEMOMAN_HELD_CLOCK=0`): a test executor holds at 1x, which
+    // leaves the click no room to zoom, and the positive control is that zoom.
+    const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+    process.env.DEMOMAN_HELD_CLOCK = "0";
+    onTestFinished(() => {
+      if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+      else process.env.DEMOMAN_HELD_CLOCK = heldWas;
+    });
     const server = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(ENDING_APP);

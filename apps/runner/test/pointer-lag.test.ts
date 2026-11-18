@@ -63,7 +63,13 @@ let url: string;
 let server: ReturnType<typeof createServer>;
 let home: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a held clock keeps the machine's lag
+ *  out of page time, which is this file's premise; held, each 400 ms answer
+ *  is paid per frame, and ubuntu-latest ran past 240 s (DEM-210). */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(PAGE);
@@ -73,6 +79,8 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => {
   server.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await rm(home, { recursive: true, force: true });
 });
 
