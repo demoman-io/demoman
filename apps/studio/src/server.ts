@@ -5,7 +5,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { listenOnLoopback } from "@demoman/runner/studio";
+import { type Library, listenOnLoopback } from "@demoman/runner/studio";
 import {
   matchRoute,
   type Refusal,
@@ -14,6 +14,7 @@ import {
   type StudioReason,
 } from "@demoman/studio-protocol";
 import { EXPIRED_CSP, EXPIRED_HTML } from "./expired-page.js";
+import { messageOf, noTakeRefusal } from "./files.js";
 import {
   checkRequest,
   createTicketBook,
@@ -41,6 +42,26 @@ export type StudioResponse =
       headers?: Record<string, string>;
     }
   | { stream: (res: ServerResponse) => void };
+
+export const json = (status: number, body: unknown): StudioResponse => ({
+  status,
+  json: body,
+});
+
+export const refuse = (
+  status: number,
+  reason: StudioReason,
+  detail: string,
+): { status: number; json: Refusal } => {
+  const body: Refusal = { reason, detail };
+  return { status, json: body };
+};
+
+export const noTake = (library: Library, id: string): StudioResponse =>
+  json(404, noTakeRefusal(library, id));
+
+export const noVideo = (id: string): StudioResponse =>
+  refuse(404, "videoNotFound", `There is no flow "${id}".`);
 
 export type Handler = (req: StudioRequest) => Promise<StudioResponse>;
 /** Mapped, so a route without a handler is a compile error. */
@@ -86,7 +107,7 @@ function send(
   res.end(body);
 }
 
-function refuse(
+function sendRefusal(
   res: ServerResponse,
   status: number,
   reason: StudioReason,
@@ -127,7 +148,7 @@ export async function createStudioServer(o: {
     const api = url.pathname.startsWith("/api/");
     const denied = checkRequest(req, { port, token, tickets, api });
     if (denied) {
-      refuse(res, 403, denied, REASON_DETAIL[denied], api);
+      sendRefusal(res, 403, denied, REASON_DETAIL[denied], api);
       return;
     }
     if (entryTicket(req) !== null) {
@@ -163,7 +184,7 @@ export async function createStudioServer(o: {
     }
     const m = matchRoute(req.method ?? "GET", url.pathname);
     if (!m) {
-      refuse(res, 404, "routeNotFound", REASON_DETAIL.routeNotFound, true);
+      sendRefusal(res, 404, "routeNotFound", REASON_DETAIL.routeNotFound, true);
       return;
     }
     const answer = await o.handlers[m.id]({
@@ -196,7 +217,7 @@ export async function createStudioServer(o: {
     handle(req, res).catch((e) => {
       // A handler or page server threw: say so to the caller and the log
       // (the serve process's stderr is studio.log).
-      const detail = e instanceof Error ? e.message : String(e);
+      const detail = messageOf(e);
       console.error(`studio: ${req.method} ${req.url} failed: ${detail}`);
       if (res.headersSent) {
         // Too late for a status: cut the response short, so the page sees a

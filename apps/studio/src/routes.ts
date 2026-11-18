@@ -44,27 +44,27 @@ import {
   type PingAnswer,
   type PullRequestsAnswer,
   type PullRequestsChoice,
-  type Refusal,
   type RepoFoldersAnswer,
   type SceneAnswer,
   type ScenePutAnswer,
-  type StudioReason,
   type TakesAnswer,
   type UnreadableTake,
   type VideoSummary as VideoListing,
 } from "@demoman/studio-protocol";
 import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
-import {
-  createChains,
-  messageOf,
-  noTakeRefusal,
-  readIfPresent,
-  takeExists,
-} from "./files.js";
+import { createChains, messageOf, readIfPresent, takeExists } from "./files.js";
 import { createKitsFile } from "./kits.js";
 import type { CiRoute } from "./repo-ci.js";
-import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
+import {
+  type Handler,
+  json,
+  noTake,
+  noVideo,
+  refuse,
+  type StudioHandlers,
+  type StudioResponse,
+} from "./server.js";
 import { readLibraryView, writeSetting } from "./settings.js";
 import { folderBytes } from "./sizes.js";
 import type { createThumbs } from "./thumbs.js";
@@ -99,19 +99,6 @@ const noteOf = (parts: string[]): string | null =>
 
 /** Keyframes and spans are content-addressed by ref and never rewritten. */
 export const FRAME_CACHE = "private, max-age=31536000, immutable";
-
-const json = (status: number, body: unknown): StudioResponse => ({
-  status,
-  json: body,
-});
-const refuse = (
-  status: number,
-  reason: StudioReason,
-  detail: string,
-): StudioResponse => {
-  const body: Refusal = { reason, detail };
-  return { status, json: body };
-};
 
 /** The most folders `repoFolders` answers. */
 const FOLDERS_MAX = 500;
@@ -484,9 +471,6 @@ export function createRoutes(o: {
     return { videos: listed, videoOf, addable };
   }
 
-  const noTake = (id: string): StudioResponse =>
-    json(404, noTakeRefusal(library, id));
-
   async function bodyJson(
     req: Parameters<Handler>[0],
   ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> {
@@ -517,9 +501,6 @@ export function createRoutes(o: {
         throw error;
       }
     };
-
-  const noVideo = (id: string): StudioResponse =>
-    refuse(404, "videoNotFound", `There is no flow "${id}".`);
 
   /** A delete refused over an export lease, by the first live holder's door. */
   const busy = (
@@ -608,9 +589,9 @@ export function createRoutes(o: {
 
     async sceneGet(req) {
       const id = req.params.id as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       const read = await library.getSceneRead(id);
-      if (read === null) return noTake(id);
+      if (read === null) return noTake(library, id);
       let videoId: string | null = null;
       let videoError: string | null = null;
       try {
@@ -625,7 +606,7 @@ export function createRoutes(o: {
 
     async scenePut(req) {
       const id = req.params.id as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       const ifMatch = ifMatchOf(req);
       if (ifMatch === null) {
         return refuse(
@@ -666,14 +647,14 @@ export function createRoutes(o: {
           return json(200, answer);
         }
         // No scene.json at all: the take was deleted, not edited.
-        if (put.current === null) return noTake(id);
+        if (put.current === null) return noTake(library, id);
         return refuse(409, "changedElsewhere", CHANGED_ELSEWHERE);
       });
     },
 
     async takeDelete(req) {
       const id = req.params.id as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       // On the same chain as the scene's saves: a save queued behind the
       // delete then finds no scene.json and answers takeNotFound. Off it, a
       // save between its hash check and its rename re-creates
@@ -691,7 +672,7 @@ export function createRoutes(o: {
         return onVideoChain(async () => {
           const done = await library.deleteTake(id);
           if (!done.ok) {
-            if ("missing" in done) return noTake(id);
+            if ("missing" in done) return noTake(library, id);
             return busy(done.holders);
           }
           const parts = noteParts(done);
@@ -879,7 +860,7 @@ export function createRoutes(o: {
       const id = req.params.id as string;
       // An unknown take is not a take without frames: answered as itself,
       // never as `bundle: null` ("no frames yet").
-      if (!(await takeExists(library, id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(library, id);
       let bundle: BundleAnswer["bundle"];
       try {
         bundle = await library.frameStore(id).getBundle(id);
@@ -931,7 +912,7 @@ export function createRoutes(o: {
     async frame(req) {
       const id = req.params.id as string;
       const ref = req.params.ref as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       const store = library.frameStore(id);
       // Only a ref the take's own store lists: never a path built from
       // what the request said.
@@ -953,7 +934,7 @@ export function createRoutes(o: {
 
     async outputs(req) {
       const id = req.params.id as string;
-      if (!(await takeExists(library, id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(library, id);
       const answer: OutputsAnswer = { outputs: await library.outputs(id) };
       return json(200, answer);
     },
