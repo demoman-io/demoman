@@ -23,6 +23,10 @@ export type ExpiryResult =
       expired: number;
       freedBytes: number;
       skippedLeased: number;
+      /** One sentence per video or version left alone because a file it
+       *  is judged by would not read (DEM-127); empty when none. Absent from
+       *  a state file saved before 0.9.7. */
+      skippedUnreadable?: string[];
     }
   | { ranAt: string; failed: string };
 
@@ -134,7 +138,12 @@ export async function expireOld(
     // A state file that will not read only costs the throttle: this run
     // writes a fresh one, and until then `status` says it is unreadable.
   }
-  const tally = { expired: 0, freedBytes: 0, skippedLeased: 0 };
+  const tally: Tally = {
+    expired: 0,
+    freedBytes: 0,
+    skippedLeased: 0,
+    skippedUnreadable: [],
+  };
   let result: ExpiryResult;
   try {
     const held = await expire(store, library, now, tally);
@@ -144,7 +153,7 @@ export async function expireOld(
     // What was marked before the failure is said too: those versions are gone.
     result = {
       ranAt,
-      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes)`,
+      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${tally.skippedUnreadable.join("; ")}`})`,
     };
   }
   const path = statePath(library);
@@ -166,7 +175,12 @@ export async function expireOld(
   return result;
 }
 
-type Tally = { expired: number; freedBytes: number; skippedLeased: number };
+type Tally = {
+  expired: number;
+  freedBytes: number;
+  skippedLeased: number;
+  skippedUnreadable: string[];
+};
 
 /** Take by take, as before: judged, marked, then its files removed. Only the
  *  mark holds the videos lock, so a merge cannot land between its read and
@@ -184,15 +198,34 @@ async function expire(
     // An unreadable record is listed as such by the videos tool; its takes
     // are left alone rather than judged without it.
     if ("unreadable" in video) continue;
-    const versions = await store.versions(video.id);
-    const kept = await keptOf(versions, library);
+    // A file that will not read leaves its video or version alone and is
+    // said, rather than failing every pass at the same place (DEM-127).
+    let versions: Version[];
+    let kept: Set<string>;
+    try {
+      versions = await store.versions(video.id);
+      kept = await keptOf(versions, library);
+    } catch (error) {
+      tally.skippedUnreadable.push(
+        `flow ${video.id}: ${messageOf(error)}, so none of its videos were judged`,
+      );
+      continue;
+    }
     for (const v of versions) {
       if (v.expired !== null || kept.has(v.takeId)) continue;
       // NaN (an unreadable date) is never old.
       if (!(now.getTime() - Date.parse(v.createdAt) > EXPIRE_AFTER_MS))
         continue;
       const dir = library.takeDir(v.takeId);
-      const leases = await readLeases(join(dir, ".busy"));
+      let leases: Awaited<ReturnType<typeof readLeases>>;
+      try {
+        leases = await readLeases(join(dir, ".busy"));
+      } catch (error) {
+        tally.skippedUnreadable.push(
+          `video ${v.takeId}: ${messageOf(error)}, so it was kept`,
+        );
+        continue;
+      }
       if (leases.some((l) => pidAlive(l.holder.pid))) {
         tally.skippedLeased++;
         continue;
@@ -200,12 +233,20 @@ async function expire(
       // shortcut: a lease taken between this check and the rm is not seen; one process, fine; lock when two servers share a library.
       const paths = [join(dir, "frames"), join(dir, "thumbs")];
       let bytes = 0;
+      let unmeasured: string | null = null;
       for (const path of paths) {
         try {
           bytes += await sizeOf(path);
         } catch (error) {
-          throw new Error(`could not measure ${path} (${messageOf(error)})`);
+          unmeasured = `could not measure ${path} (${messageOf(error)})`;
+          break;
         }
+      }
+      if (unmeasured !== null) {
+        tally.skippedUnreadable.push(
+          `video ${v.takeId}: ${unmeasured}, so it was kept`,
+        );
+        continue;
       }
       // Marked before anything goes: a removal that stops part-way leaves a
       // take that says it expired, never files gone with no record. A mark

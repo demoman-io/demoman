@@ -199,6 +199,18 @@ describe("the kept file", () => {
     expect(keptFileName("Filter invoices")).toBe("filter-invoices.json");
     expect(keptFileName("Search — results!")).toBe("search-results.json");
     expect(keptFileName("!!!")).toBe("video.json");
+    // DEM-132: any name is a file. Red: no cut — 260 ASCII characters and
+    // 100 CJK characters (300 bytes) both pass 255.
+    expect(keptFileName("a".repeat(260))).toBe(`${"a".repeat(206)}.json`);
+    const cjk = keptFileName("請".repeat(100));
+    expect(cjk).toBe(`${"請".repeat(68)}.json`);
+    // The longest name written: the screens folder's temp beside it.
+    const screens = `${cjk.replace(/\.json$/, "")}.screens`;
+    expect(Buffer.byteLength(`${screens}.${crypto.randomUUID()}.tmp`)).toBe(
+      253,
+    );
+    // A slug that wrote before the cut keeps its name: 206 bytes is not cut.
+    expect(keptFileName("b".repeat(206))).toBe(`${"b".repeat(206)}.json`);
   });
 
   // Its screens are a picture refresh no longer compares: a v1 file is

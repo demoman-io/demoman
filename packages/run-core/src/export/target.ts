@@ -291,6 +291,23 @@ export const GIF_BUDGET_BYTES = 10_000_000;
  *  (vertical)/", an action id and a de-duplicating " (1)". */
 const MAX_BASE = 120;
 
+/** And in UTF-8 bytes, since 120 CJK characters are 360 (DEM-132): 200
+ *  leaves 55 of the 255 for those suffixes. */
+const MAX_NAME_BYTES = 200;
+
+/** `text` cut to at most `maxBytes` of UTF-8, between code points. */
+export function cutToBytes(text: string, maxBytes: number): string {
+  let bytes = 0;
+  let out = "";
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) as number;
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    if (bytes > maxBytes) break;
+    out += ch;
+  }
+  return out;
+}
+
 /** Names Windows reserves for devices, refused on every platform so a file
  *  saved anywhere opens on Windows — as the whole name before the
  *  extension, in any case. */
@@ -307,8 +324,8 @@ const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
  * characters, and a Windows device name. Punctuation and `~` become `-`,
  * format and control characters go, leading and trailing dots and spaces go
  * (Windows drops them silently, and a leading dot hides the file on macOS),
- * and a device name gains a `-`. Cut by character, never inside one: a
- * lone surrogate is not a name either.
+ * and a device name gains a `-`. Cut to 120 characters and 200 UTF-8
+ * bytes, never inside a character: a lone surrogate is not a name either.
  */
 export function exportBaseName(label: string): string {
   const trim = (text: string) => text.replace(/^[\s.]+|[\s.]+$/g, "");
@@ -321,7 +338,9 @@ export function exportBaseName(label: string): string {
       .replace(/[\\/:*?"<>|~]/g, "-")
       .replace(/ {2,}/g, " "),
   );
-  const cut = trim([...cleaned].slice(0, MAX_BASE).join(""));
+  const cut = trim(
+    cutToBytes([...cleaned].slice(0, MAX_BASE).join(""), MAX_NAME_BYTES),
+  );
   if (cut === "") return "demoman";
   return DEVICE_NAME.test(cut) ? `${cut}-` : cut;
 }

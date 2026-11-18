@@ -191,6 +191,7 @@ describe("expireOld", () => {
       expired: 2,
       freedBytes: a.bytes + dead.bytes,
       skippedLeased: 1,
+      skippedUnreadable: [],
     });
 
     for (const gone of [a, dead]) {
@@ -291,6 +292,7 @@ describe("expireOld", () => {
       expired: 0,
       freedBytes: 0,
       skippedLeased: 0,
+      skippedUnreadable: [],
     });
     expect(await exists(join(a.dir, "frames", "k0.jpg"))).toBe(true);
     expect((await store.versions(video))[0]?.expired).toBeNull();
@@ -335,6 +337,62 @@ describe("expireOld", () => {
     expect(await exists(join(tooNew.dir, "frames", "k0.jpg"))).toBe(true);
   });
 
+  it("works past a corrupt outputs.json, a corrupt lease and frames/ it cannot measure, keeps those, and says which (DEM-127)", async () => {
+    // Red: let keptOf's outputs read, readLeases or sizeOf throw — the pass
+    // fails at the first, and the later video never expires.
+    const outputs = await newVideo("Outputs");
+    const o = await take(outputs, "o-old", ago(40), { exportedAt: ago(35) });
+    await take(outputs, "o-new", ago(1), { exportedAt: ago(1) });
+    const good = await readFile(join(o.dir, "outputs.json"), "utf8");
+    await writeFile(join(o.dir, "outputs.json"), "{nope");
+    const leases = await newVideo("Leases");
+    const l = await take(leases, "l-old", ago(40), { leasePid: deadPid() });
+    await take(leases, "l-new", ago(1));
+    await writeFile(join(l.dir, ".busy", "broken.json"), "{nope");
+    const sealed = await newVideo("Sealed");
+    const m = await take(sealed, "m-old", ago(40));
+    await take(sealed, "m-new", ago(1));
+    const spans = join(m.dir, "frames", "spans");
+    await chmod(spans, 0o000);
+    const later = await newVideo("Later");
+    const ok = await take(later, "ok-old", ago(40));
+    await take(later, "ok-new", ago(1));
+    expect(await store.list()).toHaveLength(4);
+    try {
+      const result = await expireOld(store, lib, NOW);
+      expect(result).toMatchObject({ expired: 1, freedBytes: ok.bytes });
+      expect(await exists(join(ok.dir, "frames"))).toBe(false);
+      expect(await exists(join(o.dir, "frames", "k0.jpg"))).toBe(true);
+      expect(await exists(join(l.dir, "frames", "k0.jpg"))).toBe(true);
+      expect(await exists(join(m.dir, "frames", "k0.jpg"))).toBe(true);
+      const said =
+        ("skippedUnreadable" in result ? result.skippedUnreadable : []) ?? [];
+      expect(said, JSON.stringify(said)).toHaveLength(3);
+      expect(said.find((s) => s.startsWith(`flow ${outputs}:`))).toContain(
+        join(o.dir, "outputs.json"),
+      );
+      expect(said.find((s) => s.startsWith("video l-old:"))).toContain(
+        "broken.json",
+      );
+      expect(said.find((s) => s.startsWith("video m-old:"))).toContain(
+        `could not measure ${join(m.dir, "frames")}`,
+      );
+    } finally {
+      await chmod(spans, 0o700);
+    }
+    // Premise: each was left alone only for its file. Repaired, the next
+    // pass expires all three.
+    await writeFile(join(o.dir, "outputs.json"), good);
+    await rm(join(l.dir, ".busy", "broken.json"));
+    const later2 = new Date(NOW.getTime() + 2 * 3_600_000);
+    expect(await expireOld(store, lib, later2)).toMatchObject({
+      expired: 3,
+      skippedUnreadable: [],
+    });
+    for (const t of [o, l, m])
+      expect(await exists(join(t.dir, "frames")), t.dir).toBe(false);
+  });
+
   it("runs at most once an hour", async () => {
     const one = await newVideo("Checkout");
     await take(one, "scene-a", ago(40));
@@ -355,6 +413,9 @@ describe("expireOld", () => {
     const one = await newVideo("Checkout");
     const a = await take(one, "scene-a", ago(40));
     await take(one, "scene-b", ago(1));
+    // Left alone before the failure, and still said in it (review of DEM-127).
+    const z = await take(one, "scene-z", ago(45), { leasePid: deadPid() });
+    await writeFile(join(z.dir, ".busy", "broken.json"), "{nope");
     // A removal that fails part-way: frames/k0.jpg can go, frames/spans/s.mp4 cannot.
     const spans = join(a.dir, "frames", "spans");
     await chmod(spans, 0o500);
@@ -363,6 +424,9 @@ describe("expireOld", () => {
       expect(result).toMatchObject({ ranAt: NOW.toISOString() });
       expect("failed" in result && result.failed).toContain(
         join(a.dir, "frames"),
+      );
+      expect("failed" in result && result.failed).toContain(
+        "left alone: video scene-z",
       );
       expect(await expiryStatus(lib)).toEqual(result);
       expect((await store.videoOf("scene-a"))?.expired).toEqual({
@@ -532,6 +596,7 @@ describe("the executor", () => {
         expired: 1,
         freedBytes: a.bytes,
         skippedLeased: 0,
+        skippedUnreadable: [],
       });
       expect(await readdir(join(a.dir))).not.toContain("frames");
     } finally {

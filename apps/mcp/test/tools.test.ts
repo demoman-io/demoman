@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  agentOf,
   failure,
   JOBS_KEPT,
   type Outcome,
@@ -1186,6 +1187,28 @@ describe("demoman-mcp's tools", () => {
     expect(calls).toEqual([
       { op: "videos", args: { agent: { name: "cursor-vscode" } } },
     ]);
+  });
+
+  // DEM-144. Red: check the title with trim() — a lone zero-width space is
+  // sent, and agentOf refuses the whole agent, valid name and all.
+  it("leaves out a title with nothing visible, and keeps the name", async () => {
+    const title = "\u200B";
+    // Premise: the executor refuses the agent when that title is sent.
+    expect(title.trim()).not.toBe("");
+    expect(agentOf({ agent: { name: "claude-code", title } }).ok).toBe(false);
+    const { client, calls } = await connect(
+      { videos: async () => ({ ok: true, value: { videos: [] } }) },
+      200,
+      { name: "claude-code", title, version: "1.0.0" },
+    );
+    await client.callTool({ name: "flows", arguments: {} });
+    expect(calls).toEqual([
+      { op: "videos", args: { agent: { name: "claude-code" } } },
+    ]);
+    expect(agentOf(calls[0]?.args ?? {})).toEqual({
+      ok: true,
+      agent: { name: "claude-code" },
+    });
   });
 
   // The code (2026-10-04): what a person compares with Settings → Agents.

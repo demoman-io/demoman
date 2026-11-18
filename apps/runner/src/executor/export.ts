@@ -734,7 +734,8 @@ async function exportLeased(a: {
     // The take's own skips under the floor and the render's caps and
     // narrowings: an export whose zooms did not play as asked says which.
     zooms: zoomWarnings(scene, rendered.loweredZooms),
-    // What reading the take took away from it (schema 12: text overlays).
+    // What reading the take took away from it (schema 12: text overlays),
+    // or may have moved (schema 13: a mask drawn before 0.7.3).
     migration: notes,
     ...(edited === null ? {} : { editedSinceRecorded: edited }),
     targetCheck: targetCheckOf(read),
