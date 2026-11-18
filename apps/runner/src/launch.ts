@@ -4,6 +4,7 @@ import {
   type BrowserContext,
   type CDPSession,
   chromium,
+  type LaunchOptions,
   type Page,
 } from "playwright";
 import { HELD_FLAGS } from "./executor/held.js";
@@ -195,6 +196,32 @@ async function visibleUserAgentOr(
   }
 }
 
+/** Playwright's own rewrite of Chromium's "No usable sandbox!" and its kin
+ *  (`doRewriteStartupLog`), so one marker covers every such cause. */
+export const SANDBOX_FAILED = "Chromium sandboxing failed!";
+
+/**
+ * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
+ * asked not to, and nearly every page a run opens is a third party's
+ * (DEM-120). A machine that cannot sandbox (a container running as root, a
+ * Linux whose user namespaces are closed) still launches, without it, and
+ * says so.
+ */
+async function launchSandboxed(
+  options: LaunchOptions,
+  log: ((line: string) => void) | undefined,
+): Promise<Browser> {
+  try {
+    return await chromium.launch({ ...options, chromiumSandbox: true });
+  } catch (error) {
+    if (!String(error).includes(SANDBOX_FAILED)) throw error;
+    log?.(
+      "this machine cannot run Chromium's sandbox, so the browser runs without it: the pages it opens are not walled off from this machine",
+    );
+    return chromium.launch({ ...options, chromiumSandbox: false });
+  }
+}
+
 /**
  * Launches a real Chromium, wires up the two ports the replay engine cannot
  * get from Node itself (`CdpSession`, `Clock`), and hands both back next to
@@ -258,21 +285,24 @@ export async function launch(options?: {
 }): Promise<Launched> {
   const headless = options?.headless ?? true;
   const display = headless ? options?.display : undefined;
-  const browser = await chromium.launch({
-    headless,
-    ...(options?.executablePath === undefined
-      ? {}
-      : { executablePath: options.executablePath }),
-    args: [
-      ...(display !== undefined
-        ? displayArgs(display)
-        : headless && options?.scale !== undefined
-          ? [`--screen-info={devicePixelRatio=${options.scale}}`]
-          : []),
-      ...(headless ? HEADLESS_GPU_ARGS : []),
-      ...(headless && options?.held === true ? HELD_FLAGS : []),
-    ],
-  });
+  const browser = await launchSandboxed(
+    {
+      headless,
+      ...(options?.executablePath === undefined
+        ? {}
+        : { executablePath: options.executablePath }),
+      args: [
+        ...(display !== undefined
+          ? displayArgs(display)
+          : headless && options?.scale !== undefined
+            ? [`--screen-info={devicePixelRatio=${options.scale}}`]
+            : []),
+        ...(headless ? HEADLESS_GPU_ARGS : []),
+        ...(headless && options?.held === true ? HELD_FLAGS : []),
+      ],
+    },
+    options?.log,
+  );
   let pid: number | null = null;
   try {
     pid = await browserPid(browser);

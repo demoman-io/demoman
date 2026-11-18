@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { REPLAY_DPR } from "@demoman/replay-engine";
 import { type Browser, chromium } from "playwright";
 import { describe, expect, it } from "vitest";
@@ -117,6 +120,64 @@ describe("launch", () => {
       // Premise: the browser is up and answering.
       expect(launched.browser.isConnected()).toBe(true);
       expect(listeners()).toBe(before);
+    } finally {
+      await launched.close();
+    }
+  }, 30_000);
+
+  // DEM-120. Red: drop `chromiumSandbox: true` from `launchSandboxed`;
+  // Playwright then adds `--no-sandbox`. Strict on macOS, which always
+  // sandboxes; a Linux that cannot must say so, and only then go without.
+  it("runs Chromium with its sandbox, or says why it cannot", async () => {
+    const logs: string[] = [];
+    const launched = await launch({ log: (l) => logs.push(l) });
+    try {
+      // The process's own argv: Browser.getBrowserCommandLine answers only
+      // under --enable-automation, which Playwright does not pass.
+      const cdp = await launched.browser.newBrowserCDPSession();
+      const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
+      await cdp.detach();
+      const pid = processInfo.find((p) => p.type === "browser")?.id;
+      const argv = execFileSync(
+        "ps",
+        ["-ww", "-o", "args=", "-p", String(pid)],
+        {
+          encoding: "utf8",
+        },
+      ).split(" ");
+      const evidence = `${argv.join(" ")}\nlog: ${logs.join("\n")}`;
+      // Premise: this is the command line launch() built, not some other.
+      expect(argv, evidence).toContain("--headless");
+      const without = logs.some((l) =>
+        l.includes("cannot run Chromium's sandbox"),
+      );
+      if (process.platform === "darwin") expect(without, evidence).toBe(false);
+      expect(argv.includes("--no-sandbox"), evidence).toBe(without);
+    } finally {
+      await launched.close();
+    }
+  }, 30_000);
+
+  // Red: rethrow instead of relaunching, or relaunch without the log line.
+  it("launches without the sandbox on a machine that cannot run it, and says so", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-nosandbox-"));
+    const exe = join(dir, "chrome");
+    // Fails as Chromium does where user namespaces are closed, unless told
+    // --no-sandbox; then it is the real browser.
+    await writeFile(
+      exe,
+      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho "No usable sandbox! (stand-in)" >&2\nexit 1\n`,
+    );
+    await chmod(exe, 0o755);
+    const logs: string[] = [];
+    const launched = await launch({
+      executablePath: exe,
+      log: (l) => logs.push(l),
+    });
+    try {
+      // Premise: the relaunch reached a real browser.
+      expect(launched.browser.isConnected()).toBe(true);
+      expect(logs.join("\n")).toContain("cannot run Chromium's sandbox");
     } finally {
       await launched.close();
     }

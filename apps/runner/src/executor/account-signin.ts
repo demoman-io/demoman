@@ -410,6 +410,7 @@ export async function signInAccount(
         ...(deps.executablePath === undefined
           ? {}
           : { executablePath: deps.executablePath }),
+        log: deps.log,
       });
     } catch (error) {
       const c = classifyLaunchError(error, undefined, deps.installCommand);
