@@ -1025,15 +1025,7 @@ const actions: LibraryActions = {
       if (renaming.get(videoId) === run) renaming.delete(videoId);
     });
   },
-  restore: (): void => {
-    // Never reached: `rerunLine` always answers, and the view draws that
-    // line in place of the button. Said anyway, since a Restore that did
-    // nothing would look like a button that does not work.
-    console.error(
-      "demoman library: Restore was pressed on a platform whose route is a line",
-    );
-  },
-  rerunLine: (sceneId, authored) => platform.nav.rerun(sceneId, authored).text,
+  rerunLine: (sceneId, authored) => platform.nav.rerun(sceneId, authored),
   backToRecording: (sceneId: string): void => {
     void (async () => {
       let why: string | null = null;

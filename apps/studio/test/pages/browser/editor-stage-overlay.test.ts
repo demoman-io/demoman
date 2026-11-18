@@ -62,6 +62,7 @@ function mount() {
     null,
   );
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view: buildTimelineView({ scene, bundle, resolved }),
     bundle,

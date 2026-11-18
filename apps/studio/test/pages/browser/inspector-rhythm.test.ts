@@ -82,6 +82,7 @@ function mount(
   const resolved = resolvePlan(planScene(sc), bundle, sc);
   const view = buildTimelineView({ scene: sc, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene: sc,
     view,
     bundle,
@@ -136,7 +137,7 @@ function mount(
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: { kind: "line" as const, text: "re-film t1" },
+          rerun: "re-film t1",
         },
         currentDigest: "d-now",
         // Recent exports is collapsed at rest; opened here so the row

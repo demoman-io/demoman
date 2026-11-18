@@ -57,6 +57,7 @@ const model = {
   chromeNearLimit: false,
   migrating: false,
   migrationFailed: false,
+  emptyHint: "Ask your agent to record a flow.",
   notice: null,
   rows: [
     {
@@ -148,7 +149,7 @@ function mountRow(ports: PreviewPorts): {
     reclaim() {},
     setBudget() {},
     edit() {},
-    restore() {},
+    rerunLine: () => "re-film it",
     backToRecording() {},
     remove() {},
     preview: mounter.mount,

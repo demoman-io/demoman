@@ -50,7 +50,7 @@ describe("renderBundleBanner", () => {
       route: {
         takeId: "t1",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film t1" },
+        rerun: "re-film t1",
       },
     });
     expect(root.querySelector("[data-rerun-line]")?.textContent).toBe(
@@ -69,7 +69,7 @@ describe("renderBundleBanner", () => {
       route: {
         takeId: "t1",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film t1" },
+        rerun: "re-film t1",
       },
     });
     expect(root.children.length).toBeGreaterThan(0);
@@ -78,7 +78,7 @@ describe("renderBundleBanner", () => {
       route: {
         takeId: "t1",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film t1" },
+        rerun: "re-film t1",
       },
     });
     expect(root.children).toHaveLength(0);
@@ -125,7 +125,7 @@ describe("renderFailure", () => {
       runsRoute: {
         takeId: "take 1&x",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film take 1&x" },
+        rerun: "re-film take 1&x",
       },
     });
     expect(
@@ -142,7 +142,7 @@ describe("renderFailure", () => {
       runsRoute: {
         takeId: "t1",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film t1" },
+        rerun: "re-film t1",
       },
     });
     // Premise: the box rendered something.
@@ -218,7 +218,7 @@ describe("renderFailure", () => {
         runsRoute: {
           takeId: "t1",
           authored: true,
-          rerun: { kind: "line" as const, text: "re-film t1" },
+          rerun: "re-film t1",
         },
       });
       const box = root.querySelector("[data-replay-failure]");
@@ -251,7 +251,7 @@ describe("renderFailure", () => {
       runsRoute: {
         takeId: "t1",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film t1" },
+        rerun: "re-film t1",
       },
     });
     const box = root.querySelector("[data-replay-failure]");
@@ -362,7 +362,7 @@ describe("renderTransport", () => {
     enabled: true,
     rate: 1,
     looping: false,
-    authored: false,
+    rerunLine: "re-film t1",
   };
 
   const playButton = () =>
@@ -473,22 +473,9 @@ describe("renderTransport", () => {
     renderTransport(root, { ...state, enabled: false }, handlers);
     expect(skipButton().disabled).toBe(true);
     expect(skipButton().title).toMatch(/no frames yet/i);
-    // Where frames come from now: the editor has no rebuild to name.
-    expect(skipButton().title).toMatch(/Re-shoot it in Runs first\.$/);
-    // An authored take cannot be re-shot; its route is its script. Goes red
-    // if the row stops reading `state.authored`.
-    renderTransport(
-      root,
-      { ...state, enabled: false, authored: true },
-      handlers,
-    );
-    expect(skipButton().title).toMatch(/Run its script again in Runs first\.$/);
-    expect(playButton().title).toMatch(/Run its script again in Runs first\.$/);
-    expect(`${skipButton().title}${playButton().title}`).not.toMatch(
-      /re-shoot/i,
-    );
-    renderTransport(root, { ...state, enabled: false }, handlers);
-    expect(playButton().title).toMatch(/Re-shoot it in Runs first\.$/);
+    // Where frames come from now: the platform's re-film line, whole.
+    expect(skipButton().title).toMatch(/re-film t1$/);
+    expect(playButton().title).toMatch(/re-film t1$/);
     // Both states, because a control that is always disabled satisfies the
     // case above without the reason meaning anything.
     renderTransport(root, state, handlers);
@@ -690,7 +677,7 @@ describe("renderStageBar", () => {
     fullscreen: false,
     error: null,
     zoom: "fit" as const,
-    authored: false,
+    rerunLine: "re-film t1",
   });
   const stageHandlers = () => ({
     onAspect: vi.fn(),
@@ -715,7 +702,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         positionMs: 3_000,
         durationMs: 12_000,
         aspect: "16:9",
@@ -792,7 +779,7 @@ describe("renderStageBar", () => {
     };
     renderStageBar(
       bar,
-      { authored: false, ...base, fullscreen: false },
+      { rerunLine: "re-film t1", ...base, fullscreen: false },
       handlers,
     );
     const button = bar.querySelector<HTMLButtonElement>(
@@ -809,7 +796,7 @@ describe("renderStageBar", () => {
     expect(button.getAttribute("aria-label")).toBe("Full screen");
     renderStageBar(
       bar,
-      { authored: false, ...base, fullscreen: true },
+      { rerunLine: "re-film t1", ...base, fullscreen: true },
       handlers,
     );
     expect(button.getAttribute("aria-label")).toBe("Exit full screen");
@@ -848,7 +835,11 @@ describe("renderStageBar", () => {
       onZoom: vi.fn(),
       onDismissError: vi.fn(),
     };
-    renderStageBar(bar, { authored: false, ...base, error: null }, handlers);
+    renderStageBar(
+      bar,
+      { rerunLine: "re-film t1", ...base, error: null },
+      handlers,
+    );
     const error = bar.querySelector<HTMLElement>(
       "[data-stage-error]",
     ) as HTMLElement;
@@ -856,7 +847,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         ...base,
         error: "The preview could not exit full screen: refused",
       },
@@ -868,7 +859,11 @@ describe("renderStageBar", () => {
     );
     // Clears as well as sets — a stale refusal left behind after the state
     // actually resolves would go on claiming a problem that is over.
-    renderStageBar(bar, { authored: false, ...base, error: null }, handlers);
+    renderStageBar(
+      bar,
+      { rerunLine: "re-film t1", ...base, error: null },
+      handlers,
+    );
     expect(error.hidden).toBe(true);
   });
 
@@ -877,7 +872,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         positionMs: 0,
         durationMs: 0,
         aspect: "16:9",
@@ -893,16 +888,7 @@ describe("renderStageBar", () => {
     ) as HTMLButtonElement;
     expect(zoom.disabled).toBe(true);
     expect(zoom.title).toMatch(/no frames yet/);
-    expect(zoom.title).toMatch(/Re-shoot it in Runs first\.$/);
-    // The same chip on an authored take. Goes red if the bar stops reading
-    // `state.authored`.
-    renderStageBar(
-      bar,
-      { ...stageState(), enabled: false, authored: true },
-      stageHandlers(),
-    );
-    expect(zoom.title).toMatch(/Run its script again in Runs first\.$/);
-    expect(zoom.title).not.toMatch(/re-shoot/i);
+    expect(zoom.title).toMatch(/re-film t1$/);
   });
 
   it("reads Fit and 100% from state, not from the last click", () => {
@@ -918,7 +904,7 @@ describe("renderStageBar", () => {
     };
     renderStageBar(
       bar,
-      { authored: false, ...base, zoom: "fit" },
+      { rerunLine: "re-film t1", ...base, zoom: "fit" },
       { ...stageHandlers(), onAspect: vi.fn(), onFullscreen: vi.fn(), onZoom },
     );
     const zoom = bar.querySelector<HTMLButtonElement>(
@@ -934,7 +920,7 @@ describe("renderStageBar", () => {
     expect(onZoom).toHaveBeenCalledTimes(1);
     renderStageBar(
       bar,
-      { authored: false, ...base, zoom: "actual" },
+      { rerunLine: "re-film t1", ...base, zoom: "actual" },
       { ...stageHandlers(), onAspect: vi.fn(), onFullscreen: vi.fn(), onZoom },
     );
     expect(zoom.textContent).toBe("100%");
@@ -947,7 +933,7 @@ describe("renderTransport across renders", () => {
     enabled: true,
     rate: 1,
     looping: false,
-    authored: false,
+    rerunLine: "re-film t1",
   };
 
   it("keeps the same button, so playing does not blur it every frame", () => {
@@ -1520,12 +1506,13 @@ describe("renderNotesButton", () => {
       notes: document.getElementById("notes") as HTMLElement,
     };
   }
-  const failure = (over: Record<string, unknown>) =>
-    ({
-      error: null,
-      replaySentence: null,
-      ...over,
-    }) as never;
+  const failure = (
+    over: Partial<Parameters<typeof renderFailure>[1]>,
+  ): Parameters<typeof renderFailure>[1] => ({
+    error: null,
+    replaySentence: null,
+    ...over,
+  });
 
   it("stays hidden with nothing in the panel", () => {
     const { button, notes } = panel();
@@ -1574,12 +1561,13 @@ describe("revealNewErrors", () => {
       failure: notes.querySelector("#failure") as HTMLElement,
     };
   }
-  const failure = (over: Record<string, unknown>) =>
-    ({
-      error: null,
-      replaySentence: null,
-      ...over,
-    }) as never;
+  const failure = (
+    over: Partial<Parameters<typeof renderFailure>[1]>,
+  ): Parameters<typeof renderFailure>[1] => ({
+    error: null,
+    replaySentence: null,
+    ...over,
+  });
 
   it("opens the panel on an error, once per distinct error", () => {
     const { notes, showPopover, close, failure: box } = panel();

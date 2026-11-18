@@ -161,12 +161,7 @@ import {
   removedLine,
   removeQuestion,
 } from "../../src/shell/repo-sheet";
-import {
-  isAuthoredScene,
-  type RunsRoute,
-  rerunAdvice,
-  rerunLineOf,
-} from "../../src/shell/runs-link";
+import { isAuthoredScene, type RunsRoute } from "../../src/shell/runs-link";
 import { showToast } from "../../src/shell/toast";
 import { installTooltips } from "../../src/shell/tooltip";
 import { renderInspector } from "./inspector";
@@ -1937,8 +1932,7 @@ function renderTransportRow(): void {
   renderTransport(
     $("transport"),
     {
-      authored: isAuthoredScene(session.snapshot().scene),
-      rerunLine: rerunLineOf(runsRouteOf(session.snapshot())),
+      rerunLine: runsRouteOf(session.snapshot()).rerun,
       playing: player.playing,
       enabled: hasBundle && trimTail > trimHead,
       rate: player.rate,
@@ -1988,8 +1982,7 @@ function renderTransportRow(): void {
         // The deliverable's own clock, not the recording's: shifted so 0 is
         // the trim's head, the same clock `trimTail - trimHead` reports as
         // the total.
-        authored: isAuthoredScene(session.snapshot().scene),
-        rerunLine: rerunLineOf(runsRouteOf(session.snapshot())),
+        rerunLine: runsRouteOf(session.snapshot()).rerun,
         positionMs: player.positionMs - trimHead,
         durationMs: trimTail - trimHead,
         aspect: session.snapshot().scene.canvas.aspect,
@@ -2354,7 +2347,7 @@ function render(snapshot: SessionSnapshot): void {
     bundle: snapshot.bundle,
     resolved,
     hoverReport: snapshot.hoverReport,
-    rerunLine: rerunLineOf(runsRouteOf(snapshot)),
+    rerunLine: runsRouteOf(snapshot).rerun,
   });
   // Read by the scrubber's `draw`, which has no render pass of its own to
   // build one from.
@@ -3950,7 +3943,7 @@ function runShortcut(
       const view = lastView;
       if (model === null || view === null || resolved === null || !hasBundle) {
         const route = runsRouteOf(snapshot);
-        refusal = `This video has not been rendered yet, so there is nothing to trim to. ${rerunAdvice(route.authored, rerunLineOf(route), "first")}`;
+        refusal = `This video has not been rendered yet, so there is nothing to trim to. ${route.rerun}`;
         render(snapshot);
         return;
       }

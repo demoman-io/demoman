@@ -62,6 +62,7 @@ const c = takeRow("c", "Loose take", new Date(2026, 9, 30, 7));
 const d = takeRow("d", "Old flow", new Date(2026, 8, 1, 9));
 
 const model: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 1,
@@ -75,7 +76,7 @@ const model: LibraryModel = {
 
 const actions = () => ({
   edit: vi.fn(),
-  restore: vi.fn(),
+  rerunLine: () => "re-film it",
   backToRecording: vi.fn(),
   remove: vi.fn(),
   preview: vi.fn(),

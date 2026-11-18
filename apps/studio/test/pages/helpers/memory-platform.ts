@@ -371,10 +371,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       // The studio's own line, so a page test reads what an author would.
       rerun: (id) => {
         const videoId = videoOf[id]?.videoId;
-        return {
-          kind: "line",
-          text: videoId === undefined ? REFILM_NO_VIDEO : refilmLine(videoId),
-        };
+        return videoId === undefined ? REFILM_NO_VIDEO : refilmLine(videoId);
       },
       onOpen: () => undefined,
     },

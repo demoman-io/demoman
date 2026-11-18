@@ -28,7 +28,6 @@ import {
 import {
   buildLaneModel,
   CAPTURED_TAIL_MS,
-  MOTION_RECLAIMED_LABEL,
   markerAt,
 } from "../../../pages/src/editor/lanes";
 import { buildTimelineView } from "../../../pages/src/editor/timeline";
@@ -46,7 +45,14 @@ function modelOf(
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   return {
-    model: buildLaneModel({ scene, view, bundle, resolved, hoverReport }),
+    model: buildLaneModel({
+      rerunLine: "re-film it",
+      scene,
+      view,
+      bundle,
+      resolved,
+      hoverReport,
+    }),
     resolved,
   };
 }
@@ -218,6 +224,7 @@ describe("zooms", () => {
     );
     const view = buildTimelineView({ scene, bundle: null, resolved: null });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle: null,
@@ -250,6 +257,7 @@ describe("zooms", () => {
       );
     const view = buildTimelineView({ scene, bundle: null, resolved: null });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle: null,
@@ -301,7 +309,7 @@ describe("zooms", () => {
       timing: "estimated",
     });
     expect(model.notices).toContain(
-      'The end of zoom "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step. Re-shoot it in Runs to give it measured timing.',
+      'The end of zoom "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step. re-film it',
     );
   });
 });
@@ -334,6 +342,7 @@ describe("a zoom a cover crop narrowed", () => {
     expect(resolved.clampedRanges.map((c) => c.kind)).toEqual(["zoomFit"]);
     const view = buildTimelineView({ scene, bundle, resolved });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle,
@@ -407,7 +416,7 @@ describe("masks", () => {
       "end",
     ]);
     expect(model.notices).toContain(
-      'The end of mask "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. Re-shoot it in Runs to give it measured timing.',
+      'The end of mask "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. re-film it',
     );
   });
 
@@ -503,7 +512,9 @@ describe("the take reporting on itself", () => {
       ],
     });
     const { model } = modelOf(readonlyScene(), bundle);
-    expect(model.notices).toContain(MOTION_RECLAIMED_LABEL);
+    expect(model.notices).toContain(
+      "Motion reclaimed to free space. re-film it",
+    );
     expect(model.notices).toContain("spans 2-4 went");
   });
 
@@ -523,14 +534,15 @@ describe("the take reporting on itself", () => {
           startMs: 0,
           endMs: 1,
           kind: "motionReclaimed",
-          note: "Motion reclaimed to free space. Replay to restore.",
+          note: "Motion reclaimed to free space. Re-shoot it in Runs to restore.",
         },
       ],
     });
     const { model } = modelOf(readonlyScene(), bundle);
-    expect(model.notices).toContain(
-      "Motion reclaimed to free space. Re-shoot it in Runs to restore.",
-    );
+    // Relabelled only because the stored literal equals the constant.
+    expect(model.notices).toEqual([
+      "Motion reclaimed to free space. re-film it",
+    ]);
   });
 
   // Rows reclaimed between 2026-09-08 and 2026-09-28 say "Rebuild to
@@ -549,7 +561,7 @@ describe("the take reporting on itself", () => {
     });
     const { model } = modelOf(readonlyScene(), bundle);
     expect(model.notices).toEqual([
-      "Motion reclaimed to free space. Re-shoot it in Runs to restore.",
+      "Motion reclaimed to free space. re-film it",
     ]);
   });
 
@@ -566,6 +578,7 @@ describe("the take reporting on itself", () => {
     const scene = readonlyScene();
     const view = buildTimelineView({ scene, bundle: null, resolved: null });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle: null,
@@ -656,37 +669,13 @@ describe("pacing notices", () => {
   });
 });
 
-// An authored take's route to new frames is "run its script again in Runs",
-// because Runs refuses to re-shoot it. The reclaimed note is STORED (by
-// `frame-store.ts`, at reclaim time, when the reader's take is not known), so
-// the lane relabels it at read time. Goes red if `buildLaneModel` stops
-// reading the scene's capture mode.
+// A reclaimed note that is not one of the stored sentences is the
+// producer's own, and is shown as it is.
 describe("lane notices for an authored take", () => {
   const reclaimed = (note: string) =>
     proceduralBundle({
       degradations: [{ startMs: 0, endMs: 1, kind: "motionReclaimed", note }],
     });
-  const STORED =
-    "Motion reclaimed to free space. Re-shoot it in Runs to restore.";
-
-  it("relabels the stored reclaimed note (new and legacy rows) for an authored take, and leaves a recorded take's alone", () => {
-    const scene = authoredScene(readonlyScene());
-    // Premise: the two takes differ in exactly the flag under test.
-    expect(scene.meta.capture.mode).toBe("authored");
-    expect(readonlyScene().meta.capture.mode).not.toBe("authored");
-    for (const note of [
-      STORED,
-      "Motion reclaimed to free space. Replay to restore.",
-      "Motion reclaimed to free space. Rebuild to restore.",
-    ]) {
-      expect(modelOf(scene, reclaimed(note)).model.notices).toEqual([
-        "Motion reclaimed to free space. Run its script again in Runs to restore.",
-      ]);
-      expect(modelOf(readonlyScene(), reclaimed(note)).model.notices).toEqual([
-        STORED,
-      ]);
-    }
-  });
 
   it("does not touch a reclaimed note that names its own spans, on either kind of take", () => {
     const own = "spans 2-4 went";
@@ -695,7 +684,7 @@ describe("lane notices for an authored take", () => {
     ).toEqual([own]);
   });
 
-  it("says run its script again in the zoom-end timing notice for an authored take, and re-shoot for a recorded one", () => {
+  it("says the platform's re-film line in the zoom-end timing notice", () => {
     const zoomed = (base: ReturnType<typeof hoverScene>) => {
       let scene = applyCommand(
         base,
@@ -721,19 +710,13 @@ describe("lane notices for an authored take", () => {
     };
     const tail =
       "is placed from the video's own timestamp: the last render carried no marker for its step.";
-    for (const [scene, route] of [
-      [zoomed(authoredScene(hoverScene())), "Run its script again in Runs"],
-      [zoomed(hoverScene()), "Re-shoot it in Runs"],
-    ] as const) {
-      const { model, resolved } = modelOf(scene);
-      // Premise: the fixture puts an authored zoom end on a step the bundle
-      // has no marker for, and the take is the kind this row claims.
-      expect(resolved.cameraSegments[0]?.endUnplaced).toBe(true);
-      expect(model.authored).toBe(scene.meta.capture.mode === "authored");
-      expect(model.notices).toContain(
-        `The end of zoom "gen-1" ${tail} ${route} to give it measured timing.`,
-      );
-    }
+    const { model, resolved } = modelOf(zoomed(hoverScene()));
+    // Premise: the fixture puts an authored zoom end on a step the bundle
+    // has no marker for.
+    expect(resolved.cameraSegments[0]?.endUnplaced).toBe(true);
+    expect(model.notices).toContain(
+      `The end of zoom "gen-1" ${tail} re-film it`,
+    );
   });
 });
 
@@ -842,6 +825,7 @@ describe("estimated zoom ends", () => {
     };
     const view = buildTimelineView({ scene, bundle: null, resolved: null });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle: null,
@@ -881,7 +865,7 @@ describe("a split the frames cannot place", () => {
     const { model } = modelOf(scene);
     expect(model.clip.pieces).toHaveLength(1);
     expect(model.notices).toContain(
-      "A split is not drawn: the last render carried no marker for its step. Re-shoot it in Runs to place it.",
+      "A split is not drawn: the last render carried no marker for its step. re-film it",
     );
   });
 });

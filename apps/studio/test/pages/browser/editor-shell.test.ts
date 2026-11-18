@@ -91,6 +91,7 @@ function mount(
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -123,7 +124,13 @@ function mount(
   );
   renderTransport(
     node("#transport"),
-    { authored: false, playing: false, enabled: true, rate: 1, looping: false },
+    {
+      rerunLine: "re-film it",
+      playing: false,
+      enabled: true,
+      rate: 1,
+      looping: false,
+    },
     handlers(),
   );
   const inspector = node("#inspector");
@@ -191,7 +198,7 @@ function mount(
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: { kind: "line" as const, text: "re-film t1" },
+          rerun: "re-film t1",
         },
         currentDigest: "d-now",
         sections: createSections(),
@@ -217,7 +224,7 @@ function mount(
     const route = {
       takeId: "t1",
       authored: false,
-      rerun: { kind: "line" as const, text: "re-film t1" },
+      rerun: "re-film t1",
     };
     renderTakeInfo(
       node("#take-info"),
@@ -294,7 +301,7 @@ function mount(
     runsRoute: {
       takeId: "t1",
       authored: false,
-      rerun: { kind: "line" as const, text: "re-film t1" },
+      rerun: "re-film t1",
     },
   });
   return { surface, ink, radius };
@@ -362,7 +369,7 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
       renderStageBar(
         node(root),
         {
-          authored: false,
+          rerunLine: "re-film it",
           positionMs: 2_000,
           durationMs: 12_000,
           aspect: "16:9",
@@ -633,7 +640,7 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: { kind: "line" as const, text: "re-film t1" },
+          rerun: "re-film t1",
         },
         currentDigest: "d-now",
         sections: createSections(),

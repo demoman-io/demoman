@@ -229,6 +229,7 @@ describe("zoomFocusRect", () => {
     );
     const r = resolvePlan(planScene(zoomed), bundle, zoomed);
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene: zoomed,
       view: buildTimelineView({ scene: zoomed, bundle, resolved: r }),
       bundle,

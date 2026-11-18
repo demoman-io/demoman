@@ -22,6 +22,7 @@ import { mountShell, node, pageParts } from "../helpers/shell-css";
  */
 
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 1.4 * 1024 ** 3,
   budgetBytes: 2 * 1024 ** 3,
   fraction: 0.7,
@@ -50,7 +51,7 @@ async function mount(name: "library" | "settings") {
         reclaim() {},
         setBudget() {},
         edit() {},
-        restore() {},
+        rerunLine: () => "re-film it",
         backToRecording() {},
         remove() {},
         preview() {},

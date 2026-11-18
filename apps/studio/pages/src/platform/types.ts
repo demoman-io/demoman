@@ -170,7 +170,7 @@ export interface Platform {
     /** The empty library's hint: it names where Record is on this side. */
     firstTakeHint(): string;
     /** The route to film this take again: a line naming the agent call. */
-    rerun(id: string, authored: boolean): { kind: "line"; text: string };
+    rerun(id: string, authored: boolean): string;
     /** The server asked this window to go elsewhere. */
     onOpen(fn: (path: string) => void): void;
   };

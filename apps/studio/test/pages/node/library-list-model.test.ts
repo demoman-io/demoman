@@ -90,6 +90,7 @@ const groups = [
   flow("C", "", [c1]),
 ];
 const model: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 1,

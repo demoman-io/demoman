@@ -168,7 +168,7 @@ vi.mock("#platform", async (importOriginal) => {
       editor: (id) => `/editor.html?scene=${id}`,
       library: () => "/",
       firstTakeHint: () => "",
-      rerun: (id) => ({ kind: "line", text: `re-film ${id}` }),
+      rerun: (id) => `re-film ${id}`,
       kits: () => "/settings.html",
       onOpen: () => undefined,
     },

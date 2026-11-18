@@ -1,6 +1,4 @@
 // apps/studio/pages/src/shell/runs-link.ts
-import { runsRouteClause } from "@demoman/run-core";
-
 // `isAuthoredScene` and `runsRouteClause` moved to @demoman/run-core
 // (launch prep defect 2, 2026-10-14). Re-exported so this module's
 // importers are unchanged.
@@ -20,33 +18,5 @@ export interface RunsRoute {
   authored: boolean;
   /** `nav.rerun`'s answer for this take: the line naming the agent call
    *  that films it again. */
-  rerun: { kind: "line"; text: string };
-}
-
-/** The clause opening a sentence: "Re-shoot it in Runs" or "Run its script
- *  again in Runs". Derived from `runsRouteClause`, never a second copy. */
-export function runsRouteSentence(authored: boolean): string {
-  const clause = runsRouteClause(authored);
-  return clause.charAt(0).toUpperCase() + clause.slice(1);
-}
-
-/** The platform's own line for this take. */
-export function rerunLineOf(route: RunsRoute): string {
-  return route.rerun.text;
-}
-
-/**
- * An advice sentence on filming this take again that ends in `tail`:
- * "Re-shoot it in Runs first." where the platform answers with a link —
- * today's words, exactly — and the platform's `line`, whole, where it answers
- * with one. That line is a sentence of its own ending in a code span, so
- * nothing is spliced onto it (ruling R18): "Ask your agent … first." would
- * put the tail after the call it names.
- */
-export function rerunAdvice(
-  authored: boolean,
-  line: string | null,
-  tail: string,
-): string {
-  return line ?? `${runsRouteSentence(authored)} ${tail}.`;
+  rerun: string;
 }

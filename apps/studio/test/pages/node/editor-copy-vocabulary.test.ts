@@ -332,7 +332,7 @@ const FILES: ReadonlyArray<{
     // too, so they add nothing here.
     rel: "../../../pages/entrypoints/editor/view.ts",
     minStrings: 120,
-    anchor: `Motion was reclaimed to free space and shown as a still. \${rerunAdvice(state.runsRoute.authored, rerunLineOf(state.runsRoute), "to restore")}`,
+    anchor: `Motion was reclaimed to free space and shown as a still. \${state.runsRoute.rerun}`,
   },
   {
     // A tag-less template literal, chosen so this file's anchor also holds
@@ -367,7 +367,7 @@ const FILES: ReadonlyArray<{
     // trim refusal's re-shoot wording.
     rel: "../../../pages/entrypoints/editor/main.ts",
     minStrings: 50,
-    anchor: `This video has not been rendered yet, so there is nothing to trim to. \${rerunAdvice(route.authored, rerunLineOf(route), "first")}`,
+    anchor: `This video has not been rendered yet, so there is nothing to trim to. \${route.rerun}`,
   },
   // Joined the list on 2026-09-08. It is not an editor entry point and was
   // not in the original five, but `renderFailure`'s body — the sentence
@@ -389,7 +389,7 @@ const FILES: ReadonlyArray<{
   {
     rel: "../../../pages/entrypoints/editor/timeline-view.ts",
     minStrings: 13,
-    anchor: `Timing from the video, not from a render — \${runsRouteClause(model.authored)} to see the timing this video will actually have.`,
+    anchor: `Timing from the video, not from a render. \${model.rerunLine}`,
   },
   {
     // 21 was carried from 2026-09-08. Re-measured at plan 3's final review:

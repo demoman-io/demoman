@@ -65,6 +65,7 @@ const base: LibraryRow = {
 };
 
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 412 * 1024 ** 2,
   budgetBytes: 4 * 1024 ** 3,
   fraction: 0.1,
@@ -100,7 +101,7 @@ const noop = {
   reclaim() {},
   setBudget() {},
   edit() {},
-  restore() {},
+  rerunLine: () => "re-film it",
   backToRecording() {},
   remove() {},
   preview() {},

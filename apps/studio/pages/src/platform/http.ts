@@ -1096,15 +1096,11 @@ export function createPlatform(
       rerun: (id) => {
         const videoId = videoOfTake.get(id);
         const unread = videoErrorOfTake.get(id);
-        return {
-          kind: "line",
-          text:
-            videoId !== undefined
-              ? refilmLine(videoId)
-              : unread !== undefined
-                ? refilmVideoUnread(unread)
-                : REFILM_NO_VIDEO,
-        };
+        return videoId !== undefined
+          ? refilmLine(videoId)
+          : unread !== undefined
+            ? refilmVideoUnread(unread)
+            : REFILM_NO_VIDEO;
       },
       onOpen(fn) {
         openListeners.add(fn);

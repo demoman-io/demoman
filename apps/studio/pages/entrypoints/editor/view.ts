@@ -60,11 +60,7 @@ import type { OutputRow, RevealTarget } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { setCodeText, withoutTicks } from "../../src/shell/code-spans";
 import { type GlyphName, icon } from "../../src/shell/icons";
-import {
-  type RunsRoute,
-  rerunAdvice,
-  rerunLineOf,
-} from "../../src/shell/runs-link";
+import type { RunsRoute } from "../../src/shell/runs-link";
 import { switchControl, switchRow } from "../../src/shell/switch";
 import { withoutTip, withTip } from "../../src/shell/tooltip";
 
@@ -175,7 +171,7 @@ function noFramesRoute(route: RunsRoute): DocumentFragment {
 /** The platform's re-film line for this take (`nav.rerun`), as text. */
 function rerunLine(route: RunsRoute): HTMLElement {
   const line = el("span");
-  setCodeText(line, route.rerun.text);
+  setCodeText(line, route.rerun);
   line.setAttribute("data-rerun-line", "");
   return line;
 }
@@ -1554,7 +1550,7 @@ function drawOutputReports(
     setCodeText(
       headline,
       allReclaimed
-        ? `Motion was reclaimed to free space and shown as a still. ${rerunAdvice(state.runsRoute.authored, rerunLineOf(state.runsRoute), "to restore")}`
+        ? `Motion was reclaimed to free space and shown as a still. ${state.runsRoute.rerun}`
         : "Some motion could not be decoded and was shown as a still",
     );
     report.append(headline);
@@ -1778,14 +1774,9 @@ function saveOutcomeRow(
 }
 
 export interface TransportState {
-  /** Whether a script made this take, for the no-frames tooltips: an
-   *  authored take is run again from its script, never re-shot. */
-  authored: boolean;
-  /** The platform's re-film line where it names no Runs page (the studio):
-   *  the no-frames tooltips say it whole instead of the Runs words
-   *  (`rerunAdvice`). Absent where the platform answers with a link, as the
-   *  extension does. `main.ts` always passes `platform.nav.rerun`'s. */
-  rerunLine?: string | null;
+  /** The platform's re-film line (`nav.rerun`), said whole in the no-frames
+   *  tooltips. */
+  rerunLine: string;
   playing: boolean;
   /** Whether there is anything to play. False before a take has frames. */
   enabled: boolean;
@@ -1991,7 +1982,7 @@ export function renderTransport(
   else {
     withoutTip(skip);
     skip.title = withoutTicks(
-      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${state.rerunLine}`,
     );
   }
   repeat.onclick = () => handlers.onLooping(!state.looping);
@@ -2040,7 +2031,7 @@ export function renderTransport(
   else {
     withoutTip(play);
     play.title = withoutTicks(
-      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${state.rerunLine}`,
     );
   }
 
@@ -2057,10 +2048,8 @@ export function renderTransport(
 }
 
 export interface StageBarState {
-  /** Whether a script made this take — see `TransportState.authored`. */
-  authored: boolean;
   /** See `TransportState.rerunLine`. */
-  rerunLine?: string | null;
+  rerunLine: string;
   positionMs: number;
   durationMs: number;
   /** The scene's aspect, which this row's toggle sets. All three shapes are
@@ -2229,7 +2218,7 @@ export function renderStageBar(
     zoom.title = state.enabled
       ? "Switch between fitting the window and actual pixels"
       : withoutTicks(
-          `This video has no frames yet, so there is nothing to zoom into. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+          `This video has no frames yet, so there is nothing to zoom into. ${state.rerunLine}`,
         );
     zoom.onclick = () => handlers.onZoom();
   }

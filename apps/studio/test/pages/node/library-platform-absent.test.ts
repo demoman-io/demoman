@@ -11,8 +11,8 @@ import { mountTopbar } from "../../../pages/src/shell/topbar";
 /**
  * What the library and the top bar draw on the studio's platform, which
  * lacks the extension's members (Launch D2, Task 11): no storage control,
- * no Needs a look flag — and a sentence where Restore's button would be
- * when there is no Runs page.
+ * no Needs a look flag — and the platform's re-film line on a reclaimed
+ * card.
  *
  * Each case names the production change that reddens it: the storage case
  * goes red if `createHeader` attaches the storage panel unconditionally;
@@ -40,6 +40,7 @@ const row: LibraryRow = {
   needsLook: true,
 };
 const model: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 0,
@@ -51,7 +52,7 @@ const model: LibraryModel = {
 };
 const base = {
   edit: vi.fn(),
-  restore: vi.fn(),
+  rerunLine: () => "re-film it",
   backToRecording: vi.fn(),
   remove: vi.fn(),
   preview: vi.fn(),
@@ -94,7 +95,7 @@ describe("the library without the extension-only members", () => {
     expect(root.querySelector("[data-needs-look]")).not.toBeNull();
   });
 
-  it("puts the platform's sentence where Restore's button would be", () => {
+  it("puts the platform's sentence on a reclaimed card", () => {
     const root = document.querySelector("#root") as HTMLElement;
     renderLibrary(
       root,
@@ -102,7 +103,6 @@ describe("the library without the extension-only members", () => {
       { ...base, rerunLine: () => "Ask the agent to run its script again." },
       new Map(),
     );
-    expect(root.querySelector('[data-action="restore"]')).toBeNull();
     expect(root.querySelector("[data-rerun-line]")?.textContent).toBe(
       "Ask the agent to run its script again.",
     );
@@ -121,7 +121,7 @@ describe("the top bar", () => {
         library: () => "library",
         kits: () => "/kits-page.html",
         firstTakeHint: () => "",
-        rerun: () => ({ kind: "line", text: "" }),
+        rerun: () => "",
         onOpen: () => undefined,
       },
     });
@@ -153,6 +153,7 @@ describe("the library with the Studio's sizes and unreadable folders", () => {
     args: Partial<Parameters<typeof buildLibraryModel>[0]> = {},
   ): LibraryModel =>
     buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       scenes: [],
       migrating: false,
       migrationFailed: false,

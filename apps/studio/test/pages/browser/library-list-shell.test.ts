@@ -101,6 +101,7 @@ const filler = Array.from({ length: 30 }, (_, i) =>
   take(`n${i}`, today(14, 59 - i)),
 );
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 1,
@@ -121,7 +122,6 @@ const MODEL: LibraryModel = {
 const noop = () => {};
 const ACTIONS = {
   edit: noop,
-  restore: noop,
   backToRecording: noop,
   remove: noop,
   preview: noop,

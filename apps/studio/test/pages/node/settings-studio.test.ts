@@ -129,7 +129,7 @@ function fakePlatform(kits: StoredKit[] = []): Fake {
       library: () => "/",
       kits: () => "/settings.html",
       firstTakeHint: () => "",
-      rerun: (id: string) => ({ kind: "line", text: `re-film ${id}` }),
+      rerun: (id: string) => `re-film ${id}`,
       onOpen(fn: (path: string) => void) {
         fake.openListeners.push(fn);
       },

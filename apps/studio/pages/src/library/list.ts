@@ -52,9 +52,7 @@ export type Footage = "here" | { absent: string };
 const footageOf = (r: LibraryRow, actions: LibraryActions): Footage =>
   r.expired === true
     ? {
-        absent:
-          expiredLine(true, actions.rerunLine?.(r.sceneId, r.authored)) ??
-          "Expired",
+        absent: expiredLine(true, actions.rerunLine(r.sceneId, r.authored)),
       }
     : "here";
 

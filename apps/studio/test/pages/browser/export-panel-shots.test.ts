@@ -290,6 +290,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -309,7 +310,13 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
   );
   renderTransport(
     node("#transport"),
-    { authored: false, playing: false, enabled: true, rate: 1, looping: false },
+    {
+      rerunLine: "re-film it",
+      playing: false,
+      enabled: true,
+      rate: 1,
+      looping: false,
+    },
     handlers(),
   );
   renderInspector(
@@ -373,7 +380,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
       runsRoute: {
         takeId: "take 1&x",
         authored: false,
-        rerun: { kind: "line" as const, text: "re-film take 1&x" },
+        rerun: "re-film take 1&x",
       },
       currentDigest: "d-now",
       // The launch configuration: no share surface at all.
@@ -390,7 +397,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
     renderStageBar(
       node(root),
       {
-        authored: false,
+        rerunLine: "re-film it",
         positionMs: 2_000,
         durationMs: 24_400,
         aspect: shot.aspect,

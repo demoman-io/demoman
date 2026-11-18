@@ -989,10 +989,9 @@ describe("frames, outputs, nav", () => {
     expect(platform.nav.library()).toBe("/");
     expect(platform.nav.kits?.()).toBe("/settings.html");
     // A take not read yet, or in no video: no call can name it.
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: "Ask your agent to record this again.",
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      "Ask your agent to record this again.",
+    );
   });
 
   it("names the take's video in the re-record line once the take was read", async () => {
@@ -1011,10 +1010,9 @@ describe("frames, outputs, nav", () => {
         : undefined,
     );
     await platform.scenes.get("t1");
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: `Ask your agent to record it again: \`run({ flow: { id: "${VIDEO}" } })\``,
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      `Ask your agent to record it again: \`run({ flow: { id: "${VIDEO}" } })\``,
+    );
   });
 
   it("says why the video's flow could not be read where the re-record line goes", async () => {
@@ -1035,10 +1033,9 @@ describe("frames, outputs, nav", () => {
         : undefined,
     );
     await platform.scenes.get("t1");
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: `Couldn't read which flow this video is in: ${why}`,
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      `Couldn't read which flow this video is in: ${why}`,
+    );
   });
 
   it("reads a video delete that stopped part-way as partly deleted, never as deleted", async () => {

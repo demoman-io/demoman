@@ -71,6 +71,7 @@ function mount(
   const bundle = proceduralBundle();
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view: buildTimelineView({ scene, bundle, resolved }),
     bundle,

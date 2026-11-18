@@ -50,7 +50,14 @@ function propsFor(
   const bundle = proceduralBundle();
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
-  const model = buildLaneModel({ scene, view, bundle, resolved, hoverReport });
+  const model = buildLaneModel({
+    rerunLine: "re-film it",
+    scene,
+    view,
+    bundle,
+    resolved,
+    hoverReport,
+  });
   return {
     selection,
     view,
@@ -714,6 +721,7 @@ describe("pause after a step — gap and legacy hold, carried over", () => {
     expect(beat?.renderedPaceFreezeMs).toBe(0);
 
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene: paced,
       view,
       bundle,
@@ -767,6 +775,7 @@ describe("pause after a step — gap and legacy hold, carried over", () => {
     ).toHaveLength(1);
     const view = buildTimelineView({ scene: paced, bundle, resolved });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene: paced,
       view,
       bundle,
@@ -828,6 +837,7 @@ describe("pause after a step — gap and legacy hold, carried over", () => {
     expect(view.beats.find((b) => b.actionId === "act-2")?.canPace).toBe(true);
 
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle,
@@ -915,6 +925,7 @@ describe("pause after a step — gap and legacy hold, carried over", () => {
     );
 
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene: held,
       view,
       bundle,

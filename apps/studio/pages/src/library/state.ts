@@ -201,7 +201,7 @@ export interface LibraryModel {
    *  will. Absent where there is no watcher. */
   unwatched?: string | null;
   /** The empty library's hint, in the platform's words. */
-  emptyHint?: string;
+  emptyHint: string;
   /** The videos the rows are versions of. Absent where takes are not
    *  grouped. */
   groups?: VideoGroup[];
@@ -476,7 +476,7 @@ export function buildLibraryModel(args: {
     kind?: "take" | "video" | "upkeep";
   }[];
   unwatched?: string | null;
-  emptyHint?: string;
+  emptyHint: string;
   videos?: VideoSummary[];
   videoOf?: TakesAnswer["videoOf"];
 }): LibraryModel {
@@ -581,7 +581,7 @@ export function buildLibraryModel(args: {
         }),
     ...(unreadable === undefined ? {} : { unreadable }),
     ...(args.unwatched === undefined ? {} : { unwatched: args.unwatched }),
-    ...(args.emptyHint === undefined ? {} : { emptyHint: args.emptyHint }),
+    emptyHint: args.emptyHint,
     ...(args.videos === undefined
       ? {}
       : { groups: videoGroupsOf(rows, videoOf, args.videos) }),

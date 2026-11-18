@@ -3,7 +3,6 @@ import { zoomsForClicks } from "@demoman/run-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { proceduralBundle } from "../../../../../packages/replay-engine/test/helpers/bundles";
 import {
-  authoredScene,
   everyVerbScene,
   hoverScene,
   readonlyScene,
@@ -63,7 +62,14 @@ const toolsHandlers = () => ({
 function modelOf(scene = readonlyScene(), bundle = proceduralBundle()) {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
-  return buildLaneModel({ scene, view, bundle, resolved, hoverReport: null });
+  return buildLaneModel({
+    rerunLine: "re-film it",
+    scene,
+    view,
+    bundle,
+    resolved,
+    hoverReport: null,
+  });
 }
 const stateFor = (
   model: ReturnType<typeof modelOf>,
@@ -385,6 +391,7 @@ describe("the axis's own timing", () => {
     const scene = readonlyScene();
     const view = buildTimelineView({ scene, bundle: null, resolved: null });
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view,
       bundle: null,
@@ -395,32 +402,10 @@ describe("the axis's own timing", () => {
     expect(
       root.querySelector("[data-ruler]")?.getAttribute("data-source"),
     ).toBe("captured");
-    expect(root.textContent).toContain("re-shoot it in Runs to see the timing");
-    expect(root.textContent).not.toMatch(/rebuild/i);
-  });
-
-  // The provisional-axis line names the way to a measured timing; an
-  // authored take's is its script. Goes red if the timeline stops reading
-  // the model's `authored`.
-  it("tells an authored take to run its script again to see the timing", () => {
-    const scene = authoredScene(readonlyScene());
-    const view = buildTimelineView({ scene, bundle: null, resolved: null });
-    const model = buildLaneModel({
-      scene,
-      view,
-      bundle: null,
-      resolved: null,
-      hoverReport: null,
-    });
-    // Premise: the model is the provisional one this line belongs to, and it
-    // knows whose take it is.
-    expect(model.timeSource).toBe("captured");
-    expect(model.authored).toBe(true);
-    renderTimeline(root, model, stateFor(model), handlers());
     expect(root.textContent).toContain(
-      "run its script again in Runs to see the timing",
+      "Timing from the video, not from a render. re-film it",
     );
-    expect(root.textContent).not.toMatch(/re-shoot/i);
+    expect(root.textContent).not.toMatch(/rebuild/i);
   });
 
   // Where each label goes is decided in pixels after layout — see

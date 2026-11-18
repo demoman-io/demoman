@@ -50,7 +50,7 @@ const idle = {
   runsRoute: {
     takeId: "take 1&x",
     authored: false,
-    rerun: { kind: "line" as const, text: "re-film take 1&x" },
+    rerun: "re-film take 1&x",
   },
   replacementExposures: [],
   currentDigest: "d-now",

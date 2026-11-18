@@ -110,6 +110,7 @@ function mount(
   const model =
     laneModel ??
     buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view: buildTimelineView({ scene, bundle, resolved }),
       bundle,
@@ -175,7 +176,13 @@ function mount(
   if (!transportRoot) throw new Error("no #transport in the shell");
   renderTransport(
     transportRoot,
-    { authored: false, playing: false, enabled: true, rate: 1, looping: false },
+    {
+      rerunLine: "re-film it",
+      playing: false,
+      enabled: true,
+      rate: 1,
+      looping: false,
+    },
     {
       onToggle: vi.fn(),
       onShuttle: vi.fn(),
@@ -189,7 +196,7 @@ function mount(
   renderStageBar(
     stageBarRoot,
     {
-      authored: false,
+      rerunLine: "re-film it",
       positionMs: 2_000,
       durationMs: 12_000,
       aspect: target.fit === "cover" ? "9:16" : "16:9",
@@ -240,6 +247,7 @@ function maskFixture() {
     target: MASK_TARGET,
   });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view: buildTimelineView({ scene, bundle, resolved }),
     bundle,

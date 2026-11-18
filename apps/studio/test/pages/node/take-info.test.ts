@@ -22,10 +22,7 @@ const REFILM = 'run({ flow: { id: "scene-1" } })';
 const ROUTE = {
   takeId: "scene-1",
   authored: true,
-  rerun: {
-    kind: "line" as const,
-    text: `Ask your agent to re-record this take — \`${REFILM}\``,
-  },
+  rerun: `Ask your agent to re-record this take — \`${REFILM}\``,
 };
 
 const base = (): TakeInfoState => ({

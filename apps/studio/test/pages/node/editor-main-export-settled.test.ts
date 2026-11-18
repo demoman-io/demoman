@@ -188,10 +188,8 @@ vi.mock("#platform", async (importOriginal) => {
       editor: (id) => `/editor.html?scene=${id}`,
       library: () => "/",
       firstTakeHint: () => "",
-      rerun: (id) => ({
-        kind: "line",
-        text: `Ask your agent to record it again: \`run({ flow: { id: "${id}" } })\``,
-      }),
+      rerun: (id) =>
+        `Ask your agent to record it again: \`run({ flow: { id: "${id}" } })\``,
       kits: () => "/settings.html",
       onOpen: () => undefined,
     },
