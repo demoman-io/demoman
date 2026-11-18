@@ -181,16 +181,16 @@ describe("a request body within its cap", () => {
     expect(seen).toEqual([MB]);
   });
 
-  it("an asset upload has a cap of its own, above a JSON body's", async () => {
+  it("a wallpaper upload has a cap of its own, above every other body's", async () => {
     const seen: number[] = [];
     const s = await serve({
-      assetPut: async (req) => {
+      wallpaperPut: async (req) => {
         seen.push((await req.body()).byteLength);
         return { status: 200, json: {} };
       },
     });
     const size = JSON_BODY_MAX_BYTES + MB;
-    const r = await upload(s, "/api/assets", "POST", {
+    const r = await upload(s, "/api/wallpapers", "POST", {
       whole: Buffer.alloc(size),
     });
     expect(r.status, r.text).toBe(200);

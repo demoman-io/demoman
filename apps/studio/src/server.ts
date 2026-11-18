@@ -64,12 +64,12 @@ export const noTake = (library: Library, id: string): StudioResponse =>
 export const noVideo = (id: string): StudioResponse =>
   refuse(404, "videoNotFound", `There is no flow "${id}".`);
 
-/** The most bytes an asset upload may carry. The largest asset is a
- *  wallpaper at `WALLPAPER_MAX_BYTES`; twice that leaves its route's own
- *  sentence to answer anything near its line. */
-export const ASSET_BODY_MAX_BYTES = 2 * WALLPAPER_MAX_BYTES;
-/** The most bytes any other (JSON) body may carry. The largest is a scene,
- *  about 100 KB for a long take on 2026-11-18; this is 160 times that. */
+/** The most bytes a wallpaper upload may carry: twice `WALLPAPER_MAX_BYTES`,
+ *  so that route's own sentence answers anything near its line. */
+export const WALLPAPER_BODY_MAX_BYTES = 2 * WALLPAPER_MAX_BYTES;
+/** The most bytes any other body may carry. The largest is a logo at
+ *  `LOGO_MAX_BYTES` (2 MB) or a scene, about 100 KB for a long take on
+ *  2026-11-18. */
 export const JSON_BODY_MAX_BYTES = 16 * 1024 * 1024;
 
 export type Handler = (req: StudioRequest) => Promise<StudioResponse>;
@@ -149,7 +149,7 @@ export async function createStudioServer(o: {
 }): Promise<StudioServer> {
   const capOf = (id: RouteId): number =>
     o.bodyMaxBytes ??
-    (id === "assetPut" ? ASSET_BODY_MAX_BYTES : JSON_BODY_MAX_BYTES);
+    (id === "wallpaperPut" ? WALLPAPER_BODY_MAX_BYTES : JSON_BODY_MAX_BYTES);
   const token = o.token ?? randomBytes(32).toString("base64url");
   const tickets = createTicketBook(o.now === undefined ? {} : { now: o.now });
   let port = 0;
