@@ -126,20 +126,39 @@ export interface Job {
 }
 
 /**
- * The calls `report(id)` answers from: the latest `kept`, the oldest settled
- * one let go first. A call still in flight is never let go — its progress is
- * all a polling agent has.
+ * The calls `report(id)` answers from: the latest `kept`, the one that
+ * settled first let go first. A call still in flight is never let go — its
+ * progress is all a polling agent has.
  */
 export function createJobTable(kept: number = JOBS_KEPT) {
   const jobs = new Map<string, Job>();
+  const evict = () => {
+    for (const [old, was] of jobs) {
+      if (jobs.size <= kept) break;
+      if (was.final !== null) jobs.delete(old);
+    }
+  };
   return {
     set(id: string, job: Job): void {
       jobs.delete(id);
       jobs.set(id, job);
-      for (const [old, was] of jobs) {
-        if (jobs.size <= kept) break;
-        if (was.final !== null) jobs.delete(old);
-      }
+      // A call goes to the end again when it settles, so a long one is not
+      // let go first for having started first (DEM-141, as the MCP's list
+      // since DEM-106). Every `job.final =` passes through here.
+      let final = job.final;
+      Object.defineProperty(job, "final", {
+        configurable: true,
+        enumerable: true,
+        get: () => final,
+        set: (value: Outcome | null) => {
+          final = value;
+          if (value === null || jobs.get(id) !== job) return;
+          jobs.delete(id);
+          jobs.set(id, job);
+          evict();
+        },
+      });
+      evict();
     },
     get: (id: string): Job | undefined => jobs.get(id),
   };
