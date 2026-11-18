@@ -47,8 +47,8 @@ function setup(
     waits?: boolean;
     /** When data last arrived on a followed connection, given the real time. */
     followedDataAt?: (real: number) => number | null;
-    /** When data last arrived on a left-out followed connection. */
-    ignoredDataAt?: (real: number) => number | null;
+    /** When data last arrived on a followed connection outside the window. */
+    outsideDataAt?: (real: number) => number | null;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -96,8 +96,11 @@ function setup(
     loading: () => o.loading?.(real) ?? false,
     follow: () => void log.push("follow"),
     followedDataAt: () => o.followedDataAt?.(real) ?? null,
-    ignore: (ids) => void log.push(`ignore ${ids.join(",")}`),
-    ignoredDataAt: () => o.ignoredDataAt?.(real) ?? null,
+    window: (since) => void log.push(`window ${since}`),
+    outsideDataAt: () => o.outsideDataAt?.(real) ?? null,
+    inFlight: () => 0,
+    idle: async () => true,
+    openedBefore: () => 0,
     stop() {},
   };
   const clock = createHeldClock({
@@ -258,7 +261,7 @@ describe("createHeldClock", () => {
     await clock.hold(START);
     await clock.sleep(100);
     expect(frames).toHaveLength(3);
-    expect(log).toEqual(
+    expect(log.filter((l) => !l.startsWith("window"))).toEqual(
       frames.flatMap((f) => [`pin ${f.sourceTimeMs}`, "capture"]),
     );
     expect(pins.every((p) => p.source === PIN_ANIMATIONS)).toBe(true);
@@ -446,7 +449,7 @@ describe("createHeldClock", () => {
         waitsSince: waitsOf({
           from: at,
           at,
-          page: START + 100 + into,
+          page: 100 + into, // the page's clock: held ms
           labels: ["GET /invoices/1041"],
         }),
         captureMs: 200,
@@ -469,7 +472,7 @@ describe("createHeldClock", () => {
       waiting: (real) => real >= 600,
       waitsSince: waitsOf({
         from: 600,
-        page: START + 100,
+        page: 100,
         labels: ["GET /a"],
       }),
       captureMs: 200,
@@ -771,11 +774,11 @@ describe("createHeldClock", () => {
   // DEM-204: a step's settle leaves out requests it does not wait for, and
   // an answer arriving on one then landed where the machine put it. Red if
   // the left-out set outlives the wait, or that answer is unsaid.
-  it("leaves out a wait's ignored requests for that wait, and says data on them", async () => {
+  it("follows only a wait's window, and says data outside it", async () => {
     let dataAt: number | null = null;
     const { clock, advance, log } = setup({
       waits: false,
-      ignoredDataAt: () => dataAt,
+      outsideDataAt: () => dataAt,
     });
     await clock.hold(START);
     await clock.waiting(async () => {
@@ -784,12 +787,53 @@ describe("createHeldClock", () => {
       advance(50);
       dataAt = 40;
       await clock.sleep(HELD_FRAME_MS);
-    }, ["7"]);
-    expect(log.filter((l) => l.startsWith("ignore"))).toEqual([
-      "ignore 7",
-      "ignore ",
+    }, 7);
+    expect(log.filter((l) => l.startsWith("window"))).toEqual([
+      "window 7",
+      "window null",
     ]);
     expect(clock.unpaced()).toBe(HELD_FRAME_MS);
+  });
+
+  // DEM-202: waits nest (a step's settle holds the page's answers to
+  // reads), and an inner one is part of the outer. Red if an inner wait's
+  // later window drops a request the outer still waits on (DEM-204 again).
+  it("follows the earliest window among nested waits", async () => {
+    const { clock, log } = setup({ waits: false });
+    await clock.hold(START);
+    await clock.waiting(async () => {
+      await clock.waiting(async () => {
+        await clock.waiting(async () => undefined, 6000);
+      }, 5000);
+    }, 1000);
+    expect(log.filter((l) => l.startsWith("window"))).toEqual([
+      "window 1000",
+      "window 1000",
+      "window 1000",
+      "window 1000",
+      "window 1000",
+      "window null",
+    ]);
+  });
+
+  it("a wait with no lower bound follows everything", async () => {
+    const { clock, log } = setup({ waits: false });
+    await clock.hold(START);
+    await clock.waiting(async () => undefined);
+    await clock.waiting(async () => undefined, null);
+    expect(log.filter((l) => l.startsWith("window"))).toEqual([
+      "window null",
+      "window null",
+      "window null",
+      "window null",
+    ]);
+  });
+
+  it("answers pageOf as the wall time less the hold's epoch", async () => {
+    const { clock } = setup({ waits: false });
+    expect(() => clock.pageOf(START)).toThrow();
+    await clock.hold(START);
+    expect(clock.pageOf(START + 250)).toBe(250);
   });
 
   // DEM-204: a held settle counts no frame shot following the server. Red

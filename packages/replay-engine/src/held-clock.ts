@@ -273,13 +273,16 @@ export interface HeldClock extends Clock {
    *  heard over is still owed when the wait on the page ends are not played
    *  on the way out (a wait that follows at once plays them, inside its own
    *  reported stretch), a connection still open is left, and real time that
-   *  passes outside a wait is not credited to one. `ignore`: requests this
-   *  wait does not wait for (a step's settle: ones opened before its
-   *  request cap), which it does not follow either; data on one during it
-   *  is unpaced (DEM-204). */
-  waiting<T>(run: () => Promise<T>, ignore?: readonly string[]): Promise<T>;
+   *  passes outside a wait is not credited to one. `since`: the wait's
+   *  window on the page's clock (`now()` ms; none: no lower bound), whose
+   *  requests alone it follows; data on an older one during it is unpaced
+   *  (DEM-204, DEM-202). Nested waits follow the earliest window among
+   *  them: an inner wait is part of the outer. */
+  waiting<T>(run: () => Promise<T>, since?: number | null): Promise<T>;
+  /** A page's `wallTime` (ms, its held clock) as `now()` ms. */
+  pageOf(wallMs: number): number;
   /** The held time data first arrived at, outside a wait or on a request
-   *  the wait left out, on a connection the recording had followed: an
+   *  older than its window, on a connection the recording had followed: an
    *  answer that landed where the machine put it. Null when none did. */
   unpaced(): number | null;
   /** Re-applies the hold to a new document, continuing the same time. */
@@ -359,7 +362,7 @@ export function createHeldClock(deps: {
           real: Math.max(wait.from, looked.real),
           held:
             wait.page !== undefined
-              ? wait.page - (startEpochMs ?? 0) < held - pageSlack()
+              ? wait.page < held - pageSlack()
                 ? looked.held
                 : held
               : wait.from > pausedAt
@@ -373,13 +376,14 @@ export function createHeldClock(deps: {
   /** The waits since a look: heard after it, or sent by the page since it
    *  stood there. */
   const waitsSinceLook = (looked: { real: number; held: number }) =>
-    network.waitsSince(
-      looked.real,
-      (startEpochMs ?? 0) + looked.held - pageSlack(),
-    );
+    network.waitsSince(looked.real, looked.held - pageSlack());
   const unpinned: { atMs: number; what: string }[] = [];
-  /** How many waits on the page are running (`waiting`). */
-  let marked = 0;
+  /** The windows of the waits on the page running (`waiting`). */
+  const windows: number[] = [];
+  const narrow = () => {
+    const from = Math.min(...windows);
+    network.window(Number.isFinite(from) ? from : null);
+  };
   /** Real ms the last wait on the page ended at: data after it is unpaced. */
   let leftWaitAt = Number.NEGATIVE_INFINITY;
   let unpacedAt: number | null = null;
@@ -610,11 +614,11 @@ export function createHeldClock(deps: {
         const looked = lookedAt;
         lookedAt = { real: realNow(), held };
         // Only a wait on the page follows the server (`waiting`).
-        const following = marked > 0;
+        const following = windows.length > 0;
         // Not only while the connection is open: a stream's last chunk and
         // its end can both land inside one designed frame (review, Session C).
         if (
-          ((following ? network.ignoredDataAt() : network.followedDataAt()) ??
+          ((following ? network.outsideDataAt() : network.followedDataAt()) ??
             Number.NEGATIVE_INFINITY) > Math.max(looked.real, leftWaitAt)
         )
           unpacedAt ??= held;
@@ -699,16 +703,21 @@ export function createHeldClock(deps: {
         await shoot();
       }
     },
-    async waiting(run, ignore) {
-      if (ignore !== undefined) network.ignore(ignore);
-      marked++;
+    pageOf(wallMs) {
+      if (startEpochMs === null) throw new Error("pageOf before hold");
+      return wallMs - startEpochMs;
+    },
+    async waiting(run, since) {
+      const from = since ?? Number.NEGATIVE_INFINITY;
+      windows.push(from);
+      narrow();
       let out: Awaited<ReturnType<typeof run>>;
       try {
         out = await run();
       } finally {
-        marked--;
-        if (ignore !== undefined) network.ignore([]);
-        if (marked === 0) leftWaitAt = realNow();
+        windows.splice(windows.lastIndexOf(from), 1);
+        narrow();
+        if (windows.length === 0) leftWaitAt = realNow();
       }
       // A frame skipped for a wait is still taken. Frames a wait heard over
       // is owed are not played here: they would be page time added by how
@@ -717,7 +726,7 @@ export function createHeldClock(deps: {
       // (the opening's load: the first frame at 633, 667 or 700 ms by the
       // machine, CI macOS and a slowed recording here, 2026-11-16). Only a
       // sleep inside a wait plays them, as part of its own time.
-      if (marked === 0 && startEpochMs !== null && unshot) {
+      if (windows.length === 0 && startEpochMs !== null && unshot) {
         unshot = false;
         await shoot();
       }
