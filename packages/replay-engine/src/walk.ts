@@ -4284,6 +4284,13 @@ export async function runWalk(
     reason ??= "portFailure";
     failureNote = failureNote === null ? note : `${failureNote}; ${note}`;
   }
+  // The held clock closed a page that stopped answering: whatever a call
+  // on it said after, that is why the run stopped.
+  const heldFailed = held?.failed() ?? null;
+  if (heldFailed !== null) {
+    reason = "portFailure";
+    failureNote = heldFailed.message;
+  }
 
   if (failureNote !== null) {
     deps.onProgress?.({

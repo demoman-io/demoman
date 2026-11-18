@@ -24,6 +24,7 @@ function played(
     failedNote: undefined,
     signedOutAfter: null,
     lostHeadlessPage: false,
+    heldFailed: undefined,
     landingNote: undefined,
     arrival: null,
     datesOnScreen: [],

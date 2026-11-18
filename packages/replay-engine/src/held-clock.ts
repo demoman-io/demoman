@@ -316,6 +316,9 @@ export interface HeldClock extends Clock {
    *  of its browser: the final still rendered in 7.2 s beside one against
    *  0.5 s (measured 2026-11-16, compare/held-probe-two-runs.mjs). */
   release(): Promise<void>;
+  /** Why the clock gave up on the page, once a frame's read of it went
+   *  unanswered (`abandon` has closed it); the run's stop. Else null. */
+  failed(): Error | null;
 }
 
 export function createHeldClock(deps: {
@@ -330,6 +333,9 @@ export function createHeldClock(deps: {
   evaluate: (source: string, arg: number, server: boolean) => Promise<unknown>;
   /** Waits real time (default: a timer). */
   wait?: (ms: number) => Promise<void>;
+  /** Closes the page from the browser's side, where a page whose script
+   *  never ends still closes: every call waiting on it answers at once. */
+  abandon?: () => Promise<void>;
 }): HeldClock {
   const { cdp, network, realNow } = deps;
   const wait =
@@ -341,6 +347,8 @@ export function createHeldClock(deps: {
     Math.floor(ms / HELD_FRAME_MS + EPS) * HELD_FRAME_MS;
   let startEpochMs: number | null = null;
   let held = 0;
+  /** `HeldClock.failed`. */
+  let fatal: Error | null = null;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const spans: { startMs: number; endMs: number; labels: Set<string> }[] = [];
   let span: (typeof spans)[number] | null = null;
@@ -433,6 +441,7 @@ export function createHeldClock(deps: {
   };
   const advance = (to: number) =>
     new Promise<void>((resolve, reject) => {
+      if (fatal !== null) return reject(fatal);
       const budget = to - held;
       const settle = (error?: Error) => {
         clearTimeout(timer);
@@ -480,11 +489,29 @@ export function createHeldClock(deps: {
         );
     });
 
+  /** A frame's read of the page, bounded: page time stands still while a
+   *  script runs, so a loop that waits on `performance.now()` or
+   *  `Date.now()` never ends and its page never answers. */
+  const answered = <T>(read: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        fatal ??= new Error(
+          `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s at ${Math.round(held)} ms of the recording: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; record this page in real time with DEMOMAN_HELD_CLOCK=0`,
+        );
+        void deps.abandon?.().catch(() => undefined); // its calls answer, closed
+        reject(fatal);
+      }, GRANT_EXPIRY_TIMEOUT_MS);
+    });
+    return Promise.race([read, late]).finally(() => clearTimeout(timer));
+  };
+
   /** `server`: the frame was shot following the server (a stretch's). */
   const shoot = async (server = false) => {
+    if (fatal !== null) throw fatal;
     let failed: unknown;
     try {
-      failed = await deps.evaluate(PIN_ANIMATIONS, held, server);
+      failed = await answered(deps.evaluate(PIN_ANIMATIONS, held, server));
     } catch (e) {
       throw new Error(
         `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
@@ -496,7 +523,7 @@ export function createHeldClock(deps: {
       );
     for (const what of failed)
       unpinned.push({ atMs: held, what: String(what) });
-    const shot = await deps.capture();
+    const shot = await answered(deps.capture());
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
     if (listeners.length === 0)
@@ -604,6 +631,7 @@ export function createHeldClock(deps: {
     onFrame(listener) {
       listeners.push(listener);
     },
+    failed: () => fatal,
     loading: () => network.loading(),
     owing() {
       if (network.loading() || network.waitsSince(lookedAt.real) !== null)

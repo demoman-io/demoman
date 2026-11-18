@@ -276,7 +276,12 @@ export async function prepareStage(
     // installed does: recorded in real time it would read as another video.
     try {
       // Headless with no display to stand in for records at 1x (launch.ts).
-      held = await holdClock(launched.cdp, deps.pinnedNow, recordedAt ?? 1);
+      held = await holdClock(
+        launched.cdp,
+        deps.pinnedNow,
+        recordedAt ?? 1,
+        () => launched.page.close({ runBeforeUnload: false }),
+      );
     } catch (error) {
       return {
         ok: false,
@@ -313,6 +318,7 @@ async function holdClock(
   cdp: CdpSession,
   pinnedNow: string | undefined,
   scale: number,
+  abandon: () => Promise<void>,
 ): Promise<{ clock: HeldClock; network: NetworkWatch }> {
   // The watch stamps requests on the page's clock (DEM-202): before the
   // hold, a request opens at its start, 0.
@@ -326,6 +332,7 @@ async function holdClock(
     cdp,
     network,
     scale,
+    abandon,
     realNow: Date.now,
     capture: async () => {
       const reply = await cdp.send("Page.captureScreenshot", {
@@ -432,6 +439,8 @@ export interface Played {
   failedNote: string | undefined;
   signedOutAfter: string | null;
   lostHeadlessPage: boolean;
+  /** `HeldClock.failed`'s sentence: the stop's whole detail. */
+  heldFailed: string | undefined;
   landingNote: RunReport["landing"];
   arrival: Arrival;
   /** Date-looking text on the last screen, [] when none or unreadable
@@ -576,7 +585,10 @@ export async function playOnStage(
   // none: its page going away is the browser crashing or the page closing
   // itself, which stays `portFailure` and says so (`lostHeadlessPage`).
   const pageLost = deps.session.closedSinceEnsure();
-  const lostHeadlessPage = pageLost && deps.session.headless;
+  const heldFailed = prepared.held?.clock.failed()?.message;
+  // A page the held clock closed is not lost: `heldFailed` says why.
+  const lostHeadlessPage =
+    pageLost && deps.session.headless && heldFailed === undefined;
   const result: AuthoredResult = {
     ...authored,
     ...attributeClosedWindow(authored, pageLost && !deps.session.headless),
@@ -669,6 +681,7 @@ export async function playOnStage(
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    heldFailed,
     landingNote,
     arrival,
   };
@@ -715,6 +728,7 @@ export function stopDetail(target: string, played: Played): string | undefined {
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    heldFailed,
     closedShadowRoot,
   } = played;
   const waitSaw =
@@ -722,25 +736,27 @@ export function stopDetail(target: string, played: Played): string | undefined {
   // `ownDetail` is the run's own, read off the walk before any re-label: a
   // run re-labelled `signedOut` after it stopped still says why it stopped.
   const ownDetail =
-    result.reason === "portFailure" && lostHeadlessPage
-      ? `Demoman's headless browser lost the run's page before the run finished: the browser crashed, or the page closed itself. There is no window anyone could have closed, and nothing in the script is at fault — run it once more${failedNote === undefined ? "" : ` (${failedNote})`}`
-      : result.reason === "portFailure" && failedNote !== undefined
-        ? portFailureDetail(failedNote)
-        : result.reason === "deviceFailed" && failedNote !== undefined
-          ? failedNote
-          : result.reason === "clickNotDelivered" && failedNote !== undefined
-            ? clickNotDeliveredDetail(failedNote)
-            : waitSaw === "notVisible"
-              ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
-              : waitSaw === "ambiguous"
-                ? "the step waited for an element whose target matched more than one element on the page, so the wait could not tell which to watch — name a more precise target (a stableId, or a role with a fuller name, from a snapshot of the page)"
-                : waitSaw === "pageSilent" || waitSaw === "pageFaulted"
-                  ? reasonSentence(waitSaw)
-                  : navigationError !== null && result.outcome !== "complete"
-                    ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-                    : closedShadowRoot && notFound(result) && result.reason
-                      ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
-                      : undefined;
+    heldFailed !== undefined
+      ? heldFailed
+      : result.reason === "portFailure" && lostHeadlessPage
+        ? `Demoman's headless browser lost the run's page before the run finished: the browser crashed, or the page closed itself. There is no window anyone could have closed, and nothing in the script is at fault — run it once more${failedNote === undefined ? "" : ` (${failedNote})`}`
+        : result.reason === "portFailure" && failedNote !== undefined
+          ? portFailureDetail(failedNote)
+          : result.reason === "deviceFailed" && failedNote !== undefined
+            ? failedNote
+            : result.reason === "clickNotDelivered" && failedNote !== undefined
+              ? clickNotDeliveredDetail(failedNote)
+              : waitSaw === "notVisible"
+                ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
+                : waitSaw === "ambiguous"
+                  ? "the step waited for an element whose target matched more than one element on the page, so the wait could not tell which to watch — name a more precise target (a stableId, or a role with a fuller name, from a snapshot of the page)"
+                  : waitSaw === "pageSilent" || waitSaw === "pageFaulted"
+                    ? reasonSentence(waitSaw)
+                    : navigationError !== null && result.outcome !== "complete"
+                      ? `${target} did not load (${navigationError}) — check that the app is running at that address`
+                      : closedShadowRoot && notFound(result) && result.reason
+                        ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
+                        : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The video was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

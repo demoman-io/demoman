@@ -1094,6 +1094,22 @@ describe("createHeldClock", () => {
     expect(listeners()).toBe(0);
   });
 
+  // Default-readiness, 2026-11-18: a page spinning on performance.now()
+  // never answers on a held clock. Red if the run hangs instead of saying so.
+  it("says so when the page never answers a frame's read, instead of hanging", async () => {
+    vi.useFakeTimers();
+    const { clock, frames } = setup({
+      pin: () => new Promise(() => undefined) as never,
+    });
+    await clock.hold(START);
+    const said = expect(clock.sleep(100)).rejects.toThrow(
+      /did not answer within 15 s.*DEMOMAN_HELD_CLOCK=0/,
+    );
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS);
+    await said;
+    expect(frames).toHaveLength(0);
+  });
+
   // Review of 2026-11-16: a grant does not expire while a navigation waits
   // on its server. Red if a slow server is blamed on Chrome, or stops the
   // run while its answer is still arriving.

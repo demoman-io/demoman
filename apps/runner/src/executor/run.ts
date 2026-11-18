@@ -651,11 +651,13 @@ export async function runScript(
   }
   // The page's last read is done: a held page is let go before the final
   // still, which renders in this browser. Said, not thrown: the take is whole.
-  await prepared.held?.clock.release().catch((error: unknown) => {
-    log(
-      `the held page could not be let go (${messageOf(error)}); the rest of this call may be slow`,
-    );
-  });
+  // One the clock gave up on is closed already.
+  if (prepared.held?.clock.failed() === null)
+    await prepared.held.clock.release().catch((error: unknown) => {
+      log(
+        `the held page could not be let go (${messageOf(error)}); the rest of this call may be slow`,
+      );
+    });
 
   const built = buildRunReport({
     film,

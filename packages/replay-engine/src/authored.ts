@@ -1903,8 +1903,12 @@ export async function runAuthored(
     // be mid-run: a source that stopped left the walk's loop by ending, so the
     // only reason the walk can add afterwards is a failure to assemble or
     // persist the bundle — which is the LATER fact, and the first stop reason
-    // is the one that explains the run.
-    reason: run.stop() ?? walked.reason,
+    // is the one that explains the run. Except a page the held clock gave up
+    // on: the source's stop is a call on the closed page failing after it.
+    reason:
+      deps.held?.failed() != null
+        ? walked.reason
+        : (run.stop() ?? walked.reason),
     document: assembled.document,
     documentError: assembled.error,
     steps: run.steps,

@@ -108,6 +108,8 @@ function fakeHeld(o: {
   loading?: () => boolean;
   /** `HeldClock.unpaced`. */
   unpacedAt?: number;
+  /** `HeldClock.failed`. */
+  failed?: Error;
 }) {
   /** Every sleep the walk made, from when (the walk's ms, as markers), and
    *  whether inside a wait on the page. */
@@ -145,6 +147,7 @@ function fakeHeld(o: {
     unpaced: () => o.unpacedAt ?? null,
     through: (read) => read,
     release: async () => undefined,
+    failed: () => o.failed ?? null,
     sleep: async (ms) => {
       sleeps.push({ atMs: now - START, ms, waiting: waitDepth > 0 });
       const end = now + ms;
@@ -224,6 +227,8 @@ async function run(
      *  document, as a Next.js link's `pushState`), or a new document that
      *  commits. */
     navigatesInSettle?: "sameDocument" | "newDocument";
+    /** `HeldClock.failed`: the clock gave up on the page. */
+    heldFailed?: Error;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -237,6 +242,7 @@ async function run(
   const settleWaiters: { due: number; answer: () => void }[] = [];
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
+    ...(opts.heldFailed === undefined ? {} : { failed: opts.heldFailed }),
     roundTrip: () => cdp.send("Runtime.evaluate", { expression: "0" }),
     loading: () => loadingUntil !== null,
     network,
@@ -1020,6 +1026,19 @@ describe("the walk on a held clock", () => {
     expect(result.reason).toBe("portFailure");
     expect(progress.filter((p) => p.state === "failed").at(-1)?.note).toMatch(
       /held frame at [\d.]+ ms could not be filed \(disk full\)/,
+    );
+  });
+
+  // Default-readiness, 2026-11-18: a page the clock gave up on and closed
+  // makes every later call fail; the run says the clock's reason. Red if a
+  // step that failed after it names its own (a find that "faulted").
+  it("stops with the held clock's reason once it gave up on the page", async () => {
+    const { result, progress } = await run([click("gone")], {
+      heldFailed: new Error("the page did not answer within 15 s"),
+    });
+    expect(result.reason).toBe("portFailure");
+    expect(progress.filter((p) => p.state === "failed").at(-1)?.note).toBe(
+      "the page did not answer within 15 s",
     );
   });
 
