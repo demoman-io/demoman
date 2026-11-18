@@ -95,6 +95,22 @@ const repoRelative = (p: unknown): p is string =>
   !p.includes("\\") &&
   !p.split("/").includes("..");
 
+/**
+ * Why a repo path is no place for a file a flow writes, or null (DEM-111):
+ * never in any `.git` folder (a nested repo's too) or in `.github`, and,
+ * given `ext` (".mp4", ".gif", ".json"), only a name its bytes fit. Read
+ * by `add`, whose paths an agent names, and by the kept file's reader,
+ * whose paths a commit names and refresh writes.
+ */
+export function outputPathRefusal(path: string, ext?: string): string | null {
+  const parts = path.toLowerCase().split("/");
+  if (parts.includes(".git")) return `${path} is inside a .git folder`;
+  if (parts[0] === ".github") return `${path} is inside .github`;
+  if (ext !== undefined && !path.toLowerCase().endsWith(ext))
+    return `${path} does not end in ${ext}`;
+  return null;
+}
+
 /** A bare file name: what a `files` DemoScript's outputs are. */
 const bareName = (p: unknown): p is string =>
   repoRelative(p) && !p.includes("/");
@@ -142,6 +158,16 @@ export function parseKept(text: string, file: string): Parsed {
       : "repo-relative, posix, without ..";
   if (raw.report !== null && !pathOk(raw.report))
     return bad(`report must be null or ${pathRule}`);
+  if (deliver === "commit") {
+    for (const [what, p, ext] of [
+      ["report", raw.report, ".json"],
+      ["logo", raw.logo, undefined],
+      ["wallpaper", wallpaper, undefined],
+    ] as const) {
+      const why = typeof p === "string" ? outputPathRefusal(p, ext) : null;
+      if (why !== null) return bad(`${what}: ${why}`);
+    }
+  }
   let flow: string;
   if (v1) {
     const f = raw.from;
@@ -171,6 +197,9 @@ export function parseKept(text: string, file: string): Parsed {
       );
     if (o.fileType !== "mp4" && o.fileType !== "gif")
       return bad(`outputs[${i}].fileType must be "mp4" or "gif"`);
+    const why =
+      deliver === "commit" ? outputPathRefusal(o.path, `.${o.fileType}`) : null;
+    if (why !== null) return bad(`outputs[${i}].path: ${why}`);
     if (o.aspect !== "auto" && o.aspect !== "16:9" && o.aspect !== "9:16")
       return bad(`outputs[${i}].aspect must be "auto", "16:9" or "9:16"`);
     if (!(EXPORT_QUALITY_VALUES as readonly unknown[]).includes(o.quality))

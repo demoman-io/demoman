@@ -36,6 +36,7 @@ import {
   LEGACY_FLOWS_DIR,
   normaliseName,
   notCarriedOf,
+  outputPathRefusal,
   type PageScreens,
   parseFilmedCode,
   parseKept,
@@ -255,19 +256,16 @@ export async function keepVideo(
       const at = await inRepo(asked);
       if (typeof at !== "string") return refuse("outsideRepo", at.outside);
       p = at;
-      // An agent names these paths (DEM-111): never git's own folder or
-      // the repo's workflows, and only a name its file type's bytes fit.
-      const top = (p.split("/")[0] ?? "").toLowerCase();
-      if (top === ".git" || top === ".github")
+      // An agent names these paths (DEM-111): the rule the kept file's
+      // reader holds them to, asked before anything renders.
+      const why = outputPathRefusal(
+        p,
+        i < args.to.length ? `.${args.to[i]?.fileType}` : ".json",
+      );
+      if (why !== null)
         return refuse(
           "keepRefused",
-          `${p} is inside ${top} — add writes its outputs anywhere in the repo but there`,
-        );
-      const ext = i < args.to.length ? `.${args.to[i]?.fileType}` : ".json";
-      if (!p.toLowerCase().endsWith(ext))
-        return refuse(
-          "keepRefused",
-          `${p} does not end in ${ext}, which its ${i < args.to.length ? "file type" : "run report"} is — give it a path that does`,
+          `${why} — add never writes into .git or .github, and an output's path ends in its file type's extension`,
         );
     }
     if (paths.includes(p) || p === fileRel) {
@@ -386,7 +384,12 @@ export async function keepVideo(
           `${p} is already there and could not be read (${messageOf(error)}), so add does not replace it — choose another path, or remove it`,
         );
       }
-      if (p !== report && "found" in readTag(bytes)) continue;
+      // This flow's own report by what it says, when its recipe cannot be
+      // read to list it (a repair by adding again).
+      if (
+        p === report ? reportOf(bytes) === video.id : "found" in readTag(bytes)
+      )
+        continue;
       return refuse(
         "outputTaken",
         `${p} is already there and is not ${p === report ? "this flow's report" : "a Demoman video"} — add replaces only its own files; choose another path, or remove ${p}`,
@@ -1594,6 +1597,20 @@ export async function libraryAhead(
   }
 }
 
+/** The flow id a served run report (`servedRunReport`) names, or null. */
+function reportOf(bytes: Uint8Array): string | null {
+  try {
+    const flow = (
+      JSON.parse(new TextDecoder().decode(bytes)) as {
+        flow?: { id?: unknown };
+      }
+    ).flow;
+    return typeof flow?.id === "string" ? flow.id : null;
+  } catch {
+    return null; // not JSON: not a report, which the caller says
+  }
+}
+
 /** `path` as a repo-relative posix path when it is inside the repo once
  *  links are followed (`rootReal` is the root's realpath), else why not. */
 export async function repoPath(
@@ -1612,7 +1629,19 @@ export async function repoPath(
     rel !== ".." &&
     !rel.startsWith(`..${sep}`) &&
     !isAbsolute(rel);
-  if (inside) return rel.split(sep).join("/");
+  if (inside) {
+    // Where it really lands, links followed: a link into .git or .github
+    // is no way round the rule (DEM-111).
+    const why = outputPathRefusal(
+      relative(rootReal, real as string)
+        .split(sep)
+        .join("/"),
+    );
+    if (why === null) return rel.split(sep).join("/");
+    return {
+      outside: `${path} resolves to ${real}, and ${why} — ${who === "keep" ? "add" : "refresh"} never writes into .git or .github`,
+    };
+  }
   return {
     outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who === "keep" ? "add" : "refresh"} writes only into the repo the flow is in`,
   };

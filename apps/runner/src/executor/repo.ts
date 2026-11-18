@@ -242,40 +242,69 @@ async function treeOf(
     }
     // A clean or process filter runs as the user on `add`. The ones the
     // user's own global or system config sets up (git-lfs's install) stay
-    // on, so the tree is the one git would commit; the ones this folder's
-    // own config names are off, since the folder is the caller's choice
-    // (DEM-113). Exit 1 is "no such key".
-    const listed = await run(
-      [
-        "config",
-        "--show-scope",
-        "--name-only",
-        "--get-regexp",
-        "^filter\\..+\\.(clean|process)$",
-      ],
-      root,
-    );
-    if (listed.code !== 0 && listed.code !== 1)
-      return failed("config --get-regexp filter", listed);
-    const own = new Set<string>();
-    for (const line of listed.stdout.split("\n")) {
-      const [scope, key] = line.split("\t");
-      if (key === undefined || (scope !== "local" && scope !== "worktree"))
+    // as they are, so the tree is the one git would commit; any this
+    // folder's config sets or changes go back to the user's own value, or
+    // off when there is none (DEM-113). Read as "every scope" against
+    // global and system: `--show-scope` needs git 2.26, and `--worktree`
+    // refuses a repo with several worktrees.
+    const filters = async (
+      scope: string[],
+    ): Promise<Map<string, string> | { code: number; stderr: string }> => {
+      const r = await run(
+        [
+          "config",
+          "-z",
+          ...scope,
+          "--get-regexp",
+          "^filter\\..+\\.(clean|process)$",
+        ],
+        root,
+      );
+      // Exit 1 is "no such key".
+      if (r.code !== 0 && r.code !== 1) return r;
+      const keys = new Map<string, string>();
+      for (const entry of r.stdout.split("\0")) {
+        if (entry === "") continue;
+        const at = entry.indexOf("\n");
+        // The last value wins, as it does for git.
+        if (at === -1) keys.set(entry, "");
+        else keys.set(entry.slice(0, at), entry.slice(at + 1));
+      }
+      return keys;
+    };
+    const effective = await filters([]);
+    if (!(effective instanceof Map))
+      return failed("config --get-regexp filter", effective);
+    const outer = new Map<string, string>();
+    for (const scope of ["--system", "--global"]) {
+      const read = await filters([scope]);
+      // Unreadable: every filter counts as the folder's, and goes off.
+      if (!(read instanceof Map)) {
+        log(
+          `git's ${scope.slice(2)} config could not be read for filters (${read.stderr.trim() || `exit ${read.code}`}), so every filter is off while the filmed tree is read`,
+        );
         continue;
-      own.add(key.slice("filter.".length, key.lastIndexOf(".")));
+      }
+      for (const [k, v] of read) outer.set(k, v);
     }
-    const off = [...own].flatMap((name) => [
-      "-c",
-      `filter.${name}.clean=`,
-      "-c",
-      `filter.${name}.process=`,
-      "-c",
-      `filter.${name}.required=false`,
-    ]);
+    const nameOf = (key: string) =>
+      key.slice("filter.".length, key.lastIndexOf("."));
+    // Only the keys the folder changed: an empty `process` given with -c is
+    // still a process, and git then runs no `clean` either. A key blanked
+    // (none of the user's own) leaves the filter not `required`.
+    const changed = [...effective.keys()].filter(
+      (k) => outer.get(k) !== effective.get(k),
+    );
+    const own = new Set(changed.map(nameOf));
+    const blanked = new Set(changed.filter((k) => !outer.has(k)).map(nameOf));
+    const off = [
+      ...changed.flatMap((k) => ["-c", `${k}=${outer.get(k) ?? ""}`]),
+      ...[...blanked].flatMap((n) => ["-c", `filter.${n}.required=false`]),
+    ];
     const unfiltered = [...own].sort();
     if (unfiltered.length > 0)
       log(
-        `the filmed tree was read without the filters this folder's own git config names (${unfiltered.join(", ")}): Demoman does not run them`,
+        `the filmed tree was read with the filters this folder's git config sets left out (${unfiltered.join(", ")}): Demoman runs only the ones your own global or system config sets up`,
       );
     const env = { GIT_INDEX_FILE: index };
     const add = await run([...off, "add", "-A"], root, env);

@@ -254,8 +254,10 @@ describe("readFilmedCode", () => {
   });
 
   // DEM-113. Red: drop the `-c filter.<name>.clean=` the add carries; the
-  // folder's own clean and process programs run as the user.
-  it("never runs a filter the folder's own config names, keeps the global ones, and says so", async () => {
+  // folder's own clean and process programs run as the user. Or blank a
+  // redefined global filter instead of restoring it: `global-clean` stays
+  // unmade.
+  it("never runs a filter the folder's own config sets, keeps the user's own, and says so", async () => {
     const dir = committed("film-filters");
     const marks = join(scratch, "film-filters-marks");
     mkdirSync(marks);
@@ -268,27 +270,35 @@ describe("readFilmedCode", () => {
     };
     git(dir, "config", "filter.evil.clean", program("local-clean"));
     git(dir, "config", "filter.evil2.process", program("local-process"));
+    // A global filter the folder redefines, and one it sets the same, as
+    // `git lfs install --local` does.
+    git(dir, "config", "filter.kept.clean", program("local-kept"));
+    git(dir, "config", "filter.same.clean", program("same"));
     const globalConfig = join(scratch, "film-filters-global");
     writeFileSync(
       globalConfig,
-      `[filter "kept"]\n\tclean = ${program("global-clean")}\n`,
+      `[filter "kept"]\n\tclean = ${program("global-clean")}\n` +
+        `[filter "same"]\n\tclean = ${program("same")}\n`,
     );
     writeFileSync(
       join(dir, ".gitattributes"),
-      "*.a filter=evil\n*.b filter=evil2\n*.c filter=kept\n",
+      "*.a filter=evil\n*.b filter=evil2\n*.c filter=kept\n*.d filter=same\n",
     );
-    for (const f of ["f.a", "f.b", "f.c"]) writeFileSync(join(dir, f), "hi\n");
+    for (const f of ["f.a", "f.b", "f.c", "f.d"])
+      writeFileSync(join(dir, f), "hi\n");
     const was = process.env.GIT_CONFIG_GLOBAL;
     process.env.GIT_CONFIG_GLOBAL = globalConfig;
     try {
-      // Premise: a plain add here runs the local clean filter and the
-      // global one (a process filter that fails is git's to report).
-      execFileSync("git", ["add", "f.a", "f.c"], {
+      // Premise: a plain add here runs the folder's own clean filters, its
+      // redefinition over the global one included (a process filter that
+      // fails is git's to report).
+      execFileSync("git", ["add", "f.a", "f.c", "f.d"], {
         cwd: dir,
         env: { ...process.env, GIT_INDEX_FILE: join(scratch, "film-idx") },
       });
       expect(existsSync(join(marks, "local-clean"))).toBe(true);
-      expect(existsSync(join(marks, "global-clean"))).toBe(true);
+      expect(existsSync(join(marks, "local-kept"))).toBe(true);
+      expect(existsSync(join(marks, "global-clean"))).toBe(false);
       rmSync(marks, { recursive: true });
       mkdirSync(marks);
 
@@ -298,12 +308,15 @@ describe("readFilmedCode", () => {
       );
       expect(filmed).toMatchObject({
         dirty: true,
-        unfiltered: ["evil", "evil2"],
+        unfiltered: ["evil", "evil2", "kept"],
       });
       expect(existsSync(join(marks, "local-clean"))).toBe(false);
       expect(existsSync(join(marks, "local-process"))).toBe(false);
+      expect(existsSync(join(marks, "local-kept"))).toBe(false);
+      // The user's own: restored over the redefinition, and left alone.
       expect(existsSync(join(marks, "global-clean"))).toBe(true);
-      expect(logs.join("\n")).toContain("(evil, evil2)");
+      expect(existsSync(join(marks, "same"))).toBe(true);
+      expect(logs.join("\n")).toContain("(evil, evil2, kept)");
     } finally {
       if (was === undefined) delete process.env.GIT_CONFIG_GLOBAL;
       else process.env.GIT_CONFIG_GLOBAL = was;
