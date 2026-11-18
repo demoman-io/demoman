@@ -277,6 +277,32 @@ describe("checkCurrent", () => {
     ]);
   });
 
+  // DEM-131. Red: drop the hex check; git is then asked about the option.
+  it("reads a receipt whose commit is not a commit id as recorded with no commit, and never asks git", async () => {
+    const a = flow(1, "Place an order");
+    await add(
+      a,
+      receipt(a, { commit: "--output=/tmp/x", tree: "t", dirty: false }),
+    );
+    const asked: string[] = [];
+    const r = await checkCurrent(
+      { repoRoot: repo },
+      {
+        changedSince: async (c) => {
+          asked.push(c);
+          return [];
+        },
+      },
+    );
+    expect(r).toEqual({
+      current: false,
+      lines: [
+        "Place an order: recorded with no commit (its receipt's commit is not a commit id)",
+      ],
+    });
+    expect(asked).toEqual([]);
+  });
+
   it("reads a files flow's receipt from --previous", async () => {
     const a = flow(1, "Place an order", "files");
     await add(a, receipt(a, { commit: AT, tree: "t", dirty: false }));
