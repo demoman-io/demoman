@@ -11,4 +11,7 @@ export function slowExcludes(
 export function testWorkers(
   weight: "heavy" | "light",
   env?: Record<string, string | undefined>,
-): { minWorkers?: number; maxWorkers?: number };
+): { minWorkers?: number; maxWorkers?: number; globalSetup?: string[] };
+export function suiteLock(env?: Record<string, string | undefined>): {
+  globalSetup?: string[];
+};

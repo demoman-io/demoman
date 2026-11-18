@@ -19,21 +19,6 @@ on:
       - ".github/workflows/ci-ts.yml"
       - ".github/actions/**"
   pull_request:
-    paths:
-      - "packages/**"
-      - "brand/**"
-      - "apps/runner/**"
-      - "apps/mcp/**"
-      - "apps/studio/**"
-      - "apps/cli/**"
-      - "scripts/**"
-      - "pnpm-workspace.yaml"
-      - "pnpm-lock.yaml"
-      - "package.json"
-      - "biome.json"
-      - "tsconfig.base.json"
-      - ".github/workflows/ci-ts.yml"
-      - ".github/actions/**"
 
 # A newer push to a pull request replaces the run in flight: nobody reads
 # the result of a commit that is no longer its head. Not on main: there each
@@ -56,7 +41,52 @@ env:
 # failed, which was every run from 2026-10-08 to 2026-10-17. Here each job
 # has its own machine, and a red one does not hide the others.
 jobs:
+  # Every pull request runs this workflow, so the gate below always reports:
+  # a required check whose workflow a path filter skipped stays "Expected"
+  # forever and blocks the merge. Whether the change touches product code is
+  # decided here instead, from the same list `push` filters on (the one
+  # source of which paths are product). A failed `gh api` or `yq` fails
+  # this job and so the gate, rather than reading as "no product change".
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      product: ${{ steps.diff.outputs.product }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          product=true
+          n=0
+          if [ "$EVENT" = pull_request ]; then
+            product=false
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
+            globs=$(yq '.on.push.paths[]' .github/workflows/ci-ts.yml)
+            [ -n "$globs" ] || { echo "::error::no on.push.paths in ci-ts.yml"; exit 1; }
+            [ -n "$files" ] || { echo "::error::the PR's file list came back empty"; exit 1; }
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              n=$((n + 1))
+              while IFS= read -r g; do
+                # Unquoted on purpose: in [[ ]] the glob's * also crosses /.
+                if [[ $f == $g ]]; then product=true; fi
+              done <<<"$globs"
+            done <<<"$files"
+          fi
+          echo "changes: product=$product ($n files)"
+          echo "product=$product" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.product == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +134,8 @@ jobs:
   # a few times. A red macOS job still shows red on the run; it does not
   # fail it.
   packages:
+    needs: changes
+    if: needs.changes.outputs.product == 'true'
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
@@ -147,6 +179,8 @@ jobs:
   # it was 3012 s of its shard's 3014 s (run 41224304573, 2026-10-31).
   # Standard runners cost nothing on this public repo; more of them is free.
   runner:
+    needs: changes
+    if: needs.changes.outputs.product == 'true'
     runs-on: ${{ matrix.os }}
     # macOS not blocking yet: DEM-151, DEM-152 (above the packages job).
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
@@ -164,6 +198,8 @@ jobs:
         run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/4 --exclude 'test/refresh-*.slow.test.ts'
 
   refresh:
+    needs: changes
+    if: needs.changes.outputs.product == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -176,3 +212,24 @@ jobs:
           browser: "true"
       - name: Tests (the runner's refresh lane, ${{ matrix.part }})
         run: pnpm --filter @demoman/runner test test/refresh-${{ matrix.part }}.slow.test.ts
+
+  # The one check a ruleset requires. A skipped job counts as passing; anything
+  # else that is not `success` fails it. It reads the run's jobs, not `needs`:
+  # a matrix has one result, which hides which leg did not run, and the macOS
+  # legs are advisory (continue-on-error), so they are left out.
+  gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    needs: [changes, check, packages, runner, refresh]
+    if: always()
+    permissions:
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jobs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.name != "CI gate" and (.name | ascii_downcase | contains("macos") | not)) | "\(.name)\t\(.conclusion)"')
+          [ -n "$jobs" ] || { echo "::error::the run's job list came back empty"; exit 1; }
+          echo "$jobs"
+          bad=$(printf '%s\n' "$jobs" | awk -F'\t' '$2 != "success" && $2 != "skipped" { printf "%s%s", s, $1; s = ", " }')
+          [ -z "$bad" ] || { echo "::error::not success or skipped: $bad"; exit 1; }

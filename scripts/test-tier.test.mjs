@@ -15,6 +15,7 @@ import {
   ciRetry,
   slowExcludes,
   testTier,
+  suiteLock,
   testWorkers,
 } from "./test-tier.mjs";
 
@@ -53,12 +54,17 @@ test("a tier it does not know is refused, not guessed", () => {
 });
 
 test("off CI, a package runs 2 files at once if it launches browsers, else 4", () => {
-  assert.deepEqual(testWorkers("heavy", {}), { minWorkers: 1, maxWorkers: 2 });
-  assert.deepEqual(testWorkers("light", {}), { minWorkers: 1, maxWorkers: 4 });
+  for (const [weight, max] of [["heavy", 2], ["light", 4]]) {
+    const { globalSetup, ...rest } = testWorkers(weight, {});
+    assert.deepEqual(rest, { minWorkers: 1, maxWorkers: max });
+    assert.equal(globalSetup?.length, 1);
+    assert.ok(globalSetup[0].endsWith("/scripts/suite-lock.mjs"), globalSetup[0]);
+  }
 });
 
-test("CI keeps vitest's own default", () => {
+test("CI keeps vitest's own default, and takes no lock", () => {
   assert.deepEqual(testWorkers("heavy", { CI: "true" }), {});
+  assert.deepEqual(suiteLock({ CI: "true" }), {});
 });
 
 test("off CI, a failure is not retried", () => {
@@ -93,6 +99,8 @@ test("on CI, one retry, and a pass on it or a noted skip is annotated", () => {
 test("DEMOMAN_TEST_WORKERS overrides both, and a bad one is refused", () => {
   const env = { DEMOMAN_TEST_WORKERS: "1", CI: "true" };
   assert.deepEqual(testWorkers("light", env), { minWorkers: 1, maxWorkers: 1 });
+  const off = testWorkers("light", { DEMOMAN_TEST_WORKERS: "1" });
+  assert.ok(off.globalSetup?.[0].endsWith("/scripts/suite-lock.mjs"));
   assert.throws(
     () => testWorkers("heavy", { DEMOMAN_TEST_WORKERS: "0" }),
     /DEMOMAN_TEST_WORKERS must be a whole number of 1 or more, got "0"/,
