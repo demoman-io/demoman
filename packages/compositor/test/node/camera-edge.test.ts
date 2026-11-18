@@ -230,3 +230,56 @@ describe("frameTrack near the canvas edge", () => {
     }
   });
 });
+
+// DEM-211 (Excalidraw, 2026-11-18): the spring chased a pointer the zoomed
+// window could not reach (a toolbar at the page's edge), and the render
+// clamp stopped it dead at the wall at full speed, then let it go at full
+// speed. Aimed at where the window can stand, it eases into the edge.
+describe("the pointer-follow toward a target out of reach", () => {
+  const { drawn, legal } = stage(LANDSCAPE_1080P);
+  const MIDDLE: Vec = { x: 640, y: 400 };
+  const TOOLBAR: Vec = { x: 640, y: 20 };
+  const zoomed: CameraKey[] = [
+    cameraKey({ outputTimeMs: 0, center: MIDDLE, scale: 1 }),
+    cameraKey({ outputTimeMs: 1500, center: MIDDLE, scale: 2 }),
+  ];
+  const track: CameraTrack = {
+    cameraKeys: zoomed,
+    cameraFollow: solveFollow({
+      keys: zoomed,
+      cursorAt: (at) => (at < 2500 ? MIDDLE : TOOLBAR),
+      holds: [],
+      outputDurationMs: 6000,
+      rate: 10,
+      legal,
+    }),
+  };
+  const times = instants({ departMs: 2500, arriveMs: 5500 });
+  const steps = times.slice(1).map((at, i) => {
+    const a = drawn(track, times[i] as number).focus;
+    const b = drawn(track, at).focus;
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  });
+
+  it("has the fixture it claims: the toolbar is out of the window's reach at 2x", () => {
+    expect(legal(TOOLBAR, 2).y).toBeGreaterThan(TOOLBAR.y + 100);
+  });
+
+  it("slows into the edge instead of stopping dead against it", () => {
+    const peak = Math.max(...steps);
+    expect(peak, "the camera moves").toBeGreaterThan(5);
+    const worstDrop = Math.max(
+      ...steps.slice(1).map((s, i) => (steps[i] as number) - s),
+    );
+    expect(
+      worstDrop / peak,
+      JSON.stringify(steps.map((s) => +s.toFixed(1))),
+    ).toBeLessThan(0.2);
+  });
+
+  it("still ends at the edge, as near the toolbar as the window can stand", () => {
+    const end = drawn(track, 5500).center;
+    const wall = legal(TOOLBAR, 2);
+    expect(Math.hypot(end.x - wall.x, end.y - wall.y)).toBeLessThan(1);
+  });
+});

@@ -1,6 +1,7 @@
 import { BRANDING_DEFAULTS, type SceneDocument } from "@demoman/scene-schema";
 import type { FrameBundle } from "../bundle.js";
-import type { Rect } from "../geometry.js";
+import type { Rect, Vec } from "../geometry.js";
+import { frameCamera } from "../plan/camera.js";
 import {
   type ResolvedPlan,
   resolveCameraFollow,
@@ -151,6 +152,15 @@ export function composeForTarget(args: {
         cursor: resolved.cursor,
         motion: resolved.motion,
         drawsPointer: !resolved.touch && !resolved.cursorLook.hidden,
+        // The clamp `sceneCameraAt` draws with: the follow aims in reach.
+        legal: (center: Vec, scale: number) =>
+          frameCamera(
+            { center, scale },
+            contentScale(presentation.frameRect, resolved.plan.viewport),
+            presentation.frameRect,
+            resolved.plan.viewport,
+            target,
+          ).center,
       }),
     },
     presentation,

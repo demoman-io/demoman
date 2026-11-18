@@ -59,9 +59,12 @@ function departs(keys: CameraKey[], i: number): number {
  *   at or below it) at rest on that key's centre, so the push-in, its
  *   landing and the first click's framing are exactly the keys'. It runs
  *   through every following key above 1 up to the pull-out.
- * - The target is the pointer, unclamped: `frameCamera` clamps at render as
- *   it always has. It is the aim in force instead (the latest key whose
- *   move has set off) when `cursorAt` is null (follow off, or no pointer
+ * - The target is the pointer, moved by `legal` to where the window can
+ *   stand at the zoom of that instant: a spring chasing a point out of reach
+ *   (a toolbar at the page's edge) was stopped dead against the edge by the
+ *   render clamp, at full speed, and let go at full speed (DEM-211). Aimed
+ *   in reach, it eases into the edge. It is the aim in force instead (the
+ *   latest key whose move has set off) when `cursorAt` is null (follow off, or no pointer
  *   is drawn), when it answers null, and while a drag's button is held:
  *   the drag's zoom is fitted to both its ends, and trailing the hand from
  *   the press would cut off the far one. It stays the aim after the release
@@ -76,8 +79,12 @@ export function solveFollow(args: {
   outputDurationMs: number;
   /** `MotionTimings.followRatePerS`. */
   rate: number;
+  /** Where the camera can stand at a scale (`frameTrack`'s canvas clamp).
+   *  The default aims as planned, for readers with no canvas. */
+  legal?: (center: Vec, scale: number) => Vec;
 }): FollowStretch[] {
   const { keys, cursorAt, holds, outputDurationMs } = args;
+  const legal = args.legal ?? ((center: Vec) => center);
   const omega = args.rate / 1000;
   const held = (t: number) => holds.some((h) => h.startMs <= t && t < h.endMs);
   const stretches: FollowStretch[] = [];
@@ -111,34 +118,72 @@ export function solveFollow(args: {
     // A hand resting where a drag let go is still in the drag's fitted
     // frame: the aim holds until it moves on, or the camera lurches to the
     // drop as the button lifts (the Sublime board, 2026-11-08).
+    // The aim at the release, kept for the whole rest: the next step's key
+    // can set off before the hand does, and aiming there sent the camera to
+    // it and back to the hand as it moved (DEM-211, Excalidraw).
+    // Leaving the rest, the aim is the hand plus where the aim stood from
+    // it, that offset fading as the hand travels twice its length: each
+    // step of the aim keeps more than half of the hand's own step, so the
+    // camera never sets off against the hand. Aimed at the hand at once, it
+    // first went toward the drop, below, as the hand went up (DEM-211).
     let holding = false;
     let rest: Vec | null = null;
+    let restAim: Vec = landing.center;
+    let fade: {
+      offset: Vec;
+      length: number;
+      travelled: number;
+      last: Vec;
+    } | null = null;
     const targetAt = (t: number): Vec => {
       if (held(t)) {
         holding = true;
+        fade = null;
         return aimAt(t);
       }
       const hand = cursorAt?.(t) ?? null;
       if (holding) {
         holding = false;
         rest = hand;
+        restAim = aimAt(t);
       }
       if (
         hand !== null &&
         rest !== null &&
         Math.hypot(hand.x - rest.x, hand.y - rest.y) < CURSOR_MOTION_EPSILON_PX
       ) {
-        return aimAt(t);
+        return restAim;
+      }
+      if (rest !== null && hand !== null) {
+        const offset = { x: restAim.x - rest.x, y: restAim.y - rest.y };
+        const length = Math.hypot(offset.x, offset.y);
+        fade = length > 0 ? { offset, length, travelled: 0, last: rest } : null;
       }
       rest = null;
-      return hand ?? aimAt(t);
+      if (hand === null) return aimAt(t);
+      if (fade === null) return hand;
+      // A hand that stopped short of fading it: the camera settles on it,
+      // which moves toward a still hand, never against a moving one.
+      if (hand.x === fade.last.x && hand.y === fade.last.y) {
+        fade = null;
+        return hand;
+      }
+      fade.travelled += Math.hypot(hand.x - fade.last.x, hand.y - fade.last.y);
+      fade.last = hand;
+      const w = Math.max(0, 1 - fade.travelled / (2 * fade.length));
+      const aim = {
+        x: hand.x + fade.offset.x * w,
+        y: hand.y + fade.offset.y * w,
+      };
+      if (w === 0) fade = null;
+      return aim;
     };
 
     let x = landing.center;
     let v = { x: 0, y: 0 };
     const centers: Vec[] = [x];
     for (let t = landing.outputTimeMs; t < endMs; t += FOLLOW_STEP_MS) {
-      const target = targetAt(t);
+      const target = legal(targetAt(t), sampleCamera(keys, t).scale);
       const dt = Math.min(FOLLOW_STEP_MS, endMs - t);
       const e = Math.exp(-omega * dt);
       const step = (y: number, vel: number) => {

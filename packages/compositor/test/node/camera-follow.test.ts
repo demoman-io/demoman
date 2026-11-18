@@ -204,6 +204,63 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
   });
 
+  // DEM-211 (Excalidraw, 2026-11-18): the next step's key set off while the
+  // hand still rested at the drop, the rest's aim moved on to it, and the
+  // camera went up to the toolbar, back down to the hand as it set off,
+  // then up again with it.
+  it("keeps the drag's aim through the rest when the next key sets off during it", () => {
+    const drop = { x: 520, y: 420 };
+    const toolbar = { x: 700, y: 40 };
+    const keys = [
+      cameraKey({
+        outputTimeMs: 0,
+        center: { x: 640, y: 400 },
+        scale: 1,
+        transitionMs: 0,
+      }),
+      cameraKey({ outputTimeMs: 1000, center: A, scale: 2 }),
+      // Sets off at 3300, while the hand rests at the drop until 4000.
+      cameraKey({
+        outputTimeMs: 4800,
+        center: toolbar,
+        scale: 2,
+        transitionMs: 1500,
+      }),
+      cameraKey({ outputTimeMs: 7000, center: toolbar, scale: 1 }),
+    ];
+    const hand = pointerThrough([
+      [0, A],
+      [1500, A],
+      [2200, drop],
+      [4000, drop],
+      [4600, toolbar],
+    ]);
+    const t = track({
+      keys,
+      cursorAt: hand,
+      holds: [{ startMs: 1500, endMs: 2500 }],
+    });
+    expect(hand(3900)).toEqual(hand(2500));
+    expect(dist(sampleTrack(t, 3900).center, A)).toBeLessThan(3);
+    // As the hand sets off up from the drop (below the aim), the camera
+    // never goes down first: it moved down ~60 px toward the drop, then up.
+    expect(drop.y).toBeGreaterThan(A.y);
+    // While the hand moves (4000-4600) the camera never goes against it.
+    // Once it stops, the camera may settle back onto it (the offset it
+    // carried, dropped), but slowly: no quick reversal. Up to the pull-out,
+    // which sets off at 5750 and moves the centre itself.
+    let previous = sampleTrack(t, 4000).center;
+    for (let at = 4000 + 1000 / 60; at <= 5700; at += 1000 / 60) {
+      const now = sampleTrack(t, at).center;
+      const down = now.y - previous.y;
+      if (at <= 4600) expect(down, `${Math.round(at)}ms`).toBeLessThan(0.5);
+      else expect(down, `${Math.round(at)}ms`).toBeLessThan(2);
+      previous = now;
+    }
+    // And it settles on the hand.
+    expect(dist(sampleTrack(t, 5700).center, toolbar)).toBeLessThan(3);
+  });
+
   it("leaves the spring for the pull-out without a jump", () => {
     const t = track();
     let previous = sampleTrack(t, 5200);
