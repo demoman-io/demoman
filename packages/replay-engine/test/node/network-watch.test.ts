@@ -298,7 +298,7 @@ describe("createNetworkWatch", () => {
       ["w", "WebSocket"],
       ["e", "EventSource"],
       ["m", "Media"],
-    ])
+    ] as const)
       emit("Network.requestWillBeSent", { ...start(id), type, frameId: "top" });
     expect(w.waiting()).toBe(false);
     expect(w.inFlight()).toBe(0);
