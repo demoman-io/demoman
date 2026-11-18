@@ -119,11 +119,14 @@ export async function prepareStage(
         device: script.device !== undefined,
       })
     : null;
-  // Held capture asked for: the browser is launched for this recording's
-  // clock, and launched again when the live one was for the other, so one
-  // that records in real time launches exactly as before held capture.
-  if (verdict !== null && deps.session.headless) {
-    const ensured = await deps.session.ensure({ held: verdict.hold });
+  // The browser is launched for this recording's clock, and launched again
+  // when the live one was for the other, so one that records in real time
+  // launches exactly as before held capture. Said with held capture off too:
+  // a session made while it was on launches held (DEM-210).
+  if (deps.session.headless) {
+    const ensured = await deps.session.ensure({
+      held: verdict?.hold === true,
+    });
     if (!ensured.ok) {
       return { ok: false, reason: "portFailure", detail: ensured.detail };
     }
