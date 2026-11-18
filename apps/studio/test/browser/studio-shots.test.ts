@@ -2407,42 +2407,80 @@ describe("the Studio's screenshot set", () => {
       // end pieces' — not their edges, not the trim (the author, 2026-10-22).
       const middle = await probe(".piece-wrap:nth-child(2) .piece");
       if (middle === null) throw new Error("no middle piece");
-      await page.mouse.move((middle.left + middle.right) / 2, middle.top + 4);
-      const shown = () =>
-        page.evaluate(() =>
-          Object.fromEntries(
-            [
-              [
-                "middle start",
-                '.piece-wrap:nth-child(2) > [data-edge="start"]',
-              ],
-              ["middle end", '.piece-wrap:nth-child(2) > [data-edge="end"]'],
-              ["first end", '.piece-wrap:first-child > [data-edge="end"]'],
-              ["head trim", '[data-trim="head"]'],
-            ].map(([name, sel]) => {
-              const n = document.querySelector(sel as string);
-              return [name, n === null ? null : getComputedStyle(n).opacity];
-            }),
-          ),
-        );
-      await vi.waitFor(
-        async () => {
-          const o = await shown();
-          if (o["middle start"] !== "1" || o["head trim"] !== "0")
-            throw new Error(`still changing: ${JSON.stringify(o)}`);
-        },
-        { timeout: PAINT_MS, interval: 50 },
-      );
-      expect(await shown()).toEqual({
+      const pointer = {
+        x: (middle.left + middle.right) / 2,
+        y: middle.top + 4,
+      };
+      // Any render from here rebuilds every piece (`renderTimeline`'s
+      // `replaceChildren`), and a rebuilt edge reads opacity 0 until Chrome
+      // re-applies :hover under the resting pointer and the 120 ms fade
+      // runs. On the macOS runner one landed between a read that matched
+      // and the next (DEM-212), so the rebuilds are counted as evidence.
+      await page.evaluate(() => {
+        const w = window as unknown as { __rebuilds: number };
+        w.__rebuilds = 0;
+        new MutationObserver(() => {
+          w.__rebuilds += 1;
+        }).observe(document.querySelector("#timeline") as Element, {
+          childList: true,
+        });
+      });
+      await page.mouse.move(pointer.x, pointer.y);
+      const want = {
         "middle start": "1",
         "middle end": "1",
         "first end": "0",
         "head trim": "0",
-      });
-
-      await page.screenshot({
-        path: join(SHOTS, "editor-split-1280x720-dark.png"),
-      });
+      };
+      /** The handles' opacities, and why: which piece is hovered and which
+       *  selected, what is under the pointer, and the rebuilds so far. */
+      const shown = () =>
+        page.evaluate(({ x, y }) => {
+          const wraps = [...document.querySelectorAll(".piece-wrap")];
+          return {
+            opacity: Object.fromEntries(
+              [
+                [
+                  "middle start",
+                  '.piece-wrap:nth-child(2) > [data-edge="start"]',
+                ],
+                ["middle end", '.piece-wrap:nth-child(2) > [data-edge="end"]'],
+                ["first end", '.piece-wrap:first-child > [data-edge="end"]'],
+                ["head trim", '[data-trim="head"]'],
+              ].map(([name, sel]) => {
+                const n = document.querySelector(sel as string);
+                return [name, n === null ? null : getComputedStyle(n).opacity];
+              }),
+            ),
+            hovered: wraps.findIndex((w) => w.matches(":hover")),
+            selected: wraps.findIndex((w) => w.hasAttribute("data-selected")),
+            under: document.elementFromPoint(x, y)?.outerHTML.slice(0, 120),
+            rebuilds: (window as unknown as { __rebuilds: number }).__rebuilds,
+          };
+        }, pointer);
+      const matches = (o: Awaited<ReturnType<typeof shown>>) =>
+        JSON.stringify(o.opacity) === JSON.stringify(want);
+      // The shot sits between two reads that both show the middle piece's
+      // handles alone, so it is a picture of that state; a rebuild between
+      // them shoots again.
+      await vi.waitFor(
+        async () => {
+          const before = await shown();
+          if (!matches(before))
+            throw new Error(
+              `the middle piece's handles are not ${JSON.stringify(want)}: ${JSON.stringify({ before, pointer })}`,
+            );
+          await page.screenshot({
+            path: join(SHOTS, "editor-split-1280x720-dark.png"),
+          });
+          const after = await shown();
+          if (!matches(after))
+            throw new Error(
+              `the handles changed while shot: ${JSON.stringify({ before, after, pointer })}`,
+            );
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
 
       // The dot opens a card, inside the window, and its Restore restores.
       await page.mouse.move(dot.cx, dot.cy);
