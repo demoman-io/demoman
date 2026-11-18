@@ -99,7 +99,6 @@ async function fakePlatform(
       active: async () => ({
         bundle: proceduralBundle(),
         replay: null,
-        capture: null,
       }),
       load,
     },

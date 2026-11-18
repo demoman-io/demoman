@@ -18,7 +18,6 @@ function deps(overrides: Record<string, unknown> = {}) {
       active: vi.fn().mockResolvedValue({
         bundle: proceduralBundle(),
         replay: null,
-        capture: null,
       }),
       load: vi.fn(),
     },
@@ -57,7 +56,6 @@ function backing() {
           active: vi.fn().mockResolvedValue({
             bundle: proceduralBundle(),
             replay: null,
-            capture: null,
           }),
           load: vi.fn(),
         },
@@ -89,114 +87,6 @@ describe("editor session", () => {
     await session.load();
     expect(session.snapshot().scene.meta.id).toBe("scene-readonly-001");
     expect(session.snapshot().bundle).not.toBeNull();
-  });
-
-  it("carries a capture failure into the snapshot when the capture bundle is serving", async () => {
-    // The status reaching the editor's boundary is not the same as the
-    // author being told. This is the assertion that makes it the latter —
-    // it goes red if session.ts stops reading `active().capture` or stops
-    // computing `captureSentence` from it. The serving bundle must itself be
-    // the capture one (source: "capture") or the gate added for Important 4
-    // suppresses it — see the next test for that direction.
-    const d = deps({
-      bundles: {
-        active: vi.fn().mockResolvedValue({
-          bundle: captureBundle(),
-          replay: null,
-          capture: {
-            motion: "none",
-            reason: "screencastUnavailable",
-            coveredMs: 0,
-            takeMs: 9000,
-          },
-        }),
-        load: vi.fn(),
-      },
-    });
-    const session = createSession(d);
-    await session.load();
-    expect(session.snapshot().captureSentence).toContain(
-      "Motion couldn't be recorded",
-    );
-  });
-
-  it("says nothing about the capture recording once a replay bundle is serving", async () => {
-    // Same capture status as the test above, but the serving bundle's
-    // source is "replay" — a complete replay has superseded the capture
-    // bundle. The sentence would otherwise describe a bundle the author is
-    // no longer looking at. Goes red if session.ts computes captureSentence
-    // from `capture` alone again, without consulting `bundle?.source`.
-    const d = deps({
-      bundles: {
-        active: vi.fn().mockResolvedValue({
-          bundle: proceduralBundle(),
-          replay: null,
-          capture: {
-            motion: "none",
-            reason: "screencastUnavailable",
-            coveredMs: 0,
-            takeMs: 9000,
-          },
-        }),
-        load: vi.fn(),
-      },
-    });
-    const session = createSession(d);
-    await session.load();
-    expect(session.snapshot().captureSentence).toBeNull();
-  });
-
-  it("says nothing when the recording was healthy", async () => {
-    const d = deps({
-      bundles: {
-        active: vi.fn().mockResolvedValue({
-          bundle: proceduralBundle(),
-          replay: null,
-          capture: {
-            motion: "full",
-            reason: null,
-            coveredMs: 9000,
-            takeMs: 9000,
-          },
-        }),
-        load: vi.fn(),
-      },
-    });
-    const session = createSession(d);
-    await session.load();
-    expect(session.snapshot().captureSentence).toBeNull();
-  });
-
-  it("still reports the capture recording when the take produced no bundle at all", async () => {
-    // `bundle: null` is exactly the state for `noKeyframes` and
-    // `storageRefused` — a take that failed so completely that nothing was
-    // written to serve. It must NOT be treated as "a different bundle is
-    // serving": that gate exists to suppress this sentence once a *replay*
-    // bundle supersedes the capture one, not to suppress it when there is no
-    // bundle to look at in the first place. Goes red if session.ts gates
-    // captureSentence on `bundle?.source !== "capture"` again, since
-    // `bundle?.source` is `undefined` — and `undefined !== "capture"` — for
-    // a null bundle exactly as it would be for a replay one.
-    const d = deps({
-      bundles: {
-        active: vi.fn().mockResolvedValue({
-          bundle: null,
-          replay: null,
-          capture: {
-            motion: "none",
-            reason: "noKeyframes",
-            coveredMs: 0,
-            takeMs: 9000,
-          },
-        }),
-        load: vi.fn(),
-      },
-    });
-    const session = createSession(d);
-    await session.load();
-    expect(session.snapshot().captureSentence).toContain(
-      "Nothing could be photographed",
-    );
   });
 
   it("persists every edit", async () => {
@@ -344,7 +234,6 @@ describe("editor session", () => {
             completed: 1,
             total: 3,
           },
-          capture: null,
         }),
         load: vi.fn(),
       },
@@ -372,7 +261,6 @@ describe("editor session", () => {
             completed: 0,
             total: 3,
           },
-          capture: null,
         }),
         load: vi.fn(),
       },
@@ -398,7 +286,6 @@ describe("editor session", () => {
         active: vi.fn().mockResolvedValue({
           bundle: captureBundle(),
           replay: stopped,
-          capture: null,
         }),
         load: vi.fn(),
       },
@@ -433,7 +320,6 @@ describe("editor session", () => {
               completed,
               total: reason === "noActions" ? 0 : 3,
             },
-            capture: null,
           }),
           load: vi.fn(),
         },
@@ -469,7 +355,6 @@ describe("editor session", () => {
         active: vi.fn().mockResolvedValue({
           bundle,
           replay: null,
-          capture: null,
         }),
         load: vi.fn(),
       },
@@ -588,9 +473,7 @@ describe("editor session", () => {
     expect("madeFrom" in bundle).toBe(false);
     const d = deps({
       bundles: {
-        active: vi
-          .fn()
-          .mockResolvedValue({ bundle, replay: null, capture: null }),
+        active: vi.fn().mockResolvedValue({ bundle, replay: null }),
         load: vi.fn(),
       },
     });
@@ -609,7 +492,6 @@ describe("editor session", () => {
         active: vi.fn().mockResolvedValue({
           bundle,
           replay: null,
-          capture: null,
         }),
         load: vi.fn(),
       },

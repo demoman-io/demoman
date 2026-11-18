@@ -59,7 +59,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 const session = createBrowserSession({
   headless: true,

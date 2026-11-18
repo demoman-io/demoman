@@ -553,7 +553,7 @@ describe("delete", () => {
 });
 
 describe("bundle, frames, outputs", () => {
-  it("bundle answers the stored bundle, status.json as replay, capture null", async () => {
+  it("bundle answers the stored bundle, status.json as replay", async () => {
     const { bundle } = await seedTake(home, {
       status: { phase: "done", ok: true },
     });
@@ -562,7 +562,6 @@ describe("bundle, frames, outputs", () => {
     expect(r.json()).toEqual({
       bundle,
       replay: { phase: "done", ok: true },
-      capture: null,
     });
   });
 

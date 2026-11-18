@@ -1,6 +1,5 @@
 import type { FrameBundle, FrameImage } from "@demoman/compositor";
 import type { ReplayStatus } from "../../../pages/src/core/replay/status";
-import type { CaptureStatus } from "../../../pages/src/core/storage/types";
 import type { BundleSource } from "../../../pages/src/editor/ports";
 
 /**
@@ -15,10 +14,9 @@ export function createFixtureBundleSource(
   bundle: FrameBundle,
   images: Map<string, FrameImage>,
   replay: ReplayStatus | null = null,
-  capture: CaptureStatus | null = null,
 ): BundleSource {
   return {
-    active: async () => ({ bundle, replay, capture }),
+    active: async () => ({ bundle, replay }),
     load: async (ref: string) => {
       const image = images.get(ref);
       if (!image) throw new Error(`fixture has no frame "${ref}"`);

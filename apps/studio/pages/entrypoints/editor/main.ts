@@ -222,7 +222,6 @@ let kitsRead: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 /** The kit the take was last seen on: matched by look, applied, or saved
  *  as new. In memory only — after a reload a take edited off its kit
@@ -398,7 +397,7 @@ let loadError: string | null = null;
  */
 let deleteError: string | null = null;
 /** Which page did not open, and why — the Recordings page (Back, or the
- *  navigation after a clean delete) or the Runs page (any `[data-runs-route]`).
+ *  navigation after a clean delete) or the Flows page.
  *  `location.assign` throws rather than rejecting; caught and only logged,
  *  the author clicked and stayed put with nothing on screen saying why.
  *  Cleared at the top of the next attempt. */
@@ -2242,7 +2241,6 @@ function reportLoadFailure(error: unknown): void {
   renderFailure($("failure"), {
     error: null,
     replaySentence: null,
-    captureSentence: null,
     openError: loadError,
   });
 }
@@ -2341,7 +2339,6 @@ function render(snapshot: SessionSnapshot): void {
     error: snapshot.error ?? logoError,
     replaySentence: snapshot.replaySentence,
     replayRecoverable: snapshot.replayRecoverable,
-    captureSentence: snapshot.captureSentence,
     renderError: exportFlow.error,
     previewError,
     logoLoadError,
@@ -2851,7 +2848,6 @@ function render(snapshot: SessionSnapshot): void {
       target: exported,
       aspect: snapshot.scene.canvas.aspect,
       takeId: sceneId,
-      rerun: runsRouteOf(snapshot).rerun,
       revealError,
       history: {
         outputs,
@@ -3495,7 +3491,6 @@ function showStandaloneFailure(): void {
   renderFailure($("failure"), {
     error: null,
     replaySentence: null,
-    captureSentence: null,
     deleteError,
     navigationError,
   });
@@ -3602,30 +3597,6 @@ $("back").addEventListener("click", () => {
   leaveAfterOwedWrites(() => openLibrary("", null, sceneId));
 });
 
-/**
- * Every route to Runs (`[data-runs-route]`: the no-frames banner, the
- * no-frames line under the Export button, Take info's Re-film row, and the
- * re-shoot failure box), through the same
- * wait as Back: a plain `<a href>` navigated in the same task as the blur
- * that committed a rename, and the rename was lost with no word.
- *
- * Delegated from the four containers the links are drawn in, `#banner`,
- * `#inspector`, `#take-info` and `#failure`, because every one of them is redrawn on
- * every render. Only a
- * plain primary click is taken over: a modified or middle click opens a new
- * tab and leaves this page — and its queued write — where it is, so the
- * browser's own handling is right for those.
- */
-function onRunsRouteClick(event: MouseEvent): void {
-  const link = plainRunsRoutePress(event);
-  if (!link) return;
-  event.preventDefault();
-  leaveAfterOwedWrites(() => leaveFor("Runs page", () => link.href));
-}
-$("banner").addEventListener("click", onRunsRouteClick);
-$("inspector").addEventListener("click", onRunsRouteClick);
-$("take-info").addEventListener("click", onRunsRouteClick);
-$("failure").addEventListener("click", onRunsRouteClick);
 // The header button's open look keys on `aria-expanded`, which
 // `popovertarget` reports to assistive tech but never writes into the DOM.
 $("take-info").addEventListener("toggle", (event) => {
@@ -3634,77 +3605,6 @@ $("take-info").addEventListener("toggle", (event) => {
     String((event as ToggleEvent).newState === "open"),
   );
 });
-
-/** The Runs link `event` hit, when it is a plain primary press of one —
- *  the only kind this page takes over (see `onRunsRouteClick`). */
-function plainRunsRoutePress(event: MouseEvent): HTMLAnchorElement | null {
-  const target = event.target instanceof Element ? event.target : null;
-  const link = target?.closest<HTMLAnchorElement>("a[data-runs-route]");
-  if (!link) return null;
-  if (
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  )
-    return null;
-  return link;
-}
-
-/**
- * The press that the redraw ate. A real press on a Runs link is mousedown,
- * then mouseup tens of milliseconds later — and the mousedown blurs a field
- * holding an edit, the blur commits it, the session emits, and `render`
- * redraws the container the link sits in. When that lands inside the press,
- * the release hits a NEW link, identical and in the same place, and Blink
- * dispatches no `click` at all (mousedown and mouseup on different elements,
- * one of them detached), so `onRunsRouteClick` never ran: the author
- * pressed the link and nothing happened, with nothing saying why.
- *
- * So the route is also decided from the press/release pair: the link a
- * plain primary press went down on, by its `href`, and the link the release
- * came up on. Same element: the browser's `click` follows, and
- * `onRunsRouteClick` takes it — this path stays out of the way, so a plain
- * click navigates once. A different element with the same `href`: the
- * redraw case, no `click` is coming, so this takes the route — through the
- * same `leaveAfterOwedWrites` wait, which is exactly what the press's own
- * blur queued. Released anywhere else: the author moved off the link, and
- * a browser takes no link on that either.
- *
- * Chosen over keeping the link element stable across renders: every
- * container these links are drawn in is rebuilt wholesale on each render
- * (`renderInspector`, the banner, `#failure`), and reusing one node there
- * would be a special case in three renderers for one listener's benefit.
- *
- * On the document, in the capture phase, so every press resets the record
- * — one that went down elsewhere and released on a link must not match a
- * stale press from earlier — and nothing inside a panel can stop it.
- * Keyboard activation has no press at all and stays with `click`
- * (`detail === 0`).
- */
-let runsRoutePress: { link: HTMLAnchorElement; href: string } | null = null;
-document.addEventListener(
-  "mousedown",
-  (event) => {
-    const link = plainRunsRoutePress(event);
-    runsRoutePress = link ? { link, href: link.href } : null;
-  },
-  true,
-);
-document.addEventListener(
-  "mouseup",
-  (event) => {
-    const pressed = runsRoutePress;
-    runsRoutePress = null;
-    if (!pressed) return;
-    const released = plainRunsRoutePress(event);
-    if (!released || released === pressed.link) return;
-    if (released.href !== pressed.href) return;
-    leaveAfterOwedWrites(() => leaveFor("Runs page", () => released.href));
-  },
-  true,
-);
 
 $("delete").addEventListener("click", () => {
   void (async () => {

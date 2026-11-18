@@ -19,24 +19,11 @@ export {
   type StoredKit,
 } from "@demoman/run-core";
 
-/** The single kit's key before 2026-10-08. Read only to migrate it into
- *  `BRAND_KITS_KEY` (`brand-kit-store.ts`). */
-export const LEGACY_KIT_KEY = "brandKit";
 /** Every brand kit, in creation order (spec 2026-10-08 §1). */
 export const BRAND_KITS_KEY = "brandKits";
 /** The id of the kit new takes start from. */
 export const DEFAULT_KIT_KEY = "defaultKitId";
 export const KIT_NAME_MAX = 40;
-
-/**
- * Where the background leaves a finished take's brand-kit failure for the
- * editor that opens on it, in the session storage area. The one-click Stop
- * is a toolbar click with no popup alive to read the Stop reply, and a Keep
- * hands off to the editor as it opens, so the editor is the one surface
- * sure to be there. Per scene, read once and removed.
- */
-export const takeNoticeKey = (sceneId: string): string =>
-  `takeNotice:${sceneId}`;
 
 /** Whether `name` may name a kit: trimmed, 1–40 characters, unique among
  *  `kits` ignoring case (`selfId`'s own name excepted). A clash is refused,

@@ -892,7 +892,7 @@ export function createRoutes(o: {
           );
         }
       }
-      const answer: BundleAnswer = { bundle, replay, capture: null };
+      const answer: BundleAnswer = { bundle, replay };
       return json(200, answer);
     },
 

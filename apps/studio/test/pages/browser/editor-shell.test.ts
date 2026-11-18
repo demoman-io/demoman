@@ -29,7 +29,6 @@ import { buildLaneModel } from "../../../pages/src/editor/lanes";
 import { createSections } from "../../../pages/src/editor/sections";
 import { buildTimelineView } from "../../../pages/src/editor/timeline";
 import { fitAll } from "../../../pages/src/editor/viewport";
-import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 import {
   contrast,
   ink,
@@ -192,11 +191,7 @@ function mount(
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: {
-            kind: "link",
-            href: runsHref("t1"),
-            label: runsRouteLabel(false),
-          },
+          rerun: { kind: "line" as const, text: "re-film t1" },
         },
         currentDigest: "d-now",
         sections: createSections(),
@@ -222,11 +217,7 @@ function mount(
     const route = {
       takeId: "t1",
       authored: false,
-      rerun: {
-        kind: "link" as const,
-        href: runsHref("t1"),
-        label: runsRouteLabel(false),
-      },
+      rerun: { kind: "line" as const, text: "re-film t1" },
     };
     renderTakeInfo(
       node("#take-info"),
@@ -239,7 +230,6 @@ function mount(
         target: LANDSCAPE_1440P,
         aspect: "16:9",
         takeId: "t1",
-        rerun: route.rerun,
         revealError: null,
         history: {
           outputs: [stored],
@@ -295,19 +285,16 @@ function mount(
     // Non-null (unlike the fixtures above 2026-09-24): this box is the
     // status row's stand-in for a plain, non-error `.notice` — the render-
     // mode notice `renderNotice` used to draw was the only other one, and
-    // it retired with Task 10. `[data-capture-note]` is deliberately absent
-    // from index.html's `#notes .notice[data-…]` error list, so it keeps
-    // the base tone "tones the status row…" below contrasts against.
-    captureSentence: "It recorded five hover checks without incident.",
+    // it retired with Task 10. `[data-logo-load-error]` is deliberately
+    // absent from index.html's `#notes .notice[data-…]` error list, so it
+    // keeps the base tone "tones the status row…" below contrasts against.
+    // (The capture note was this stand-in until it left with the extension.)
+    logoLoadError: "The logo file is not an image.",
     // The re-shoot box holds the way to Runs (final review I3).
     runsRoute: {
       takeId: "t1",
       authored: false,
-      rerun: {
-        kind: "link",
-        href: runsHref("t1"),
-        label: runsRouteLabel(false),
-      },
+      rerun: { kind: "line" as const, text: "re-film t1" },
     },
   });
   return { surface, ink, radius };
@@ -646,11 +633,7 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: {
-            kind: "link",
-            href: runsHref("t1"),
-            label: runsRouteLabel(false),
-          },
+          rerun: { kind: "line" as const, text: "re-film t1" },
         },
         currentDigest: "d-now",
         sections: createSections(),
@@ -858,7 +841,7 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
 
   it("tones the status row as the shell's notices, a failure leading with red", () => {
     const { surface, ink, radius } = mount(scheme);
-    const note = "#failure [data-capture-note]";
+    const note = "#failure [data-logo-load-error]";
     // Body ink, not the shell's muted note: a notice in the status row is
     // the page speaking, not a footnote inside a card.
     expect(ink(note)).toEqual(token("--ink"));
@@ -872,10 +855,10 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
     expect(parse(getComputedStyle(node(failure)).borderLeftColor)).toEqual(
       token("--error"),
     );
-    // The route to Runs under the sentence (final review I3) reads on the
+    // The re-film line under the sentence (final review I3) reads on the
     // card's tone in both schemes, not only in the one it was looked at in.
-    const route = `${failure} a[data-runs-route]`;
-    expect(node(route).textContent).toBe("Re-shoot this video in Runs");
+    const route = `${failure} [data-rerun-line]`;
+    expect(node(route).textContent).toBe("re-film t1");
     expect(contrast(ink(route), tone)).toBeGreaterThanOrEqual(4.5);
     // A note inside the inspector keeps body ink too.
     expect(ink("[data-reclaimed-motion-notice]")).toEqual(token("--ink"));
@@ -888,18 +871,6 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
     expect(style.fontFamily).toMatch(/^"?Outfit"?,/);
     expect(style.fontSize).toBe("16px");
     expect(style.fontWeight).toBe("700");
-  });
-
-  // The Runs route is Take info's Re-film row since 2026-10-19 (it was a
-  // line under the Export button).
-  it("draws the Runs route as a quiet link", () => {
-    mount(scheme);
-    node("#take-info").showPopover();
-    const link = node("#take-info a[data-runs-route]");
-    expect(getComputedStyle(link).textDecorationLine).toBe("none");
-    expect(ink("#take-info a[data-runs-route]")).toEqual(token("--ink-muted"));
-    // (Its second half, the Export panel's disclosure chevron, sampled the
-    // Share section — the panel's last disclosure, cut 2026-10-20.)
   });
 
   it("heads the Export panel and lays out its export button", () => {
@@ -1143,12 +1114,12 @@ describe("the sheets' order", () => {
       // so this line could not tell the orders apart until now.)
       expect(surface("body")).toEqual(token("--stage-bed"));
       // `#notice .notice` (`renderNotice`'s own box) retired with Task 10;
-      // `[data-capture-note]` is `mount()`'s own plain (non-error) `.notice`
+      // `[data-logo-load-error]` is `mount()`'s own plain (non-error) `.notice`
       // now — see its own docblock.
-      expect(surface("body", "#failure [data-capture-note]")).toEqual(
+      expect(surface("body", "#failure [data-logo-load-error]")).toEqual(
         token("--card"),
       );
-      expect(radius("#failure [data-capture-note]")).toBe(
+      expect(radius("#failure [data-logo-load-error]")).toBe(
         length("--radius-card"),
       );
       // Was `.snap`'s 13px font against the shell's 12.5px `.btn`, until

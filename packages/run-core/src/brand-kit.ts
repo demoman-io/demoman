@@ -69,9 +69,6 @@ export type BrandKitsRead =
       /** Null only with no kits. May name a kit that is not in `kits`: that
        *  is reported by the consumers ("missing"), never repaired on read. */
       defaultId: string | null;
-      /** Both the old single-kit key and the list are stored: the old key's
-       *  removal is still owed and the next read retries it. */
-      migrationPending: boolean;
     }
   | {
       state: "invalid";
@@ -95,10 +92,9 @@ export const foldKitName = (name: string): string =>
 export function coerceBrandKits(
   rawList: unknown,
   rawDefault: unknown,
-  migrationPending = false,
 ): BrandKitsRead {
   if (rawList === undefined || rawList === null) {
-    return { state: "ready", kits: [], defaultId: null, migrationPending };
+    return { state: "ready", kits: [], defaultId: null };
   }
   if (!Array.isArray(rawList)) {
     return {
@@ -128,7 +124,7 @@ export function coerceBrandKits(
     typeof rawDefault === "string" && rawDefault !== ""
       ? rawDefault
       : (kits[0]?.id ?? null);
-  return { state: "ready", kits, defaultId, migrationPending };
+  return { state: "ready", kits, defaultId };
 }
 
 /** The kit `defaultId` names, or null — never another kit in its place. */

@@ -4566,7 +4566,6 @@ describe("the notes popover", () => {
     renderFailure(node("#failure"), {
       error: null,
       replaySentence: "The re-shoot could not reach your app.",
-      captureSentence: null,
     } as never);
     renderNotesButton(node("#notes-open"), node("#notes"));
   }

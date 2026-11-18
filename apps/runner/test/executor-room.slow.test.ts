@@ -100,7 +100,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 
 /** Real time (`DEMOMAN_HELD_CLOCK=0`): a held run plays its planned beats while recording, so the scene carries none for the renderer, which is what this file reads. */

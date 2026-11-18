@@ -199,7 +199,7 @@ describe("library main — a length that cannot be measured", () => {
     let answer: "throw first" | "no frames" | "throw second" = "throw first";
     state.memory?.answer("bundles.active", async () => {
       if (answer === "no frames") {
-        return { bundle: null, replay: null, capture: null };
+        return { bundle: null, replay: null };
       }
       throw new Error(answer === "throw first" ? "first" : "second");
     });

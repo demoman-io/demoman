@@ -7,7 +7,6 @@ import type {
 import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
-import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import {
@@ -2172,11 +2171,7 @@ export function renderLibrary(
     // the author's terms: "the popup" is ours.
     const card = el("div", { "data-empty": "", class: "card empty-card" });
     card.append(
-      emptyState(
-        "monitorPlay",
-        "No flows yet",
-        model.emptyHint ?? EXTENSION_FIRST_TAKE_HINT,
-      ),
+      emptyState("monitorPlay", "No flows yet", model.emptyHint ?? ""),
     );
     list.append(card);
     return;

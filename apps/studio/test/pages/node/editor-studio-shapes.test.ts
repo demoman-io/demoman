@@ -24,15 +24,14 @@ import { rerunAdvice, rerunLineOf } from "../../../pages/src/shell/runs-link";
 /**
  * The export panel drawing what the studio answers: a queued export, a
  * saved outcome with a reveal target and a summary, file rows from
- * `outputs.json`, and the re-film line in place of the Runs links. Chrome
+ * `outputs.json`, and the re-film line. Chrome
  * side only; nothing here reaches the studio.
  *
  * Production changes that redden these, each made and watched go red:
  * - drawFileRow always drawing the Show in Finder button: "moved or deleted"
  *   and its no-`data-reveal` assertions fail.
- * - runsRouteLink ignoring `rerun.kind === "line"`: the re-film cases find
- *   an `a[data-runs-route]` and no `[data-rerun-line]`. (The Export
- *   button's own line moved to Take info on 2026-10-19: take-info.test.ts.)
+ * - the re-film line drawn without `[data-rerun-line]`: the re-film cases
+ *   find no line.
  * - exportButtonLabel's `queued` case returning "Queued…" for any position:
  *   "Queued (2 ahead)" fails.
  */
@@ -81,15 +80,7 @@ const base = {
   run: { phase: "idle" as const },
   save: null,
   readiness: { kind: "exact" as const },
-  runsRoute: {
-    takeId: "t1",
-    authored: false,
-    rerun: {
-      kind: "link" as const,
-      href: "run.html?take=t1",
-      label: "Re-shoot this video in Runs",
-    },
-  },
+  runsRoute: { takeId: "t1", authored: false, rerun: line },
   replacementExposures: [],
   currentDigest: "d-now",
   hosting: false,
@@ -385,14 +376,12 @@ describe("the re-film line", () => {
     );
     expect(root.querySelector("[data-export-start]")).not.toBeNull();
     expect(root.querySelector("[data-rerun-line]")).toBeNull();
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
   it("replaces the no-frames route in the banner and under the button", () => {
     const route = { takeId: "t1", authored: false, rerun: line };
     renderBundleBanner(root, { hasFrames: false, route });
     expectDrawnLine(root.querySelector("[data-rerun-line]"));
     expect(root.textContent).toContain("This video has no frames — ");
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
 
     renderExport(
       root,
@@ -402,14 +391,12 @@ describe("the re-film line", () => {
     expectDrawnLine(
       root.querySelector("[data-export-no-frames] [data-rerun-line]"),
     );
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
 
   it("replaces the link in the re-shoot failure box", () => {
     renderFailure(root, {
       error: null,
       replaySentence: "The page did not load.",
-      captureSentence: null,
       renderError: null,
       previewError: null,
       hoverRemovalError: null,
@@ -420,7 +407,6 @@ describe("the re-film line", () => {
     expectDrawnLine(
       root.querySelector("[data-replay-runs-route] [data-rerun-line]"),
     );
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
 });
 
@@ -448,14 +434,9 @@ describe("a queued export", () => {
 });
 
 describe("the other places that name Runs", () => {
-  const link = {
-    kind: "link" as const,
-    href: "run.html?take=t1",
-    label: "Re-shoot this video in Runs",
-  };
   // Said under the outcome row of the export just made (the history does
   // not repeat warnings since 2026-10-19).
-  const reclaimed = (rerun: typeof line | typeof link, authored: boolean) => {
+  const reclaimed = (rerun: typeof line, authored: boolean) => {
     renderExport(
       root,
       {
@@ -507,26 +488,12 @@ describe("the other places that name Runs", () => {
     expect(said).not.toMatch(/in Runs/);
   });
 
-  it("keeps the Runs wording when the answer is a link", () => {
-    expect(reclaimed(link, true)?.textContent).toContain(
-      "Run its script again in Runs to restore.",
-    );
-    expect(reclaimed(link, false)?.textContent).toContain(
-      "Re-shoot it in Runs to restore.",
-    );
-  });
-
-  it("says the line whole, or the Runs words with the tail (the trim refusal's advice)", () => {
+  it("says the line whole (the trim refusal's advice)", () => {
     // main.ts's trim refusal ends with this, tail "first".
     const advice = (route: Parameters<typeof rerunLineOf>[0]) =>
       rerunAdvice(route.authored, rerunLineOf(route), "first");
     expect(advice({ takeId: "t1", authored: false, rerun: line })).toBe(REFILM);
-    expect(advice({ takeId: "t1", authored: true, rerun: link })).toBe(
-      "Run its script again in Runs first.",
-    );
-    expect(advice({ takeId: "t1", authored: false, rerun: link })).toBe(
-      "Re-shoot it in Runs first.",
-    );
+    expect(advice({ takeId: "t1", authored: true, rerun: line })).toBe(REFILM);
   });
 
   // R18 (b): the no-frames tooltips on Play, Jump to start and Zoom, and the

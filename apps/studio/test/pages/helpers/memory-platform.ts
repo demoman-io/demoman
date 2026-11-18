@@ -243,7 +243,6 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       active: member("bundles", "active", async (sceneId: string) => ({
         bundle: seed.bundles?.[sceneId] ?? null,
         replay: null,
-        capture: null,
       })),
       load: member("bundles", "load", async (ref: string) => {
         const bytes = seed.frames?.[ref];
@@ -416,7 +415,6 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       answers.set("bundles.active", (async () => ({
         bundle,
         replay,
-        capture: null,
       })) as Impl);
     },
     emitExport(e: ExportEvent) {

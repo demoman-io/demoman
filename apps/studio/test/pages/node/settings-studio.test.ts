@@ -113,9 +113,6 @@ function fakePlatform(kits: StoredKit[] = []): Fake {
       Object.assign(fake.area, items);
       fake.writes.done += 1;
     },
-    async remove(key) {
-      delete fake.area[key];
-    },
   };
   const store: BrandKitStore = createBrandKitStore(() => area);
   fake.platform = {

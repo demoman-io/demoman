@@ -587,11 +587,15 @@ describe("renderLibrary page parts", () => {
   });
 
   // Settings' empty state: a glyph beside a title and a hint, on a card,
-  // with no button. The hint says where Record is in the author's words:
-  // "the popup" is ours.
-  it("says an empty library with a glyph, a title and where Record is", () => {
+  // with no button. The hint is the platform's (`nav.firstTakeHint`).
+  it("says an empty library with a glyph, a title and the platform's hint", () => {
     const root = document.createElement("div");
-    renderLibrary(root, { ...model, rows: [] }, noop, new Map());
+    renderLibrary(
+      root,
+      { ...model, rows: [], emptyHint: "Ask your agent to record a flow." },
+      noop,
+      new Map(),
+    );
     const empty = root.querySelector("[data-empty]") as HTMLElement;
     expect([
       empty.classList.contains("card"),
@@ -599,10 +603,9 @@ describe("renderLibrary page parts", () => {
       empty.querySelector("strong")?.textContent,
       empty.querySelectorAll("button").length,
     ]).toEqual([true, "monitorPlay", "No flows yet", 0]);
-    expect(empty.querySelector(".hint")?.textContent).toMatch(
-      /toolbar.*Record/,
+    expect(empty.querySelector(".hint")?.textContent).toBe(
+      "Ask your agent to record a flow.",
     );
-    expect(empty.textContent).not.toMatch(/popup/);
   });
 });
 

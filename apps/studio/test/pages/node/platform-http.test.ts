@@ -837,7 +837,7 @@ describe("frames, outputs, nav", () => {
     };
     studio.route((c) =>
       c.url === "/api/takes/t1/bundle"
-        ? json(200, { bundle, replay: null, capture: null })
+        ? json(200, { bundle, replay: null })
         : c.url === `/api/takes/t1/frames/${encodeURIComponent("span:t1:0")}`
           ? new Response(new Uint8Array([1, 2, 3]))
           : undefined,
@@ -1166,7 +1166,6 @@ describe("the take folder and the kit feed", () => {
         ? json(200, {
             bundle: { keyframes: [{ ref: "kf:t1:0" }], motionSpans: [] },
             replay: null,
-            capture: null,
           })
         : c.url === `/api/takes/t1/thumbs/${encodeURIComponent("kf:t1:0")}`
           ? new Response(new Uint8Array([0xff, 0xd8]), {
@@ -1192,7 +1191,6 @@ describe("the take folder and the kit feed", () => {
         ? json(200, {
             bundle: { keyframes: [{ ref: "kf:t1:0" }], motionSpans: [] },
             replay: null,
-            capture: null,
           })
         : c.url.includes("/thumbs/")
           ? json(500, {

@@ -101,7 +101,7 @@ vi.mock("#platform", async (importOriginal) => {
       onCi: () => () => {},
     },
     bundles: {
-      active: async () => ({ bundle: bundle(), replay: null, capture: null }),
+      active: async () => ({ bundle: bundle(), replay: null }),
       load: () => new Promise<never>(() => {}),
     },
     outputs: {
@@ -135,7 +135,6 @@ vi.mock("#platform", async (importOriginal) => {
         state: "ready",
         kits: [],
         defaultId: null,
-        migrationPending: false,
       }),
       update: async () => null,
       readStored: async () => ({ kits: [], defaultId: null }),

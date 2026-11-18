@@ -76,7 +76,6 @@ let kitsRead: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 /** The kit the card edits; the default on load (`selectFallback`). A
  *  per-page convenience, not stored. */

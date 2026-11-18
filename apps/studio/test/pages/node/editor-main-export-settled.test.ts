@@ -134,7 +134,6 @@ vi.mock("#platform", async (importOriginal) => {
       active: async () => ({
         bundle: seen.withFrames ? bundle() : null,
         replay: null,
-        capture: null,
       }),
       // Never settles: nothing here is about the picture, and a failure
       // would reach the page's console.
@@ -154,7 +153,6 @@ vi.mock("#platform", async (importOriginal) => {
         state: "ready",
         kits: [],
         defaultId: null,
-        migrationPending: false,
       }),
       update: async () => null,
       readStored: async () => ({ kits: [], defaultId: null }),
