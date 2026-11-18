@@ -59,7 +59,10 @@ jobs:
           n=0
           if [ "$EVENT" = pull_request ]; then
             product=false
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
+            pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR/files")
+            files=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<<"$pages")
+            listed=$(jq '[.[][]] | length' <<<"$pages")
+            total=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .changed_files)
             globs=$(yq '.on.push.paths[]' .github/workflows/linux.yml)
             [ -n "$globs" ] || { echo "::error::no on.push.paths in linux.yml"; exit 1; }
             [ -n "$files" ] || { echo "::error::the PR's file list came back empty"; exit 1; }
@@ -71,6 +74,12 @@ jobs:
                 if [[ $f == $g ]]; then product=true; fi
               done <<<"$globs"
             done <<<"$files"
+            # The files API stops at 3,000; a list cut short could read as
+            # touching no product path, so it runs everything (DEM-225).
+            if [ "$listed" != "$total" ]; then
+              echo "::warning::the files API listed $listed of the PR's $total changed files, so every product job runs"
+              product=true
+            fi
           fi
           echo "changes: product=$product ($n files)"
           echo "product=$product" >> "$GITHUB_OUTPUT"

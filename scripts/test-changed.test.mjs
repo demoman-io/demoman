@@ -36,6 +36,30 @@ test("a change every package's tests read tests every package, and names it", ()
   }
 });
 
+test("off CI, a change every package reads is capped to the branch's own packages, and says so", () => {
+  const out = selection(
+    ["apps/runner/src/run.ts", "pnpm-lock.yaml"],
+    packages,
+    { ci: false },
+  );
+  assert.deepEqual(out.filters, ["--filter", "...@demoman/runner", ...notRoot]);
+  assert.equal(out.capped, true);
+  const line = heading(["@demoman/runner"], out.why);
+  assert.match(line, /capped off CI: pnpm-lock\.yaml changed/);
+  assert.match(line, /CI runs every package/);
+
+  const alone = selection(["scripts/test-tier.mjs"], packages, { ci: false });
+  assert.equal(alone.filters, null);
+  assert.equal(alone.capped, true);
+  assert.match(heading([], alone.why), /no package tests ran: capped off CI/);
+});
+
+test("a branch with nothing every package reads is not capped off CI", () => {
+  const out = selection(["apps/runner/src/run.ts"], packages, { ci: false });
+  assert.equal(out.capped, false);
+  assert.doesNotMatch(out.why, /capped/);
+});
+
 test("a file outside the packages tests the packages that read it", () => {
   const cases = [
     ["apps/docs/guides/x.mdx", ["@demoman/cli"]],

@@ -8,8 +8,11 @@
 // read apps/docs, the README and scripts/changelog.mjs. A change to one of
 // those tests the packages that read it (READERS), and a change to what
 // every package's tests run under (the lockfile, the tier script) tests all
-// of them. The output names the packages that ran, or says that none did:
-// a run that tested nothing must not read as one that passed.
+// of them, on CI. Off CI that is capped (DEM-221): every package's suite in
+// one go took a 16 GB Mac down on 2026-11-18, so it tests only the packages
+// the branch itself reaches, with one worker, and leaves the rest to CI.
+// The output names the packages that ran, or says that none did: a run that
+// tested nothing must not read as one that passed.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -42,8 +45,10 @@ export const READERS = [
  * @param {string[]} changed repo-relative paths changed since the merge-base
  * @param {Array<{ name: string, dir: string }>} packages the workspace's
  *   packages, each `dir` repo-relative
+ * @param {{ ci?: boolean }} [where] off CI, a change every package reads
+ *   narrows to the rest of the selection, and `capped` says so
  */
-export function selection(changed, packages) {
+export function selection(changed, packages, { ci = true } = {}) {
   const owned = new Set();
   const readers = new Set();
   const everything = [];
@@ -59,23 +64,35 @@ export function selection(changed, packages) {
       else for (const name of who) readers.add(name);
     }
   }
-  if (everything.length > 0) {
+  if (everything.length > 0 && ci) {
     return {
       filters: ["--filter", `!${ROOT}`],
       why: `every package: ${everything.join(", ")} changed, and every package's tests read it`,
+      capped: false,
     };
   }
+  const capped =
+    everything.length > 0
+      ? `capped off CI: ${everything.join(", ")} changed, which every package's tests read, but every package at once took this Mac down (DEM-221); this runs the packages the branch changed with one worker, and CI runs every package`
+      : null;
   if (owned.size === 0 && readers.size === 0) {
-    return { filters: null, why: "no package changed, and no file a package's tests read" };
+    return {
+      filters: null,
+      why: capped ?? "no package changed, and no file a package's tests read",
+      capped: capped !== null,
+    };
   }
   return {
+    capped: capped !== null,
     filters: [
       ...[...owned].flatMap((name) => ["--filter", `...${name}`]),
       ...[...readers].flatMap((name) => ["--filter", name]),
       "--filter",
       `!${ROOT}`,
     ],
-    why: "the packages changed, those that depend on them, and those whose tests read a changed file outside the packages",
+    why:
+      capped ??
+      "the packages changed, those that depend on them, and those whose tests read a changed file outside the packages",
   };
 }
 
@@ -119,7 +136,9 @@ function main() {
     name: p.name,
     dir: p.path.slice(top.length + 1),
   }));
-  const { filters, why } = selection(changed, packages);
+  const { filters, why, capped } = selection(changed, packages, {
+    ci: Boolean(process.env.CI),
+  });
   const names = filters === null ? [] : selected(filters).map((p) => p.name);
   console.log(heading(names, why));
   if (filters === null || names.length === 0) return;
@@ -130,7 +149,11 @@ function main() {
     ["-r", "--workspace-concurrency=1", ...filters, "test"],
     {
       stdio: "inherit",
-      env: { ...process.env, DEMOMAN_TEST_TIER: "fast" },
+      env: {
+        ...process.env,
+        DEMOMAN_TEST_TIER: "fast",
+        ...(capped ? { DEMOMAN_TEST_WORKERS: "1" } : {}),
+      },
     },
   );
   if (run.error) throw run.error;
