@@ -190,7 +190,8 @@ export function createRoutes(o: {
   log: (line: string) => void;
   /** `ping`'s version: the bin's, which `openStudio` compares. */
   version: string;
-  /** `ping`'s `queued`: the export queue's size (Task 7's queue). */
+  /** `ping`'s `queued`: exports and adds queued or running, and CI applies
+   *  running: work a different version's open must not stop. */
   queued: () => number;
   /** The watch feeds: why each is down, and the kits write's announcement. */
   feeds: HomeFeeds;

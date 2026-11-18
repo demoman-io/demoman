@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventHub } from "../../src/events.js";
 import { createExportQueue, type RunExport } from "../../src/queue.js";
 import { createCiJobs } from "../../src/repo-ci.js";
-import { buildHandlers } from "../../src/serve.js";
+import { buildHandlers, endedSentence } from "../../src/serve.js";
 import type { StudioRequest } from "../../src/server.js";
 import { seedTake } from "./seed.js";
 
@@ -54,6 +54,8 @@ describe("adding a flow to its repo, and removing it", () => {
   let handlers: ReturnType<typeof buildHandlers>;
   const prFiles: string[][] = [];
   const revealed: string[] = [];
+  const logged: string[] = [];
+  const told: StudioEvent[] = [];
   let exportRuns: { finish: (a: ExportAnswer) => void }[];
   let queue: ReturnType<typeof createExportQueue>;
   const session = { name: "the one session" };
@@ -104,6 +106,8 @@ describe("adding a flow to its repo, and removing it", () => {
   beforeEach(async () => {
     sent.length = 0;
     revealed.length = 0;
+    logged.length = 0;
+    told.length = 0;
     calls.length = 0;
     exportRuns = [];
     home = await mkdtemp(join(tmpdir(), "studio-repo-add-"));
@@ -145,7 +149,8 @@ describe("adding a flow to its repo, and removing it", () => {
         kitsWritten: async () => {},
         close: () => {},
       },
-      log: () => {},
+      log: (line) => logged.push(line),
+      tell: (e) => told.push(e),
       version: "0",
       queue,
       session: session as never,
@@ -496,5 +501,143 @@ describe("adding a flow to its repo, and removing it", () => {
       status: 409,
       json: { reason: "notInRepo" },
     });
+  });
+
+  // Red if a refused add is said only as an event (DEM-125): with no window
+  // open, nobody receives it.
+  it("a refused add leaves its reason in studio.log and is told", async () => {
+    keep = async () =>
+      ({
+        ok: false,
+        reason: "keepRefused",
+        detail: "git refused the commit",
+      }) as KeepAnswer;
+    await add(good);
+    await until(() => phases().includes("failed"));
+    expect(
+      logged.filter((l) =>
+        l.includes("failed (keepRefused): git refused the commit"),
+      ),
+      logged.join("\n"),
+    ).toHaveLength(1);
+    const ended = told.filter((e) => e.type === "repo");
+    expect(ended).toHaveLength(1);
+    expect(endedSentence(ended[0] as StudioEvent)).toBe(
+      "Add to repo stopped: git refused the commit",
+    );
+  });
+
+  // Red if an add that worked is not told: no window, no word of it.
+  it("an add that ended is told, with what it added", async () => {
+    await add(good);
+    await until(() => phases().includes("added"));
+    const ended = told.filter((e) => e.type === "repo");
+    expect(ended).toHaveLength(1);
+    expect(endedSentence(ended[0] as StudioEvent)).toBe(
+      "Added flow.json to the repo",
+    );
+  });
+
+  // Red if the add renders whatever is on disk at its turn (DEM-140).
+  it("an add whose video was edited while it waited is refused, never added", async () => {
+    const library = createLibrary(home);
+    const read = await library.getSceneRead("add-take");
+    if (read === null) throw new Error("the seeded take has no scene");
+    await queue.start("add-take", { fileType: "mp4", revision: read.revision });
+    await until(() => exportRuns.length === 1);
+    expect(await add(good)).toMatchObject({ status: 202 });
+    await library.putScene({
+      ...read.scene,
+      canvas: { ...read.scene.canvas, aspect: "9:16" },
+    });
+    // The premise: the edit replaced the revision Add was pressed on.
+    const after = await library.getSceneRead("add-take");
+    expect(after?.revision).toBeDefined();
+    expect(after?.revision).not.toBe(read.revision);
+    exportRuns[0]?.finish({ outcome: "failed" } as unknown as ExportAnswer);
+    await until(() => phases().includes("failed"));
+    expect(calls).toHaveLength(0);
+    expect(
+      sent.find((e) => e.type === "repo" && e.phase === "failed"),
+    ).toMatchObject({ reason: "videoChanged" });
+    expect(logged.some((l) => l.includes("failed (videoChanged)"))).toBe(true);
+  });
+
+  // Red if keep's receipt is not checked against the pressed revision.
+  it("an edit saved while keep ran is said on the added event, and only then", async () => {
+    const rev = (await createLibrary(home).getSceneRead("add-take"))
+      ?.revision as string;
+    expect(rev).toBeTruthy();
+    const receiptAt =
+      (recordedRevision: string) =>
+      async (...a: KeepCall) => {
+        calls.push(a);
+        return keptOk({
+          receipt: { video: "add-take", recordedRevision } as never,
+        });
+      };
+    const notesOf = () =>
+      sent.flatMap((e) =>
+        e.type === "repo" && e.phase === "added" ? [e.notes] : [],
+      );
+    keep = receiptAt(rev);
+    await add(good);
+    await until(() => notesOf().length === 1);
+    expect(notesOf()[0]).toEqual([]);
+    keep = receiptAt("a-later-revision");
+    await add(good);
+    await until(() => notesOf().length === 2);
+    expect(notesOf()[1]).toEqual([
+      expect.stringContaining("was edited while it was being added"),
+    ]);
+  });
+});
+
+// Red if the ping leaves running CI applies out of `queued` (DEM-126): a
+// different version's open would stop the Studio under them.
+describe("ping's queued", () => {
+  it("counts a running CI apply", async () => {
+    const home = await mkdtemp(join(tmpdir(), "studio-ping-"));
+    try {
+      const library = createLibrary(home);
+      const events = createEventHub({ log: () => {} });
+      const queue = createExportQueue({
+        library,
+        events,
+        run: () => new Promise(() => {}),
+        log: () => {},
+      });
+      const jobs = createCiJobs({ events, log: () => {} });
+      let applying = 0;
+      const handlers = buildHandlers({
+        home,
+        library,
+        events,
+        feeds: {
+          unwatched: () => ({ takes: null, kits: null }),
+          kitsWritten: async () => {},
+          close: () => {},
+        },
+        log: () => {},
+        version: "0",
+        queue,
+        session: {} as never,
+        wallpapersDir: "/none",
+        outDir: "/none",
+        window: { open: async () => ({ ok: true, path: "/" }) },
+        ci: { ...jobs, running: () => applying },
+      });
+      const ping = async () =>
+        (
+          (await handlers.ping({} as StudioRequest)) as {
+            json: { queued: number };
+          }
+        ).json.queued;
+      expect(await ping()).toBe(0);
+      applying = 1;
+      expect(await ping()).toBe(1);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });

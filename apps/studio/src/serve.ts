@@ -21,6 +21,7 @@ import {
   keepVideo,
   type Library,
   LibraryError,
+  latestOf,
   ownHome,
   removeRepoFlow,
 } from "@demoman/runner/studio";
@@ -114,6 +115,8 @@ export function buildHandlers(o: {
   upkeepOnStart?: boolean;
   /** The CI routes; absent, they answer `routeNotFound`. */
   ci?: CiJobs;
+  /** Told each add that ended, so one with no window open is still said. */
+  tell?: (e: StudioEvent) => void;
 }): StudioHandlers {
   const { library } = o;
 
@@ -125,6 +128,18 @@ export function buildHandlers(o: {
   const videos = createVideoStore(o.home, library, { log: o.log });
   const keep = o.keep ?? keepVideo;
   const removeFlow = o.removeFlow ?? removeRepoFlow;
+  /** The take an add renders, chosen as keep chooses it (`latestOf`), and
+   *  its scene's revision now; null when it has none that reads. */
+  const addedVersion = async (
+    video: NonNullable<Awaited<ReturnType<typeof videos.get>>>,
+  ): Promise<{ takeId: string; revision: string } | null> => {
+    const latest = await latestOf(videos, video);
+    if (latest === undefined) return null;
+    const read = await library.getSceneRead(latest.takeId);
+    return read === null
+      ? null
+      : { takeId: latest.takeId, revision: read.revision };
+  };
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -147,7 +162,9 @@ export function buildHandlers(o: {
       events: o.events,
       log: o.log,
       version: o.version,
-      queued: () => o.queue.size(),
+      // A CI apply watches its run for up to half an hour: work a newer
+      // version's open must not stop underneath it (DEM-126).
+      queued: () => o.queue.size() + ci.running(),
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
@@ -250,11 +267,47 @@ export function buildHandlers(o: {
           [can.label, can.detail].filter((x) => x !== "").join(". "),
         );
       }
+      // The version Add was pressed on: what the add must commit (DEM-140).
+      const pressed = await addedVersion(video);
+      if (pressed === null) {
+        return refuse(
+          409,
+          "notAddable",
+          `Nothing was added: "${video.name}" has no video whose scene reads.`,
+        );
+      }
       const jobId = randomUUID();
       const at = { type: "repo", videoId: id, jobId } as const;
+      const ended = (e: StudioEvent) => {
+        o.events.send(e);
+        o.tell?.(e);
+      };
+      // Said in studio.log too: with no window open, the event alone reaches
+      // nobody (DEM-125).
+      const failed = (reason: string, detail: string) => {
+        o.log(`studio: add ${jobId} failed (${reason}): ${detail}`);
+        ended({ ...at, phase: "failed", reason, detail });
+      };
       void o.queue
         .serial(
           async () => {
+            const current = await videos.get(id);
+            const turn = current === null ? null : await addedVersion(current);
+            // A gone flow or scene is keep's to refuse, in its own words.
+            if (
+              turn !== null &&
+              (turn.takeId !== pressed.takeId ||
+                turn.revision !== pressed.revision)
+            ) {
+              failed(
+                "videoChanged",
+                `"${video.name}" changed after Add to repo was pressed, so nothing was added. Press Add to repo again to add it as it is now.`,
+              );
+              return;
+            }
+            // shortcut: an edit saved while keep itself runs still lands (keep
+            // reads the scene again); it is said below, not prevented. Prevent
+            // it by handing keep the pinned read, a runner change (lane C).
             const answer = await keep(
               {
                 video: id,
@@ -284,23 +337,29 @@ export function buildHandlers(o: {
               },
             );
             if (!answer.ok) {
-              o.events.send({
-                ...at,
-                phase: "failed",
-                reason: answer.reason,
-                detail: answer.detail,
-              });
+              failed(answer.reason, answer.detail);
               return;
             }
             ci.added(can.root, answer.written);
-            o.events.send({
+            const r = answer.receipt;
+            const drifted =
+              r !== null &&
+              (r.video !== pressed.takeId ||
+                r.recordedRevision !== pressed.revision);
+            const driftNote = drifted
+              ? `"${video.name}" was edited while it was being added: the repo has the version saved then, not the one Add to repo was pressed on.`
+              : undefined;
+            if (driftNote !== undefined) {
+              o.log(`studio: add ${jobId}: ${driftNote}`);
+            }
+            ended({
               ...at,
               phase: "added",
               file: answer.file,
               written: answer.written,
               // Only what a person acts on: the platform and screens notes
               // are the terminal's (DEM-49, the author's ruling).
-              notes: [answer.markNote, answer.scaleGuess].filter(
+              notes: [driftNote, answer.markNote, answer.scaleGuess].filter(
                 (n): n is string => n !== undefined,
               ),
               marked: answer.markNote === undefined,
@@ -311,13 +370,10 @@ export function buildHandlers(o: {
           (position) => o.events.send({ ...at, phase: "queued", position }),
         )
         .catch((error: unknown) => {
-          o.log(`studio: add ${jobId} threw: ${messageOf(error)}`);
-          o.events.send({
-            ...at,
-            phase: "failed",
-            reason: "internalError",
-            detail: `The add stopped with an error: ${messageOf(error)}.`,
-          });
+          failed(
+            "internalError",
+            `The add stopped with an error: ${messageOf(error)}.`,
+          );
         })
         .finally(() => adding.delete(id));
       const started: RepoAddStarted = { jobId };
@@ -511,9 +567,14 @@ export function notifyOnMac(title: string, body: string): Promise<void> {
   });
 }
 
-/** What a notification says for an export or a CI apply that ended; null
- *  for any other event. */
-function endedSentence(e: StudioEvent): string | null {
+/** What a notification says for an export, an add or a CI apply that ended;
+ *  null for any other event. */
+export function endedSentence(e: StudioEvent): string | null {
+  if (e.type === "repo") {
+    if (e.phase === "failed") return `Add to repo stopped: ${e.detail}`;
+    if (e.phase !== "added") return null;
+    return [`Added ${basename(e.file)} to the repo`, ...e.notes].join(" ");
+  }
   if (e.type === "ci") {
     if (e.phase !== "done" || e.step !== "apply") return null;
     const a = e.answer;
@@ -644,7 +705,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     const notice = notify("Demoman", sentence)
       .catch((error: unknown) => {
         log(
-          `studio: ${e.type === "ci" ? "CI setup" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
+          `studio: ${e.type === "ci" ? "CI setup" : e.type === "repo" ? "an add to the repo" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
         );
       })
       .finally(() => notices.delete(notice));
@@ -690,6 +751,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     outDir: o.outDir,
     upkeepOnStart: true,
     ci,
+    tell: tellIfUnseen,
     window: {
       open: async (t) => {
         opening += 1;
