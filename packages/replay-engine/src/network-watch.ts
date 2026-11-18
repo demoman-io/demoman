@@ -23,7 +23,7 @@ export interface NetworkWatch {
     realMs: number,
     pageMs?: number,
   ): { from: number; page?: number; labels: string[] } | null;
-  /** Whether a document's request is open. */
+  /** Whether the top frame's document request is open (DEM-203). */
   loading(): boolean;
   /** The connections counted now are ones the recording followed: data on
    *  one of them later is an answer the script once waited on. */
@@ -31,13 +31,29 @@ export interface NetworkWatch {
   /** When data last arrived on a connection the recording followed (real
    *  ms); null when none has. */
   followedDataAt(): number | null;
-  /** Leaves these requests out of every answer above until the next call
-   *  (none: `[]`): requests a step's settle does not wait for, which the
-   *  clock then does not follow either (DEM-204). */
-  ignore(ids: readonly string[]): void;
+  /** The wait's window for every answer above until the next call: only
+   *  requests opened at or after `since` on the page's clock count (null:
+   *  every one). A request older than the wait is not followed by it
+   *  (DEM-204, DEM-202). */
+  window(since: number | null): void;
   /** When data last arrived on a connection the recording followed while it
-   *  was left out (`ignore`); null when none has. */
-  ignoredDataAt(): number | null;
+   *  was outside the window; null when none has. */
+  outsideDataAt(): number | null;
+  /** The walk's settle: requests counted and open that opened at or after
+   *  `since` on the page's clock (every one when left out), whatever the
+   *  window. */
+  inFlight(since?: number): number;
+  /** True once none opened at or after `since` is open; false when the
+   *  page's clock reaches `deadlineMs` first. */
+  idle(
+    deadlineMs: number,
+    sleep: (ms: number) => Promise<void>,
+    since?: number,
+  ): Promise<boolean>;
+  /** Requests counted and open that opened before `since`: what a step's
+   *  settle leaves out (`requestNotWaited`). */
+  openedBefore(since: number): number;
+  /** Stops listening and turns the Network domain off again. */
   stop(): void;
 }
 
@@ -49,20 +65,50 @@ const pathOf = (url: unknown): string => {
   }
 };
 
+/** What is never the page waiting on its server: a subscription (what
+ *  arrives on it is pushed, and it stays open) and media (a video's download
+ *  runs as long as it plays). Everything else the top frame asks for is
+ *  (DEM-202, the author's ruling of 2026-11-17). */
+const NEVER = new Set(["WebSocket", "EventSource", "Media"]);
+const POLL_MS = 25;
+
+/** The page's clock, which windows are on. */
+export interface NetworkWatchClocks {
+  /** The page's clock (`clock.now()` ms). Default: `realNow`. */
+  pageNow?: () => number;
+  /** A Fetch's or XHR's `wallTime` (ms) on the page's clock: held only,
+   *  where the page stamps them on its held clock (DEM-206). */
+  pageOfWall?: (wallMs: number) => number;
+}
+
 export async function createNetworkWatch(
   cdp: CdpSession,
   realNow: () => number,
+  clocks: NetworkWatchClocks = {},
 ): Promise<NetworkWatch> {
+  const pageNow = clocks.pageNow ?? realNow;
+  const { pageOfWall } = clocks;
   // lastAt is the start, then the latest data: a connection awaiting its first answer is idle from its start.
+  // page: when it opened on the page's clock; seq: the order it opened in.
   const live = new Map<
     string,
-    { label: string; lastAt: number; followed?: true }
+    {
+      label: string;
+      lastAt: number;
+      page: number;
+      seq: number;
+      frame?: string;
+      followed?: true;
+    }
   >();
+  let seq = 0;
   let followedDataAt: number | null = null;
-  let ignoring = new Set<string>();
-  let ignoredDataAt: number | null = null;
-  /** The live connections that count: all but those left out. */
-  const counted = () => [...live].filter(([k]) => !ignoring.has(k));
+  let since = Number.NEGATIVE_INFINITY;
+  let outsideDataAt: number | null = null;
+  /** The top frame's id; null until known, when every frame counts. */
+  let topId: string | null = null;
+  /** The live connections that count: those in the window. */
+  const counted = () => [...live].filter(([, c]) => c.page >= since);
   const idle = new Map<string, string>(); // dropped for silence, may resume
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
@@ -74,8 +120,8 @@ export async function createNetworkWatch(
     labels: string[];
   }[] = [];
   const dropped: string[] = []; // each label named once
-  /** A frame's document request, by frame: the one a swap ends. */
-  const documents = new Map<string, string>();
+  /** The top frame's latest document request: its id and order. */
+  let document: { id: string; seq: number } | null = null;
   const id = (p: Record<string, unknown>) => String(p.requestId);
   const name = (label: string) => {
     if (!dropped.includes(label)) dropped.push(label);
@@ -94,6 +140,7 @@ export async function createNetworkWatch(
     p: Record<string, unknown>,
     label: string,
     now: number,
+    opened: { page: number; seq: number; frame?: string },
     sent = now,
     page?: number,
   ) => {
@@ -103,8 +150,10 @@ export async function createNetworkWatch(
       waits.push({ from: sent, heard: now, page, labels: [] });
     const last = waits[waits.length - 1] as (typeof waits)[number];
     if (!last.labels.includes(label)) last.labels.push(label);
-    live.set(id(p), { label, lastAt: now });
+    live.set(id(p), { label, lastAt: now, ...opened });
   };
+  const isTop = (frame: unknown) =>
+    topId === null || frame === undefined || frame === topId;
   // A document's request is dated by when the browser sent it: its word can
   // come after the walk's next grant (CI ubuntu, 2026-11-15: a cross-site
   // click's request, heard a frame late, counted that frame as held). Only a
@@ -117,15 +166,39 @@ export async function createNetworkWatch(
   // its word lands (DEM-206; both within 0.01 ms of the held time, measured
   // 2026-11-17). Only those two: a request the browser makes itself (a
   // preflight) may be stamped in real time, unmeasured.
+  // A request's window is placed on the page's clock the same way: its
+  // `wallTime` for a fetch or XHR, held; otherwise when it is heard.
   const begin = (p: Record<string, unknown>, label: string) => {
     const now = realNow();
-    if (p.type === "Document" && typeof p.frameId === "string")
-      documents.set(p.frameId, id(p));
+    // A redirect reuses its id: one request, opened when it first did.
+    const known = live.get(id(p));
+    if (known !== undefined) {
+      known.lastAt = now;
+      return;
+    }
     const wall = typeof p.wallTime === "number" ? p.wallTime * 1000 : null;
-    if (p.type === "Document") count(p, label, now, Math.min(now, wall ?? now));
-    else if (p.type === "Fetch" || p.type === "XHR")
-      count(p, label, now, now, wall ?? undefined);
-    else count(p, label, now);
+    const own = p.type === "Fetch" || p.type === "XHR";
+    const opened = {
+      page:
+        own && wall !== null && pageOfWall !== undefined
+          ? pageOfWall(wall)
+          : pageNow(),
+      seq: seq++,
+      ...(typeof p.frameId === "string" && { frame: p.frameId }),
+    };
+    if (p.type === "Document") {
+      document = { id: id(p), seq: opened.seq };
+      count(p, label, now, opened, Math.min(now, wall ?? now));
+    } else if (own)
+      count(
+        p,
+        label,
+        now,
+        opened,
+        now,
+        wall === null ? undefined : (pageOfWall?.(wall) ?? wall),
+      );
+    else count(p, label, now, opened);
   };
   const data = (p: Record<string, unknown>) => {
     const now = realNow();
@@ -134,56 +207,64 @@ export async function createNetworkWatch(
       if (now - c.lastAt > IDLE_CONNECTION_MS) name(c.label);
       c.lastAt = now;
       if (c.followed) followedDataAt = now;
-      if (c.followed && ignoring.has(id(p))) ignoredDataAt = now;
+      if (c.followed && c.page < since) outsideDataAt = now;
       return;
     }
     const label = idle.get(id(p));
     if (label === undefined) return;
     idle.delete(id(p));
-    count(p, label, now);
+    count(p, label, now, { page: pageNow(), seq: seq++ });
   };
-  const end = (p: Record<string, unknown>) => {
+  const forget = (
+    gone: (k: string, c: { seq: number; frame?: string }) => boolean,
+  ) => {
     const was = counted().length;
-    live.delete(id(p));
-    idle.delete(id(p));
+    for (const [k, c] of live) if (gone(k, c)) live.delete(k);
+    for (const k of idle.keys())
+      if (gone(k, { seq: Number.NEGATIVE_INFINITY })) idle.delete(k);
     if (was > 0 && counted().length === 0) quietAt = realNow();
+  };
+  const end = (p: Record<string, unknown>) => forget((k) => k === id(p));
+  const inFlight = (from = Number.NEGATIVE_INFINITY) => {
+    sweep();
+    return [...live.values()].filter((c) => c.page >= from).length;
   };
 
   const offs = [
     cdp.on("Network.requestWillBeSent", (p) => {
-      // An EventSource is never a wait, as a websocket is not (below): it
-      // is a subscription, open for as long as the page is, and what
-      // arrives on it is pushed. Counted, one that sent every 3 s made a
-      // 5 s video 72 s, and one that sent once cost 10 s and a note
-      // (measured 2026-11-16, compare/held-push.sh; the author's ruling).
-      // The walk's own request watch never counted one (`requests.ts`).
-      // shortcut: a reply streamed over an EventSource lands where the
-      // machine puts it, unsaid; upgrade if an app shows it.
-      if (p.type === "EventSource") return;
+      // An EventSource or a websocket was measured (2026-11-16,
+      // compare/held-push.sh): counted, one that sent every 3 s made a 5 s
+      // video 72 s. A websocket is never heard here at all (no request is
+      // sent for one): a dev server's hot-reload socket sends on every
+      // request, and counted it kept each wait open 10 s past its last
+      // request (Chatbot, 2026-11-15). A video's download froze a held
+      // video's step settle 8 s (DEM-207). A rule, not a loss, so nothing
+      // says it.
+      // shortcut: a reply streamed over a websocket or an EventSource lands
+      // where the machine puts it, unsaid; upgrade if an app shows it.
+      // An iframe's requests are its own document's business (DEM-203): a
+      // slow widget would hold the top page's every settle. A frame of
+      // another site is its own process already, unseen here.
+      if (NEVER.has(String(p.type)) || !isTop(p.frameId)) return;
       const r = (p.request ?? {}) as Record<string, unknown>;
       begin(p, `${r.method} ${pathOf(r.url)}`);
     }),
-    // A websocket is never a wait, and none is listened for: what arrives
-    // on one is pushed, not an answer the page asked for, and it stays open.
-    // A dev server's hot-reload socket sends on every request, which kept
-    // each wait open 10 s past its last request (traced 2026-11-15, Chatbot
-    // sample). A rule, not a loss, so nothing says it: named as ignored, it
-    // made every run of an app under a dev server a degraded one, which
-    // refresh records twice (review of 2026-11-16).
-    // shortcut: a reply streamed over a websocket is not server time, so its
-    // words land where the machine puts them, unsaid; upgrade if an app
-    // shows it.
-    // A frame of another site moves to that site's process as its document
-    // answers, and the rest of its load is said to that process, not here:
-    // this session hears the swap and never the request's end, so the wait
-    // stood until the idle cut-off (a 10 s opening wait on every page with
-    // such a frame; traced 2026-11-16). The swap is the answer arriving.
-    // What the frame then asks for is its own process's, and goes unseen.
-    cdp.on("Page.frameDetached", (p) => {
-      const request = documents.get(String(p.frameId));
-      if (p.reason === "swap" && request !== undefined)
-        end({ requestId: request });
+    // A new top document: what the old one asked for died with it, and
+    // Chrome does not always say so with `loadingFailed`; its own request
+    // runs on until its last byte.
+    cdp.on("Page.frameNavigated", (p) => {
+      const frame = p.frame as { id?: string; parentId?: string } | undefined;
+      if (frame?.id === undefined || frame.parentId !== undefined) return;
+      topId = frame.id;
+      const from = document?.seq ?? Number.POSITIVE_INFINITY;
+      forget((_, c) => c.seq < from);
     }),
+    // A frame removed from the page, or swapped to another site's process
+    // (which this session never hears the end of): its requests went with
+    // it. Counted only before the top frame is known.
+    cdp.on("Page.frameDetached", (p) =>
+      forget((_, c) => c.frame !== undefined && c.frame === p.frameId),
+    ),
     ...["Network.responseReceived", "Network.dataReceived"].map((e) =>
       cdp.on(e, data),
     ),
@@ -191,14 +272,23 @@ export async function createNetworkWatch(
       cdp.on(e, end),
     ),
   ];
-  const stop = () => {
+  const unlisten = () => {
     for (const off of offs) off();
   };
   try {
-    await cdp.send("Page.enable"); // for the swap above
-    await cdp.send("Network.enable");
+    await cdp.send("Page.enable"); // for the frames above
+    // Only the events are read: no body is kept, so none is buffered.
+    await cdp.send("Network.enable", {
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    });
+    const tree = (await cdp.send("Page.getFrameTree")) as {
+      frameTree?: { frame?: { id?: string } };
+    };
+    topId ??= tree.frameTree?.frame?.id ?? null;
   } catch (e) {
-    stop();
+    unlisten();
     throw e;
   }
 
@@ -238,17 +328,33 @@ export async function createNetworkWatch(
     },
     loading() {
       sweep();
-      const open = new Set(documents.values());
-      return counted().some(([k]) => open.has(k));
+      return document !== null && live.has(document.id);
     },
     follow() {
       for (const [, c] of counted()) c.followed = true;
     },
     followedDataAt: () => followedDataAt,
-    ignore(ids) {
-      ignoring = new Set(ids);
+    window(from) {
+      since = from ?? Number.NEGATIVE_INFINITY;
     },
-    ignoredDataAt: () => ignoredDataAt,
-    stop,
+    outsideDataAt: () => outsideDataAt,
+    inFlight,
+    async idle(deadlineMs, sleep, from) {
+      while (inFlight(from) > 0) {
+        if (pageNow() >= deadlineMs) return false;
+        await sleep(POLL_MS);
+      }
+      return true;
+    },
+    openedBefore(from) {
+      sweep();
+      return [...live.values()].filter((c) => c.page < from).length;
+    },
+    stop() {
+      unlisten();
+      // Swallowed on purpose: at teardown the session is often already
+      // closed, and nothing is left that reads the domain.
+      void cdp.send("Network.disable").catch(() => undefined);
+    },
   };
 }

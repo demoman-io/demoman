@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import { createNetworkWatch } from "../../src/index.js";
 import type { CdpSession } from "../../src/types.js";
 
-function setup() {
+/** `top`: the top frame's id `Page.getFrameTree` answers (null: none). */
+function setup(top: string | null = "top") {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
   const sent: string[] = [];
   const cdp: CdpSession = {
     async send(method) {
       sent.push(method);
-      return {};
+      return method === "Page.getFrameTree" && top !== null
+        ? { frameTree: { frame: { id: top } } }
+        : {};
     },
     on(event, handler) {
       const set = handlers.get(event) ?? new Set();
@@ -287,40 +290,214 @@ describe("createNetworkWatch", () => {
     expect(w.labels()).toEqual(["GET /poll"]);
   });
 
-  // Traced 2026-11-16: a frame of another site swaps to that site's process
-  // when its document answers, and this session never hears the request
-  // end. Red if the wait stands until the idle cut-off.
-  it("ends a frame's document request when the frame swaps to another process", async () => {
+  // DEM-202: one rule for both the settle and the held clock.
+  it("never counts a websocket, an EventSource or media", async () => {
     const { cdp, emit } = setup();
-    let now = 0;
-    const w = await createNetworkWatch(cdp, () => now);
-    emit("Network.requestWillBeSent", {
-      ...start("f", "http://other.test/frame"),
-      type: "Document",
-      frameId: "F",
-    });
-    emit("Network.requestWillBeSent", start("1"));
-    emit("Network.loadingFinished", { requestId: "1" });
-    expect(w.waiting()).toBe(true); // premise: the frame's document is open
-    now = 40;
-    emit("Page.frameDetached", { frameId: "F", reason: "swap" });
+    const w = await createNetworkWatch(cdp, () => 0);
+    for (const [id, type] of [
+      ["w", "WebSocket"],
+      ["e", "EventSource"],
+      ["m", "Media"],
+    ])
+      emit("Network.requestWillBeSent", { ...start(id), type, frameId: "top" });
     expect(w.waiting()).toBe(false);
-    expect(w.quietSince()).toBe(40);
-    now = 20_000;
-    expect(w.ignored()).toEqual([]);
+    expect(w.inFlight()).toBe(0);
+    // premise: an image beside them counts
+    emit("Network.requestWillBeSent", { ...start("i"), type: "Image" });
+    expect(w.inFlight()).toBe(1);
   });
 
-  it("keeps a frame's document request when the frame is removed, or another frame swaps", async () => {
+  it("counts only the top frame's requests", async () => {
     const { cdp, emit } = setup();
     const w = await createNetworkWatch(cdp, () => 0);
     emit("Network.requestWillBeSent", {
-      ...start("f", "http://other.test/frame"),
-      type: "Document",
-      frameId: "F",
+      ...start("c"),
+      type: "Image",
+      frameId: "child",
     });
-    emit("Page.frameDetached", { frameId: "F", reason: "remove" });
-    emit("Page.frameDetached", { frameId: "G", reason: "swap" });
+    expect(w.waiting()).toBe(false);
+    expect(w.inFlight()).toBe(0);
+    emit("Network.requestWillBeSent", {
+      ...start("t"),
+      type: "Image",
+      frameId: "top",
+    });
     expect(w.waiting()).toBe(true);
+  });
+
+  it("learns the top frame from a navigation without a parent", async () => {
+    const { cdp, emit } = setup(null);
+    const w = await createNetworkWatch(cdp, () => 0);
+    // Unknown: every frame counts.
+    emit("Network.requestWillBeSent", { ...start("a"), frameId: "child" });
+    expect(w.inFlight()).toBe(1);
+    emit("Page.frameNavigated", { frame: { id: "T" } });
+    emit("Network.requestWillBeSent", { ...start("b"), frameId: "child" });
+    emit("Network.requestWillBeSent", { ...start("c"), frameId: "T" });
+    expect(w.labels()).toEqual(["GET /poll"]); // only "c": "a" died with the old document
+    expect(w.inFlight()).toBe(1);
+  });
+
+  // DEM-203: an iframe's document is never the page loading.
+  it("says loading only for the top frame's document", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", {
+      ...start("c", "http://app.test/frame"),
+      type: "Document",
+      frameId: "child",
+    });
+    expect(w.loading()).toBe(false);
+    emit("Network.requestWillBeSent", {
+      ...start("t", "http://app.test/there"),
+      type: "Document",
+      frameId: "top",
+    });
+    expect(w.loading()).toBe(true);
+  });
+
+  it("counts a request with no frame as the top frame's", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", { ...start("1"), type: "Fetch" });
+    expect(w.inFlight()).toBe(1);
+    expect(w.waiting()).toBe(true);
+  });
+
+  it("keeps a redirect's first opening", async () => {
+    const { cdp, emit } = setup();
+    let page = 100;
+    const w = await createNetworkWatch(cdp, () => 0, { pageNow: () => page });
+    emit("Network.requestWillBeSent", { ...start("1"), type: "Image" });
+    page = 200;
+    emit("Network.requestWillBeSent", { ...start("1"), type: "Image" });
+    expect(w.inFlight(150)).toBe(0);
+    expect(w.inFlight(100)).toBe(1);
+  });
+
+  it("stamps a fetch by its page time and anything else when heard", async () => {
+    const { cdp, emit } = setup();
+    const page = 900;
+    const w = await createNetworkWatch(cdp, () => 0, {
+      pageNow: () => page,
+      pageOfWall: (wall) => wall - 5000,
+    });
+    emit("Network.requestWillBeSent", {
+      ...start("f"),
+      type: "Fetch",
+      wallTime: 5.4,
+    });
+    expect(w.inFlight(400)).toBe(1);
+    expect(w.inFlight(401)).toBe(0);
+    emit("Network.requestWillBeSent", {
+      ...start("i"),
+      type: "Image",
+      wallTime: 5.4,
+    });
+    expect(w.inFlight(900)).toBe(1);
+    // The held clock's waits are on the page's clock too.
+    expect(w.waitsSince(1, 400)?.page).toBe(400);
+  });
+
+  it("follows only what the window holds", async () => {
+    const { cdp, emit } = setup();
+    let page = 0;
+    const w = await createNetworkWatch(cdp, () => 0, { pageNow: () => page });
+    emit("Network.requestWillBeSent", start("old", "http://app.test/old"));
+    page = 7000;
+    emit("Network.requestWillBeSent", start("new", "http://app.test/new"));
+    w.window(1000);
+    expect(w.labels()).toEqual(["GET /new"]);
+    expect(w.inFlight()).toBe(2); // the window is the clock's, not the settle's
+    w.window(null);
+    expect(w.labels()).toEqual(["GET /old", "GET /new"]);
+  });
+
+  it("says data on a followed request outside the window", async () => {
+    const { cdp, emit } = setup();
+    let page = 0;
+    let now = 0;
+    const w = await createNetworkWatch(cdp, () => now, {
+      pageNow: () => page,
+    });
+    emit("Network.requestWillBeSent", start("old", "http://app.test/old"));
+    page = 7000;
+    emit("Network.requestWillBeSent", start("new", "http://app.test/new"));
+    w.follow();
+    w.window(1000);
+    now = 20;
+    emit("Network.dataReceived", { requestId: "new" });
+    expect(w.outsideDataAt()).toBeNull();
+    now = 30;
+    emit("Network.dataReceived", { requestId: "old" });
+    expect(w.outsideDataAt()).toBe(30);
+  });
+
+  // Review Focus 1: a navigation's server wait lasts until its document
+  // has answered, not only until it commits.
+  it("keeps the committing document's request open", async () => {
+    const { cdp, emit } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", { ...start("f"), type: "Fetch" });
+    emit("Network.requestWillBeSent", {
+      ...start("d", "http://app.test/there"),
+      type: "Document",
+      frameId: "top",
+    });
+    emit("Page.frameNavigated", { frame: { id: "top" } });
+    expect(w.inFlight()).toBe(1);
+    expect(w.labels()).toEqual(["GET /there"]);
+    expect(w.loading()).toBe(true);
+    emit("Network.loadingFinished", { requestId: "d" });
+    expect(w.loading()).toBe(false);
+    expect(w.waiting()).toBe(false);
+  });
+
+  it("forgets a detached frame's requests", async () => {
+    const { cdp, emit } = setup(null);
+    const w = await createNetworkWatch(cdp, () => 0);
+    emit("Network.requestWillBeSent", { ...start("a"), frameId: "F" });
+    emit("Network.requestWillBeSent", { ...start("b"), frameId: "G" });
+    emit("Page.frameDetached", { frameId: "F", reason: "swap" });
+    expect(w.inFlight()).toBe(1);
+  });
+
+  it("answers idle false at the deadline", async () => {
+    const { cdp, emit } = setup();
+    let page = 0;
+    const w = await createNetworkWatch(cdp, () => 0, { pageNow: () => page });
+    const sleep = async (ms: number) => {
+      page += ms;
+    };
+    emit("Network.requestWillBeSent", start("1"));
+    expect(await w.idle(50, sleep)).toBe(false);
+    expect(page).toBeGreaterThanOrEqual(50);
+    // Only those opened since count.
+    expect(await w.idle(1000, sleep, 1)).toBe(true);
+    emit("Network.loadingFinished", { requestId: "1" });
+    expect(await w.idle(page + 50, sleep)).toBe(true);
+  });
+
+  it("counts what opened before a window", async () => {
+    const { cdp, emit } = setup();
+    let page = 0;
+    const w = await createNetworkWatch(cdp, () => 0, { pageNow: () => page });
+    emit("Network.requestWillBeSent", start("a"));
+    page = 7000;
+    emit("Network.requestWillBeSent", start("b"));
+    expect(w.openedBefore(1000)).toBe(1);
+  });
+
+  it("stop turns the Network domain off, and a closed session rejects nothing", async () => {
+    const { cdp, sent } = setup();
+    const w = await createNetworkWatch(cdp, () => 0);
+    cdp.send = async (method) => {
+      sent.push(method);
+      throw new Error("Target page, context or browser has been closed");
+    };
+    expect(() => w.stop()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toContain("Network.disable");
   });
 
   it("counts a dropped connection again when its data resumes, and keeps it named", async () => {
