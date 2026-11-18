@@ -7,6 +7,7 @@
 
 import { globSync } from "node:fs";
 import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** @param {Record<string, string | undefined>} env */
 export function testTier(env = process.env) {
@@ -38,6 +39,20 @@ export function slowExcludes(
 }
 
 /**
+ * Off CI, vitest's `globalSetup` that queues the run on the machine-wide
+ * suite lock (scripts/suite-lock.mjs); on CI nothing.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {{ globalSetup?: string[] }}
+ */
+export function suiteLock(env = process.env) {
+  if (env.CI) return {};
+  return {
+    globalSetup: [fileURLToPath(new URL("./suite-lock.mjs", import.meta.url))],
+  };
+}
+
+/**
  * How many test files a package's vitest runs at once, as `{ minWorkers,
  * maxWorkers }` to spread into its `test` block.
  *
@@ -51,9 +66,12 @@ export function slowExcludes(
  * overrides both numbers. CI keeps vitest's default: its jobs are sized
  * for it, and they do not go through the root scripts.
  *
+ * Off CI it also queues the run behind the machine's suite lock
+ * (`suiteLock`), so two suites never run at once.
+ *
  * @param {"heavy" | "light"} weight
  * @param {Record<string, string | undefined>} env
- * @returns {{ minWorkers?: number, maxWorkers?: number }}
+ * @returns {{ minWorkers?: number, maxWorkers?: number, globalSetup?: string[] }}
  */
 export function testWorkers(weight, env = process.env) {
   const given = env.DEMOMAN_TEST_WORKERS;
@@ -64,10 +82,14 @@ export function testWorkers(weight, env = process.env) {
         `DEMOMAN_TEST_WORKERS must be a whole number of 1 or more, got "${given}"`,
       );
     }
-    return { minWorkers: 1, maxWorkers: n };
+    return { minWorkers: 1, maxWorkers: n, ...suiteLock(env) };
   }
   if (env.CI) return {};
-  return { minWorkers: 1, maxWorkers: weight === "heavy" ? 2 : 4 };
+  return {
+    minWorkers: 1,
+    maxWorkers: weight === "heavy" ? 2 : 4,
+    ...suiteLock(env),
+  };
 }
 
 /**

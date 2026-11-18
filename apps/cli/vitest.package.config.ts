@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { suiteLock } from "../../scripts/test-tier.mjs";
 
 /** By hand before a release on a Mac (`pnpm test:package`), and in CI on
  *  Linux (.github/workflows/linux.yml) under xvfb-run, since signin and the
@@ -6,6 +7,7 @@ import { defineConfig } from "vitest/config";
  *  install. */
 export default defineConfig({
   test: {
+    ...suiteLock(),
     name: "cli-package",
     environment: "node",
     include: ["test-package/**/*.test.ts"],
