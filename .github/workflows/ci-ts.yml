@@ -63,26 +63,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           PR: ${{ github.event.pull_request.number }}
-        run: |
-          product=true
-          n=0
-          if [ "$EVENT" = pull_request ]; then
-            product=false
-            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
-            globs=$(yq '.on.push.paths[]' .github/workflows/ci-ts.yml)
-            [ -n "$globs" ] || { echo "::error::no on.push.paths in ci-ts.yml"; exit 1; }
-            [ -n "$files" ] || { echo "::error::the PR's file list came back empty"; exit 1; }
-            while IFS= read -r f; do
-              [ -n "$f" ] || continue
-              n=$((n + 1))
-              while IFS= read -r g; do
-                # Unquoted on purpose: in [[ ]] the glob's * also crosses /.
-                if [[ $f == $g ]]; then product=true; fi
-              done <<<"$globs"
-            done <<<"$files"
-          fi
-          echo "changes: product=$product ($n files)"
-          echo "product=$product" >> "$GITHUB_OUTPUT"
+        run: bash .github/actions/changes.sh .github/workflows/ci-ts.yml
 
   check:
     needs: changes
