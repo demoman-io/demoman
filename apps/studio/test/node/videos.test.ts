@@ -256,7 +256,7 @@ describe("the takes listing's videos", () => {
     expect(await exists(frames)).toBe(true);
     const row = body.unreadable.find((u) => u.folder === "expiring old videos");
     expect(row?.kind, said).toBe("upkeep");
-    expect(row?.reason, said).toContain("version inv-1:");
+    expect(row?.reason, said).toContain("video inv-1:");
     expect(row?.reason, said).toContain("broken.json");
     expect(h.logs.join("\n")).toContain("broken.json");
   });

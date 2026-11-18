@@ -207,7 +207,7 @@ async function expire(
       kept = await keptOf(versions, library);
     } catch (error) {
       tally.skippedUnreadable.push(
-        `video ${video.id}: ${messageOf(error)}, so none of its versions were judged`,
+        `flow ${video.id}: ${messageOf(error)}, so none of its videos were judged`,
       );
       continue;
     }
@@ -222,7 +222,7 @@ async function expire(
         leases = await readLeases(join(dir, ".busy"));
       } catch (error) {
         tally.skippedUnreadable.push(
-          `version ${v.takeId}: ${messageOf(error)}, so it was kept`,
+          `video ${v.takeId}: ${messageOf(error)}, so it was kept`,
         );
         continue;
       }
@@ -244,7 +244,7 @@ async function expire(
       }
       if (unmeasured !== null) {
         tally.skippedUnreadable.push(
-          `version ${v.takeId}: ${unmeasured}, so it was kept`,
+          `video ${v.takeId}: ${unmeasured}, so it was kept`,
         );
         continue;
       }

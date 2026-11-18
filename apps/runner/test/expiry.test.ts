@@ -368,13 +368,13 @@ describe("expireOld", () => {
       const said =
         ("skippedUnreadable" in result ? result.skippedUnreadable : []) ?? [];
       expect(said, JSON.stringify(said)).toHaveLength(3);
-      expect(said.find((s) => s.startsWith(`video ${outputs}:`))).toContain(
+      expect(said.find((s) => s.startsWith(`flow ${outputs}:`))).toContain(
         join(o.dir, "outputs.json"),
       );
-      expect(said.find((s) => s.startsWith("version l-old:"))).toContain(
+      expect(said.find((s) => s.startsWith("video l-old:"))).toContain(
         "broken.json",
       );
-      expect(said.find((s) => s.startsWith("version m-old:"))).toContain(
+      expect(said.find((s) => s.startsWith("video m-old:"))).toContain(
         `could not measure ${join(m.dir, "frames")}`,
       );
     } finally {
@@ -426,7 +426,7 @@ describe("expireOld", () => {
         join(a.dir, "frames"),
       );
       expect("failed" in result && result.failed).toContain(
-        "left alone: version scene-z",
+        "left alone: video scene-z",
       );
       expect(await expiryStatus(lib)).toEqual(result);
       expect((await store.videoOf("scene-a"))?.expired).toEqual({
