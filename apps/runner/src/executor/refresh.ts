@@ -442,6 +442,18 @@ export async function refreshKept(
       const at = await repoPath(root, rootReal, p, "refresh");
       if (typeof at !== "string") outside.push(at.outside);
     }
+    // The script's own refs are read only through the repo paths above
+    // (`scriptFor`): one with no repo path would be read as written, from
+    // anywhere on this machine (DEM-112). `add` always writes both.
+    const branding = kept.script.look?.branding;
+    if (kept.logo === null && branding?.logo != null)
+      outside.push(
+        `its script names a logo (${branding.logo.ref}) but the flow has no logo path in the repo — add the flow again so its logo is copied in`,
+      );
+    if (kept.wallpaper === null && branding?.background?.kind === "image")
+      outside.push(
+        `its script names a wallpaper image (${branding.background.ref}) but the flow has no wallpaper path in the repo — add the flow again so its wallpaper is copied in`,
+      );
     if (outside.length > 0) {
       failed(who, outside.join("; "));
       continue;

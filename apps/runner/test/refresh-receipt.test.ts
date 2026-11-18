@@ -979,6 +979,49 @@ describe("the files route", () => {
     }
   });
 
+  // DEM-112. Red: drop the check beside refresh's repoPath loop; scriptFor
+  // then leaves both refs as written and the run reads them off disk.
+  it("a flow whose script names a logo or wallpaper with no repo path fails before filming", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "demoman-refs-out-"));
+    try {
+      const logo = join(outside, "logo.png");
+      const wall = join(outside, "wall.png");
+      await writeFile(logo, "a logo");
+      await writeFile(wall, "a wallpaper");
+      const base = filesRecipe();
+      await writeV2(
+        {
+          ...base,
+          script: {
+            ...base.script,
+            look: {
+              branding: {
+                background: { kind: "image", ref: wall },
+                logo: {
+                  ref: logo,
+                  corner: "top-right",
+                  size: 0.06,
+                  opacity: 1,
+                },
+                padding: 0.12,
+              },
+            },
+          } as KeptVideo["script"],
+        },
+        null,
+      );
+      // Premise: both refs are readable, so only the rule refuses them.
+      expect(existsSync(logo) && existsSync(wall)).toBe(true);
+      const [v] = await refreshInto();
+      expect(v?.outcome, JSON.stringify(v)).toBe("failed");
+      expect(v?.detail).toContain(`names a logo (${logo})`);
+      expect(v?.detail).toContain(`names a wallpaper image (${wall})`);
+      expect(runs).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("a previous receipt for another flow fails, naming both", async () => {
     await writeV2(filesRecipe(), null);
     await writeFile(
