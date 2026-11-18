@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -172,3 +173,42 @@ test("two waiters that read the same dead holder never both take it", async () =
   assert.equal(log[0].replace("in", "out"), log[1], log.join(", "));
   assert.equal(log[2].replace("in", "out"), log[3], log.join(", "));
 });
+
+// A signal must free the lock and still end the process: a listener alone
+// would swallow it, so the handler re-raises when it is the last one.
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  test(`${signal} releases the lock and still ends the process`, async (t) => {
+    const file = fresh();
+    const mod = new URL("./suite-lock.mjs", import.meta.url).href;
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import setup from ${JSON.stringify(mod)}; await setup(); console.log("ready"); setInterval(() => {}, 1000);`,
+      ],
+      {
+        env: { ...process.env, DEMOMAN_SUITE_LOCK_FILE: file },
+        stdio: ["ignore", "pipe", "inherit"],
+      },
+    );
+    t.after(() => child.kill("SIGKILL"));
+    await new Promise((resolve, reject) => {
+      child.once("exit", (code, sig) =>
+        reject(new Error(`child exited early: ${code} ${sig}`)),
+      );
+      child.stdout.on("data", (d) => String(d).includes("ready") && resolve());
+    });
+    assert.equal(read(file).pid, child.pid, "the lock names the child");
+    const ended = new Promise((resolve) =>
+      child.once("exit", (_code, sig) => resolve(sig)),
+    );
+    child.kill(signal);
+    const result = await Promise.race([
+      ended,
+      new Promise((r) => setTimeout(r, 5000, "still running after 5 s")),
+    ]);
+    assert.equal(result, signal, "the child ended by the signal, not swallowed");
+    assert.throws(() => readFileSync(file), /ENOENT/, "the lock is gone");
+  });
+}

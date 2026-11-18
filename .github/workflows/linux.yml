@@ -36,7 +36,7 @@ jobs:
   # a required check whose workflow a path filter skipped stays "Expected"
   # forever and blocks the merge. Whether the change touches product code is
   # decided here instead, from the same list `push` filters on (the one
-  # source of which paths are product). A failed `gh pr diff` or `yq` fails
+  # source of which paths are product). A failed `gh api` or `yq` fails
   # this job and so the gate, rather than reading as "no product change".
   changes:
     runs-on: ubuntu-latest
@@ -59,8 +59,10 @@ jobs:
           n=0
           if [ "$EVENT" = pull_request ]; then
             product=false
-            files=$(gh pr diff "$PR" --name-only --repo "$GITHUB_REPOSITORY")
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
             globs=$(yq '.on.push.paths[]' .github/workflows/linux.yml)
+            [ -n "$globs" ] || { echo "::error::no on.push.paths in linux.yml"; exit 1; }
+            [ -n "$files" ] || { echo "::error::the PR's file list came back empty"; exit 1; }
             while IFS= read -r f; do
               [ -n "$f" ] || continue
               n=$((n + 1))

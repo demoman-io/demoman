@@ -62,7 +62,7 @@ export function suiteLock(env = process.env) {
  * took a 16 GB MacBook down more than once (2026-10-18). So off CI a
  * package runs `heavy` (it launches browsers) 2 files at once, otherwise 4,
  * and the root scripts test heavy packages one at a time (`test:heavy`) and
- * the others two at a time (`test:light`). `DEMOMAN_TEST_WORKERS`
+ * the others one at a time too (`test:light`). `DEMOMAN_TEST_WORKERS`
  * overrides both numbers. CI keeps vitest's default: its jobs are sized
  * for it, and they do not go through the root scripts.
  *

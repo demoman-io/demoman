@@ -163,5 +163,15 @@ export async function acquireSuiteLock(opts = {}) {
 
 /** vitest `globalSetup`: queue behind the machine's suite lock; the teardown releases it. */
 export default async function setup() {
-  return await acquireSuiteLock({ command: "vitest", cwd: process.cwd() });
+  const release = await acquireSuiteLock({ command: "vitest", cwd: process.cwd() });
+  // vitest's own SIGINT/SIGTERM handler exits without teardown, so ours goes first.
+  process.prependOnceListener("exit", release);
+  for (const signal of /** @type {const} */ (["SIGINT", "SIGTERM"])) {
+    process.prependOnceListener(signal, () => {
+      release();
+      // A listener suppresses Node's default exit; with none left, restore it.
+      if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+    });
+  }
+  return release;
 }
