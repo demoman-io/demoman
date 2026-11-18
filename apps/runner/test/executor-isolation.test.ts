@@ -48,7 +48,11 @@ let server: Server;
 let url: string;
 let home: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): a held run blanks its page when it lets the clock go, and this reads the run's page after it. */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((req, res) => {
     res.setHeader("content-type", "text/html");
     const ua = (req.headers["user-agent"] ?? "").includes("iPhone")
@@ -63,6 +67,8 @@ beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-isolation-"));
 }, 30_000);
 afterAll(async () => {
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await session.close();
   server.close();
   await rm(home, { recursive: true, force: true });

@@ -52,7 +52,7 @@ empty reader, and with the fix every round showed the ticket.
 ## Held clock on a house app
 
 `held-clock.sh <app checkout> <out dir> [flow…]` records each kept flow
-held (`DEMOMAN_HELD_CLOCK=1`) twice and once in real time with this
+held twice and once in real time (`DEMOMAN_HELD_CLOCK=0`) with this
 checkout's runner (`pnpm -r build` first), exports every recording to
 `<out dir>/{held-1,held-2,real}/<flow>.mp4`, and prints per flow the held
 frame count, step frames, picture-change frames, network stretches, record

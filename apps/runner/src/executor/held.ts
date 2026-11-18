@@ -3,10 +3,11 @@
 /**
  * Held-clock capture (the held-clock spec, 2026-11-15):
  * the page's own time is held and moved on one video frame at a time.
- * Opt-in (`DEMOMAN_HELD_CLOCK=1`) until the author decides the default.
+ * The default since 2026-11-18 (the author); `DEMOMAN_HELD_CLOCK=0` records
+ * in real time, as every recording did before.
  */
 export const heldClockAsked = (env: NodeJS.ProcessEnv = process.env): boolean =>
-  env.DEMOMAN_HELD_CLOCK === "1";
+  env.DEMOMAN_HELD_CLOCK !== "0";
 
 /** Chromium switches for a held recording: animations and scrolls on the
  *  main thread's clock, every compositor stage run before a frame is drawn,

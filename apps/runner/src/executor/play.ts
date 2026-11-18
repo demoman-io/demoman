@@ -98,8 +98,8 @@ export type Prepared =
       /** The scale this run records at: headless's own, else the screen's
        *  as read; absent when a visible window's screen could not be read. */
       recordedAt?: number;
-      /** Asked for (`DEMOMAN_HELD_CLOCK=1`) only: whether the page's clock
-       *  is held, and why not when not. Absent, the run is today's. */
+      /** Unless `DEMOMAN_HELD_CLOCK=0`: whether the page's clock is held,
+       *  and why not when not. Absent, the run is in real time as asked. */
       recording?: { clock: "held" } | { clock: "real"; why: string };
       /** The held clock, already holding the page, and what feeds it. */
       held?: { clock: HeldClock; network: NetworkWatch };

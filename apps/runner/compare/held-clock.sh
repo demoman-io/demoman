@@ -17,7 +17,7 @@ app=$1; out=$2; shift 2
 here=$(cd "$(dirname "$0")" && pwd)
 mjs="$here/held-clock.mjs"
 for pass in held-1 held-2 real; do
-  case $pass in held-*) held=1 ;; *) held= ;; esac
+  case $pass in held-*) held=1 ;; *) held=0 ;; esac
   echo "held-clock: $pass" >&2
   DEMOMAN_HELD_CLOCK=$held node "$mjs" record --app "$app" --out "$out/$pass" "$@" ||
     echo "held-clock: $pass: a flow did not record (its json says why)" >&2

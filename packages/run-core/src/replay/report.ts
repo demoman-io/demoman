@@ -156,8 +156,8 @@ export interface RunReport {
     target: string;
     executor: Executor;
     script: ScriptRef;
-    /** Held-clock capture asked for (`DEMOMAN_HELD_CLOCK=1`) only: whether
-     *  the page's clock was held, and why not when it was not. */
+    /** Unless held-clock capture was turned off (`DEMOMAN_HELD_CLOCK=0`):
+     *  whether the page's clock was held, and why not when it was not. */
     recording?: { clock: "held" } | { clock: "real"; why: string };
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */

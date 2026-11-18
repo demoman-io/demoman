@@ -287,11 +287,12 @@ async function trial(args) {
           // environment says: the first refresh after held capture goes on.
           const asked = process.env.DEMOMAN_HELD_CLOCK;
           if (r === 0 && process.env.BASELINE === "real")
-            delete process.env.DEMOMAN_HELD_CLOCK;
+            process.env.DEMOMAN_HELD_CLOCK = "0";
           try {
             ran = await runFlow(name, kept, join(dir, "run.log"));
           } finally {
-            if (asked !== undefined) process.env.DEMOMAN_HELD_CLOCK = asked;
+            if (asked === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+            else process.env.DEMOMAN_HELD_CLOCK = asked;
           }
           if (
             ran.value.outcome !== "complete" ||

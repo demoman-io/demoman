@@ -34,7 +34,11 @@ let home: string;
 let executor: LocalExecutor;
 let takeId: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): held keyframes are at the flow's scale, which backs 1440p at most (the author, 2026-11-18). */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-export-4k-auto-"));
   executor = createLocalExecutor({
@@ -52,6 +56,8 @@ beforeAll(async () => {
 }, RUN_MS);
 
 afterAll(async () => {
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   await executor.close();
   app.close();
   await rm(home, { recursive: true, force: true });
