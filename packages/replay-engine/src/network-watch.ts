@@ -277,12 +277,12 @@ export async function createNetworkWatch(
   };
   try {
     await cdp.send("Page.enable"); // for the frames above
-    // Only the events are read: no body is kept, so none is buffered.
-    await cdp.send("Network.enable", {
-      maxTotalBufferSize: 0,
-      maxResourceBufferSize: 0,
-      maxPostDataSize: 0,
-    });
+    // Without buffer sizes, as the held clock's watch always enabled it:
+    // enabled with no buffers instead, Chatbot asked for a lazily loaded
+    // script after the opening in 4 of 24 held recordings against 0 of 40
+    // (measured 2026-11-17; why not traced), and the video began 8 frames
+    // early.
+    await cdp.send("Network.enable");
     const tree = (await cdp.send("Page.getFrameTree")) as {
       frameTree?: { frame?: { id?: string } };
     };
