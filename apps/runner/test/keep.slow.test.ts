@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -1512,6 +1513,53 @@ describe("keep's repo check", () => {
       expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
     } finally {
       await rm(join(repo, "out"));
+    }
+  });
+});
+
+// DEM-111: an agent names add's paths, so add never writes into .git or
+// .github, only a name its type fits, and never over a file that is not
+// this flow's output or a Demoman video. Each is refused before rendering.
+describe("add's outputs replace only their own files", () => {
+  const addTo = (path: string, fileType: "mp4" | "gif" = "mp4") =>
+    keepVideo(
+      {
+        video: "Add a task",
+        to: [{ path, fileType, aspect: "16:9", quality: "share" }],
+        repoRoot: repo,
+      },
+      deps(),
+    );
+
+  // Red: drop the `.git`/`.github` check; .git/hooks/x.mp4 is a fine name.
+  it("refuses a path inside .git or .github", async () => {
+    for (const path of [".git/hooks/x.mp4", ".github/workflows/x.mp4"]) {
+      const out = await addTo(path);
+      expect(out, path).toMatchObject({ ok: false, reason: "keepRefused" });
+      if (!out.ok) expect(out.detail).toContain("is inside .git");
+      expect(existsSync(join(repo, path)), path).toBe(false);
+    }
+  });
+
+  // Red: drop the extension check.
+  it("refuses a path that does not end in its file type's extension", async () => {
+    const out = await addTo("docs/demo.gif", "mp4");
+    expect(out).toMatchObject({ ok: false, reason: "keepRefused" });
+    if (!out.ok) expect(out.detail).toContain("does not end in .mp4");
+  });
+
+  // Red: drop the existing-file check; the source file's bytes are lost.
+  it("refuses to replace a file that is neither its output nor a Demoman video", async () => {
+    await mkdir(join(repo, "src"), { recursive: true });
+    const source = join(repo, "src/app.mp4");
+    await writeFile(source, "export const app = 1;\n");
+    try {
+      const out = await addTo("src/app.mp4");
+      expect(out).toMatchObject({ ok: false, reason: "outputTaken" });
+      if (!out.ok) expect(out.detail).toContain("not a Demoman video");
+      expect(await readFile(source, "utf8")).toBe("export const app = 1;\n");
+    } finally {
+      await rm(join(repo, "src"), { recursive: true, force: true });
     }
   });
 });
