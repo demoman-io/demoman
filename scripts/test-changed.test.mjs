@@ -5,8 +5,10 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   heading,
+  oneWorker,
   READERS,
   ROOT,
+  runEnv,
   selected,
   selection,
 } from "./test-changed.mjs";
@@ -23,7 +25,7 @@ test("a change inside a package tests it and what depends on it", () => {
   assert.deepEqual(out.filters, ["--filter", "...@demoman/runner", ...notRoot]);
 });
 
-test("a change every package's tests read tests every package, and names it", () => {
+test("a change every package's tests read selects no extra package, and the heading leaves it to CI", () => {
   for (const shared of [
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
@@ -31,33 +33,30 @@ test("a change every package's tests read tests every package, and names it", ()
     "scripts/test-tier.mjs",
   ]) {
     const out = selection(["apps/cli/src/cli.ts", shared], packages);
-    assert.deepEqual(out.filters, notRoot, shared);
-    assert.match(out.why, new RegExp(`every package: ${shared}`));
+    assert.deepEqual(out.filters, ["--filter", "...@demoman/cli", ...notRoot], shared);
+    assert.deepEqual(out.shared, [shared]);
+    assert.match(
+      heading(["@demoman/cli"], out.why, out),
+      new RegExp(`fast tier of @demoman/cli: .*every package's tests read ${shared}, .*so that run is CI's`),
+    );
   }
-});
-
-test("off CI, a change every package reads is capped to the branch's own packages, and says so", () => {
-  const out = selection(
-    ["apps/runner/src/run.ts", "pnpm-lock.yaml"],
-    packages,
-    { ci: false },
-  );
-  assert.deepEqual(out.filters, ["--filter", "...@demoman/runner", ...notRoot]);
-  assert.equal(out.capped, true);
-  const line = heading(["@demoman/runner"], out.why);
-  assert.match(line, /capped off CI: pnpm-lock\.yaml changed/);
-  assert.match(line, /CI runs every package/);
-
-  const alone = selection(["scripts/test-tier.mjs"], packages, { ci: false });
+  const alone = selection(["pnpm-lock.yaml"], packages);
   assert.equal(alone.filters, null);
-  assert.equal(alone.capped, true);
-  assert.match(heading([], alone.why), /no package tests ran: capped off CI/);
+  assert.match(
+    heading([], alone.why, alone),
+    /^demoman test:changed: no package tests ran: .*so that run is CI's/,
+  );
 });
 
-test("a branch with nothing every package reads is not capped off CI", () => {
-  const out = selection(["apps/runner/src/run.ts"], packages, { ci: false });
-  assert.equal(out.capped, false);
-  assert.doesNotMatch(out.why, /capped/);
+test("a selection of half the workspace or more runs one file at a time, and says so", () => {
+  assert.equal(oneWorker(10, 11), true);
+  assert.equal(oneWorker(6, 12), true);
+  assert.equal(oneWorker(5, 12), false);
+  assert.equal(runEnv(true, {}).DEMOMAN_TEST_WORKERS, "1");
+  assert.equal(runEnv(false, {}).DEMOMAN_TEST_WORKERS, undefined);
+  assert.equal(runEnv(false, {}).DEMOMAN_TEST_TIER, "fast");
+  assert.match(heading(["a"], "why", { single: true }), /one test file at a time/);
+  assert.doesNotMatch(heading(["a"], "why"), /one test file at a time|CI's/);
 });
 
 test("a file outside the packages tests the packages that read it", () => {
@@ -109,6 +108,12 @@ test("pnpm resolves the filters as the script relies on", () => {
   assert.ok(runCore.includes("@demoman/run-core"), runCore.join(" "));
   assert.ok(runCore.includes("@demoman/runner"), runCore.join(" "));
   assert.ok(!runCore.includes("@demoman/scene-schema"), runCore.join(" "));
+  // The one-worker line on the real graph: a base package is wide, a leaf
+  // app is not. Red if the graph or the threshold stops telling them apart.
+  const wide = selected(["--filter", "...@demoman/scene-schema", ...notRoot]);
+  assert.equal(oneWorker(wide.length, all.length), true, `${wide.length}/${all.length}`);
+  const leaf = selected(["--filter", "...@demoman/studio", ...notRoot]);
+  assert.equal(oneWorker(leaf.length, all.length), false, `${leaf.length}/${all.length}`);
 });
 
 // Red when a package test reads a file outside the packages by a relative
