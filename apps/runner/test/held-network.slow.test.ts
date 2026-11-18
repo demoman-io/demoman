@@ -86,6 +86,19 @@ const FRAMED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
   document.body.append(f);
 });</script>`;
 
+/** A click starts a muted video whose server sends its headers and then
+ *  nothing: playing, and never moving off its first frame. */
+const STALLED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
+<button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>
+<script>document.getElementById("ask").addEventListener("click", () => {
+  const v = document.createElement("video");
+  v.muted = true;
+  v.src = "/stall.webm";
+  v.style.cssText = "position:absolute;left:40px;top:120px;width:320px;height:180px";
+  document.body.append(v);
+  v.play().catch(() => undefined);
+});</script>`;
+
 let home: string;
 let server: Server;
 let url: string;
@@ -129,6 +142,17 @@ beforeAll(async () => {
         res.end("<p>framed</p>");
       }, FRAME_MS);
       req.on("close", () => clearTimeout(timer));
+      return;
+    }
+    if (path === "/stall.webm") {
+      res.writeHead(200, { "content-type": "video/webm" });
+      res.flushHeaders();
+      open.push(res);
+      return;
+    }
+    if (path === "/stalled") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(STALLED);
       return;
     }
     if (path === "/framed") {
@@ -424,5 +448,21 @@ describe("a held recording that waits on its server", () => {
     ).toEqual([]);
     // The step's screen is taken long before the frame answers.
     expect(screen - click, said).toBeLessThan(FRAME_MS / 2);
+  }, 120_000);
+
+  // DEM-207: a video that stops while playing (its data stalled, or the
+  // recorder froze it) showed as a still picture, unsaid. Red if it is
+  // unsaid.
+  it("says a video that stopped on one frame", async () => {
+    const r = await record(home, `${url}/stalled`, [
+      { do: "click", on: { stableId: "ask" }, zoom: false },
+      { do: "pause", ms: 2000 },
+    ]);
+    const said = r.bundle.degradations
+      .filter((d) => d.kind === "animationUnpinned")
+      .map((d) => d.note);
+    expect(said, JSON.stringify(r.bundle.degradations)).toContain(
+      "a video stopped on one frame while playing",
+    );
   }, 120_000);
 });

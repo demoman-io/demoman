@@ -24,6 +24,11 @@ export const WALK_GAP_CREDIT_MS = 2000;
 export const HELD_EPS_MS = 1e-6;
 const EPS = HELD_EPS_MS;
 
+/** Captured frames a playing video's `currentTime` may stand still across
+ *  before it is said to have stopped (half a second of frames): a video
+ *  frozen on one picture reads as a still in the recording (DEM-207). */
+const VIDEO_STALL_PINS = 15;
+
 /** Page script: pins every animation in the document to the held time (ms),
  *  and answers the ones it could not pin, each named once.
  *  An animation's own currentTime runs on Chrome's real clock, so it starts at
@@ -47,6 +52,8 @@ const EPS = HELD_EPS_MS;
  *  one apart between two held recordings).
  *  shortcut: said, not held, and only a video of this document (none in a
  *  shadow root or a frame); holding one means seeking it every frame.
+ *  One that stays on one frame while playing (its data stalled, or the
+ *  recording froze it) is said too, once per video (`VIDEO_STALL_PINS`).
  *  Upgrade if recordings of pages with video matter. */
 export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
@@ -103,12 +110,21 @@ export const PIN_ANIMATIONS = `(v, server) => {
       unpinned.push(nameOf(a) + ": " + (e && e.message ? e.message : String(e)));
     }
   }
-  if (!window.__demomanVideoSaid) {
-    for (const m of document.querySelectorAll("video")) {
-      if (m.paused || m.ended) continue;
+  const stalls = (window.__demomanVideoStalls ??= new WeakMap());
+  for (const m of document.querySelectorAll("video")) {
+    if (m.paused || m.ended) continue;
+    if (!window.__demomanVideoSaid) {
       window.__demomanVideoSaid = true;
       unpinned.push("a playing video runs on its own clock: it was not held");
-      break;
+    }
+    const s = stalls.get(m) ?? { t: m.currentTime, n: 0, said: false };
+    stalls.set(m, s);
+    if (s.t !== m.currentTime) {
+      s.t = m.currentTime;
+      s.n = 0;
+    } else if (++s.n === ${VIDEO_STALL_PINS} && !s.said) {
+      s.said = true;
+      unpinned.push("a video stopped on one frame while playing");
     }
   }
   return unpinned;
