@@ -213,27 +213,23 @@ jobs:
       - name: Tests (the runner's refresh lane, ${{ matrix.part }})
         run: pnpm --filter @demoman/runner test test/refresh-${{ matrix.part }}.slow.test.ts
 
-  # The one check a ruleset requires. A skipped job counts as passing; a macOS
-  # leg's continue-on-error already reports its job as success.
+  # The one check a ruleset requires. A skipped job counts as passing; anything
+  # else that is not `success` fails it. It reads the run's jobs, not `needs`:
+  # a matrix has one result, which hides which leg did not run, and the macOS
+  # legs are advisory (continue-on-error), so they are left out.
   gate:
     name: CI gate
     runs-on: ubuntu-latest
     needs: [changes, check, packages, runner, refresh]
     if: always()
+    permissions:
+      actions: read
     steps:
       - env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-          CHANGES: ${{ needs.changes.result }}
-          CHECK: ${{ needs.check.result }}
-          PACKAGES: ${{ needs.packages.result }}
-          RUNNER: ${{ needs.runner.result }}
-          REFRESH: ${{ needs.refresh.result }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "changes: $CHANGES"
-          echo "check: $CHECK"
-          echo "packages: $PACKAGES"
-          echo "runner: $RUNNER"
-          echo "refresh: $REFRESH"
-          case " $RESULTS " in
-            *" failure "*|*" cancelled "*) exit 1 ;;
-          esac
+          jobs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.name != "CI gate" and (.name | ascii_downcase | contains("macos") | not)) | "\(.name)\t\(.conclusion)"')
+          [ -n "$jobs" ] || { echo "::error::the run's job list came back empty"; exit 1; }
+          echo "$jobs"
+          bad=$(printf '%s\n' "$jobs" | awk -F'\t' '$2 != "success" && $2 != "skipped" { printf "%s%s", s, $1; s = ", " }')
+          [ -z "$bad" ] || { echo "::error::not success or skipped: $bad"; exit 1; }

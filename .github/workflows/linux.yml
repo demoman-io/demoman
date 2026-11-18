@@ -207,8 +207,8 @@ jobs:
             echo "::error::setup downloaded before refusing"; exit 1
           fi
 
-  # The one check a ruleset requires. A skipped job counts as passing; a macOS
-  # leg's continue-on-error already reports its job as success.
+  # The one check a ruleset requires. A skipped job counts as passing; anything
+  # else that is not `success` fails it.
   gate:
     name: Linux gate
     runs-on: ubuntu-latest
@@ -216,20 +216,10 @@ jobs:
     if: always()
     steps:
       - env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-          CHANGES: ${{ needs.changes.result }}
-          PACKAGE: ${{ needs.package.result }}
-          REFRESH: ${{ needs.refresh.result }}
-          SETUP: ${{ needs.setup.result }}
-          DEBIAN: ${{ needs.debian.result }}
-          ARM64: ${{ needs.arm64.result }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          echo "changes: $CHANGES"
-          echo "package: $PACKAGE"
-          echo "refresh: $REFRESH"
-          echo "setup: $SETUP"
-          echo "debian: $DEBIAN"
-          echo "arm64: $ARM64"
-          case " $RESULTS " in
-            *" failure "*|*" cancelled "*) exit 1 ;;
-          esac
+          jobs=$(printf '%s' "$NEEDS" | jq -r 'to_entries[] | "\(.key)\t\(.value.result)"')
+          [ -n "$jobs" ] || { echo "::error::no job results"; exit 1; }
+          echo "$jobs"
+          bad=$(printf '%s\n' "$jobs" | awk -F'\t' '$2 != "success" && $2 != "skipped" { printf "%s%s", s, $1; s = ", " }')
+          [ -z "$bad" ] || { echo "::error::not success or skipped: $bad"; exit 1; }
