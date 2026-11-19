@@ -11,7 +11,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import {
   basename,
   dirname,
@@ -23,6 +23,7 @@ import {
 } from "node:path";
 import { wallpaperShape } from "@demoman/compositor";
 import {
+  committedRunReport,
   type FilmedCode,
   FLOWS_DIR,
   frameOf,
@@ -50,7 +51,6 @@ import {
   scriptDigest,
   serializeKept,
   serializeReceipt,
-  servedRunReport,
   targetFor,
   videoSlug,
 } from "@demoman/run-core";
@@ -563,7 +563,7 @@ export async function keepVideo(
         if ("value" in runReport) {
           await place(
             join(root, report),
-            `${JSON.stringify(servedRunReport(runReport.value as RunReport), null, 2)}\n`,
+            `${JSON.stringify(committedRunReport(runReport.value as RunReport, homedir()), null, 2)}\n`,
           );
           written.push(report);
         } else {

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { CdpSession, Clock } from "@demoman/replay-engine";
 import {
   type Browser,
@@ -201,6 +202,95 @@ async function visibleUserAgentOr(
 const sandboxRefused = new Map<string, string>();
 
 /**
+ * What a failed launch said, read once for setup, `classifyLaunchError` and
+ * the sandbox fallback: a missing library is the dynamic linker's line from
+ * the browser log (or, for Playwright's own executable, its host check's).
+ * Anything else is Playwright's first line, which often says only "Target
+ * page, context or browser has been closed" (Linux CI, 2026-11-18), with
+ * Chromium's own reason from its stderr after it: a FATAL line, else one
+ * that names the sandbox or a namespace. No other stderr line is taken: the
+ * first is usually dbus or GPU noise, and a wrong reason is worse than none.
+ */
+export function launchFailure(said: string): {
+  missingLibraries: boolean;
+  line: string;
+} {
+  const lines = said
+    .split("\n")
+    .map((l) => l.replace(/^[\s║╔╗╚╝═]+|[\s║╔╗╚╝═]+$/g, ""))
+    .filter((l) => l !== "");
+  for (const l of lines) {
+    const linker = /error while loading shared libraries:.*/i.exec(l);
+    if (linker !== null) return { missingLibraries: true, line: linker[0] };
+  }
+  const host = lines.find((l) =>
+    /Host system is missing dependencies/i.test(l),
+  );
+  if (host !== undefined) return { missingLibraries: true, line: host };
+  const err = lines
+    .filter((l) => /^\[pid=\d+\]\[err\] /.test(l))
+    .map((l) => l.replace(/^\[pid=\d+\]\[err\] /, ""));
+  const cause =
+    err.find((l) => l.includes("FATAL")) ??
+    err.find((l) => /sandbox|namespace/i.test(l));
+  // A boxed error's first line is "browserType.launch:" alone.
+  const [first, next] = lines;
+  const head =
+    first === undefined
+      ? "it failed and said nothing"
+      : first.endsWith(":") && next !== undefined && !next.startsWith("[pid=")
+        ? `${first} ${next}`
+        : first;
+  return {
+    missingLibraries: false,
+    line: cause === undefined ? head : `${head}: ${cause}`,
+  };
+}
+
+/**
+ * What on this Linux keeps Chromium's sandbox from starting; null off
+ * Linux. A browser that closes after it started fails with Playwright's
+ * "Target page, context or browser has been closed" and none of Chromium's
+ * own words (its stderr reaches no error or logger), so the fallback says
+ * these instead (DEM-120). A setting that cannot be read is not claimed.
+ */
+export function sandboxBlockers(
+  read: (path: string) => string = (p) => readFileSync(p, "utf8").trim(),
+  uid: number | undefined = process.getuid?.(),
+  platform: NodeJS.Platform = process.platform,
+): string[] | null {
+  if (platform !== "linux") return null;
+  const setting = (path: string): string | null => {
+    try {
+      return read(path);
+    } catch {
+      return null;
+    }
+  };
+  const why: string[] = [];
+  if (uid === 0) why.push("it runs as root");
+  for (const [path, off, words] of [
+    [
+      "/proc/sys/kernel/apparmor_restrict_unprivileged_userns",
+      "1",
+      "AppArmor restricts unprivileged user namespaces",
+    ],
+    [
+      "/proc/sys/kernel/unprivileged_userns_clone",
+      "0",
+      "unprivileged user namespaces are off",
+    ],
+    ["/proc/sys/user/max_user_namespaces", "0", "user namespaces are off"],
+  ] as const) {
+    if (setting(path) === off)
+      why.push(
+        `${words} (${path.slice("/proc/sys/".length).replaceAll("/", ".")}=${off})`,
+      );
+  }
+  return why;
+}
+
+/**
  * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
  * asked not to, and nearly every page a run opens is a third party's
  * (DEM-120). A machine that cannot sandbox (a container running as root, a
@@ -231,9 +321,14 @@ async function launchSandboxed(
   try {
     return await chromium.launch({ ...options, chromiumSandbox: true });
   } catch (error) {
-    first = String(error instanceof Error ? error.message : error).split(
-      "\n",
-    )[0] as string;
+    const said = launchFailure(
+      String(error instanceof Error ? error.message : error),
+    ).line;
+    const why = sandboxBlockers();
+    first =
+      why === null
+        ? said
+        : `${said}; ${why.length > 0 ? `this machine: ${why.join(", ")}` : "this machine shows none of the known causes (root, a user-namespace rule)"}`;
   }
   let browser: Browser;
   try {

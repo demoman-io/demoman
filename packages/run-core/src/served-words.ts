@@ -100,6 +100,20 @@ export function servedRunReport(r: RunReport): Json {
   return out;
 }
 
+/** A run report as a kept flow commits it into a repo that may be public,
+ *  and as refresh lists it (DEM-227): served, without a `still` path (a
+ *  picture on the machine that ran it, which the commit does not hold; a
+ *  `still` that says why there is none stays), and with `home` written `~`
+ *  wherever else it appears (a `local:` repo key in `flow.otherRepo`, a
+ *  file error in `notStored`). URLs are scrubbed at capture. */
+export function committedRunReport(r: RunReport, home: string): Json {
+  const { still, ...rest } = servedRunReport(r);
+  const out = isObj(still) && "path" in still ? rest : { ...rest, still };
+  if (home.length < 2) return out;
+  const escaped = JSON.stringify(home).slice(1, -1);
+  return JSON.parse(JSON.stringify(out).replaceAll(escaped, "~")) as Json;
+}
+
 /** An export's or an attach's answer in the new words. */
 export function servedExportReport(r: Json): Json {
   let out = renamed(r, "takeId", "videoId");

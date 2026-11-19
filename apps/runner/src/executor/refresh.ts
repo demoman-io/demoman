@@ -6,9 +6,10 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
+  committedRunReport,
   DEGRADATION_WORDS,
   type ExportAnswer,
   type FilmedCode,
@@ -34,7 +35,6 @@ import {
   scriptDigest,
   serializeReceipt,
   serializeRefreshList,
-  servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { type StageTimes, stageTimes } from "../stage-times.js";
@@ -88,7 +88,8 @@ export interface RefreshVideo {
   /** What this refresh wrote, with each output's type and aspect; the
    *  receipt and report are json. */
   files: RefreshListEntry["files"];
-  /** The new recording's page screens, and its served run report. */
+  /** The new recording's page screens, and its run report as the repo gets
+   *  it (`committedRunReport`): the list is published too. */
   screens: PageScreens | null;
   report: unknown | null;
 }
@@ -638,7 +639,8 @@ type Filmed = {
   toWrite: number[];
   /** What the comparison found, and what is new. */
   said: string[];
-  /** The take's report.json, served; or why it is not had. */
+  /** The take's report.json as the repo and the refresh list get it
+   *  (`committedRunReport`); or why it is not had. */
   stored: { value: unknown } | { not: string };
   /** The stored report's dates on its last screen (not served); [] when
    *  none or the report is not had. */
@@ -701,7 +703,7 @@ async function filmOne(
   const read = await createLibrary(home).getJson(takeId, "report.json");
   const stored: Filmed["stored"] =
     "value" in read
-      ? { value: servedRunReport(read.value as RunReport) }
+      ? { value: committedRunReport(read.value as RunReport, homedir()) }
       : {
           not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
         };
@@ -958,6 +960,16 @@ async function deliverOne(
     return answer("failed", [], null);
   }
   const writeReceipt = same !== true;
+  // A report an earlier demoman committed may hold its picture's path on
+  // the recording machine (DEM-227). The same picture leaves it unwritten,
+  // so say so. Missing or unreadable, it holds nothing to warn about here.
+  if (same === true && kept.report !== null) {
+    const old = await readFile(join(to, kept.report), "utf8").catch(() => "");
+    if (/"still":\s*\{\s*"path"/.test(old))
+      notes.push(
+        `${kept.report} still holds "still": {"path": …}, a file on the machine that recorded it, written by an earlier demoman; the next refresh whose picture changes rewrites it without, or delete that entry by hand`,
+      );
+  }
   if (toWrite.length === 0 && !writeReceipt)
     return answer("unchanged", [], null);
 

@@ -13,7 +13,94 @@ import {
   HEADLESS_GPU_ARGS,
   killBrowser,
   launch,
+  launchFailure,
+  sandboxBlockers,
 } from "../src/launch.js";
+
+// Red when a cause is dropped, claimed from a setting that could not be
+// read, or claimed off Linux (DEM-120).
+describe("sandboxBlockers", () => {
+  const proc = (values: Record<string, string>) => (path: string) => {
+    const v = values[path];
+    if (v === undefined) throw new Error(`ENOENT: ${path}`);
+    return v;
+  };
+  it("names root and each user-namespace rule this Linux has", () => {
+    expect(
+      sandboxBlockers(
+        proc({
+          "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": "1",
+          "/proc/sys/kernel/unprivileged_userns_clone": "0",
+          "/proc/sys/user/max_user_namespaces": "0",
+        }),
+        0,
+        "linux",
+      ),
+    ).toEqual([
+      "it runs as root",
+      "AppArmor restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1)",
+      "unprivileged user namespaces are off (kernel.unprivileged_userns_clone=0)",
+      "user namespaces are off (user.max_user_namespaces=0)",
+    ]);
+  });
+  it("claims nothing it could not read, and nothing off Linux", () => {
+    expect(sandboxBlockers(proc({}), 1000, "linux")).toEqual([]);
+    expect(
+      sandboxBlockers(
+        proc({ "/proc/sys/user/max_user_namespaces": "63000" }),
+        1000,
+        "linux",
+      ),
+    ).toEqual([]);
+    expect(sandboxBlockers(proc({}), 0, "darwin")).toBeNull();
+  });
+});
+
+// Red when the FATAL line loses to an earlier stderr line, the reason is
+// dropped for Playwright's first line alone (DEM-120), unrelated stderr
+// is offered as the reason, or a boxed error says only its prefix.
+describe("launchFailure", () => {
+  const closed =
+    "browserType.launch: Target page, context or browser has been closed";
+  const bus =
+    "[pid=812][err] [812:830:ERROR:bus.cc(407)] Failed to connect to the bus";
+  it("names Chromium's FATAL line after Playwright's first", () => {
+    const message = [
+      closed,
+      "Browser logs:",
+      "",
+      "<launching> /ms-playwright/chromium/chrome --headless",
+      "<launched> pid=812",
+      bus,
+      "[pid=812][err] [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!",
+      "Call log:",
+      "  - <launching> /ms-playwright/chromium/chrome",
+    ].join("\n");
+    expect(launchFailure(message)).toEqual({
+      missingLibraries: false,
+      line: `${closed}: [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!`,
+    });
+  });
+  it("takes a namespace line without FATAL, and never unrelated stderr", () => {
+    const ns =
+      "[pid=812][err] [812:812:ERROR:namespace_sandbox.cc] Failed to move to new namespace: errno = Operation not permitted";
+    expect(launchFailure([closed, bus, ns].join("\n")).line).toBe(
+      `${closed}: ${ns.replace("[pid=812][err] ", "")}`,
+    );
+    expect(launchFailure([closed, bus].join("\n")).line).toBe(closed);
+  });
+  it("reads a boxed error past its bare first line", () => {
+    const boxed = [
+      "browserType.launch: ",
+      "╔══════════════════════╗",
+      "║ Looks like Playwright was just installed or updated. ║",
+      "╚══════════════════════╝",
+    ].join("\n");
+    expect(launchFailure(boxed).line).toBe(
+      "browserType.launch: Looks like Playwright was just installed or updated.",
+    );
+  });
+});
 
 /**
  * A headless launch's screen, user agent and the decoded size of one
@@ -183,6 +270,15 @@ describe("launch", () => {
       expect(logs.join("\n")).toContain(
         "would not start with Chromium's sandbox",
       );
+      // Red when only Playwright's first line is kept: on CI that was
+      // "Target page, context or browser has been closed", with Chromium's
+      // own reason (its stderr, under "Browser logs") dropped.
+      expect(logs.join("\n")).toContain(
+        "Failed to move to new namespace (stand-in)",
+      );
+      // Red when the fallback stops saying what this Linux shows.
+      if (process.platform === "linux")
+        expect(logs.join("\n")).toContain("; this machine");
     } finally {
       await launched.close();
     }
