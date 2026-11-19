@@ -4,7 +4,7 @@ description: "What changed in each release."
 ---
 
 <Update label="0.9.8" description="Failed refreshes keep their evidence">
-  - Rerun `npx demoman setup --ci` to update the generated workflow. A failed refresh then keeps its run report and final still as a `demoman-failed` artifact.
+  - To get the new workflow, delete `.github/workflows/demoman.yml` on your default branch, then run `npx demoman setup --ci` again. A failed refresh then keeps its run report and final still as a `demoman-failed` artifact.
   - A failed refresh that its script caused says how to fix it: record the flow again.
   - A held recording that stops because the page stopped answering says which read hung, what the network was doing and where the page was. It suggests `DEMOMAN_HELD_CLOCK=0` only for a page that really loops.
   - Known issue: a video playing on the page can freeze in a held recording; record it with `DEMOMAN_HELD_CLOCK=0`.
