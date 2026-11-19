@@ -22,8 +22,10 @@ For an app you run locally, the agent creates a demo account and its data,
 writes the sign-in steps to `.demoman/accounts.json` and the
 password to `.demoman/secrets.env` (git-ignored) with the one site it may
 be typed on. Demoman then signs in by itself, whenever a session is missing
-or has lapsed. The agent leaves these files uncommitted;
-[setting up CI](/get-started/ci) adds `accounts.json` to its pull request.
+or has lapsed. The agent commits nothing for the account until you
+[add a flow to your repo](/get-started/add-to-repo); then it commits
+`accounts.json` and the script that creates the account with the flow, so
+CI can sign in the same way.
 
 <Warning>
   Only demo accounts: the agent never asks for your own password.

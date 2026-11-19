@@ -38,7 +38,7 @@ user; section 7 lists every reason.
   `{name, about, session}` with `session` `"saved"`, `"none"` or
   `"changed"` (saved before the account's `checkUrl` or `signIn` was
   edited). Both are fine: Demoman signs in.
-  `sessionsUnreadable`, when present: the saved sessions could not be read; tell the user.
+  `sessionsUnreadable`: the saved sessions could not be read; tell the user.
 
 `status.sessions` lists an account's saved session with an `account` (and
 `origin`) beside `site`; one without is a manual `npx demoman signin` session.
@@ -62,8 +62,8 @@ its site. Then, in order:
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
    `.demoman/secrets.env`, and `.gitignore` it if missing. Add the
    account to `accounts.json`, formatted as the repo's formatter writes it
-   (its CI lints it), `snapshot` again. Commit none of it until the user
-   sets up CI, and say so in a line.
+   (its CI lints it), `snapshot` again. Tell the user in a line;
+   commit none of it until a flow is added (section 8).
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
    route, reachable only in development, and make the account's `signIn` one
    `goto` to it. Phoenix:
@@ -71,8 +71,8 @@ its site. Then, in order:
    It starts a session only.
 4. **The database is not clearly local** (a remote `DATABASE_URL`, staging,
    production): create nothing. Ask the user, or give them
-   `npx demoman signin <url>`, which signs in by hand in a window:
-   for a real account, single sign-on and two-factor.
+   `npx demoman signin <url>` to sign in by hand in a window (a real
+   account, single sign-on, two-factor).
 
 The file, with one account:
 
@@ -84,7 +84,7 @@ The file, with one account:
       "default": "seller",
       "accounts": {
         "seller": {
-          "about": "a seller with 6 custom requests, no orders to act on",
+          "about": "Sonny BBQ: 6 custom requests, no orders to act on",
           "checkUrl": "/admin/dashboard",
           "signIn": [
             { "do": "goto", "url": "/users/log-in" },
@@ -155,7 +155,7 @@ targets, leaving the page open. Each entry is
   `landedElsewhere: null`: the address could not be read; not an
   all-clear.
 - `session` - `"saved"`: a session is saved for this site; `"none"`: none
-  is (normal for a public page); `"signedOut"`: the page is a sign-in page,
+  is (a public page); `"signedOut"`: the page is a sign-in page,
   and `sessionDetail` holds the command to give the user (spend no run, or
   set up a demo account: section 1);
   `"unchecked"`: `sessionDetail` says why. A sign-in page with only "Continue with Google" may
@@ -187,7 +187,7 @@ targets, leaving the page open. Each entry is
 1. Call `snapshot` with `device` (`"phone"` or `"tablet"`), and
    copy targets from that answer only, never a desktop one.
 2. `run` a script that names the same `device`.
-3. Leave `look.canvas` at `auto`, which comes out portrait, or name `9:16`.
+3. Leave `look.canvas` at `auto` (portrait) or name `9:16`.
 4. No `hover` steps: tap instead.
 
 ## 3. Get a script
@@ -550,7 +550,8 @@ Studio exports go to `~/Downloads`.
 
 ## 8. Repo flows and CI
 
-`add({ flow, to })` puts a flow in the repo; commit what it wrote. `ci`
+`add({ flow, to })` puts a flow in the repo; commit what it wrote and, if it
+signs in, its demo account's files. `ci`
 sets up CI for them, acting only on `confirmed: true` after the person
 agreed to the plan's `lines`. Never ask for a secret: give the person
 `command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;

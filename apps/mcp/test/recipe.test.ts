@@ -324,12 +324,19 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
     const notLocal = flat.slice(flat.search(/not clearly local/i));
     expect(notLocal).toContain("npx demoman signin");
   });
-  // Red if the recipe lets the agent commit a demo account's files before
-  // the user opts into CI: a test user's video PR carried accounts.json.
-  it("keeps a demo account's files uncommitted until CI is set up", () => {
+  // Red if the recipe lets the agent commit a demo account's files before a
+  // flow is added (a test user's video PR carried accounts.json), or if
+  // `add` stops carrying them, which leaves a repo flow whose account and
+  // seed exist on one machine only.
+  it("commits a demo account's files with the first added flow, not before", () => {
     const step = flat.slice(flat.search(/local development database/i));
-    expect(step).toMatch(/Commit none of it[^.]*until the user sets up CI/);
-    expect(step.slice(0, step.search(/Commit none/))).not.toMatch(/commit/i);
+    expect(step).toMatch(
+      /commit none of it until a flow is added \(section 8\)/,
+    );
+    expect(step.slice(0, step.search(/commit none/))).not.toMatch(/commit/i);
+    expect(flat).toMatch(
+      /`add\(\{ flow, to \}\)` puts a flow in the repo; commit what it wrote and, if it signs in, its demo account's files\./,
+    );
   });
   it("teaches reuse by about, and the dev-only sign-in route", () => {
     expect(flat).toMatch(/`about`/);
