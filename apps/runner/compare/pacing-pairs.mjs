@@ -7,9 +7,13 @@
 // Run it once per checkout (`main` is today's pacing, a branch with
 // `scene.pacing` is the planned one) into different --out folders. `{sample}`
 // in a script is the sample app's index.html served on loopback, `{fixture}`
-// is `pacing-fixture.html`. Every run uses a temporary DEMOMAN_HOME, so no
-// library is touched, and DEMOMAN_DISPLAY=1440x900@2. Prints one JSON line per
-// script; exits 1, with the reason, if a run or an export does not succeed.
+// is `pacing-fixture.html` (`{fixture}/<page>.html` another page beside it).
+// Every run uses a temporary DEMOMAN_HOME, so no
+// library is touched, and DEMOMAN_DISPLAY is 1440x900@2 unless set (a 1x
+// display stands in for a Linux runner). Prints one JSON line per script,
+// with the export's size, the zooms the render cut to the frames' detail
+// (`detail`) and each still's width; exits 1, with the reason, if a run or an
+// export does not succeed.
 import {
   copyFileSync,
   mkdirSync,
@@ -39,20 +43,32 @@ if (!values.repo || !values.out || positionals.length === 0) {
   );
   process.exit(2);
 }
-process.env.DEMOMAN_DISPLAY = "1440x900@2";
+process.env.DEMOMAN_DISPLAY ??= "1440x900@2";
 const repo = resolve(values.repo);
 const here = import.meta.dirname;
 const dist = (p) => import(join(repo, "apps", "runner", "dist", p));
 const { createLocalExecutor } = await dist("executor/executor.js");
 const { createLibrary } = await dist("executor/library.js");
 
-const serve = async (file) => {
+/** `file` at `/index.html`; with `dir`, that folder's other pages by name
+ *  too (`{fixture}/held-sweep-fixture.html`). */
+const serve = async (file, dir) => {
   const html = readFileSync(file);
   const server = createServer((req, res) => {
-    if (req.url !== "/index.html") return void res.writeHead(404).end();
+    const other = /^\/([\w-]+\.html)$/.exec(req.url ?? "")?.[1];
+    let page = req.url === "/index.html" ? html : null;
+    if (page === null && dir !== undefined && other !== undefined) {
+      try {
+        page = readFileSync(join(dir, other));
+      } catch {
+        // No such page: the 404 below says so to the browser, and the run's
+        // own report names the page that did not load.
+      }
+    }
+    if (page === null) return void res.writeHead(404).end();
     res
       .writeHead(200, { "content-type": "text/html; charset=utf-8" })
-      .end(html);
+      .end(page);
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   return { server, url: `http://127.0.0.1:${server.address().port}` };
@@ -63,7 +79,7 @@ const sampleFile = resolve(
 );
 // Served only when a script names it: a worktree has no internal/ checkout.
 let sample = null;
-const fixture = await serve(join(here, "pacing-fixture.html"));
+const fixture = await serve(join(here, "pacing-fixture.html"), here);
 const out = resolve(values.out);
 mkdirSync(out, { recursive: true });
 const side = values.side ?? "run";
@@ -84,6 +100,9 @@ for (const scriptPath of positionals) {
       "wallpapers",
     ),
     headless: true,
+    // As the CLI and MCP do: headless stands in for DEMOMAN_DISPLAY, so a
+    // held take records at its scale (without it, at 1x, and no zoom fits).
+    standInDisplay: true,
     outDir: join(home, "out"),
     log: () => {},
   });
@@ -186,6 +205,19 @@ for (const scriptPath of positionals) {
         zooms,
         trim: trimOf(scene?.edits?.trim, film),
         markers: bundle.markers.map((m) => m.sourceTimeMs),
+        display: process.env.DEMOMAN_DISPLAY,
+        held: process.env.DEMOMAN_HELD_CLOCK !== "0",
+        target: answer.target
+          ? { width: answer.target.width, height: answer.target.height }
+          : null,
+        detail: answer.warnings?.detailViolations ?? null,
+        stillWidths: [...new Set((bundle.keyframes ?? []).map((k) => k.width))],
+        // Source times, ms: where the frames say the picture moved or stood.
+        spans: (bundle.motionSpans ?? []).map((s) => [
+          Math.round(s.startMs),
+          Math.round(s.endMs),
+        ]),
+        stills: (bundle.keyframes ?? []).map((k) => Math.round(k.sourceTimeMs)),
       }),
     );
   } catch (error) {

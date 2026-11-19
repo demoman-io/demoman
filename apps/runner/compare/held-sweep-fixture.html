@@ -1,0 +1,32 @@
+<!doctype html><meta charset=utf-8><title>held sweep fixture</title>
+<!-- Lane A's held sweep (DEM-186, 191, 188): a page that never stops
+     painting, and a change shorter than a motion span. The whole page is
+     grey stripes sliding forever, so any crop the camera takes moves on every
+     frame: a run of identical frames in the video is a freeze, not a still
+     page. 300 ms after "One" a pure green box shows for 40 ms and goes
+     (`held-sweep-read.mjs` counts its pixels); nothing else on the page or the
+     frame around it is that green. -->
+<style>
+@keyframes slide{to{background-position:400px 0}}
+body{margin:0;height:900px;font:16px monospace;background:linear-gradient(90deg,#fff,#777,#fff) 0 0/400px 100%;animation:slide 1s linear infinite}
+button{position:absolute;width:180px;height:44px;font:16px monospace;background:#fff;border:1px solid #444;border-radius:6px}
+#one{left:160px;top:160px}
+#two{left:1000px;top:200px}
+#three{left:560px;top:620px}
+#flash{position:absolute;left:520px;top:300px;width:200px;height:120px;background:#00ff00;display:none}
+</style>
+<button type="button" id="one">One</button>
+<button type="button" id="two">Two</button>
+<button type="button" id="three">Three</button>
+<div id="flash"></div>
+<script>
+const flash = document.getElementById("flash");
+document.getElementById("one").addEventListener("click", () => {
+  setTimeout(() => {
+    flash.style.display = "block";
+    setTimeout(() => {
+      flash.style.display = "none";
+    }, 40);
+  }, 300);
+});
+</script>
