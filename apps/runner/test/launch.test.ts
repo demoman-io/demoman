@@ -16,25 +16,49 @@ import {
   launchFailure,
 } from "../src/launch.js";
 
-// Red when the FATAL line loses to an earlier stderr line, or the reason
-// is dropped for Playwright's first line alone (DEM-120).
+// Red when the FATAL line loses to an earlier stderr line, the reason is
+// dropped for Playwright's first line alone (DEM-120), unrelated stderr
+// is offered as the reason, or a boxed error says only its prefix.
 describe("launchFailure", () => {
+  const closed =
+    "browserType.launch: Target page, context or browser has been closed";
+  const bus =
+    "[pid=812][err] [812:830:ERROR:bus.cc(407)] Failed to connect to the bus";
   it("names Chromium's FATAL line after Playwright's first", () => {
     const message = [
-      "browserType.launch: Target page, context or browser has been closed",
+      closed,
       "Browser logs:",
       "",
       "<launching> /ms-playwright/chromium/chrome --headless",
       "<launched> pid=812",
-      "[pid=812][err] [812:830:ERROR:bus.cc(407)] Failed to connect to the bus",
+      bus,
       "[pid=812][err] [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!",
       "Call log:",
       "  - <launching> /ms-playwright/chromium/chrome",
     ].join("\n");
-    expect(launchFailure(message)).toBe(
-      "browserType.launch: Target page, context or browser has been closed: [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!",
+    expect(launchFailure(message)).toEqual({
+      missingLibraries: false,
+      line: `${closed}: [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!`,
+    });
+  });
+  it("takes a namespace line without FATAL, and never unrelated stderr", () => {
+    const ns =
+      "[pid=812][err] [812:812:ERROR:namespace_sandbox.cc] Failed to move to new namespace: errno = Operation not permitted";
+    expect(launchFailure([closed, bus, ns].join("\n")).line).toBe(
+      `${closed}: ${ns.replace("[pid=812][err] ", "")}`,
     );
-    expect(launchFailure("plain words\nno logs")).toBe("plain words");
+    expect(launchFailure([closed, bus].join("\n")).line).toBe(closed);
+  });
+  it("reads a boxed error past its bare first line", () => {
+    const boxed = [
+      "browserType.launch: ",
+      "╔══════════════════════╗",
+      "║ Looks like Playwright was just installed or updated. ║",
+      "╚══════════════════════╝",
+    ].join("\n");
+    expect(launchFailure(boxed).line).toBe(
+      "browserType.launch: Looks like Playwright was just installed or updated.",
+    );
   });
 });
 

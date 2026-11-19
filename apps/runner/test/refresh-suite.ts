@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CAMERA_DEFAULTS,
@@ -941,13 +941,15 @@ export const firstFilm = () => {
         (await bytes("docs/order-report.json")).toString(),
       );
       expect(report.outcome).toBe("complete");
-      // DEM-227: the run's still is a path on this machine; the committed
-      // file leaves it out. Premise: the served report carries one.
-      expect(
-        (a.report as { still?: { path?: string } }).still?.path,
-        JSON.stringify(a.report),
-      ).toMatch(/^\/.*final-still\.png$/);
+      // DEM-227: the run's still is a path on this machine, which neither
+      // the committed file nor the published list carries. (A still that
+      // could not be made stays, as `{ unavailable }`; run-core's
+      // served-words test pins both forms.)
       expect("still" in report, JSON.stringify(report)).toBe(false);
+      expect(a.report, "the list's report is the committed one").toEqual(
+        report,
+      );
+      expect(JSON.stringify(report)).not.toContain(homedir());
       // Written in the served words, as keep writes it.
       expect(typeof report.provenance.videoId).toBe("string");
       expect("takeId" in report.provenance).toBe(false);
@@ -975,11 +977,31 @@ export const unchangedThenSlower = () => {
     "leaves an unchanged picture byte for byte as it was",
     async () => {
       const before = await Promise.all(Object.values(out).map(bytes));
-      const r = await refresh();
+      // A's committed report as an earlier demoman wrote it (DEM-227).
+      const reportAt = join(repo, "docs/order-report.json");
+      const committed = await readFile(reportAt, "utf8");
+      await writeFile(
+        reportAt,
+        JSON.stringify({
+          ...JSON.parse(committed),
+          still: { path: "/Users/someone/final-still.png" },
+        }),
+      );
+      let r: RefreshResult;
+      try {
+        r = await refresh();
+      } finally {
+        await writeFile(reportAt, committed);
+      }
       expect(
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
+      // Red when an unchanged refresh says nothing of the path it leaves.
+      const pathNote = (name: string) =>
+        byName(r, name).notes.filter((n) => n.includes('"still": {"path"'));
+      expect(pathNote(A), JSON.stringify(byName(r, A).notes)).toHaveLength(1);
+      expect(pathNote(B)).toEqual([]);
       // The premise: sameScreens answered same for the judged output
       // alone, over k of n page screens recorded from a real run, each the
       // page at CSS 1x, with the look beside them.

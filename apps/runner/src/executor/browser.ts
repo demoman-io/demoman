@@ -22,6 +22,7 @@ import {
   type Display,
   type Launched,
   launch,
+  launchFailure,
   openCdpSession,
 } from "../launch.js";
 import { recorderPlatform } from "../platform.js";
@@ -29,40 +30,13 @@ import { messageOf } from "../report.js";
 import { heldClockAsked } from "./held.js";
 import { readScreen } from "./page-ops.js";
 
+export { launchFailure };
+
 export type BrowserFailure = {
   ok: false;
   reason: "browserMissing" | "windowDidNotOpen" | "unsupportedPlatform";
   detail: string;
 };
-
-/**
- * What a failed launch said, read once for setup and `classifyLaunchError`:
- * a missing library is the dynamic linker's line from the browser log (or,
- * for Playwright's own executable, its host check's), never Playwright's
- * first line, which says only that the browser closed. Anything else is
- * that first line.
- */
-export function launchFailure(said: string): {
-  missingLibraries: boolean;
-  line: string;
-} {
-  const lines = said
-    .split("\n")
-    .map((l) => l.replace(/^[\s║]+|[\s║]+$/g, ""))
-    .filter((l) => l !== "");
-  for (const l of lines) {
-    const linker = /error while loading shared libraries:.*/i.exec(l);
-    if (linker !== null) return { missingLibraries: true, line: linker[0] };
-  }
-  const host = lines.find((l) =>
-    /Host system is missing dependencies/i.test(l),
-  );
-  if (host !== undefined) return { missingLibraries: true, line: host };
-  return {
-    missingLibraries: false,
-    line: lines[0] ?? "it failed and said nothing",
-  };
-}
 
 /**
  * Status's word on a downloaded browser's Linux libraries, read with `ldd`

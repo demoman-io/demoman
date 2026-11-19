@@ -127,13 +127,45 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
 
   // Red when a kept flow commits the machine's path again (DEM-227), or
   // when the agent's answer loses the still the MCP tool attaches.
-  it("the committed report leaves out the still; the served one keeps it", () => {
-    const path = "/Users/someone/.demoman/takes/scene-1-a/final-still.png";
-    const served = servedRunReport(stored({ still: { path } }));
+  it("the committed report leaves out the still's path and the home folder; the served one keeps them", () => {
+    const home = "/Users/someone";
+    const path = `${home}/.demoman/takes/scene-1-a/final-still.png`;
+    const input = stored({
+      still: { path },
+      notStored: [
+        { what: "status", error: `ENOSPC: '${home}/.demoman/takes/x'` },
+      ],
+    });
+    const served = servedRunReport(input) as Served;
+    // Premise: the agent's answer carries both.
     expect(served.still).toEqual({ path });
-    const committed = committedRunReport(served);
-    expect(JSON.stringify(committed)).not.toContain("final-still");
-    expect(committed.outcome).toBe(served.outcome);
+    expect(JSON.stringify(served)).toContain(`${home}/.demoman/takes/x`);
+    const committed = committedRunReport(input, home) as Served;
+    expect("still" in committed).toBe(false);
+    expect(JSON.stringify(committed)).not.toContain(home);
+    expect(committed.notStored[0].error).toBe("ENOSPC: '~/.demoman/takes/x'");
+    // Still served words, as keep has always written them.
+    expect(committed.provenance.videoId).toBe("scene-1-a");
+  });
+
+  // Red when the reason a run has no still is dropped with the path.
+  it("the committed report keeps a still that says why there is none", () => {
+    const committed = committedRunReport(
+      stored({ still: { unavailable: "it timed out" } }),
+      "/Users/someone",
+    );
+    expect(committed.still).toEqual({ unavailable: "it timed out" });
+  });
+
+  // Red when the home folder is matched in its raw form inside JSON, where
+  // a Windows path's backslashes are escaped.
+  it("writes a Windows home as ~ too", () => {
+    const home = "C:\\Users\\someone";
+    const committed = committedRunReport(
+      stored({ notStored: [{ what: "status", error: `${home}\\x` }] }),
+      home,
+    ) as Served;
+    expect(committed.notStored[0].error).toBe("~\\x");
   });
 
   it("serves an old report without videoVersion", () => {

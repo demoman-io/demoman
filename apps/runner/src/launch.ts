@@ -201,19 +201,49 @@ async function visibleUserAgentOr(
 const sandboxRefused = new Map<string, string>();
 
 /**
- * A failed launch in one line: Playwright's first line, and Chromium's own
- * reason from the "Browser logs" below it (a FATAL line first, else its
- * first stderr line). The first line alone is often only "Target page,
- * context or browser has been closed" (Linux CI, 2026-11-18).
+ * What a failed launch said, read once for setup, `classifyLaunchError` and
+ * the sandbox fallback: a missing library is the dynamic linker's line from
+ * the browser log (or, for Playwright's own executable, its host check's).
+ * Anything else is Playwright's first line, which often says only "Target
+ * page, context or browser has been closed" (Linux CI, 2026-11-18), with
+ * Chromium's own reason from its stderr after it: a FATAL line, else one
+ * that names the sandbox or a namespace. No other stderr line is taken: the
+ * first is usually dbus or GPU noise, and a wrong reason is worse than none.
  */
-export function launchFailure(message: string): string {
-  const lines = message.split("\n");
-  const err = lines.filter((l) => /^\[pid=\d+\]\[err\] \S/.test(l));
-  const cause = err.find((l) => l.includes("FATAL")) ?? err[0];
-  const head = lines[0] as string;
-  return cause === undefined
-    ? head
-    : `${head}: ${cause.replace(/^\[pid=\d+\]\[err\] /, "")}`;
+export function launchFailure(said: string): {
+  missingLibraries: boolean;
+  line: string;
+} {
+  const lines = said
+    .split("\n")
+    .map((l) => l.replace(/^[\s║╔╗╚╝═]+|[\s║╔╗╚╝═]+$/g, ""))
+    .filter((l) => l !== "");
+  for (const l of lines) {
+    const linker = /error while loading shared libraries:.*/i.exec(l);
+    if (linker !== null) return { missingLibraries: true, line: linker[0] };
+  }
+  const host = lines.find((l) =>
+    /Host system is missing dependencies/i.test(l),
+  );
+  if (host !== undefined) return { missingLibraries: true, line: host };
+  const err = lines
+    .filter((l) => /^\[pid=\d+\]\[err\] /.test(l))
+    .map((l) => l.replace(/^\[pid=\d+\]\[err\] /, ""));
+  const cause =
+    err.find((l) => l.includes("FATAL")) ??
+    err.find((l) => /sandbox|namespace/i.test(l));
+  // A boxed error's first line is "browserType.launch:" alone.
+  const [first, next] = lines;
+  const head =
+    first === undefined
+      ? "it failed and said nothing"
+      : first.endsWith(":") && next !== undefined && !next.startsWith("[pid=")
+        ? `${first} ${next}`
+        : first;
+  return {
+    missingLibraries: false,
+    line: cause === undefined ? head : `${head}: ${cause}`,
+  };
 }
 
 /**
@@ -249,7 +279,7 @@ async function launchSandboxed(
   } catch (error) {
     first = launchFailure(
       String(error instanceof Error ? error.message : error),
-    );
+    ).line;
   }
   let browser: Browser;
   try {
