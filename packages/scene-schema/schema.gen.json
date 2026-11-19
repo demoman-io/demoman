@@ -1353,6 +1353,24 @@
         ]
       }
     },
+    "zoomDefault": {
+      "type": "object",
+      "properties": {
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "stillScale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "scale",
+        "stillScale"
+      ],
+      "additionalProperties": false
+    },
     "edits": {
       "type": "object",
       "properties": {

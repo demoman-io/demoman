@@ -59,7 +59,13 @@ let home: string;
 let executor: LocalExecutor;
 let takeId: string;
 
+/** Real time (`DEMOMAN_HELD_CLOCK=0`): every claim above starts from the
+ *  camera's 1.8x default, which a test executor's held stills (1x) do not
+ *  back, so a held take saves its zooms at the floor (`zoomDefaultFor`). */
+const heldWas = process.env.DEMOMAN_HELD_CLOCK;
+
 beforeAll(async () => {
+  process.env.DEMOMAN_HELD_CLOCK = "0";
   server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(ZOOMS_APP);
@@ -116,6 +122,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await executor.close();
+  if (heldWas === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+  else process.env.DEMOMAN_HELD_CLOCK = heldWas;
   server.close();
   await rm(home, { recursive: true, force: true });
 });
@@ -160,7 +168,9 @@ describe("a 9:16 export of a take whose zooms do not all play as asked", () => {
         reason: "targetTooWide",
         scale: expect.any(Number),
       });
-      // ...and the other three each carry the landscape default, 1.8x.
+      // ...and the other three each carry the landscape default, 1.8x,
+      // which a real-time take's 3x stills back, so none is recorded.
+      expect(scene.zoomDefault, evidence).toBeUndefined();
       const zoomOn = (actionId: string) =>
         scene.camera.find((c) => c.marker.actionId === actionId)?.scale;
       expect(zoomOn(row.id), evidence).toBe(1.8);

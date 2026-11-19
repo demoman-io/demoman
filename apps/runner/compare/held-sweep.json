@@ -1,0 +1,12 @@
+{
+  "scriptVersion": 1,
+  "name": "Held sweep",
+  "target": "{fixture}/held-sweep-fixture.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "button", "name": "One" } },
+    { "do": "click", "on": { "role": "button", "name": "Two" } },
+    { "do": "click", "on": { "role": "button", "name": "Three" } },
+    { "do": "pause", "ms": 1000 }
+  ]
+}

@@ -394,6 +394,23 @@ const ZoomSkipped = z.union([
 
 export type SceneZoomSkipped = z.infer<typeof ZoomSkipped>;
 
+/**
+ * The default the generated zooms started from when the take's stills back
+ * less than the camera's own (`zoomDefaultFor`, DEM-164): a held take's
+ * stills are its frames, at the flow's scale (`stillScale`, still px per CSS
+ * px), and at the default export they back `scale`, not 1.8x. Recorded so a
+ * zoom added later starts where the generated ones did, and so the run
+ * report can say why they are lower. Optional, with no version bump, as
+ * `zoomsSkipped` was. Absent: the stills back the camera's default (every
+ * real-time take, and every take saved before the field existed).
+ */
+const ZoomDefault = z.object({
+  scale: z.number().positive(),
+  stillScale: z.number().positive(),
+});
+
+export type SceneZoomDefault = z.infer<typeof ZoomDefault>;
+
 /** Every action id a skip note names: its click, and the zoomed click a
  *  too-close one was measured from. */
 function skipActionIds(skip: SceneZoomSkipped): [string, string][] {
@@ -883,6 +900,8 @@ export const SceneDocumentSchema = z
       .optional(),
     /** See `ZoomSkipped`. */
     zoomsSkipped: z.array(ZoomSkipped).optional(),
+    /** See `ZoomDefault`. */
+    zoomDefault: ZoomDefault.optional(),
     edits: z.object({
       masks: z.array(Mask),
       holds: z.array(Hold),

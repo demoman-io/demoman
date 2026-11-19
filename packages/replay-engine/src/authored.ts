@@ -52,10 +52,12 @@ import {
   type FailureReasonName,
   type SceneAction,
   type SceneAnchor,
+  type SceneAspect,
   type SceneBranding,
   type SceneDocument,
   SceneDocumentSchema,
   type SceneMarker,
+  type SceneZoomDefault,
   type SceneZoomSkipped,
   type ScriptStep,
   type ScriptTarget,
@@ -349,14 +351,29 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
     scaleAt: (action: SceneAction) => number,
     /** What the script said about a click's or drag's zoom, by action id. */
     intentOf: ZoomIntentOf,
+    /** What a held take's stills back, for the default zoom; absent in
+     *  real time, whose 3x stills back the camera's default. */
+    backing?: StillBacking,
   ): CameraPlan;
 }
 
-/** What `AuthoredDeps.cameraFor` answers: the zooms, and every click they
- *  left without one. */
+/** A held take's stills, at the flow's scale, in the frame the take is
+ *  drawn in: what `zoomDefaultFor` (`@demoman/run-core`) sizes the default
+ *  zoom from (DEM-164). */
+export interface StillBacking {
+  /** The take's frames: its stills and the size they were recorded at. */
+  bundle: FrameBundle;
+  branding: SceneBranding;
+  aspect: SceneAspect;
+}
+
+/** What `AuthoredDeps.cameraFor` answers: the zooms, every click they left
+ *  without one, and the default they started from when the stills backed
+ *  less than the camera's (`SceneDocument.zoomDefault`). */
 export interface CameraPlan {
   camera: SceneDocument["camera"];
   zoomsSkipped: SceneZoomSkipped[];
+  zoomDefault?: SceneZoomDefault;
 }
 
 export interface AuthoredResult extends ReplayResult {
@@ -1345,6 +1362,9 @@ export function assembleAuthored(
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
+    ...(args.camera.zoomDefault === undefined
+      ? {}
+      : { zoomDefault: args.camera.zoomDefault }),
     // Nothing has edited this take: it is one second old. The script's trim
     // is the run's, written as the markers a Studio trim would be.
     edits: { masks: [], holds: [], gaps: [], splits: [], removed: [] },
@@ -1860,11 +1880,23 @@ export async function runAuthored(
     walked.bundle?.viewportTransforms ?? [],
     walked.decided,
   );
+  // Held: every still is a held frame at the flow's scale, which may back
+  // less than the camera's default. Branding and aspect as
+  // `assembleAuthored` writes them.
+  const backing: StillBacking | undefined =
+    deps.held === undefined || walked.bundle === null
+      ? undefined
+      : {
+          bundle: walked.bundle,
+          branding: script.look?.branding ?? deps.startingBranding,
+          aspect: script.look?.canvas?.aspect ?? CANVAS_DEFAULTS.aspect,
+        };
   const camera = deps.cameraFor(
     inputs.actions,
     viewport,
     inputs.scaleAt,
     run.zoomIntentOf,
+    backing,
   );
   // Pan or return, as the walk decided it for the click: recorded on the
   // zoom so the renderer reads it rather than asking again.

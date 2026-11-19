@@ -301,7 +301,7 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
      `checkFailed` with `error`): not a clean bill; say so, no retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
-   - `video.pacing: "planned"`: `plannedMs` is its length before any trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played as recorded, named in `frames.unplacedBeats[].step`.
+   - `video.pacing: "planned"`: `plannedMs` is its length before trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played as recorded, named in `frames.unplacedBeats[].step`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
      the video a derived script came from.
@@ -309,12 +309,12 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    | Finding | Whose | The move |
    | --- | --- | --- |
    | `cutOff`, `outOfFrame` | the script | add a `scrollTo` on that element before the step |
-   | `atEdge` | the script, if a run remains | as above; otherwise leave it |
-   | `longStill` beyond what a `pause` asked for | Demoman | leave it; do not rewrite steps |
+   | `atEdge` | the script, if a run remains | as above; else leave it |
+   | `longStill` beyond what a `pause` asked for | Demoman | leave it; keep the steps |
    | `opening` long | the script | add `trim.start` |
    | `zoomNotes` | the script | set that click's `zoom` |
    | `trimNotes` | the script | name another step in `trim` |
-   | stray arrival, `detour` | Demoman | leave it |
+   | stray arrival, `detour`, `zoomDefault` | Demoman | leave it |
    | drift from the earlier video | the app | report it |
 
    A finding that is Demoman's earns no run and is not passed on (the

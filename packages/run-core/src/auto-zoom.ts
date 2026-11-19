@@ -1,22 +1,32 @@
-import { CAMERA_DEFAULTS, fitScaleFor } from "@demoman/compositor";
+import {
+  CAMERA_DEFAULTS,
+  contentScale,
+  derivePresentation,
+  fitScaleFor,
+} from "@demoman/compositor";
+import type { StillBacking } from "@demoman/replay-engine";
 import {
   dragPoints,
   type SceneDocument,
+  type SceneZoomDefault,
   type SceneZoomSkipped,
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
 import { pointRect } from "./drag-points.js";
+import { DEFAULT_EXPORT_QUALITY, targetFor } from "./export/target.js";
 import { MIN_ZOOM_GAP_MS } from "./zoom-defaults.js";
 
 type CameraEvent = SceneDocument["camera"][number];
 
 /** The zooms a take is saved with, and the clicks they leave out. Two halves
  *  of one answer, returned together so no caller can write the camera and
- *  drop the reasons. */
+ *  drop the reasons. `zoomDefault`: the default they started from, when the
+ *  stills backed less than the camera's (`zoomDefaultFor`). */
 export interface ClickZooms {
   camera: CameraEvent[];
   zoomsSkipped: SceneZoomSkipped[];
+  zoomDefault?: SceneZoomDefault;
 }
 
 /** The last click a zoom was made for, which the next is measured from. */
@@ -47,6 +57,8 @@ export function decideZoom(
   scaleOf: () => number,
   /** The script's say on this click (`ZoomIntent`); absent leaves it to the camera. */
   intent?: ZoomIntent,
+  /** The zoom a click gets before its fit (`zoomDefaultFor`). */
+  defaultScale: number = CAMERA_DEFAULTS.defaultZoomScale,
 ): { zoom: true; scale: number } | { zoom: false; skipped: SceneZoomSkipped } {
   if (intent === false) {
     return { zoom: false, skipped: { actionId: click.id, reason: "off" } };
@@ -77,6 +89,7 @@ export function decideZoom(
       ? undefined
       : { width: click.rect.width * scale, height: click.rect.height * scale },
     viewport,
+    defaultScale,
   );
   if (fitted < ZOOM_FLOOR_SCALE) {
     return {
@@ -119,7 +132,9 @@ function dragBox(
  * extend its end. Nothing ever re-adds one. That is the difference from the
  * auto-zoom removed on 2026-08-30, which was a rule applied at render time
  * that refilled whatever the author deleted, so the lane could only be
- * argued with (v8 §6).
+ * argued with (v8 §6). On a held take whose stills back less, the default
+ * scale is the take's `zoomDefault`; the editor still writes 1.8x until
+ * DEM-242.
  *
  * Close clicks. Every click gets its zoom however close it follows the one
  * before: where there is no room to return to full frame between two
@@ -176,8 +191,20 @@ export function zoomsForClicks(
   scaleAt: (action: SceneDocument["actions"][number]) => number = () => 1,
   // The script's say per action id; the room policy reads the same one.
   intentOf?: ZoomIntentOf,
+  // What the take's stills back (`zoomDefaultFor`); absent: the camera's default.
+  backing?: StillBacking,
 ): ClickZooms {
   const { leadInMs } = CAMERA_DEFAULTS;
+  const backed =
+    backing === undefined || backing.bundle.keyframes.length === 0
+      ? undefined
+      : zoomDefaultFor(backing, viewport);
+  // Recorded only when it lowers the default: absent says the stills back it.
+  const zoomDefault =
+    backed !== undefined && backed.scale < CAMERA_DEFAULTS.defaultZoomScale
+      ? backed
+      : undefined;
+  const defaultScale = zoomDefault?.scale ?? CAMERA_DEFAULTS.defaultZoomScale;
   const camera: CameraEvent[] = [];
   const zoomsSkipped: SceneZoomSkipped[] = [];
   let last: LastZoom | null = null;
@@ -193,6 +220,7 @@ export function zoomsForClicks(
       viewport,
       () => scaleAt(action),
       intent,
+      defaultScale,
     );
     if (!decided.zoom) {
       zoomsSkipped.push(decided.skipped);
@@ -222,7 +250,11 @@ export function zoomsForClicks(
       timestamp: action.timestamp,
     };
   }
-  return { camera, zoomsSkipped };
+  return {
+    camera,
+    zoomsSkipped,
+    ...(zoomDefault === undefined ? {} : { zoomDefault }),
+  };
 }
 
 /**
@@ -275,10 +307,55 @@ export const ZOOM_FIT_MARGIN_PX = CAMERA_DEFAULTS.fitMarginPx;
 function fittedScale(
   rect: { width: number; height: number } | undefined,
   viewport: { width: number; height: number },
+  defaultScale: number,
 ): number {
-  const { defaultZoomScale } = CAMERA_DEFAULTS;
-  if (!rect) return defaultZoomScale;
-  return Math.min(defaultZoomScale, fitScaleFor(rect, viewport));
+  if (!rect) return defaultScale;
+  return Math.min(defaultScale, fitScaleFor(rect, viewport));
+}
+
+/**
+ * The default zoom a take's stills can play at its default export, decided
+ * when the take is saved so the export never cuts it (DEM-164). A held take's
+ * stills are its frames, at the flow's scale (2x by `CAPTURE_SCALE`), not
+ * the 3x of a real-time still: measured 2026-11-19 at 1440x900@2, every 1.8x
+ * zoom was cut to 1.35x at the default 1440p export, said only in
+ * `detailViolations`. The author chose a lower default over 3x frames.
+ *
+ * The sum is the export's own clamp (`clampToSourceDetail`): source px per
+ * CSS px over output px per CSS px, against the frame the default export
+ * draws (`targetFor` at `DEFAULT_EXPORT_QUALITY`, from these stills, so a
+ * phone's or a narrow window's export is the 1080p tier and 9:16 its own
+ * crop) in the take's own branding, from its narrowest still, since the
+ * clamp reads the still before each zoom. Never above the camera's default.
+ * Never under `ZOOM_FLOOR_SCALE`, so the floor still decides alone which
+ * clicks zoom, and the room policy (`room.ts`), which asks that at the
+ * camera's default, reads the same answer: a cut to the floor is still
+ * reported by the clamp. A smaller export backs more than this; a larger
+ * one is cut, and reported.
+ */
+export function zoomDefaultFor(
+  backing: StillBacking,
+  viewport: { width: number; height: number },
+): SceneZoomDefault {
+  const { bundle, branding } = backing;
+  const stillScale =
+    Math.min(...bundle.keyframes.map((k) => k.width)) / viewport.width;
+  const target = targetFor(
+    "mp4",
+    backing.aspect,
+    bundle,
+    { padding: branding.padding, viewport },
+    { quality: DEFAULT_EXPORT_QUALITY },
+  );
+  const { frameRect } = derivePresentation(branding, target, viewport);
+  const backed = stillScale / contentScale(frameRect, viewport);
+  return {
+    scale: Math.min(
+      CAMERA_DEFAULTS.defaultZoomScale,
+      Math.max(ZOOM_FLOOR_SCALE, backed),
+    ),
+    stillScale,
+  };
 }
 
 /**
