@@ -100,6 +100,16 @@ export function servedRunReport(r: RunReport): Json {
   return out;
 }
 
+/** A served run report as a kept flow commits it into the repo (DEM-227):
+ *  without `still`, whose path is on the machine that ran it (the user's
+ *  home folder, in a repo that may be public) and names no file the commit
+ *  holds. Every other field was checked on 2026-11-18: URLs are scrubbed at
+ *  capture, credential text is hidden, `run.target` is the kept script's. */
+export function committedRunReport(served: Json): Json {
+  const { still: _still, ...rest } = served;
+  return rest;
+}
+
 /** An export's or an attach's answer in the new words. */
 export function servedExportReport(r: Json): Json {
   let out = renamed(r, "takeId", "videoId");

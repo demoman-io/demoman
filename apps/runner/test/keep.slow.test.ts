@@ -237,6 +237,8 @@ describe("keep, a clean take", () => {
       await library.putJson(cleanTakeId, "report.json", {
         outcome: "complete",
         provenance: { takeId: cleanTakeId, bundleId: null, madeFrom: [] },
+        // DEM-227: a path on this machine, left out of the committed file.
+        still: { path: "/Users/someone/.demoman/takes/x/final-still.png" },
       });
 
       const out = await keepVideo(

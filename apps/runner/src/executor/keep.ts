@@ -23,6 +23,7 @@ import {
 } from "node:path";
 import { wallpaperShape } from "@demoman/compositor";
 import {
+  committedRunReport,
   type FilmedCode,
   FLOWS_DIR,
   frameOf,
@@ -563,7 +564,7 @@ export async function keepVideo(
         if ("value" in runReport) {
           await place(
             join(root, report),
-            `${JSON.stringify(servedRunReport(runReport.value as RunReport), null, 2)}\n`,
+            `${JSON.stringify(committedRunReport(servedRunReport(runReport.value as RunReport)), null, 2)}\n`,
           );
           written.push(report);
         } else {

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunReport } from "../../src/replay/report.js";
 import {
+  committedRunReport,
   SERVED_REASON,
   servedExportReport,
   servedFlowsAnswer,
@@ -122,6 +123,17 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
     expect(keysOf(input).has("datesOnScreen")).toBe(true);
     expect(keysOf(servedRunReport(input)).has("datesOnScreen")).toBe(false);
     expect(input.datesOnScreen).toEqual(["Dec 4, 2026"]);
+  });
+
+  // Red when a kept flow commits the machine's path again (DEM-227), or
+  // when the agent's answer loses the still the MCP tool attaches.
+  it("the committed report leaves out the still; the served one keeps it", () => {
+    const path = "/Users/someone/.demoman/takes/scene-1-a/final-still.png";
+    const served = servedRunReport(stored({ still: { path } }));
+    expect(served.still).toEqual({ path });
+    const committed = committedRunReport(served);
+    expect(JSON.stringify(committed)).not.toContain("final-still");
+    expect(committed.outcome).toBe(served.outcome);
   });
 
   it("serves an old report without videoVersion", () => {

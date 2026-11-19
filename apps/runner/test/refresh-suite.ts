@@ -941,6 +941,13 @@ export const firstFilm = () => {
         (await bytes("docs/order-report.json")).toString(),
       );
       expect(report.outcome).toBe("complete");
+      // DEM-227: the run's still is a path on this machine; the committed
+      // file leaves it out. Premise: the served report carries one.
+      expect(
+        (a.report as { still?: { path?: string } }).still?.path,
+        JSON.stringify(a.report),
+      ).toMatch(/^\/.*final-still\.png$/);
+      expect("still" in report, JSON.stringify(report)).toBe(false);
       // Written in the served words, as keep writes it.
       expect(typeof report.provenance.videoId).toBe("string");
       expect("takeId" in report.provenance).toBe(false);

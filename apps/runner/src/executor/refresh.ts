@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
+  committedRunReport,
   DEGRADATION_WORDS,
   type ExportAnswer,
   type FilmedCode,
@@ -978,7 +979,10 @@ async function deliverOne(
     }
     if (same !== true && kept.report !== null) {
       if ("value" in stored)
-        await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
+        await put(
+          kept.report,
+          `${JSON.stringify(committedRunReport(stored.value as Record<string, unknown>), null, 2)}\n`,
+        );
       else notes.push(`${kept.report} was not written: ${stored.not}`);
     }
     if (writeReceipt) {
