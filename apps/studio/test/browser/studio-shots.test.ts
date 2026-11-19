@@ -5507,7 +5507,7 @@ describe("the Studio's screenshot set", () => {
   // Escape closes a list row's ⋯ menu (DEM-215; "Escape closing only one
   // panel"): the menu, opened by a tap on a phone, is the innermost thing
   // open, so one Escape takes it off the painted page.
-  // Known: Escape with a row's ⋯ menu open moves focus to the row and leaves the menu open (list-keys.ts preventDefaults Escape in a cell, which cancels the popover's light dismiss) — see report
+  // Known: Escape with a row's ⋯ menu open moves focus to the row and leaves the menu open (list-keys.ts preventDefaults Escape in a cell, which cancels the popover's light dismiss) — DEM-231
   (process.platform === "darwin" ? it.fails : it.skip)(
     "closes a list row's ⋯ menu with one Escape on a phone, asserted on its paint",
     async () => {
@@ -6036,7 +6036,7 @@ describe("the Studio's screenshot set", () => {
   // could not be grabbed"): on the take with a cut at its end, the one
   // piece's end handle, shown under the pointer, is the thing at its own
   // middle.
-  // Known: a removed step's tick (data-cut) is drawn over the piece's end handle, covering its middle 24px; only its top and bottom few px grab — see report
+  // Known: a removed step's tick (data-cut) is drawn over the piece's end handle, covering its middle 24px; only its top and bottom few px grab — DEM-232
   (process.platform === "darwin" ? it.fails : it.skip)(
     "grabs the take's last piece's end handle at its middle, asserted on its paint",
     async () => {
@@ -6157,7 +6157,7 @@ describe("the Studio's screenshot set", () => {
   // A list row ticked by the mouse at the foot of a scrolled page stays
   // where it was in the window (DEM-215, "the page jumping when a row is
   // selected"; the cards' form is studio-bulk-scroll.test.ts).
-  // Known: in the list, the first tick at a scrolled page's foot moves the ticked row 64px down the window (the selection bar opens above it and the scroll does not follow) — see report
+  // Known: in the list, the first tick at a scrolled page's foot moves the ticked row 64px down the window (the selection bar opens above it and the scroll does not follow) — DEM-233
   (process.platform === "darwin" ? it.fails : it.skip)(
     "ticks a list row at the foot of a scrolled page without moving it, by a real pointer, asserted on its paint",
     async () => {
