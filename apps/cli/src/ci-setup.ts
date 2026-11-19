@@ -747,7 +747,7 @@ async function makePlan(
   if (missing.length > 0)
     return stop(
       "secretMissing",
-      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}; set each in the environment (an account's can also go in .demoman/secrets.env, without the ${SECRET_PREFIX} prefix), or give it when setup asks, then run setup again`,
+      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}; set each in the environment (an account's can also go in .demoman/secrets.env as a ${SECRET_PREFIX}NAME=value line, its name as written here, with its ${SECRET_PREFIX}NAME${SECRET_ORIGIN_SUFFIX}=<origin> line beside it), or give it when setup asks, then run setup again`,
       { secrets: missing },
     );
   const replace = choices.replaceSecrets ?? [];

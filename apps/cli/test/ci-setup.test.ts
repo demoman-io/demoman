@@ -631,6 +631,12 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     );
     expect(isStop(r) && r.reason).toBe("secretMissing");
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_BUYER");
+    // DEM-129: secrets.env refuses a line without its prefix, so the text
+    // describes the line the reader takes, origin line and all.
+    expect(isStop(r) && r.detail).toContain(
+      "secrets.env as a DEMOMAN_SECRET_NAME=value line, its name as written here, with its DEMOMAN_SECRET_NAME_ORIGIN=<origin> line beside it",
+    );
+    expect(isStop(r) && r.detail).not.toMatch(/without the .* prefix/);
     expect(isStop(r) && r.secrets?.map((n) => n.name)).toEqual([
       "DEMOMAN_SECRET_BUYER",
     ]);
