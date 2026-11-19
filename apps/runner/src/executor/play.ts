@@ -336,6 +336,7 @@ async function holdClock(
     network,
     scale,
     abandon,
+    scrubUrl,
     realNow: Date.now,
     capture: async () => {
       const reply = await cdp.send("Page.captureScreenshot", {
