@@ -34,6 +34,8 @@ function setup(
     /** What the browser answers `Target.getTargetInfo` with. */
     targetInfo?: () => Promise<unknown>;
     scrubUrl?: (url: string) => string;
+    /** The connections the network watch counts (`labels`). */
+    labels?: string[];
     /** What the network watch says it stopped counting. */
     ignored?: string[];
     /** The real time the wait ended, once it has (`NetworkWatch.quietSince`). */
@@ -96,7 +98,7 @@ function setup(
   };
   const network: NetworkWatch = {
     waiting: () => o.waiting?.(real) ?? false,
-    labels: () => ["POST /api/chat"],
+    labels: () => o.labels ?? ["POST /api/chat"],
     ignored: () => o.ignored ?? [],
     quietSince: () => o.quietSince?.(real) ?? null,
     waitsSince: (sinceMs, pageMs) =>
@@ -1124,19 +1126,23 @@ describe("createHeldClock", () => {
   // sentence, on pages with no loop. Red if a page that answers a second
   // read is still blamed for a loop, or the sentence leaves out which read
   // hung, where the browser had the page, or what the network watch saw.
-  it("says a page that answers a second read ran no script, with which read hung and where the page was", async () => {
+  it("says a page that answers a second read runs no script, with which read hung and where the page was", async () => {
     vi.useFakeTimers();
+    // The document's request closes as the page is asked again: the
+    // sentence says the network as the read went unanswered.
+    let asked = false;
     const { clock, frames } = setup({
-      pin: (_, source) =>
-        source.includes("readyState")
-          ? ["http://localhost:4402/board/web?key=SECRET", "interactive"]
-          : [],
+      pin: (_, source) => {
+        if (!source.includes("readyState")) return [];
+        asked = true;
+        return ["http://localhost:4402/board/web?key=SECRET", "interactive"];
+      },
       shot: () => new Promise(() => undefined),
       targetInfo: async () => ({
-        targetInfo: { url: "http://localhost:4402/sign-in/SECRET" },
+        targetInfo: { url: "http://auth.example/sign-in/SECRET" },
       }),
       scrubUrl: (url) => url.replaceAll("SECRET", "[redacted]"),
-      loading: () => true,
+      loading: () => !asked,
     });
     await clock.hold(START);
     let failed: unknown = null;
@@ -1147,20 +1153,103 @@ describe("createHeldClock", () => {
     await slept;
     const said = String(failed);
     expect(said).toMatch(
-      /did not answer within 15 s at 33 ms of the recording: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at \/board\/web, document interactive\), so no script of it was running; the browser has it at \/sign-in\/\[redacted\]; its document's request was still open/,
+      /did not answer within 15 s at 33 ms of the recording: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
     );
     expect(said).not.toMatch(/SECRET|loop|DEMOMAN_HELD_CLOCK/);
+    expect(asked, "the page was asked again").toBe(true);
     expect(clock.failed()?.message).toBe((failed as Error).message);
     expect(frames).toHaveLength(0);
+  });
+
+  // Red if a branch of the sentence says the wrong thing: a second read
+  // that fails, a browser that refuses or does not answer where the page
+  // is, a page waiting on its server, and none the watch counts.
+  it.each([
+    {
+      name: "a second read that fails, a browser that refuses",
+      second: async () => {
+        throw new Error("Execution context was destroyed");
+      },
+      target: async () => {
+        throw new Error("Target closed");
+      },
+      labels: ["GET /api/me"],
+      says: /its screenshot went unanswered, and a second read failed \(Execution context was destroyed\); it was waiting on GET \/api\/me; the browser did not say where it is \(Target closed\)$/,
+    },
+    {
+      name: "a browser that does not answer, no request counted",
+      second: () => ["about:blank", "complete"],
+      target: () => new Promise(() => undefined),
+      labels: [],
+      says: /\(at about:blank, document complete\), so no script of it is running now; no request the network watch counts was open; the browser did not say where it is \(no answer within 1000 ms\)$/,
+    },
+    {
+      name: "an answer with no address, a browser with none",
+      second: () => undefined,
+      target: async () => ({}),
+      labels: [],
+      says: /\(with no address\), so no script of it is running now; .*the browser did not say where it is \(no address\)$/,
+    },
+  ])("says $name", async ({ second, target, labels, says }) => {
+    vi.useFakeTimers();
+    let asked = false;
+    const { clock, sent } = setup({
+      pin: (_, source) => {
+        if (!source.includes("readyState")) return [];
+        asked = true;
+        return second();
+      },
+      shot: () => new Promise(() => undefined),
+      targetInfo: target,
+      labels,
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(asked, "the page was asked again").toBe(true);
+    expect(sent).toContain("Target.getTargetInfo");
+    expect(String(failed)).toMatch(says);
+    expect(String(failed)).not.toMatch(/loop|DEMOMAN_HELD_CLOCK/);
+  });
+
+  // Red if a throw while saying why leaves the run waiting for good.
+  it("still stops, in words, when saying why throws", async () => {
+    vi.useFakeTimers();
+    const { clock } = setup({
+      shot: () => new Promise(() => undefined),
+      scrubUrl: () => {
+        throw new Error("scrubber broke");
+      },
+      targetInfo: async () => ({ targetInfo: { url: "http://x.test/" } }),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(String(failed)).toMatch(
+      /its screenshot went unanswered, and saying why failed \(scrubber broke\)$/,
+    );
+    expect(clock.failed()).not.toBeNull();
   });
 
   // Red if a read that answers while the page is asked again still stops
   // the run: its held time never moved, so the take is the same.
   it("goes on when the frame's read answers while the page is asked again", async () => {
     vi.useFakeTimers();
-    const { clock, frames } = setup({
-      pin: (_, source) =>
-        source.includes("readyState") ? new Promise(() => undefined) : [],
+    let asked = false;
+    const { clock, frames, sent } = setup({
+      pin: (_, source) => {
+        if (!source.includes("readyState")) return [];
+        asked = true;
+        return new Promise(() => undefined);
+      },
       shot: () =>
         new Promise((r) =>
           setTimeout(
@@ -1176,6 +1265,8 @@ describe("createHeldClock", () => {
     });
     await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
     await slept;
+    expect(asked, "the page was asked again before the frame came").toBe(true);
+    expect(sent).toContain("Target.getTargetInfo");
     expect(failed).toBeNull();
     expect(clock.failed()).toBeNull();
     expect(frames, "the frame the late screenshot answered").toHaveLength(1);

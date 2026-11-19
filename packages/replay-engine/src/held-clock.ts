@@ -1,4 +1,4 @@
-import { type NetworkWatch, pathOf } from "./network-watch.js";
+import type { NetworkWatch } from "./network-watch.js";
 import type { CdpSession, Clock } from "./types.js";
 
 /** One video frame of page time. */
@@ -368,9 +368,19 @@ export function createHeldClock(deps: {
   scrubUrl?: (url: string) => string;
 }): HeldClock {
   const { cdp, network, realNow } = deps;
-  /** An address as the clock says it: its path, scrubbed, as the network
-   *  watch names requests. */
-  const where = (url: string) => pathOf((deps.scrubUrl ?? ((u) => u))(url));
+  /** An address as the clock says it, scrubbed: its scheme, host and path,
+   *  so Chrome's error page or another site's sign-in reads as itself. */
+  const where = (url: string) => {
+    const scrubbed = (deps.scrubUrl ?? ((u) => u))(url);
+    try {
+      const u = new URL(scrubbed);
+      if (u.host !== "") return `${u.protocol}//${u.host}${u.pathname}`;
+      // about:blank as it is; a data: address is the whole document.
+      return u.protocol === "data:" ? "a data: address" : scrubbed;
+    } catch {
+      return scrubbed;
+    }
+  };
   const wait =
     deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   /** The frame of the grid at or after `ms`, or at or before it. */
@@ -528,31 +538,52 @@ export function createHeldClock(deps: {
    *  as the sentence names it. */
   const answered = <T>(read: Promise<T>, what: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Set by the read itself, not the race: a race's settling reaches its
+    // handlers a few microtasks after the read's.
     let over = false;
+    read.then(
+      () => {
+        over = true;
+      },
+      () => {
+        over = true;
+      },
+    );
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        void unanswered(what).then((error) => {
-          // Answered while the page was asked again: the run goes on, and
-          // its held time never moved, so the picture is the same.
-          if (over) return;
-          fatal ??= error;
-          void deps.abandon?.().catch(() => undefined); // its calls answer, closed
-          reject(fatal);
-        });
+        void unanswered(what)
+          .catch(
+            (e: unknown) =>
+              new Error(
+                `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s at ${Math.round(held)} ms of the recording: ${what} went unanswered, and saying why failed (${e instanceof Error ? e.message : String(e)})`,
+              ),
+          )
+          .then((error) => {
+            // Answered while the page was asked again: the run goes on, and
+            // its held time never moved, so the picture is the same.
+            if (over) return;
+            fatal ??= error;
+            void deps.abandon?.().catch(() => undefined); // its calls answer, closed
+            reject(fatal);
+          });
       }, GRANT_EXPIRY_TIMEOUT_MS);
     });
-    return Promise.race([read, late]).finally(() => {
-      over = true;
-      clearTimeout(timer);
-    });
+    return Promise.race([read, late]).finally(() => clearTimeout(timer));
   };
 
   /** Why a frame's read went unanswered, in what the page and the browser
-   *  say a moment later. A page that answers a second read runs no script,
-   *  so a loop is not what held it (DEM-237: two CI refreshes blamed one on
-   *  pages that have none, during the opening load). */
+   *  say a moment later. A page that answers a second read runs no script
+   *  now, so a loop is not what holds it (DEM-237: two CI refreshes blamed
+   *  one on pages that have none, during the opening load). */
   const unanswered = async (what: string): Promise<Error> => {
     const at = `at ${Math.round(held)} ms of the recording`;
+    // As the read went unanswered, not a second later.
+    const labels = network.labels();
+    const net = network.loading()
+      ? "its document's request was open"
+      : labels.length > 0
+        ? `it was waiting on ${labels.join(", ")}`
+        : "no request the network watch counts was open";
     const [page, target] = await Promise.all([
       bounded(deps.evaluate(PAGE_FACTS, 0, false)),
       bounded(cdp.send("Target.getTargetInfo")),
@@ -560,20 +591,16 @@ export function createHeldClock(deps: {
     const url = (target as { targetInfo?: { url?: unknown } } | undefined)
       ?.targetInfo?.url;
     const facts = [
+      net,
       typeof url === "string"
         ? `the browser has it at ${where(url)}`
         : `the browser did not say where it is (${target instanceof Error ? target.message : target === SILENT ? `no answer within ${SECOND_READ_MS} ms` : "no address"})`,
-      network.loading()
-        ? "its document's request was still open"
-        : network.labels().length > 0
-          ? `it was waiting on ${network.labels().join(", ")}`
-          : "no request of it was open",
     ].join("; ");
     /** The page's own answer: its address, and how far its document loaded. */
     const answer = (a: unknown) =>
       Array.isArray(a) && typeof a[0] === "string"
         ? `at ${where(a[0])}, document ${String(a[1])}`
-        : String(a);
+        : "with no address";
     const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered`;
     if (page instanceof Error)
       return new Error(
@@ -581,7 +608,7 @@ export function createHeldClock(deps: {
       );
     if (page !== SILENT)
       return new Error(
-        `${head}, though the page answered a second read within ${SECOND_READ_MS} ms (${answer(page)}), so no script of it was running; ${facts}`,
+        `${head}, though the page answered a second read within ${SECOND_READ_MS} ms (${answer(page)}), so no script of it is running now; ${facts}`,
       );
     return new Error(
       `${head}, and a second read too: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; ${facts}; record this page in real time with DEMOMAN_HELD_CLOCK=0`,

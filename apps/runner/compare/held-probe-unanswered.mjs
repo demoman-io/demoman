@@ -35,6 +35,8 @@ await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
 console.log(
   `held, idle:    second read ${await read()}; browser ${await where()}`,
 );
+// Virtual time stands still while a task runs, so this loop never ends, as
+// on a held recording: the browser is closed under it.
 await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance" });
 void cdp.send("Runtime.evaluate", {
   expression:
@@ -44,5 +46,4 @@ await new Promise((r) => setTimeout(r, 200));
 console.log(
   `looping:       second read ${await read()}; browser ${await where()}`,
 );
-await new Promise((r) => setTimeout(r, 3000));
 await browser.close();
