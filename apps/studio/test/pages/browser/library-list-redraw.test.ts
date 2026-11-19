@@ -101,6 +101,7 @@ function model(...gone: string[]): LibraryModel {
   const groups = GROUPS.filter((g) => !gone.includes(g.video.id));
   const kept = new Set(groups.flatMap((g) => g.versions.map((v) => v.sceneId)));
   return {
+    emptyHint: "Ask your agent to record a flow.",
     usedBytes: 0,
     budgetBytes: 0,
     fraction: 1,
@@ -125,7 +126,7 @@ let acts: ReturnType<typeof actions>;
 function actions() {
   return {
     edit: vi.fn(),
-    restore: vi.fn(),
+    rerunLine: () => "re-film it",
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),

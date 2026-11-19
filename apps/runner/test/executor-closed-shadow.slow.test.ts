@@ -36,7 +36,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 const PAGE = `<!doctype html><html><body>
 <button>Outside</button>

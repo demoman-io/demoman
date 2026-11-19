@@ -12,7 +12,6 @@ import {
   RECLAIMED_SPAN_REASON,
 } from "../../../pages/src/editor/jobs";
 import { createSections } from "../../../pages/src/editor/sections";
-import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 
 let root: HTMLElement;
 beforeEach(() => {
@@ -51,11 +50,7 @@ const idle = {
   runsRoute: {
     takeId: "take 1&x",
     authored: false,
-    rerun: {
-      kind: "link" as const,
-      href: runsHref("take 1&x"),
-      label: runsRouteLabel(false),
-    },
+    rerun: "re-film take 1&x",
   },
   replacementExposures: [],
   currentDigest: "d-now",
@@ -388,12 +383,14 @@ describe("renderExport", () => {
     ).toBe(false);
   });
 
-  it("names the Runs route, with this take's id, when there are no frames", () => {
+  it("names the re-film line when there are no frames", () => {
     renderExport(root, { ...idle, readiness: { kind: "noFrames" } }, handlers);
-    const link = root.querySelector<HTMLAnchorElement>("[data-runs-route]");
-    expect(link?.getAttribute("href")).toBe("run.html?take=take%201%26x");
+    expect(
+      root.querySelector("[data-export-no-frames] [data-rerun-line]")
+        ?.textContent,
+    ).toBe("re-film take 1&x");
     expect(root.textContent).toContain(
-      "This video has no frames — re-shoot it in Runs",
+      "This video has no frames — re-film take 1&x",
     );
     const start = root.querySelector<HTMLButtonElement>("[data-export-start]");
     // Disabled WITH its reason beside it — never a disabled Export alone.
@@ -440,32 +437,7 @@ describe("renderExport", () => {
     renderExport(root, { ...idle, readiness: { kind: "exact" } }, handlers);
     expect(root.querySelector("[data-export-start]")).not.toBeNull();
     expect(root.querySelector("[data-export-runs-route]")).toBeNull();
-    expect(root.querySelector("[data-runs-route]")).toBeNull();
-  });
-  // Final review M1: Runs refuses to re-shoot a script-made take.
-  it("names the script route for an authored take with no frames", () => {
-    const authored = {
-      takeId: "take 1&x",
-      authored: true,
-      rerun: {
-        kind: "link" as const,
-        href: runsHref("take 1&x"),
-        label: runsRouteLabel(true),
-      },
-    };
-    renderExport(
-      root,
-      { ...idle, readiness: { kind: "noFrames" }, runsRoute: authored },
-      handlers,
-    );
-    const noFrames = root.querySelector("[data-export-no-frames]");
-    expect(noFrames?.textContent).toBe(
-      "This video has no frames — run its script again in Runs",
-    );
-    expect(noFrames?.textContent).not.toMatch(/re-shoot/i);
-    expect(
-      noFrames?.querySelector("a[data-runs-route]")?.getAttribute("href"),
-    ).toBe("run.html?take=take%201%26x");
+    expect(root.querySelector("[data-rerun-line]")).toBeNull();
   });
   it("says what was saved, and offers the folder", () => {
     renderExport(
@@ -834,49 +806,6 @@ describe("renderExport", () => {
     expect(notice).not.toBeNull();
     expect(notice?.textContent).not.toMatch(/could not be decoded/i);
     expect(notice?.textContent).toMatch(/reclaimed/i);
-  });
-
-  // The headline names the way back to frames, and for an authored take that
-  // is its script: Runs refuses to re-shoot it. Goes red if the headline
-  // stops reading `state.runsRoute.authored`.
-  it("routes an authored take's reclaimed-motion headline through its script", () => {
-    const withRoute = (authored: boolean) => {
-      root = document.createElement("div");
-      drawLatest(
-        root,
-        {
-          ...idle,
-          runsRoute: {
-            takeId: "t1",
-            authored,
-            rerun: {
-              kind: "link" as const,
-              href: runsHref("t1"),
-              label: runsRouteLabel(authored),
-            },
-          },
-          outputs: [
-            {
-              kind: "stored" as const,
-              output: {
-                ...oneOutput,
-                unavailableSpans: [
-                  { ref: "1000-2000ms", reason: RECLAIMED_SPAN_REASON },
-                ],
-              },
-            },
-          ],
-        },
-        handlers,
-      );
-      return root.querySelector("[data-unavailable='r1'] strong")?.textContent;
-    };
-    expect(withRoute(true)).toBe(
-      "Motion was reclaimed to free space and shown as a still. Run its script again in Runs to restore.",
-    );
-    expect(withRoute(false)).toBe(
-      "Motion was reclaimed to free space and shown as a still. Re-shoot it in Runs to restore.",
-    );
   });
 
   // A mix of a real decode failure and a reclaimed span must keep the

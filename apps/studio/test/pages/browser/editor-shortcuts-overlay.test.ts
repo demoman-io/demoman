@@ -55,6 +55,7 @@ function mountPanel(scheme: "light" | "dark"): HTMLElement {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -249,6 +250,7 @@ describe("the ? button", () => {
       const bundle = proceduralBundle();
       const resolved = resolvePlan(planScene(scene), bundle, scene);
       const model = buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,

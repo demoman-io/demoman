@@ -61,6 +61,7 @@ const RAIL: Rail = {
 };
 
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 4 * 1024 ** 3,
   fraction: 0,
@@ -95,7 +96,7 @@ const noop = {
   reclaim() {},
   setBudget() {},
   edit() {},
-  restore() {},
+  rerunLine: () => "re-film it",
   backToRecording() {},
   remove() {},
   preview() {},

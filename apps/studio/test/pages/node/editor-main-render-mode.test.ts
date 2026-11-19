@@ -158,7 +158,6 @@ describe("editor main — the render-mode question is gone", () => {
   it("asks nothing about where the frames came from, on a recording take", async () => {
     memory.answer("bundles.active", async () => ({
       bundle: captureBundle({ madeFrom: MADE_FROM }),
-      capture: null,
       replay: null,
     }));
     await boot();
@@ -174,7 +173,6 @@ describe("editor main — the render-mode question is gone", () => {
     current = scene("demo");
     memory.answer("bundles.active", async () => ({
       bundle: proceduralBundle({ madeFrom: MADE_FROM }),
-      capture: null,
       replay: { outcome: "complete", reason: null, completed: 3, total: 3 },
     }));
     await boot();
@@ -197,7 +195,6 @@ describe("editor main — the render-mode question is gone", () => {
       // actually made from — so act-1's new text is not in the frames:
       // the take a rebuild used to be offered on.
       bundle: captureBundle({ madeFrom: MADE_FROM }),
-      capture: null,
       replay: null,
     }));
     await boot();
@@ -222,7 +219,6 @@ describe("editor main — the render-mode question is gone", () => {
   it("still says a take has no frames", async () => {
     memory.answer("bundles.active", async () => ({
       bundle: null,
-      capture: null,
       replay: null,
     }));
     await boot();
@@ -240,7 +236,6 @@ describe("editor main — the render-mode question is gone", () => {
   it("still says why the last re-shoot stopped", async () => {
     memory.answer("bundles.active", async () => ({
       bundle: captureBundle({ madeFrom: MADE_FROM }),
-      capture: null,
       replay: {
         outcome: "partial",
         reason: "anchorNotRendered",

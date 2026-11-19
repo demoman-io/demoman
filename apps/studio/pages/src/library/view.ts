@@ -7,7 +7,6 @@ import type {
 import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
-import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import {
@@ -71,11 +70,9 @@ export interface LibraryActions {
   /** The author committed a new name on a video's card: the video's, not
    *  its takes'. Trimmed and non-empty; a video is never untitled. */
   renameVideo(videoId: string, name: string): void;
-  restore(sceneId: string): void;
-  /** The sentence that stands where a take's Restore button would, on a
-   *  platform with no Runs page to open. Absent, or null for this take,
-   *  and the Restore button is drawn. */
-  rerunLine?(sceneId: string, authored: boolean): string | null;
+  /** The platform's re-film line for a take (`nav.rerun`): what a card
+   *  whose motion was reclaimed, or whose footage expired, says. */
+  rerunLine(sceneId: string, authored: boolean): string;
   /** Put a re-shot take back on its recording's frames. */
   backToRecording(sceneId: string): void;
   /** Delete pressed: on a take's card or one of a video's versions
@@ -163,13 +160,11 @@ export interface PlaceView {
  *  it again, which the editor also says for a video with no frames. */
 export const expiredLine = (
   expired: boolean | undefined,
-  line: string | null | undefined,
-): string | null =>
-  line == null
-    ? null
-    : expired === true
-      ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
-      : line;
+  line: string,
+): string =>
+  expired === true
+    ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
+    : line;
 
 /** On a phone's row the tabs scroll inside their strip (index.html): the
  *  pressed one is scrolled into it, sideways only, so the page never
@@ -1138,9 +1133,7 @@ export function tags(
       tag("restore", r.state, {
         "data-state-chip": "",
         class: "tag tag-warn",
-        title: r.authored
-          ? "Its motion was reclaimed to free space; Restore opens Runs to run its script again, which makes a new video"
-          : "Its motion was reclaimed to free space; Restore re-shoots it in Runs",
+        title: "Its motion was reclaimed to free space",
       }),
     );
   } else if (r.state === "Keyframes only") {
@@ -1469,22 +1462,8 @@ export function cardButtons(
   // says.
   const rerunLine =
     r.canRestore || r.expired === true
-      ? expiredLine(r.expired, actions.rerunLine?.(r.sceneId, r.authored))
+      ? expiredLine(r.expired, actions.rerunLine(r.sceneId, r.authored))
       : null;
-  if (r.canRestore && rerunLine === null) {
-    const restore = el("button", {
-      type: "button",
-      "data-action": "restore",
-      class: "btn btn-quiet btn-icon",
-      "aria-label": `Restore motion: ${r.label}`,
-      title: r.authored
-        ? "Restore motion — run its script again in Runs; a script-made video cannot be re-shot, so this makes a new video"
-        : "Restore motion — re-shoot it in Runs",
-    });
-    restore.append(icon("restore"));
-    restore.addEventListener("click", () => actions.restore(r.sceneId));
-    buttons.append(restore);
-  }
 
   const edit = el("button", {
     type: "button",
@@ -1605,7 +1584,7 @@ function versionList(
     if (commit !== null) head.append(commit);
     const line =
       v.expired === true
-        ? expiredLine(true, actions.rerunLine?.(v.sceneId, v.authored))
+        ? expiredLine(true, actions.rerunLine(v.sceneId, v.authored))
         : null;
     head.append(versionButtons(v, group, actions, v.expired !== true));
     item.append(head);
@@ -2171,13 +2150,7 @@ export function renderLibrary(
     // Settings' empty state, on a card. The hint names where Record is in
     // the author's terms: "the popup" is ours.
     const card = el("div", { "data-empty": "", class: "card empty-card" });
-    card.append(
-      emptyState(
-        "monitorPlay",
-        "No flows yet",
-        model.emptyHint ?? EXTENSION_FIRST_TAKE_HINT,
-      ),
-    );
+    card.append(emptyState("monitorPlay", "No flows yet", model.emptyHint));
     list.append(card);
     return;
   }

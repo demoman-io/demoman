@@ -6,7 +6,6 @@ import type {
   UnplacedStill,
 } from "@demoman/compositor";
 import type { ReplayStatus } from "../core/replay/status";
-import type { CaptureStatus } from "../core/storage/types";
 
 /**
  * Injected rather than called, so a command's output is byte-comparable
@@ -28,16 +27,10 @@ export interface BundleSource {
    * different state from a run that returned no bundle, which can happen
    * both when a run failed early and when a run legitimately completed with
    * nothing to harvest.
-   *
-   * `capture: null` means either no take's motion recording has anything to
-   * report, or nothing is known — the same "nothing to say" `replay` uses,
-   * for the same reason: a status field only a healthy take ever fills in
-   * would be indistinguishable from one nobody wired up.
    */
   active(sceneId: string): Promise<{
     bundle: FrameBundle | null;
     replay: ReplayStatus | null;
-    capture: CaptureStatus | null;
   }>;
   /**
    * What that ref actually is: a decoded image for a `kf:` keyframe, raw

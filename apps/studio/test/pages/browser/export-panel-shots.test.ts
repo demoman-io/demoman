@@ -33,7 +33,6 @@ import { buildLaneModel } from "../../../pages/src/editor/lanes";
 import { previewTarget } from "../../../pages/src/editor/preview";
 import { createSections } from "../../../pages/src/editor/sections";
 import { buildTimelineView } from "../../../pages/src/editor/timeline";
-import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 import { createFixtureBundleSource } from "../helpers/fixture-bundle-source";
 import { proceduralFrames } from "../helpers/frames";
 import { mountShell } from "../helpers/shell-css";
@@ -156,7 +155,7 @@ const SHOTS: Shot[] = [
     carrier: '[data-save-outcome="failed"]',
   },
   // Plan 2, Task 7: the rebuild left the editor, so a take with no frames is
-  // answered by the Runs route beneath a disabled Export — never a disabled
+  // answered by the re-film line beneath a disabled Export — never a disabled
   // Export alone (spec §7). The five rebuild shots (`rebuildable`,
   // `rebuilding`, `frozen`, `rebuild-stopped`, `rebuild-refused`) went with it.
   {
@@ -166,7 +165,7 @@ const SHOTS: Shot[] = [
     run: { phase: "idle" },
     save: null,
     readiness: { kind: "noFrames" },
-    carrier: "[data-export-no-frames] [data-runs-route]",
+    carrier: "[data-export-no-frames] [data-rerun-line]",
     label: "Export MP4",
   },
   // Several files from one press (2026-10-30): the rows, a press part-way
@@ -291,6 +290,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -310,7 +310,13 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
   );
   renderTransport(
     node("#transport"),
-    { authored: false, playing: false, enabled: true, rate: 1, looping: false },
+    {
+      rerunLine: "re-film it",
+      playing: false,
+      enabled: true,
+      rate: 1,
+      looping: false,
+    },
     handlers(),
   );
   renderInspector(
@@ -374,11 +380,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
       runsRoute: {
         takeId: "take 1&x",
         authored: false,
-        rerun: {
-          kind: "link",
-          href: runsHref("take 1&x"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film take 1&x",
       },
       currentDigest: "d-now",
       // The launch configuration: no share surface at all.
@@ -395,7 +397,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
     renderStageBar(
       node(root),
       {
-        authored: false,
+        rerunLine: "re-film it",
         positionMs: 2_000,
         durationMs: 24_400,
         aspect: shot.aspect,
@@ -528,14 +530,13 @@ describe("the export panel, painted", () => {
           const start = document.querySelector<HTMLButtonElement>(
             "[data-export-start]",
           );
-          // The panel draws a route to Runs only where it is the way on: the
-          // no-frames line in the shots whose readiness is `noFrames` (the
-          // button disabled with it). A take with frames had one quiet
-          // "Re-shoot this video in Runs" here too (final review I3) until
-          // 2026-10-19; that is Take info's Re-film row now.
+          // The panel draws the re-film line only where it is the way on:
+          // the no-frames line in the shots whose readiness is `noFrames`
+          // (the button disabled with it). A take with frames had one quiet
+          // route here too (final review I3) until 2026-10-19.
           const frameless = shot.readiness?.kind === "noFrames";
-          const links = document.querySelectorAll<HTMLAnchorElement>(
-            "[data-panel-export] [data-runs-route]",
+          const links = document.querySelectorAll<HTMLElement>(
+            "[data-panel-export] [data-rerun-line]",
           );
           expect(links.length, shot.name).toBe(frameless ? 1 : 0);
           expect(start?.disabled, shot.name).toBe(
@@ -564,11 +565,8 @@ describe("the export panel, painted", () => {
           }
           const link = links[0];
           if (frameless && link !== undefined) {
-            expect(link.getAttribute("href")).toBe(
-              "run.html?take=take%201%26x",
-            );
             expect(link.closest("[data-export-no-frames]")?.textContent).toBe(
-              "This video has no frames — re-shoot it in Runs",
+              "This video has no frames — re-film take 1&x",
             );
             // On screen and not covered, the same test the carrier gets.
             const r0 = link.getBoundingClientRect();
@@ -578,14 +576,14 @@ describe("the export panel, painted", () => {
             );
             expect(
               r0.width > 0 && r0.bottom <= window.innerHeight && r0.top >= 0,
-              `${shot.name}: the Runs link at ${JSON.stringify(r0)}`,
+              `${shot.name}: the re-film line at ${JSON.stringify(r0)}`,
             ).toBe(true);
             expect(
               at !== null && link.contains(at),
-              `${shot.name}: the Runs link is covered by ${at?.outerHTML.slice(0, 120)}`,
+              `${shot.name}: the re-film line is covered by ${at?.outerHTML.slice(0, 120)}`,
             ).toBe(true);
             // Painted, not only present: the hit test above says nothing
-            // covers it; this says its box holds ink — across the link's
+            // covers it; this says its box holds ink — across the line's
             // text the screenshot's pixels are not one flat colour, which a
             // box with invisible (or background-coloured) text would be.
             const r = link.getBoundingClientRect();
@@ -597,7 +595,7 @@ describe("the export panel, painted", () => {
             const distinct = new Set(pixels.map((p) => p.join(",")));
             expect(
               distinct.size,
-              `the link's pixels are one colour: ${[...distinct].join(" | ")}`,
+              `the line's pixels are one colour: ${[...distinct].join(" | ")}`,
             ).toBeGreaterThan(1);
           }
           // The toggle names the scene's aspect in every shot.

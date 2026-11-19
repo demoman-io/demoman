@@ -47,6 +47,7 @@ const base: LibraryRow = {
 };
 
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 127 * 1024 ** 2,
   budgetBytes: 2 * 1024 ** 3,
   fraction: 0.062,
@@ -70,7 +71,7 @@ function actions() {
     reclaim: vi.fn(),
     setBudget: vi.fn(),
     edit: vi.fn(),
-    restore: vi.fn(),
+    rerunLine: () => "re-film it",
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),

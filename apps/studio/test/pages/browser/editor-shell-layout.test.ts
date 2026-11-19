@@ -329,6 +329,7 @@ function mount(
   const model =
     laneModel ??
     buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view: buildTimelineView({ scene, bundle, resolved }),
       bundle,
@@ -446,7 +447,7 @@ function mount(
   renderTransport(
     transportRoot,
     {
-      authored: false,
+      rerunLine: "re-film it",
       playing: transport.playing,
       enabled: true,
       rate: transport.rate,
@@ -482,7 +483,7 @@ function mount(
     renderStageBar(
       stageBarRoot,
       {
-        authored: false,
+        rerunLine: "re-film it",
         positionMs: clock.positionMs,
         durationMs: clock.durationMs,
         // From the target, not hard-coded: `cover` is what makes a target
@@ -564,6 +565,7 @@ function mountMaskOverlay(
     target,
   });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view: buildTimelineView({ scene, bundle, resolved }),
     bundle,
@@ -640,6 +642,7 @@ describe("the editor shell docks the timeline under the stage", () => {
     const resolved = resolvePlan(planScene(scene), bundle, scene);
     const model = {
       ...buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,
@@ -737,6 +740,7 @@ describe("the editor shell docks the timeline under the stage", () => {
       const resolved = resolvePlan(planScene(scene), bundle, scene);
       const model = {
         ...buildLaneModel({
+          rerunLine: "re-film it",
           scene,
           view: buildTimelineView({ scene, bundle, resolved }),
           bundle,
@@ -870,6 +874,7 @@ describe("the editor shell docks the timeline under the stage", () => {
         const bundle = proceduralBundle();
         const resolved = resolvePlan(planScene(scene), bundle, scene);
         const model = buildLaneModel({
+          rerunLine: "re-film it",
           scene,
           view: buildTimelineView({ scene, bundle, resolved }),
           bundle,
@@ -934,6 +939,7 @@ describe("the editor shell docks the timeline under the stage", () => {
     const resolved = resolvePlan(planScene(scene), bundle, scene);
     const model = {
       ...buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,
@@ -2102,7 +2108,7 @@ describe("the transport row", () => {
         renderTransport(
           node("#transport"),
           {
-            authored: false,
+            rerunLine: "re-film it",
             playing: true,
             enabled: true,
             rate,
@@ -2164,7 +2170,13 @@ describe("the transport row", () => {
       const shuttle = (rate: number, playing = true) =>
         renderTransport(
           node("#transport"),
-          { authored: false, playing, enabled: true, rate, looping: false },
+          {
+            rerunLine: "re-film it",
+            playing,
+            enabled: true,
+            rate,
+            looping: false,
+          },
           {
             onToggle: vi.fn(),
             onShuttle: vi.fn(),
@@ -2231,7 +2243,7 @@ describe("the transport row", () => {
       renderTransport(
         node("#transport"),
         {
-          authored: false,
+          rerunLine: "re-film it",
           playing: true,
           enabled: true,
           rate: 1,
@@ -2353,7 +2365,13 @@ describe("the transport row", () => {
       const draw = (looping: boolean) =>
         renderTransport(
           node("#transport"),
-          { authored: false, playing: false, enabled: true, rate: 1, looping },
+          {
+            rerunLine: "re-film it",
+            playing: false,
+            enabled: true,
+            rate: 1,
+            looping,
+          },
           {
             onToggle: vi.fn(),
             onShuttle: vi.fn(),
@@ -2449,7 +2467,13 @@ describe("the transport row", () => {
       const draw = (playing: boolean) =>
         renderTransport(
           node("#transport"),
-          { authored: false, playing, enabled: true, rate: 1, looping: false },
+          {
+            rerunLine: "re-film it",
+            playing,
+            enabled: true,
+            rate: 1,
+            looping: false,
+          },
           {
             onToggle: vi.fn(),
             onShuttle: vi.fn(),
@@ -3406,7 +3430,7 @@ describe("the picture carries no controls", () => {
         renderStageBar(
           stageBarRoot,
           {
-            authored: false,
+            rerunLine: "re-film it",
             positionMs: 0,
             durationMs: 12_000,
             aspect: "16:9",
@@ -3611,6 +3635,7 @@ describe("the stage and the timeline are two surfaces, not one slab", () => {
       const bundle = proceduralBundle();
       const resolved = resolvePlan(planScene(scene), bundle, scene);
       const model = buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,
@@ -3634,6 +3659,7 @@ describe("the stage and the timeline are two surfaces, not one slab", () => {
       const bundle = proceduralBundle();
       const resolved = resolvePlan(planScene(scene), bundle, scene);
       const model = buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,
@@ -3670,6 +3696,7 @@ describe("the stage and the timeline are two surfaces, not one slab", () => {
       const bundle = proceduralBundle();
       const resolved = resolvePlan(planScene(scene), bundle, scene);
       const model = buildLaneModel({
+        rerunLine: "re-film it",
         scene,
         view: buildTimelineView({ scene, bundle, resolved }),
         bundle,
@@ -3758,6 +3785,7 @@ describe("each track has a header the height of its track", () => {
   for (const scheme of ["light", "dark"] as const) {
     it(`draws the three headers beside their tracks in ${scheme}`, () => {
       const base = buildLaneModel({
+        rerunLine: "re-film it",
         scene: readonlyScene(),
         view: buildTimelineView({
           scene: readonlyScene(),
@@ -3960,6 +3988,7 @@ describe("each verb draws its own beat", () => {
     const bundle = proceduralBundle();
     const resolved = resolvePlan(planScene(scene), bundle, scene);
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view: buildTimelineView({ scene, bundle, resolved }),
       bundle,
@@ -4117,6 +4146,7 @@ describe("every block's edge handles", () => {
     const bundle = proceduralBundle();
     const resolved = resolvePlan(planScene(scene), bundle, scene);
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view: buildTimelineView({ scene, bundle, resolved }),
       bundle,
@@ -4407,6 +4437,7 @@ describe("the playhead spans the lanes and nothing else", () => {
     // it can ride up over something.
     const scene = readonlyScene();
     const model = buildLaneModel({
+      rerunLine: "re-film it",
       scene,
       view: buildTimelineView({ scene, bundle: null, resolved: null }),
       bundle: null,
@@ -4566,7 +4597,6 @@ describe("the notes popover", () => {
     renderFailure(node("#failure"), {
       error: null,
       replaySentence: "The re-shoot could not reach your app.",
-      captureSentence: null,
     } as never);
     renderNotesButton(node("#notes-open"), node("#notes"));
   }
@@ -4723,6 +4753,7 @@ describe("the lanes are tints in light, not slabs", () => {
         const bundle = proceduralBundle();
         const resolved = resolvePlan(planScene(scene), bundle, scene);
         const model = buildLaneModel({
+          rerunLine: "re-film it",
           scene,
           view: buildTimelineView({ scene, bundle, resolved }),
           bundle,

@@ -22,10 +22,7 @@ const REFILM = 'run({ flow: { id: "scene-1" } })';
 const ROUTE = {
   takeId: "scene-1",
   authored: true,
-  rerun: {
-    kind: "line" as const,
-    text: `Ask your agent to re-record this take — \`${REFILM}\``,
-  },
+  rerun: `Ask your agent to re-record this take — \`${REFILM}\``,
 };
 
 const base = (): TakeInfoState => ({
@@ -37,10 +34,6 @@ const base = (): TakeInfoState => ({
   target: { width: 1920, height: 1080 },
   aspect: "16:9",
   takeId: "scene-1",
-  rerun: {
-    kind: "line",
-    text: `Ask your agent to re-record this take — \`${REFILM}\``,
-  },
   revealError: null,
   history: {
     outputs: [],
@@ -140,25 +133,6 @@ describe("Take info", () => {
     expect(
       root.querySelector('[data-copy="video ID"]')?.getAttribute("aria-label"),
     ).toBe("Copy video ID");
-  });
-
-  it("draws the extension's Runs link, not a copy, when the answer is a link", () => {
-    renderTakeInfo(
-      root,
-      {
-        ...base(),
-        rerun: {
-          kind: "link",
-          href: "run.html?take=scene-1",
-          label: "Re-shoot this video in Runs",
-        },
-      },
-      handlers,
-    );
-    const link = root.querySelector<HTMLAnchorElement>("a[data-runs-route]");
-    expect(link?.getAttribute("href")).toBe("run.html?take=scene-1");
-    expect(link?.textContent).toBe("Re-shoot this video in Runs");
-    expect(root.querySelector('[data-copy="re-film call"]')).toBeNull();
   });
 
   it("draws no Exports group before the take has any", () => {

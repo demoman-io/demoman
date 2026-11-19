@@ -19,7 +19,7 @@ const STAGE = {
   fullscreen: false,
   error: null,
   zoom: "fit" as const,
-  authored: false,
+  rerunLine: "re-film it",
 };
 const HANDLERS = {
   onAspect: vi.fn(),

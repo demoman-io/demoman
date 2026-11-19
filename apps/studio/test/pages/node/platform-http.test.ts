@@ -837,7 +837,7 @@ describe("frames, outputs, nav", () => {
     };
     studio.route((c) =>
       c.url === "/api/takes/t1/bundle"
-        ? json(200, { bundle, replay: null, capture: null })
+        ? json(200, { bundle, replay: null })
         : c.url === `/api/takes/t1/frames/${encodeURIComponent("span:t1:0")}`
           ? new Response(new Uint8Array([1, 2, 3]))
           : undefined,
@@ -989,10 +989,9 @@ describe("frames, outputs, nav", () => {
     expect(platform.nav.library()).toBe("/");
     expect(platform.nav.kits?.()).toBe("/settings.html");
     // A take not read yet, or in no video: no call can name it.
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: "Ask your agent to record this again.",
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      "Ask your agent to record this again.",
+    );
   });
 
   it("names the take's video in the re-record line once the take was read", async () => {
@@ -1011,10 +1010,9 @@ describe("frames, outputs, nav", () => {
         : undefined,
     );
     await platform.scenes.get("t1");
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: `Ask your agent to record it again: \`run({ flow: { id: "${VIDEO}" } })\``,
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      `Ask your agent to record it again: \`run({ flow: { id: "${VIDEO}" } })\``,
+    );
   });
 
   it("says why the video's flow could not be read where the re-record line goes", async () => {
@@ -1035,10 +1033,9 @@ describe("frames, outputs, nav", () => {
         : undefined,
     );
     await platform.scenes.get("t1");
-    expect(platform.nav.rerun("t1", false)).toEqual({
-      kind: "line",
-      text: `Couldn't read which flow this video is in: ${why}`,
-    });
+    expect(platform.nav.rerun("t1", false)).toBe(
+      `Couldn't read which flow this video is in: ${why}`,
+    );
   });
 
   it("reads a video delete that stopped part-way as partly deleted, never as deleted", async () => {
@@ -1166,7 +1163,6 @@ describe("the take folder and the kit feed", () => {
         ? json(200, {
             bundle: { keyframes: [{ ref: "kf:t1:0" }], motionSpans: [] },
             replay: null,
-            capture: null,
           })
         : c.url === `/api/takes/t1/thumbs/${encodeURIComponent("kf:t1:0")}`
           ? new Response(new Uint8Array([0xff, 0xd8]), {
@@ -1192,7 +1188,6 @@ describe("the take folder and the kit feed", () => {
         ? json(200, {
             bundle: { keyframes: [{ ref: "kf:t1:0" }], motionSpans: [] },
             replay: null,
-            capture: null,
           })
         : c.url.includes("/thumbs/")
           ? json(500, {

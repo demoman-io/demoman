@@ -60,13 +60,7 @@ import type { OutputRow, RevealTarget } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { setCodeText, withoutTicks } from "../../src/shell/code-spans";
 import { type GlyphName, icon } from "../../src/shell/icons";
-import {
-  type RunsRoute,
-  rerunAdvice,
-  rerunLineOf,
-  runsRouteClause,
-  runsRouteLabel,
-} from "../../src/shell/runs-link";
+import type { RunsRoute } from "../../src/shell/runs-link";
 import { switchControl, switchRow } from "../../src/shell/switch";
 import { withoutTip, withTip } from "../../src/shell/tooltip";
 
@@ -160,12 +154,9 @@ export function renderBundleBanner(
 }
 
 /**
- * "This take has no frames — re-shoot it in Runs", with the route as a link
- * carrying the take's id. One builder for the banner and the Export panel's
- * under-button line, so the two cannot say it differently (spec §7, "A take
- * has no frames": the editor names the Runs route with the take id). An
- * authored take is told to "run its script again in Runs" instead: Re-shoot
- * refuses it there (final review M1).
+ * "This video has no frames — " and the platform's re-film line. One builder
+ * for the banner and the Export panel's under-button line, so the two cannot
+ * say it differently.
  *
  * The editor used to answer this state itself — Export rebuilt a frameless
  * take on the way out. With the rebuild gone, this route is the only way such
@@ -173,34 +164,16 @@ export function renderBundleBanner(
  */
 function noFramesRoute(route: RunsRoute): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  fragment.append(
-    "This video has no frames — ",
-    runsRouteLink(route, runsRouteClause(route.authored)),
-  );
+  fragment.append("This video has no frames — ", rerunLine(route));
   return fragment;
 }
 
-/**
- * A link to this take's Runs page, marked `[data-runs-route]` so `main.ts`'s
- * delegated click handler takes a plain click over and leaves only after
- * the writes this page still owes (`leaveAfterOwedWrites`). Every route to
- * Runs the editor draws is built here, so none can miss the mark.
- */
-function runsRouteLink(route: RunsRoute, text: string): HTMLElement {
-  // The platform's answer (`nav.rerun`): a link where there is a Runs page,
-  // a line naming the agent call where there is not. A `line` is text, not
-  // a link, so it carries no `data-runs-route` for the click handler and
-  // ignores the label this call site wanted.
-  if (route.rerun.kind === "line") {
-    const line = el("span");
-    setCodeText(line, route.rerun.text);
-    line.setAttribute("data-rerun-line", "");
-    return line;
-  }
-  const link = el("a", undefined, text);
-  link.setAttribute("href", route.rerun.href);
-  link.setAttribute("data-runs-route", "");
-  return link;
+/** The platform's re-film line for this take (`nav.rerun`), as text. */
+function rerunLine(route: RunsRoute): HTMLElement {
+  const line = el("span");
+  setCodeText(line, route.rerun);
+  line.setAttribute("data-rerun-line", "");
+  return line;
 }
 
 /**
@@ -209,16 +182,8 @@ function runsRouteLink(route: RunsRoute, text: string): HTMLElement {
  * They are different in kind and are rendered as such. `replaySentence`
  * describes why the last *re-shoot* stopped (a rebuild, before 2026-09-28,
  * when it ran from this page) — and persists until a later run succeeds,
- * because it stays true until then. `captureSentence` describes what the
- * *take itself* managed to record — a different fact again, since a take's
- * motion recording can degrade whether or not any re-shoot ever ran. `error` describes the *last action* the author
- * took and is transient: the next successful command clears it.
- *
- * `replaySentence` and `captureSentence` render as separate lines, never
- * concatenated: a scene whose replay was refused AND whose screencast
- * failed has two distinct things to say, and either can be true without the
- * other, so each gets its own independent block below rather than one
- * nested inside the other.
+ * because it stays true until then. `error` describes the *last action* the
+ * author took and is transient: the next successful command clears it.
  *
  * `renderError` is another one and is about the frames too: an export that
  * never started. It needs saying separately because the Export button has
@@ -239,11 +204,6 @@ export function renderFailure(
     /** Whether the stop the sentence describes was a non-breakage. Drives the
      *  headline only — the sentence itself is already phrased for it. */
     replayRecoverable?: boolean;
-    /** What the take's own motion recording managed to capture, or null when
-     *  it has nothing to say. Independent of `replaySentence` — see this
-     *  function's docblock — so it is rendered whether or not that sentence
-     *  is present. */
-    captureSentence: string | null;
     renderError?: string | null;
     /** A composite the preview could not draw. Page-local and transient like
      *  `renderError`, and about the picture on this page rather than about
@@ -272,9 +232,8 @@ export function renderFailure(
      */
     deleteError?: string | null;
     /** A page this one tried to leave for and did not: the Recordings page
-     *  (Back, or after a delete) or the Runs page (any `[data-runs-route]`).
-     *  `page` names it in the headline, so a refused Runs link is never
-     *  announced as the Recordings page. */
+     *  (Back, or after a delete) or the Flows page. `page` names it in the
+     *  headline. */
     navigationError?: { page: string; reason: string } | null;
     /**
      * This take's route to Runs, drawn under `replaySentence`: that sentence
@@ -305,8 +264,7 @@ export function renderFailure(
     // same box.
     //
     // Named for what ran. A stored status on an authored take came from its
-    // script run (Runs refuses to re-shoot one), and the Runs link drawn
-    // below already says "run its script again" for it.
+    // script run (Runs refuses to re-shoot one).
     const ran =
       failure.runsRoute?.authored === true ? "script run" : "re-shoot";
     box.append(
@@ -322,22 +280,9 @@ export function renderFailure(
     if (failure.runsRoute != null) {
       const line = el("div");
       line.setAttribute("data-replay-runs-route", "");
-      line.append(
-        runsRouteLink(
-          failure.runsRoute,
-          runsRouteLabel(failure.runsRoute.authored),
-        ),
-      );
+      line.append(rerunLine(failure.runsRoute));
       box.append(line);
     }
-    parts.push(box);
-  }
-
-  if (failure.captureSentence != null) {
-    const box = el("div", "notice");
-    box.setAttribute("data-capture-note", "");
-    box.append(el("strong", undefined, "What this video recorded"));
-    box.append(el("div", undefined, failure.captureSentence));
     parts.push(box);
   }
 
@@ -1605,7 +1550,7 @@ function drawOutputReports(
     setCodeText(
       headline,
       allReclaimed
-        ? `Motion was reclaimed to free space and shown as a still. ${rerunAdvice(state.runsRoute.authored, rerunLineOf(state.runsRoute), "to restore")}`
+        ? `Motion was reclaimed to free space and shown as a still. ${state.runsRoute.rerun}`
         : "Some motion could not be decoded and was shown as a still",
     );
     report.append(headline);
@@ -1829,14 +1774,9 @@ function saveOutcomeRow(
 }
 
 export interface TransportState {
-  /** Whether a script made this take, for the no-frames tooltips: an
-   *  authored take is run again from its script, never re-shot. */
-  authored: boolean;
-  /** The platform's re-film line where it names no Runs page (the studio):
-   *  the no-frames tooltips say it whole instead of the Runs words
-   *  (`rerunAdvice`). Absent where the platform answers with a link, as the
-   *  extension does. `main.ts` always passes `platform.nav.rerun`'s. */
-  rerunLine?: string | null;
+  /** The platform's re-film line (`nav.rerun`), said whole in the no-frames
+   *  tooltips. */
+  rerunLine: string;
   playing: boolean;
   /** Whether there is anything to play. False before a take has frames. */
   enabled: boolean;
@@ -2042,7 +1982,7 @@ export function renderTransport(
   else {
     withoutTip(skip);
     skip.title = withoutTicks(
-      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${state.rerunLine}`,
     );
   }
   repeat.onclick = () => handlers.onLooping(!state.looping);
@@ -2091,7 +2031,7 @@ export function renderTransport(
   else {
     withoutTip(play);
     play.title = withoutTicks(
-      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${state.rerunLine}`,
     );
   }
 
@@ -2108,10 +2048,8 @@ export function renderTransport(
 }
 
 export interface StageBarState {
-  /** Whether a script made this take — see `TransportState.authored`. */
-  authored: boolean;
   /** See `TransportState.rerunLine`. */
-  rerunLine?: string | null;
+  rerunLine: string;
   positionMs: number;
   durationMs: number;
   /** The scene's aspect, which this row's toggle sets. All three shapes are
@@ -2280,7 +2218,7 @@ export function renderStageBar(
     zoom.title = state.enabled
       ? "Switch between fitting the window and actual pixels"
       : withoutTicks(
-          `This video has no frames yet, so there is nothing to zoom into. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+          `This video has no frames yet, so there is nothing to zoom into. ${state.rerunLine}`,
         );
     zoom.onclick = () => handlers.onZoom();
   }
@@ -2356,15 +2294,13 @@ export function renderHeaderIcons(root: ParentNode = document): void {
   }
 }
 
-/** How bad the worst card in `#notes` is: `error` for anything in `#failure`
- *  but the capture note (a fact about the take, not something that broke),
+/** How bad the worst card in `#notes` is: `error` for anything in `#failure`,
  *  `warn` for any other card but the re-home report, `info` for the report
  *  alone. */
 export type NotesLevel = "error" | "warn";
 
-/** The cards in `#notes` that say something broke. The capture note is in
- *  `#failure` too, but it is a fact about the take, not a fault. */
-const ERROR_CARDS = "#failure > .notice:not([data-capture-note])";
+/** The cards in `#notes` that say something broke. */
+const ERROR_CARDS = "#failure > .notice";
 
 /**
  * The header button that opens `#notes`, drawn from what `#notes` holds.

@@ -3,7 +3,6 @@ import { formatLength } from "../../src/library/length";
 import { hostOf, pathOf } from "../../src/library/state";
 import type { RevealTarget } from "../../src/platform/types";
 import { icon } from "../../src/shell/icons";
-import type { RunsRoute } from "../../src/shell/runs-link";
 import { type HistoryState, renderExportHistory, shortTime } from "./view";
 
 /**
@@ -25,7 +24,6 @@ export interface TakeInfoState {
   target: { width: number; height: number };
   aspect: "auto" | "16:9" | "9:16";
   takeId: string;
-  rerun: RunsRoute["rerun"];
   history: HistoryState;
   /** Why the last Show in Finder press showed nothing, or null. Drawn here
    *  as well as in the export panel: a press from a row here is answered
@@ -124,21 +122,6 @@ export function renderTakeInfo(
   const ids = el("div", "info-group");
   ids.setAttribute("data-info-ids", "");
   ids.append(copyRow("Video ID", state.takeId, "video ID", handlers.onCopy));
-  // How a studio take is filmed again is parked (the author, 2026-10-19):
-  // the agent call this row copied read as plumbing, and re-filming is not
-  // a priority. The extension keeps its link to Runs, the one way there for
-  // a take with frames that its own notes ("Re-shoot it in Runs") send the
-  // author.
-  if (state.rerun.kind === "link") {
-    const r = el("div", "info-row");
-    r.append(el("span", "info-key", "Re-record"));
-    const link = el("a", "info-value", state.rerun.label);
-    link.setAttribute("href", state.rerun.href);
-    link.setAttribute("data-runs-route", "");
-    r.append(link);
-    ids.append(r);
-  }
-
   const parts: HTMLElement[] = [facts, ids];
   if (state.history.outputs.length > 0) {
     const exports = el("div", "info-group info-exports");

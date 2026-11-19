@@ -387,7 +387,6 @@ describe("the editor's kit picker (mockup A, 2026-10-08)", () => {
     state: "ready",
     kits,
     defaultId,
-    migrationPending: false,
   });
   const DARK = ready("a", "Dark");
   const LIGHT = ready("b", "Light", {

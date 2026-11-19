@@ -19,27 +19,24 @@ import {
 import { createSections } from "../../../pages/src/editor/sections";
 import { buildTimelineView } from "../../../pages/src/editor/timeline";
 import type { OutputRow } from "../../../pages/src/platform/types";
-import { rerunAdvice, rerunLineOf } from "../../../pages/src/shell/runs-link";
 
 /**
  * The export panel drawing what the studio answers: a queued export, a
  * saved outcome with a reveal target and a summary, file rows from
- * `outputs.json`, and the re-film line in place of the Runs links. Chrome
+ * `outputs.json`, and the re-film line. Chrome
  * side only; nothing here reaches the studio.
  *
  * Production changes that redden these, each made and watched go red:
  * - drawFileRow always drawing the Show in Finder button: "moved or deleted"
  *   and its no-`data-reveal` assertions fail.
- * - runsRouteLink ignoring `rerun.kind === "line"`: the re-film cases find
- *   an `a[data-runs-route]` and no `[data-rerun-line]`. (The Export
- *   button's own line moved to Take info on 2026-10-19: take-info.test.ts.)
+ * - the re-film line drawn without `[data-rerun-line]`: the re-film cases
+ *   find no line.
  * - exportButtonLabel's `queued` case returning "Queued…" for any position:
  *   "Queued (2 ahead)" fails.
  */
 
 const REFILM =
   'Ask your agent to record it again: `run({ flow: { id: "v1" } })`';
-const line = { kind: "line" as const, text: REFILM };
 /** What a reader sees: the words, the span's backticks gone (ruling R20). */
 const REFILM_WORDS = REFILM.replaceAll("`", "");
 const REFILM_CODE = 'run({ flow: { id: "v1" } })';
@@ -81,15 +78,7 @@ const base = {
   run: { phase: "idle" as const },
   save: null,
   readiness: { kind: "exact" as const },
-  runsRoute: {
-    takeId: "t1",
-    authored: false,
-    rerun: {
-      kind: "link" as const,
-      href: "run.html?take=t1",
-      label: "Re-shoot this video in Runs",
-    },
-  },
+  runsRoute: { takeId: "t1", authored: false, rerun: REFILM },
   replacementExposures: [],
   currentDigest: "d-now",
   hosting: false,
@@ -380,19 +369,17 @@ describe("the re-film line", () => {
   it("draws no re-film line under the Export button", () => {
     renderExport(
       root,
-      { ...base, runsRoute: { takeId: "t1", authored: false, rerun: line } },
+      { ...base, runsRoute: { takeId: "t1", authored: false, rerun: REFILM } },
       handlers,
     );
     expect(root.querySelector("[data-export-start]")).not.toBeNull();
     expect(root.querySelector("[data-rerun-line]")).toBeNull();
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
   it("replaces the no-frames route in the banner and under the button", () => {
-    const route = { takeId: "t1", authored: false, rerun: line };
+    const route = { takeId: "t1", authored: false, rerun: REFILM };
     renderBundleBanner(root, { hasFrames: false, route });
     expectDrawnLine(root.querySelector("[data-rerun-line]"));
     expect(root.textContent).toContain("This video has no frames — ");
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
 
     renderExport(
       root,
@@ -402,25 +389,20 @@ describe("the re-film line", () => {
     expectDrawnLine(
       root.querySelector("[data-export-no-frames] [data-rerun-line]"),
     );
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
 
   it("replaces the link in the re-shoot failure box", () => {
     renderFailure(root, {
       error: null,
       replaySentence: "The page did not load.",
-      captureSentence: null,
       renderError: null,
       previewError: null,
-      hoverRemovalError: null,
       logoLoadError: null,
-      takeNotice: null,
-      runsRoute: { takeId: "t1", authored: false, rerun: line },
-    } as Parameters<typeof renderFailure>[1]);
+      runsRoute: { takeId: "t1", authored: false, rerun: REFILM },
+    });
     expectDrawnLine(
       root.querySelector("[data-replay-runs-route] [data-rerun-line]"),
     );
-    expect(root.querySelector("a[data-runs-route]")).toBeNull();
   });
 });
 
@@ -448,14 +430,9 @@ describe("a queued export", () => {
 });
 
 describe("the other places that name Runs", () => {
-  const link = {
-    kind: "link" as const,
-    href: "run.html?take=t1",
-    label: "Re-shoot this video in Runs",
-  };
   // Said under the outcome row of the export just made (the history does
   // not repeat warnings since 2026-10-19).
-  const reclaimed = (rerun: typeof line | typeof link, authored: boolean) => {
+  const reclaimed = (rerun: string, authored: boolean) => {
     renderExport(
       root,
       {
@@ -492,7 +469,7 @@ describe("the other places that name Runs", () => {
   };
 
   it("says the re-film line, whole, not a Runs page, in the reclaimed-motion headline", () => {
-    const headline = reclaimed(line, true);
+    const headline = reclaimed(REFILM, true);
     const said = headline?.textContent;
     // Premise: the headline drew, as the reclaimed one.
     expect(said).toContain("Motion was reclaimed to free space");
@@ -505,28 +482,6 @@ describe("the other places that name Runs", () => {
       [...(headline?.querySelectorAll("code") ?? [])].map((c) => c.textContent),
     ).toEqual([REFILM_CODE]);
     expect(said).not.toMatch(/in Runs/);
-  });
-
-  it("keeps the Runs wording when the answer is a link", () => {
-    expect(reclaimed(link, true)?.textContent).toContain(
-      "Run its script again in Runs to restore.",
-    );
-    expect(reclaimed(link, false)?.textContent).toContain(
-      "Re-shoot it in Runs to restore.",
-    );
-  });
-
-  it("says the line whole, or the Runs words with the tail (the trim refusal's advice)", () => {
-    // main.ts's trim refusal ends with this, tail "first".
-    const advice = (route: Parameters<typeof rerunLineOf>[0]) =>
-      rerunAdvice(route.authored, rerunLineOf(route), "first");
-    expect(advice({ takeId: "t1", authored: false, rerun: line })).toBe(REFILM);
-    expect(advice({ takeId: "t1", authored: true, rerun: link })).toBe(
-      "Run its script again in Runs first.",
-    );
-    expect(advice({ takeId: "t1", authored: false, rerun: link })).toBe(
-      "Re-shoot it in Runs first.",
-    );
   });
 
   // R18 (b): the no-frames tooltips on Play, Jump to start and Zoom, and the
@@ -542,7 +497,6 @@ describe("the other places that name Runs", () => {
       onShuttle: vi.fn(),
     };
     const state = {
-      authored: false,
       rerunLine: REFILM,
       playing: false,
       enabled: false,
@@ -557,11 +511,6 @@ describe("the other places that name Runs", () => {
     expect(play?.title).toContain("nothing to play");
     expect(play?.title).toBe(
       `This video has no frames yet, so there is nothing to play. ${REFILM_WORDS}`,
-    );
-    // And the link side keeps today's words.
-    renderTransport(transport, { ...state, rerunLine: null }, handlersT);
-    expect(play?.title).toBe(
-      "This video has no frames yet, so there is nothing to play. Re-shoot it in Runs first.",
     );
   });
 
@@ -578,7 +527,7 @@ describe("the other places that name Runs", () => {
       ],
     });
     const view = buildTimelineView({ scene, bundle, resolved: null });
-    const notices = (rerunLine: string | null) =>
+    const notices = (rerunLine: string) =>
       buildLaneModel({
         scene,
         view,
@@ -588,9 +537,7 @@ describe("the other places that name Runs", () => {
         rerunLine,
       }).notices;
     // Premise: the stored note is relabelled at read time at all.
-    expect(notices(null)).toContain(
-      "Motion reclaimed to free space. Re-shoot it in Runs to restore.",
-    );
+    expect(notices(REFILM)).not.toContain(MOTION_RECLAIMED_LABEL);
     expect(notices(REFILM)).toContain(
       `Motion reclaimed to free space. ${REFILM}`,
     );

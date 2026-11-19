@@ -39,7 +39,6 @@ import {
 } from "../../src/editor/viewport";
 import { setCodeText } from "../../src/shell/code-spans";
 import { type GlyphName, icon } from "../../src/shell/icons";
-import { runsRouteClause } from "../../src/shell/runs-link";
 import { withoutTip, withTip } from "../../src/shell/tooltip";
 
 export type { Selection } from "../../src/editor/selection";
@@ -1197,14 +1196,11 @@ export function renderTimeline(
   });
 
   if (model.timeSource === "captured") {
-    // The platform's re-film line, whole, where there is no Runs page
-    // to send the author to (ruling R18).
+    // The platform's re-film line, whole (ruling R18).
     const timing = el("p", "muted");
     setCodeText(
       timing,
-      model.rerunLine === null
-        ? `Timing from the video, not from a render — ${runsRouteClause(model.authored)} to see the timing this video will actually have.`
-        : `Timing from the video, not from a render. ${model.rerunLine}`,
+      `Timing from the video, not from a render. ${model.rerunLine}`,
     );
     box.append(timing);
   }

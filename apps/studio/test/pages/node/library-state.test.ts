@@ -46,6 +46,7 @@ const demo = (
 describe("buildLibraryModel", () => {
   it("joins footprints to scenes and computes the meter", () => {
     const m = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: {
         budgetBytes: 1000,
         usedBytes: 250,
@@ -70,6 +71,7 @@ describe("buildLibraryModel", () => {
 
   it("says what is holding the space when reclaim could not clear pressure", () => {
     const m = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: {
         budgetBytes: 100,
         usedBytes: 150,
@@ -93,6 +95,7 @@ describe("buildLibraryModel", () => {
 
   it("flags Chrome's limit as the binding constraint", () => {
     const m = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: { budgetBytes: 1000, usedBytes: 1, assetBytes: 0, demos: [] },
       scenes: [],
       migrating: false,
@@ -120,6 +123,7 @@ describe("buildLibraryModel", () => {
       s.meta.createdAt = createdAt;
     }
     const m = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: {
         budgetBytes: 1000,
         usedBytes: 0,
@@ -175,6 +179,7 @@ describe("buildLibraryModel", () => {
         },
       }) as never;
     const m = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: { budgetBytes: 1, usedBytes: 0, assetBytes: 0, demos: [] },
       scenes: [
         at("http://localhost:4000/checkout/?step=2#pay"),
@@ -241,6 +246,7 @@ describe("buildLibraryModel", () => {
       needsLook: new Set<string>(),
     };
     const working = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       ...base,
       notice: {
         reason: "budget",
@@ -250,6 +256,7 @@ describe("buildLibraryModel", () => {
       },
     });
     const broken = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       ...base,
       notice: {
         reason: "budget",
@@ -509,6 +516,7 @@ describe("reclaimSentence", () => {
         },
       }) as unknown as SceneDocument;
     const model = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: {
         budgetBytes: 1,
         usedBytes: 0,
@@ -540,6 +548,7 @@ describe("reclaimSentence", () => {
         },
       }) as unknown as SceneDocument;
     const model = buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       summary: {
         budgetBytes: 1,
         usedBytes: 0,
@@ -614,6 +623,7 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
   });
   const model = () =>
     buildLibraryModel({
+      emptyHint: "Ask your agent to record a flow.",
       scenes: [
         at("a1", "2026-09-01T00:00:00Z"),
         at("a2", "2026-09-02T00:00:00Z"),
@@ -813,6 +823,7 @@ describe("a kept mark with no key (spec, Failure paths)", () => {
   });
   const ids = ["recorded", "nowhere", "keyed"];
   const model = buildLibraryModel({
+    emptyHint: "Ask your agent to record a flow.",
     scenes: ids.map(at),
     migrating: false,
     migrationFailed: false,

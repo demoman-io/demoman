@@ -52,7 +52,7 @@ import {
   type UnreadableTake,
   type VideoSummary as VideoListing,
 } from "@demoman/studio-protocol";
-import { saveLogo, saveWallpaper } from "./assets.js";
+import { saveLogo, saveWallpaper, sweepAssets } from "./assets.js";
 import type { EventHub } from "./events.js";
 import { createChains, messageOf, readIfPresent, takeExists } from "./files.js";
 import { createKitsFile } from "./kits.js";
@@ -210,6 +210,8 @@ export function createRoutes(o: {
   /** At most one follow pass per this many ms (60 s unless given; 0 in the
    *  route tests, so each listing follows). */
   followEveryMs?: number;
+  /** At most one asset sweep per this many ms (an hour unless given). */
+  sweepEveryMs?: number;
   /** The follow throttle's clock; injected by tests. */
   now?: () => number;
 }): Omit<
@@ -281,6 +283,43 @@ export function createRoutes(o: {
       });
     }
     lastFollow = { at, rows };
+    return rows;
+  };
+
+  // The asset sweep reads every take's scene, so it runs hourly, as expiry
+  // does; a skipped listing says the last sweep's rows again (DEM-136).
+  const sweepEvery = o.sweepEveryMs ?? 60 * 60_000;
+  let lastSweep: { at: number; rows: UnreadableTake[] } | null = null;
+  const swept = async (): Promise<UnreadableTake[]> => {
+    if (lastSweep !== null && now() - lastSweep.at < sweepEvery)
+      return lastSweep.rows;
+    // A queued export renders a scene pinned in memory, not on disk: what it
+    // names is not read here, so the sweep waits for an empty queue.
+    if (o.queued() > 0) return lastSweep?.rows ?? [];
+    const at = now();
+    const s = await sweepAssets(home, library.root, at);
+    if (s.removed.length > 0) {
+      log(
+        `studio: removed ${s.removed.length} file(s) nothing names: ${s.removed.join(", ")}`,
+      );
+    }
+    const said = [
+      ...(s.failed.length > 0
+        ? [`these could not be removed: ${s.failed.join("; ")}`]
+        : []),
+      ...(s.stopped === undefined ? [] : [s.stopped]),
+    ];
+    const rows: UnreadableTake[] =
+      said.length === 0
+        ? []
+        : [
+            {
+              folder: "removing unused logos, wallpapers and kit backups",
+              kind: "upkeep",
+              reason: said.join("; "),
+            },
+          ];
+    lastSweep = { at, rows };
     return rows;
   };
 
@@ -362,6 +401,7 @@ export function createRoutes(o: {
           reason: `left alone by expiry: ${why}`,
         });
       }
+      rows.push(...(await swept()));
       for (const r of rows) log(`studio: ${r.folder}: ${r.reason}`);
       return rows;
     });
@@ -892,7 +932,7 @@ export function createRoutes(o: {
           );
         }
       }
-      const answer: BundleAnswer = { bundle, replay, capture: null };
+      const answer: BundleAnswer = { bundle, replay };
       return json(200, answer);
     },
 

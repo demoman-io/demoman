@@ -99,7 +99,6 @@ async function fakePlatform(
       active: async () => ({
         bundle: proceduralBundle(),
         replay: null,
-        capture: null,
       }),
       load,
     },
@@ -127,7 +126,7 @@ async function fakePlatform(
       editor: (id: string) => `/editor.html?scene=${id}`,
       library: () => "/",
       firstTakeHint: () => STUDIO_HINT,
-      rerun: (id: string) => ({ kind: "line", text: `re-film ${id}` }),
+      rerun: (id: string) => `re-film ${id}`,
     },
   } as unknown as Platform;
   world.platform = fake.platform;

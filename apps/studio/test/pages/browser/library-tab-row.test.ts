@@ -22,6 +22,7 @@ const RAIL: Rail = { all: 579, projects: [], none: 0, unreadable: 0 };
 const COUNTS = { inRepo: 123, notInRepo: 456, all: 579 };
 
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 4 * 1024 ** 3,
   fraction: 0,
@@ -55,7 +56,7 @@ const MODEL: LibraryModel = {
 const noop = () => {};
 const ACTIONS = {
   edit: noop,
-  restore: noop,
+  rerunLine: () => "re-film it",
   backToRecording: noop,
   remove: noop,
   preview: noop,

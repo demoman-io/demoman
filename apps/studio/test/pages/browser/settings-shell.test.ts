@@ -44,7 +44,6 @@ const MODEL: SettingsModel = {
   // the star in both states, and the selected ring all on one card.
   brandKits: {
     state: "ready",
-    migrationPending: false,
     defaultId: "kit-light",
     kits: [
       { id: "kit-dark", name: "Dark", read: { state: "ready", kit: DARK_KIT } },

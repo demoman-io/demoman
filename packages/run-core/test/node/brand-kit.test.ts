@@ -74,7 +74,6 @@ describe("coerceBrandKits", () => {
       state: "ready",
       kits: [],
       defaultId: null,
-      migrationPending: false,
     });
   });
 

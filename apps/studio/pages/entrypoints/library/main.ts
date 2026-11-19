@@ -796,11 +796,6 @@ const DELETED: Record<RowKind, string> = {
   record: "Deleted the flow record",
 };
 
-/** Whether a take was made by a script, for the route that films it again. */
-function isAuthored(sceneId: string): boolean {
-  return scenesById.get(sceneId)?.meta.capture.mode === "authored";
-}
-
 const lengths = createLengthCache();
 /** Let-goes for the current pass's unmeasured Length cells; `paint` runs
  *  them before the next draw so a replaced cell is not held observed. */
@@ -1030,29 +1025,7 @@ const actions: LibraryActions = {
       if (renaming.get(videoId) === run) renaming.delete(videoId);
     });
   },
-  restore: (sceneId: string): void => {
-    const route = platform.nav.rerun(sceneId, isAuthored(sceneId));
-    // Never reached for a line: the view draws that as a sentence in place
-    // of the button. Said anyway, since a Restore that did nothing would
-    // look like a button that does not work.
-    if (route.kind === "line") {
-      console.error(
-        "demoman library: Restore was pressed on a platform whose route is a line",
-      );
-      return;
-    }
-    openAfterRename(
-      sceneId,
-      // The platform's hrefs are relative to its pages; `location.assign`
-      // resolves against this one, which is the same origin.
-      new URL(route.href, platform.nav.library()).href,
-      "opening Runs to restore motion",
-    );
-  },
-  rerunLine: (sceneId, authored) => {
-    const route = platform.nav.rerun(sceneId, authored);
-    return route.kind === "line" ? route.text : null;
-  },
+  rerunLine: (sceneId, authored) => platform.nav.rerun(sceneId, authored),
   backToRecording: (sceneId: string): void => {
     void (async () => {
       let why: string | null = null;

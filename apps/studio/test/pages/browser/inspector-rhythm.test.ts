@@ -19,7 +19,6 @@ import {
 import { buildLaneModel } from "../../../pages/src/editor/lanes";
 import { createSections } from "../../../pages/src/editor/sections";
 import { buildTimelineView } from "../../../pages/src/editor/timeline";
-import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 import { mountShell, pageParts, parse, token } from "../helpers/shell-css";
 
 /** A fresh `Sections` with Recent exports open. */
@@ -83,6 +82,7 @@ function mount(
   const resolved = resolvePlan(planScene(sc), bundle, sc);
   const view = buildTimelineView({ scene: sc, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene: sc,
     view,
     bundle,
@@ -137,11 +137,7 @@ function mount(
         runsRoute: {
           takeId: "t1",
           authored: false,
-          rerun: {
-            kind: "link",
-            href: runsHref("t1"),
-            label: runsRouteLabel(false),
-          },
+          rerun: "re-film t1",
         },
         currentDigest: "d-now",
         // Recent exports is collapsed at rest; opened here so the row

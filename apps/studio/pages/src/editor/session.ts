@@ -1,13 +1,11 @@
 import type { FrameBundle, MadeFromStep } from "@demoman/compositor";
 import type { CapabilityPolicy } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
-import { captureSentence } from "../core/capture-explain";
 import {
   type ReplayStatus,
   replayRecoverable,
   replaySentence,
 } from "../core/replay/status";
-import type { CaptureStatus } from "../core/storage/types";
 import type { EditCommand } from "./commands";
 import type { HoverReport } from "./hover-report";
 import type { BundleSource, IdSource } from "./ports";
@@ -39,11 +37,6 @@ export interface SessionSnapshot {
    *  retry-and-it-works case. The page's headline reads this so it cannot
    *  contradict the sentence. */
   replayRecoverable: boolean;
-  /** What the take's own motion recording managed to capture, in the
-   *  editor's voice. A different fact from `replaySentence` — this is about
-   *  the take itself, not about a re-shoot — and null for both the
-   *  healthy states: a full recording, and a genuinely static page. */
-  captureSentence: string | null;
   error: string | null;
   canUndo: boolean;
   canRedo: boolean;
@@ -196,7 +189,6 @@ export function createSession(deps: SessionDeps) {
    *  2026-09-14) through rather than writing the loaded one back over it. */
   let knownName: string | null = null;
   let replay: ReplayStatus | null = null;
-  let capture: CaptureStatus | null = null;
   const listeners = new Set<(snapshot: SessionSnapshot) => void>();
 
   /**
@@ -245,24 +237,6 @@ export function createSession(deps: SessionDeps) {
     // Under `VOICED`, not a policy read from the setting — see its docblock.
     replaySentence: replaySentence(replay, VOICED, state.scene),
     replayRecoverable: replayRecoverable(replay),
-    // The take's own recording is a fact about what was captured, not an
-    // offer to run anything, so there is nothing here for a policy to refuse.
-    //
-    // Gated on the *serving* bundle not being a different (replay) one: once
-    // a complete replay supersedes the capture bundle, `bundle.source`
-    // becomes "replay" and this fact stops being about what the author is
-    // looking at — it is history about a bundle no longer on screen.
-    // `capture` itself is left alone by a replay (see replay-runner), so
-    // without this gate the sentence would outlive its own relevance.
-    //
-    // `bundle === null` must NOT suppress this: it is precisely the state
-    // when a take produces no bundle at all (`noKeyframes`, `storageRefused`)
-    // — the cases where the author most needs to be told what happened.
-    // Suppress only when a genuinely different bundle is serving.
-    captureSentence:
-      capture === null || (bundle !== null && bundle.source !== "capture")
-        ? null
-        : captureSentence(capture),
     error: state.error,
     canUndo: state.past.length > 0,
     canRedo: state.future.length > 0,
@@ -363,7 +337,7 @@ export function createSession(deps: SessionDeps) {
   const refresh = (): Promise<void> =>
     serialize(async () => {
       const scene = await deps.loadScene(deps.sceneId);
-      // `active()` returns `{ bundle, replay, capture }`, never a bare
+      // `active()` returns `{ bundle, replay }`, never a bare
       // bundle. Assigning the wrapper here would put an object with no
       // `keyframes`, `markers` or `madeFrom` in place of a real bundle —
       // every reader downstream, from the compositor's own plan to
@@ -372,7 +346,6 @@ export function createSession(deps: SessionDeps) {
       const active = await deps.bundles.active(deps.sceneId);
       bundle = active.bundle;
       replay = active.replay;
-      capture = active.capture;
       const kept = sameDocument(state.scene, scene);
       if (!kept && (state.past.length > 0 || state.future.length > 0)) {
         // Deliberate (see above), but never silent: an emptied history reads

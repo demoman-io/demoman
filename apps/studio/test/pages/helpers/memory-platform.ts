@@ -243,7 +243,6 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       active: member("bundles", "active", async (sceneId: string) => ({
         bundle: seed.bundles?.[sceneId] ?? null,
         replay: null,
-        capture: null,
       })),
       load: member("bundles", "load", async (ref: string) => {
         const bytes = seed.frames?.[ref];
@@ -372,10 +371,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       // The studio's own line, so a page test reads what an author would.
       rerun: (id) => {
         const videoId = videoOf[id]?.videoId;
-        return {
-          kind: "line",
-          text: videoId === undefined ? REFILM_NO_VIDEO : refilmLine(videoId),
-        };
+        return videoId === undefined ? REFILM_NO_VIDEO : refilmLine(videoId);
       },
       onOpen: () => undefined,
     },
@@ -416,7 +412,6 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       answers.set("bundles.active", (async () => ({
         bundle,
         replay,
-        capture: null,
       })) as Impl);
     },
     emitExport(e: ExportEvent) {

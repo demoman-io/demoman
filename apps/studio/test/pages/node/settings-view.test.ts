@@ -13,7 +13,6 @@ const model: SettingsModel = {
     state: "ready",
     kits: [],
     defaultId: null,
-    migrationPending: false,
   },
   selectedKitId: null,
   brandKitLogo: null,
@@ -223,7 +222,6 @@ describe("the Brand kit section", () => {
     state: "ready",
     kits: list,
     defaultId,
-    migrationPending: false,
   });
   const section = (m: Partial<SettingsModel>) => {
     const root = document.createElement("div");

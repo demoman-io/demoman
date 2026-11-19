@@ -559,7 +559,6 @@ describe("the failure band names a background image that did not load", () => {
       error: null,
       replaySentence: null,
       replayRecoverable: false,
-      captureSentence: null,
     };
     renderFailure(box, { ...base, wallpaperLoadError: "HTTP 404" });
     const notice = box.querySelector("[data-wallpaper-load-error]");

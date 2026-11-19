@@ -29,6 +29,7 @@ const reclaimedRow: LibraryRow = {
 };
 
 const model: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 250,
   budgetBytes: 1000,
   fraction: 0.25,
@@ -46,7 +47,7 @@ describe("renderLibrary", () => {
       reclaim: vi.fn(),
       setBudget: vi.fn(),
       edit: vi.fn(),
-      restore: vi.fn(),
+      rerunLine: () => "re-film it",
       backToRecording: vi.fn(),
       remove: vi.fn(),
       preview: vi.fn(),
@@ -67,9 +68,7 @@ describe("renderLibrary", () => {
     // A tag, not a chip: on Settings a chip is the round on/off icon.
     expect(hosted.classList.contains("tag")).toBe(true);
     expect(hosted.title).toMatch(/stays online/);
-    (row.querySelector('[data-action="restore"]') as HTMLButtonElement).click();
     (row.querySelector('[data-action="delete"]') as HTMLButtonElement).click();
-    expect(actions.restore).toHaveBeenCalledWith("a");
     expect(actions.remove).toHaveBeenCalledWith("a", "take");
   });
 
@@ -82,7 +81,7 @@ describe("renderLibrary", () => {
         reclaim() {},
         setBudget() {},
         edit() {},
-        restore() {},
+        rerunLine: () => "re-film it",
         backToRecording() {},
         remove() {},
         preview() {},
@@ -111,7 +110,7 @@ describe("renderLibrary", () => {
       reclaim() {},
       setBudget() {},
       edit() {},
-      restore() {},
+      rerunLine: () => "re-film it",
       backToRecording() {},
       remove() {},
       preview() {},
@@ -133,7 +132,7 @@ describe("renderLibrary", () => {
     reclaim() {},
     setBudget() {},
     edit() {},
-    restore() {},
+    rerunLine: () => "re-film it",
     backToRecording() {},
     remove() {},
     preview() {},
@@ -206,46 +205,12 @@ describe("renderLibrary", () => {
     expect(reclaimed.querySelector("[data-state-chip]")?.textContent).toContain(
       "Motion reclaimed",
     );
-    expect(reclaimed.querySelector('[data-action="restore"]')).not.toBeNull();
-    expect(done.querySelector('[data-action="restore"]')).toBeNull();
-  });
-
-  // Final review M1. Runs refuses to re-shoot a script-made take
-  // (`authoredTake`), so a reclaimed authored take's chip and Restore name
-  // the route that works there — its derived script, run again — instead
-  // of a re-shoot. Chose retitling over hiding Restore: the route is real,
-  // and hiding it would leave the reclaimed take with no way forward.
-  it("tells a reclaimed authored take that Restore runs its script again", () => {
-    const root = document.createElement("div");
-    renderLibrary(
-      root,
-      {
-        ...model,
-        rows: [reclaimedRow, { ...reclaimedRow, sceneId: "s", authored: true }],
-      },
-      noop,
-      new Map(),
+    // The way back for reclaimed motion is the platform's line, on that
+    // card only.
+    expect(reclaimed.querySelector("[data-rerun-line]")?.textContent).toBe(
+      "re-film it",
     );
-    const recorded = root.querySelector('[data-row="a"]') as HTMLElement;
-    const scripted = root.querySelector('[data-row="s"]') as HTMLElement;
-    // Premise: both rows offer Restore and wear the reclaimed chip.
-    for (const row of [recorded, scripted]) {
-      expect(row.querySelector('[data-action="restore"]')).not.toBeNull();
-      expect(row.querySelector("[data-state-chip]")).not.toBeNull();
-    }
-    const titles = (row: HTMLElement) =>
-      [
-        row.querySelector<HTMLElement>('[data-action="restore"]')?.title,
-        row.querySelector<HTMLElement>("[data-state-chip]")?.title,
-      ].join(" | ");
-    expect(titles(recorded)).toMatch(/re-shoots? it in Runs/i);
-    expect(titles(scripted)).not.toMatch(/re-shoots? it/i);
-    for (const t of [
-      scripted.querySelector<HTMLElement>('[data-action="restore"]')?.title,
-      scripted.querySelector<HTMLElement>("[data-state-chip]")?.title,
-    ]) {
-      expect(t).toMatch(/run its script again/i);
-    }
+    expect(done.querySelector("[data-rerun-line]")).toBeNull();
   });
 
   it("names its icon-only actions, and says the take's size", () => {
@@ -262,9 +227,6 @@ describe("renderLibrary", () => {
     expect(del.textContent?.trim()).toBe("");
     expect(del.getAttribute("aria-label")).toBe("Delete Checkout");
     expect(del.querySelector("svg")).not.toBeNull();
-    const restore = row.querySelector('[data-action="restore"]') as HTMLElement;
-    expect(restore.textContent?.trim()).toBe("");
-    expect(restore.getAttribute("aria-label")).toBe("Restore motion: Checkout");
     expect(row.querySelector("[data-size]")?.textContent).toBe(
       "100 B frames · 20 B renders",
     );
@@ -393,14 +355,12 @@ describe("renderLibrary", () => {
 
   it("opens the editor on a click on the card, but not on its name or its controls", () => {
     const root = document.createElement("div");
-    const actions = { ...noop, edit: vi.fn(), restore: vi.fn() };
+    const actions = { ...noop, edit: vi.fn() };
     renderLibrary(root, model, actions, new Map());
     const row = root.querySelector('[data-row="a"]') as HTMLElement;
     (row.querySelector("[data-name]") as HTMLElement).click();
     (row.querySelector('[data-action="delete"]') as HTMLElement).click();
-    (row.querySelector('[data-action="restore"]') as HTMLElement).click();
     expect(actions.edit).not.toHaveBeenCalled();
-    expect(actions.restore).toHaveBeenCalledWith("a");
     (row.querySelector(".row-meta") as HTMLElement).click();
     expect(actions.edit).toHaveBeenCalledWith("a");
     // The Edit button still opens it exactly once — not once from the
@@ -567,7 +527,7 @@ describe("renderLibrary page parts", () => {
     reclaim() {},
     setBudget() {},
     edit() {},
-    restore() {},
+    rerunLine: () => "re-film it",
     backToRecording() {},
     remove() {},
     preview() {},
@@ -587,11 +547,15 @@ describe("renderLibrary page parts", () => {
   });
 
   // Settings' empty state: a glyph beside a title and a hint, on a card,
-  // with no button. The hint says where Record is in the author's words:
-  // "the popup" is ours.
-  it("says an empty library with a glyph, a title and where Record is", () => {
+  // with no button. The hint is the platform's (`nav.firstTakeHint`).
+  it("says an empty library with a glyph, a title and the platform's hint", () => {
     const root = document.createElement("div");
-    renderLibrary(root, { ...model, rows: [] }, noop, new Map());
+    renderLibrary(
+      root,
+      { ...model, rows: [], emptyHint: "Ask your agent to record a flow." },
+      noop,
+      new Map(),
+    );
     const empty = root.querySelector("[data-empty]") as HTMLElement;
     expect([
       empty.classList.contains("card"),
@@ -599,10 +563,9 @@ describe("renderLibrary page parts", () => {
       empty.querySelector("strong")?.textContent,
       empty.querySelectorAll("button").length,
     ]).toEqual([true, "monitorPlay", "No flows yet", 0]);
-    expect(empty.querySelector(".hint")?.textContent).toMatch(
-      /toolbar.*Record/,
+    expect(empty.querySelector(".hint")?.textContent).toBe(
+      "Ask your agent to record a flow.",
     );
-    expect(empty.textContent).not.toMatch(/popup/);
   });
 });
 
@@ -611,7 +574,7 @@ describe("renderLibrary sections", () => {
     reclaim() {},
     setBudget() {},
     edit() {},
-    restore() {},
+    rerunLine: () => "re-film it",
     backToRecording() {},
     remove() {},
     preview() {},
@@ -779,7 +742,7 @@ describe("renderLibrary preview box", () => {
     reclaim: vi.fn(),
     setBudget: vi.fn(),
     edit: vi.fn(),
-    restore: vi.fn(),
+    rerunLine: () => "re-film it",
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),

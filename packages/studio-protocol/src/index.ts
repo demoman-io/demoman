@@ -360,7 +360,6 @@ export interface VideoRenameBody {
 export interface BundleAnswer {
   bundle: FrameBundle | null;
   replay: unknown;
-  capture: null;
 }
 export interface ExportStartBody {
   fileType: FileType;

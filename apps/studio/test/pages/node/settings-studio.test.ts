@@ -113,9 +113,6 @@ function fakePlatform(kits: StoredKit[] = []): Fake {
       Object.assign(fake.area, items);
       fake.writes.done += 1;
     },
-    async remove(key) {
-      delete fake.area[key];
-    },
   };
   const store: BrandKitStore = createBrandKitStore(() => area);
   fake.platform = {
@@ -132,7 +129,7 @@ function fakePlatform(kits: StoredKit[] = []): Fake {
       library: () => "/",
       kits: () => "/settings.html",
       firstTakeHint: () => "",
-      rerun: (id: string) => ({ kind: "line", text: `re-film ${id}` }),
+      rerun: (id: string) => `re-film ${id}`,
       onOpen(fn: (path: string) => void) {
         fake.openListeners.push(fn);
       },

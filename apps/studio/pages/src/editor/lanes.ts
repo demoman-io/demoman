@@ -13,7 +13,6 @@ import {
   type SceneMarker,
   type SourcePoint,
 } from "@demoman/scene-schema";
-import { isAuthoredScene, rerunAdvice } from "../shell/runs-link";
 import type { ZoomTarget } from "./commands";
 import type { HoverReport } from "./hover-report";
 import { type Join, type Piece, piecesOf } from "./pieces";
@@ -46,15 +45,11 @@ export const MOTION_RECLAIMED_LABEL =
 
 /**
  * The reclaimed-motion sentence for a reader's take. The stored note is
- * written at reclaim time, when the reader's take is not known, so an
- * authored take (whose Runs route is its script, not a re-shoot) gets its
- * wording here, at read time.
+ * written at reclaim time, when the platform's re-film line is not known,
+ * so the line is said here, at read time.
  */
-function motionReclaimedLabel(
-  authored: boolean,
-  rerunLine: string | null,
-): string {
-  return `Motion reclaimed to free space. ${rerunAdvice(authored, rerunLine, "to restore")}`;
+function motionReclaimedLabel(rerunLine: string): string {
+  return `Motion reclaimed to free space. ${rerunLine}`;
 }
 
 /**
@@ -81,16 +76,11 @@ const LEGACY_MOTION_RECLAIMED_NOTES: ReadonlySet<string> = new Set([
  * A degradation's clip label: the author's sentence for a reclaimed span,
  * and `kind: note` for every compositor-internal reason.
  */
-function labelOf(
-  kind: string,
-  note: string,
-  authored: boolean,
-  rerunLine: string | null,
-): string {
+function labelOf(kind: string, note: string, rerunLine: string): string {
   if (kind !== "motionReclaimed") return `${kind}: ${note}`;
   return LEGACY_MOTION_RECLAIMED_NOTES.has(note) ||
     note === MOTION_RECLAIMED_LABEL
-    ? motionReclaimedLabel(authored, rerunLine)
+    ? motionReclaimedLabel(rerunLine)
     : note;
 }
 
@@ -189,13 +179,9 @@ export interface LaneModel {
   masks: MaskSeg[];
   durationMs: number;
   timeSource: "rendered" | "captured";
-  /** Whether a script made this take, so the timeline's own advice ("re-shoot
-   *  it in Runs" / "run its script again in Runs") reads the same fact the
-   *  notices here were worded from. */
-  authored: boolean;
-  /** The platform's re-film line, said whole in place of that advice where
-   *  there is no Runs page (the studio); null where there is one. */
-  rerunLine: string | null;
+  /** The platform's re-film line (`nav.rerun`), said whole by the timeline
+   *  and by every notice here that advises filming the take again. */
+  rerunLine: string;
   hoverCheck: { failed: boolean; unchecked: number };
   /** Every sentence the view must show persistently. Never rendered as a
    *  toast; never folded into a texture alone. */
@@ -216,14 +202,9 @@ export interface LaneModelArgs {
   bundle: FrameBundle | null;
   resolved: ResolvedPlan | null;
   hoverReport: HoverReport | null;
-  /**
-   * The platform's re-film line where it names no Runs page (the studio's
-   * `nav.rerun` answers `kind: "line"`): every "Re-shoot it in Runs …"
-   * notice below says it whole instead (`rerunAdvice`). Absent where the
-   * platform answers with a link, as the extension does; `main.ts`, the one
-   * production caller, always passes `platform.nav.rerun`'s answer.
-   */
-  rerunLine?: string | null;
+  /** The platform's re-film line (`nav.rerun`): every notice below that
+   *  advises filming the take again says it whole (ruling R18). */
+  rerunLine: string;
 }
 
 /**
@@ -265,12 +246,7 @@ function estimateMs(view: TimelineView, marker: SceneMarker): number {
 
 export function buildLaneModel(args: LaneModelArgs): LaneModel {
   const { scene, view, bundle, resolved } = args;
-  // Whether Runs re-shoots this take or runs its script again: the one
-  // decision every "Re-shoot it in Runs" notice below reads.
-  const authored = isAuthoredScene(scene);
-  const rerunLine = args.rerunLine ?? null;
-  const advise = (tail: string): string =>
-    rerunAdvice(authored, rerunLine, tail);
+  const { rerunLine } = args;
   const durationMs = durationOf(view);
   const notices: string[] = [];
   const removable = new Set(args.hoverReport?.removable ?? []);
@@ -327,7 +303,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
       };
   for (const side of resolved?.trimUnplaced ?? []) {
     notices.push(
-      `The trim's ${side} is placed from the video's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
+      `The trim's ${side} is placed from the video's own timestamp: the last render carried no marker for its step. ${rerunLine}`,
     );
   }
 
@@ -385,7 +361,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     // trim side gets above.
     if (segment?.endUnplaced) {
       notices.push(
-        `The end of zoom "${event.id}" is placed from the video's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
+        `The end of zoom "${event.id}" is placed from the video's own timestamp: the last render carried no marker for its step. ${rerunLine}`,
       );
     }
     return [
@@ -471,7 +447,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     // drew — so it cannot carry "this is now covering more of your video".
     for (const side of cosmetic?.unplaced ?? []) {
       notices.push(
-        `The ${side} of mask "${mask.id}" is placed from the video's own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. ${advise("to give it measured timing")}`,
+        `The ${side} of mask "${mask.id}" is placed from the video's own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. ${rerunLine}`,
       );
     }
     const startMs = wholeTake
@@ -514,7 +490,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     endMs: map(d.endMs),
   }));
   for (const d of bundle?.degradations ?? [])
-    notices.push(labelOf(d.kind, d.note, authored, rerunLine));
+    notices.push(labelOf(d.kind, d.note, rerunLine));
 
   // The only reader of `Timeline.unplacedPaces`, and the reason the count
   // exists. `paceInstants` cannot place a pace whose two markers the bundle
@@ -528,8 +504,8 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     // planned time, and the stretch plays as it was recorded instead.
     notices.push(
       scene.pacing !== undefined
-        ? `pacingUnplaced: ${unplacedPaces} planned ${pauses} could not be placed. The last render carried no marker for the steps they sit before, so ${unplacedPaces === 1 ? "that stretch plays" : "those stretches play"} as recorded, not at the planned length. ${advise("to restore them")}`
-        : `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this export is shorter than the video by however long those ${pauses} were. ${advise("to restore them")}`,
+        ? `pacingUnplaced: ${unplacedPaces} planned ${pauses} could not be placed. The last render carried no marker for the steps they sit before, so ${unplacedPaces === 1 ? "that stretch plays" : "those stretches play"} as recorded, not at the planned length. ${rerunLine}`
+        : `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this export is shorter than the video by however long those ${pauses} were. ${rerunLine}`,
     );
   }
 
@@ -553,7 +529,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
       : { pieces: [], joins: [], unplacedSplits: [] };
   for (const _ of unplacedSplits) {
     notices.push(
-      `A split is not drawn: the last render carried no marker for its step. ${advise("to place it")}`,
+      `A split is not drawn: the last render carried no marker for its step. ${rerunLine}`,
     );
   }
 
@@ -570,7 +546,6 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     masks,
     durationMs,
     timeSource: view.hasBundle ? "rendered" : "captured",
-    authored,
     rerunLine,
     hoverCheck: {
       failed: args.hoverReport?.failed ?? false,

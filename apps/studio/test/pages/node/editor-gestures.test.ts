@@ -46,6 +46,7 @@ function setup(scene = readonlyScene(), bundle = proceduralBundle()) {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -1205,6 +1206,7 @@ function pacedSetup() {
   const resolved = resolvePlan(planScene(scene), bundle, scene);
   const view = buildTimelineView({ scene, bundle, resolved });
   const model = buildLaneModel({
+    rerunLine: "re-film it",
     scene,
     view,
     bundle,
@@ -1299,6 +1301,7 @@ describe("a new zoom's length at the document's smoothness", () => {
     expect(longOut).toBeGreaterThan(CAMERA_DEFAULTS.zoomOutMs); // guard
     const unrendered = (doc: SceneDocument) =>
       buildLaneModel({
+        rerunLine: "re-film it",
         scene: doc,
         view: buildTimelineView({ scene: doc, resolved: null }),
         bundle: null,

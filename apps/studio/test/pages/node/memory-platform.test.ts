@@ -79,7 +79,6 @@ describe("the memory platform", () => {
     expect(await memory.bundles.active("a")).toEqual({
       bundle: null,
       replay: null,
-      capture: null,
     });
   });
 });

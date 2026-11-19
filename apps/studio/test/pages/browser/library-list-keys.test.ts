@@ -93,6 +93,7 @@ const loose = take("loose", new Date(2026, 9, 30, 6));
 const c1 = take("c1", new Date(2026, 9, 29, 10));
 const d1 = take("d1", new Date(2026, 8, 1, 9));
 const MODEL: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 1,
@@ -122,7 +123,7 @@ function actions() {
   const show = (): void => applySelection(node("#root"), acts, selection, bulk);
   return {
     edit: vi.fn(),
-    restore: vi.fn(),
+    rerunLine: () => "re-film it",
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),

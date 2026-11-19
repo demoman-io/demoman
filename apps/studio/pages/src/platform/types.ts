@@ -169,14 +169,8 @@ export interface Platform {
     kits(): string;
     /** The empty library's hint: it names where Record is on this side. */
     firstTakeHint(): string;
-    /** The route to film this take again: a link on the extension (Runs),
-     *  a line naming the agent call on the studio. */
-    rerun(
-      id: string,
-      authored: boolean,
-    ):
-      | { kind: "link"; href: string; label: string }
-      | { kind: "line"; text: string };
+    /** The route to film this take again: a line naming the agent call. */
+    rerun(id: string, authored: boolean): string;
     /** The server asked this window to go elsewhere. */
     onOpen(fn: (path: string) => void): void;
   };

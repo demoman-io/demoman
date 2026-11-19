@@ -38,7 +38,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 
 /** A page that says, as button text, whether the REQUEST carried an iPhone

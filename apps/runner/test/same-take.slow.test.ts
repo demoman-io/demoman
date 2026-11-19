@@ -84,7 +84,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 
 let url: string;

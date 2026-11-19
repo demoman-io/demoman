@@ -50,7 +50,6 @@ const kits: BrandKitsRead = {
   state: "ready",
   kits: [],
   defaultId: null,
-  migrationPending: false,
 };
 /** The crop the frames are read at: the whole frame, scaled down. */
 const READ = { width: 640, height: 360 };

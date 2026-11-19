@@ -17,7 +17,6 @@ import {
 import { replaySentence } from "../../../pages/src/core/replay/status";
 import type { HoverReport } from "../../../pages/src/editor/hover-report";
 import { hoverReportText } from "../../../pages/src/editor/hover-report";
-import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 
 /**
  * Task 12 removed `describe("renderBeats")`,
@@ -45,50 +44,21 @@ beforeEach(() => {
 // plan 2's Task 7.
 
 describe("renderBundleBanner", () => {
-  it("names the Runs route, with this take's id, when there are no frames", () => {
+  it("names the re-film line when there are no frames", () => {
     renderBundleBanner(root, {
       hasFrames: false,
       route: {
         takeId: "t1",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film t1",
       },
     });
-    const link = root.querySelector<HTMLAnchorElement>("a[data-runs-route]");
-    expect(link?.getAttribute("href")).toBe("run.html?take=t1");
-    expect(root.textContent).toContain(
-      "This video has no frames — re-shoot it in Runs",
+    expect(root.querySelector("[data-rerun-line]")?.textContent).toBe(
+      "re-film t1",
     );
+    expect(root.textContent).toBe("This video has no frames — re-film t1");
     // The editor offers no rebuild, so the banner must not promise one.
     expect(root.textContent).not.toMatch(/rebuil/i);
-  });
-
-  // Final review M1. Runs refuses to re-shoot a script-made take, so the
-  // banner names the route that works there. Goes red if the banner stops
-  // reading `route.authored`.
-  it("tells an authored take to run its script again, not to re-shoot it", () => {
-    renderBundleBanner(root, {
-      hasFrames: false,
-      route: {
-        takeId: "t1",
-        authored: true,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(true),
-        },
-      },
-    });
-    expect(root.textContent).toBe(
-      "This video has no frames — run its script again in Runs",
-    );
-    expect(root.querySelector("a[data-runs-route]")?.getAttribute("href")).toBe(
-      "run.html?take=t1",
-    );
   });
 
   it("is silent once any frames exist", () => {
@@ -99,11 +69,7 @@ describe("renderBundleBanner", () => {
       route: {
         takeId: "t1",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film t1",
       },
     });
     expect(root.children.length).toBeGreaterThan(0);
@@ -112,11 +78,7 @@ describe("renderBundleBanner", () => {
       route: {
         takeId: "t1",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film t1",
       },
     });
     expect(root.children).toHaveLength(0);
@@ -137,7 +99,6 @@ describe("renderFailure", () => {
     renderFailure(root, {
       error: null,
       replaySentence: null,
-      captureSentence: null,
     });
     expect(root.children).toHaveLength(0);
   });
@@ -147,7 +108,6 @@ describe("renderFailure", () => {
       error: null,
       replaySentence:
         "The re-shoot reconstructed 2 of 5 steps, then stopped: what the step waited for (an element to show or hide, or the page to load) did not happen within 10 s — check the target, or what the step before it does.",
-      captureSentence: null,
     });
     expect(root.querySelector("[data-replay-failure]")).not.toBeNull();
     expect(root.textContent).toContain("2 of 5 steps");
@@ -157,47 +117,37 @@ describe("renderFailure", () => {
   // Final review I3(a). The sentence is about a re-shoot, and says to run
   // one again; a re-shoot happens only on the run page, so the box holds the
   // way there. Goes red if the replay box stops drawing `runsRoute`.
-  it("draws this take's route to Runs under the replay sentence", () => {
+  it("draws this take's re-film line under the replay sentence", () => {
     renderFailure(root, {
       error: null,
       replaySentence:
         "The re-shoot reconstructed 2 of 5 steps, then stopped: what the step waited for (an element to show or hide, or the page to load) did not happen within 10 s — check the target, or what the step before it does.",
-      captureSentence: null,
       runsRoute: {
         takeId: "take 1&x",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("take 1&x"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film take 1&x",
       },
     });
-    const link = root.querySelector<HTMLAnchorElement>(
-      "[data-replay-failure] [data-replay-runs-route] a[data-runs-route]",
-    );
-    expect(link?.getAttribute("href")).toBe("run.html?take=take%201%26x");
-    expect(link?.textContent).toBe("Re-shoot this video in Runs");
+    expect(
+      root.querySelector(
+        "[data-replay-failure] [data-replay-runs-route] [data-rerun-line]",
+      )?.textContent,
+    ).toBe("re-film take 1&x");
   });
 
-  it("draws no route to Runs where there is no replay sentence", () => {
+  it("draws no re-film line where there is no replay sentence", () => {
     renderFailure(root, {
       error: "could not save: quota exceeded",
       replaySentence: null,
-      captureSentence: null,
       runsRoute: {
         takeId: "t1",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film t1",
       },
     });
     // Premise: the box rendered something.
     expect(root.querySelector("[data-action-error]")).not.toBeNull();
-    expect(root.querySelector("[data-runs-route]")).toBeNull();
+    expect(root.querySelector("[data-rerun-line]")).toBeNull();
   });
 
   // "offers no retry when the policy has withheld the sentence" and "calls
@@ -217,7 +167,6 @@ describe("renderFailure", () => {
       replaySentence:
         "The re-shoot reconstructed 0 of 12 steps and stopped early: you cancelled before it started.",
       replayRecoverable: true,
-      captureSentence: null,
     });
     const box = root.querySelector("[data-replay-failure]");
     expect(box?.textContent).not.toContain("did not finish");
@@ -234,7 +183,6 @@ describe("renderFailure", () => {
       replaySentence:
         "The re-shoot reconstructed 1 of 3 steps then stopped: an element this demo depends on is no longer on the page.",
       replayRecoverable: false,
-      captureSentence: null,
     });
     expect(
       root.querySelector("[data-replay-failure] strong")?.textContent,
@@ -267,15 +215,10 @@ describe("renderFailure", () => {
         error: null,
         replaySentence: sentence,
         replayRecoverable: recoverable,
-        captureSentence: null,
         runsRoute: {
           takeId: "t1",
           authored: true,
-          rerun: {
-            kind: "link" as const,
-            href: runsHref("t1"),
-            label: runsRouteLabel(true),
-          },
+          rerun: "re-film t1",
         },
       });
       const box = root.querySelector("[data-replay-failure]");
@@ -287,7 +230,6 @@ describe("renderFailure", () => {
       expect(box?.textContent).toContain(
         "The script run performed 1 of 3 steps",
       );
-      expect(box?.textContent).toContain("Run its script again in Runs");
       expect(box?.textContent).not.toMatch(/re-shoot/i);
     }
   });
@@ -306,15 +248,10 @@ describe("renderFailure", () => {
         readonlyScene(),
       ),
       replayRecoverable: false,
-      captureSentence: null,
       runsRoute: {
         takeId: "t1",
         authored: false,
-        rerun: {
-          kind: "link" as const,
-          href: runsHref("t1"),
-          label: runsRouteLabel(false),
-        },
+        rerun: "re-film t1",
       },
     });
     const box = root.querySelector("[data-replay-failure]");
@@ -324,14 +261,12 @@ describe("renderFailure", () => {
     expect(box?.textContent).toContain(
       "The re-shoot reconstructed 1 of 3 steps",
     );
-    expect(box?.textContent).toContain("Re-shoot this video in Runs");
   });
 
   it("renders the action error when present", () => {
     renderFailure(root, {
       error: "could not save: quota exceeded",
       replaySentence: null,
-      captureSentence: null,
     });
     expect(root.querySelector("[data-action-error]")).not.toBeNull();
     expect(root.textContent).toContain("could not save: quota exceeded");
@@ -343,7 +278,6 @@ describe("renderFailure", () => {
       error: "could not save: quota exceeded",
       replaySentence:
         "The re-shoot reconstructed 0 of 4 steps, then stopped: x.",
-      captureSentence: null,
     });
     const failureBox = root.querySelector("[data-replay-failure]");
     const errorBox = root.querySelector("[data-action-error]");
@@ -364,7 +298,6 @@ describe("renderFailure", () => {
       error: null,
       replaySentence: null,
       renderError: "offscreen document could not be created",
-      captureSentence: null,
     });
     expect(root.querySelector("[data-render-error]")).not.toBeNull();
     // The heading names the action the author took. "Render" is the retired
@@ -385,7 +318,6 @@ describe("renderFailure", () => {
       error: null,
       replaySentence: null,
       renderError: null,
-      captureSentence: null,
       previewError: "frame 00312 is missing from this bundle",
     });
     expect(root.querySelector("[data-preview-error]")).not.toBeNull();
@@ -397,7 +329,6 @@ describe("renderFailure", () => {
       error: null,
       replaySentence: null,
       renderError: null,
-      captureSentence: null,
       previewError: null,
     });
     expect(root.querySelector("[data-preview-error]")).toBeNull();
@@ -410,7 +341,6 @@ describe("renderFailure", () => {
       error: "could not save: quota exceeded",
       replaySentence: null,
       renderError: "offscreen document could not be created",
-      captureSentence: null,
     });
     expect(root.querySelector("[data-render-error]")).not.toBeNull();
     expect(root.querySelector("[data-action-error]")).not.toBeNull();
@@ -418,63 +348,6 @@ describe("renderFailure", () => {
 
   // "calls onRegenerate when the retry button is clicked" retired with
   // Task 10 — see the note above "renders the replay sentence".
-
-  it("renders the capture sentence as its own line", () => {
-    renderFailure(root, {
-      error: null,
-      replaySentence: null,
-      captureSentence:
-        "the recording of on-screen motion could not be started, so this scene has only the stills taken at each step",
-    });
-    expect(root.querySelector("[data-capture-note]")).not.toBeNull();
-    expect(root.textContent).toContain("could not be started");
-  });
-
-  it("says nothing about the capture when it is null", () => {
-    renderFailure(root, {
-      error: null,
-      replaySentence: null,
-      captureSentence: null,
-    });
-    expect(root.querySelector("[data-capture-note]")).toBeNull();
-  });
-
-  // The two sentences are different facts — a replay sentence about why a
-  // regeneration stopped, a capture sentence about what the take itself
-  // recorded — and both can be true at once. Rendering the capture sentence
-  // inside the replay box, or interpolating it into the same string, would
-  // make this test pass with either sentence garbling the other; keeping
-  // them in separate DOM nodes is what this actually asserts.
-  it("renders the replay sentence and the capture sentence as separate lines, never concatenated", () => {
-    renderFailure(root, {
-      error: null,
-      replaySentence:
-        "The re-shoot reconstructed 0 of 4 steps, then stopped: x.",
-      captureSentence:
-        "the recording of on-screen motion could not be started, so this scene has only the stills taken at each step",
-    });
-    const replayBox = root.querySelector("[data-replay-failure]");
-    const captureBox = root.querySelector("[data-capture-note]");
-    expect(replayBox).not.toBeNull();
-    expect(captureBox).not.toBeNull();
-    expect(replayBox).not.toBe(captureBox);
-    expect(replayBox?.textContent).not.toContain("could not be started");
-    expect(captureBox?.textContent).not.toContain("The re-shoot reconstructed");
-  });
-
-  // The capture sentence describes the take, not a regeneration, so it must
-  // speak on its own — a fresh bundle whose take nonetheless lost motion is
-  // exactly this case.
-  it("renders the capture sentence even when there is no replay sentence to go beside", () => {
-    renderFailure(root, {
-      error: null,
-      replaySentence: null,
-      captureSentence:
-        "the motion recorded during the take could not be encoded, so this scene has only the stills taken at each step",
-    });
-    expect(root.querySelector("[data-replay-failure]")).toBeNull();
-    expect(root.querySelector("[data-capture-note]")).not.toBeNull();
-  });
 
   // "gives a route that cannot land its own box" retired with Task 10:
   // `renderFailure`'s `routeError` field and `[data-route-error]` box are
@@ -489,7 +362,7 @@ describe("renderTransport", () => {
     enabled: true,
     rate: 1,
     looping: false,
-    authored: false,
+    rerunLine: "re-film t1",
   };
 
   const playButton = () =>
@@ -600,22 +473,9 @@ describe("renderTransport", () => {
     renderTransport(root, { ...state, enabled: false }, handlers);
     expect(skipButton().disabled).toBe(true);
     expect(skipButton().title).toMatch(/no frames yet/i);
-    // Where frames come from now: the editor has no rebuild to name.
-    expect(skipButton().title).toMatch(/Re-shoot it in Runs first\.$/);
-    // An authored take cannot be re-shot; its route is its script. Goes red
-    // if the row stops reading `state.authored`.
-    renderTransport(
-      root,
-      { ...state, enabled: false, authored: true },
-      handlers,
-    );
-    expect(skipButton().title).toMatch(/Run its script again in Runs first\.$/);
-    expect(playButton().title).toMatch(/Run its script again in Runs first\.$/);
-    expect(`${skipButton().title}${playButton().title}`).not.toMatch(
-      /re-shoot/i,
-    );
-    renderTransport(root, { ...state, enabled: false }, handlers);
-    expect(playButton().title).toMatch(/Re-shoot it in Runs first\.$/);
+    // Where frames come from now: the platform's re-film line, whole.
+    expect(skipButton().title).toMatch(/re-film t1$/);
+    expect(playButton().title).toMatch(/re-film t1$/);
     // Both states, because a control that is always disabled satisfies the
     // case above without the reason meaning anything.
     renderTransport(root, state, handlers);
@@ -817,7 +677,7 @@ describe("renderStageBar", () => {
     fullscreen: false,
     error: null,
     zoom: "fit" as const,
-    authored: false,
+    rerunLine: "re-film t1",
   });
   const stageHandlers = () => ({
     onAspect: vi.fn(),
@@ -842,7 +702,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         positionMs: 3_000,
         durationMs: 12_000,
         aspect: "16:9",
@@ -919,7 +779,7 @@ describe("renderStageBar", () => {
     };
     renderStageBar(
       bar,
-      { authored: false, ...base, fullscreen: false },
+      { rerunLine: "re-film t1", ...base, fullscreen: false },
       handlers,
     );
     const button = bar.querySelector<HTMLButtonElement>(
@@ -936,7 +796,7 @@ describe("renderStageBar", () => {
     expect(button.getAttribute("aria-label")).toBe("Full screen");
     renderStageBar(
       bar,
-      { authored: false, ...base, fullscreen: true },
+      { rerunLine: "re-film t1", ...base, fullscreen: true },
       handlers,
     );
     expect(button.getAttribute("aria-label")).toBe("Exit full screen");
@@ -975,7 +835,11 @@ describe("renderStageBar", () => {
       onZoom: vi.fn(),
       onDismissError: vi.fn(),
     };
-    renderStageBar(bar, { authored: false, ...base, error: null }, handlers);
+    renderStageBar(
+      bar,
+      { rerunLine: "re-film t1", ...base, error: null },
+      handlers,
+    );
     const error = bar.querySelector<HTMLElement>(
       "[data-stage-error]",
     ) as HTMLElement;
@@ -983,7 +847,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         ...base,
         error: "The preview could not exit full screen: refused",
       },
@@ -995,7 +859,11 @@ describe("renderStageBar", () => {
     );
     // Clears as well as sets — a stale refusal left behind after the state
     // actually resolves would go on claiming a problem that is over.
-    renderStageBar(bar, { authored: false, ...base, error: null }, handlers);
+    renderStageBar(
+      bar,
+      { rerunLine: "re-film t1", ...base, error: null },
+      handlers,
+    );
     expect(error.hidden).toBe(true);
   });
 
@@ -1004,7 +872,7 @@ describe("renderStageBar", () => {
     renderStageBar(
       bar,
       {
-        authored: false,
+        rerunLine: "re-film t1",
         positionMs: 0,
         durationMs: 0,
         aspect: "16:9",
@@ -1020,16 +888,7 @@ describe("renderStageBar", () => {
     ) as HTMLButtonElement;
     expect(zoom.disabled).toBe(true);
     expect(zoom.title).toMatch(/no frames yet/);
-    expect(zoom.title).toMatch(/Re-shoot it in Runs first\.$/);
-    // The same chip on an authored take. Goes red if the bar stops reading
-    // `state.authored`.
-    renderStageBar(
-      bar,
-      { ...stageState(), enabled: false, authored: true },
-      stageHandlers(),
-    );
-    expect(zoom.title).toMatch(/Run its script again in Runs first\.$/);
-    expect(zoom.title).not.toMatch(/re-shoot/i);
+    expect(zoom.title).toMatch(/re-film t1$/);
   });
 
   it("reads Fit and 100% from state, not from the last click", () => {
@@ -1045,7 +904,7 @@ describe("renderStageBar", () => {
     };
     renderStageBar(
       bar,
-      { authored: false, ...base, zoom: "fit" },
+      { rerunLine: "re-film t1", ...base, zoom: "fit" },
       { ...stageHandlers(), onAspect: vi.fn(), onFullscreen: vi.fn(), onZoom },
     );
     const zoom = bar.querySelector<HTMLButtonElement>(
@@ -1061,7 +920,7 @@ describe("renderStageBar", () => {
     expect(onZoom).toHaveBeenCalledTimes(1);
     renderStageBar(
       bar,
-      { authored: false, ...base, zoom: "actual" },
+      { rerunLine: "re-film t1", ...base, zoom: "actual" },
       { ...stageHandlers(), onAspect: vi.fn(), onFullscreen: vi.fn(), onZoom },
     );
     expect(zoom.textContent).toBe("100%");
@@ -1074,7 +933,7 @@ describe("renderTransport across renders", () => {
     enabled: true,
     rate: 1,
     looping: false,
-    authored: false,
+    rerunLine: "re-film t1",
   };
 
   it("keeps the same button, so playing does not blur it every frame", () => {
@@ -1647,13 +1506,13 @@ describe("renderNotesButton", () => {
       notes: document.getElementById("notes") as HTMLElement,
     };
   }
-  const failure = (over: Record<string, unknown>) =>
-    ({
-      error: null,
-      replaySentence: null,
-      captureSentence: null,
-      ...over,
-    }) as never;
+  const failure = (
+    over: Partial<Parameters<typeof renderFailure>[1]>,
+  ): Parameters<typeof renderFailure>[1] => ({
+    error: null,
+    replaySentence: null,
+    ...over,
+  });
 
   it("stays hidden with nothing in the panel", () => {
     const { button, notes } = panel();
@@ -1675,19 +1534,6 @@ describe("renderNotesButton", () => {
     expect(button.getAttribute("aria-label")).toBe(
       "1 note on this video, with an error",
     );
-  });
-
-  it("does not call the capture note an error", () => {
-    const { button, notes } = panel();
-    renderFailure(
-      notes.querySelector("#failure") as HTMLElement,
-      failure({ captureSentence: "Captured at 2x." }),
-    );
-    // Premise: the capture note is the one card drawn, inside #failure.
-    expect(notes.querySelectorAll("#failure > .notice")).toHaveLength(1);
-    expect(notes.querySelector("[data-capture-note]")).not.toBeNull();
-    renderNotesButton(button, notes);
-    expect(button.getAttribute("data-level")).toBe("warn");
   });
 });
 
@@ -1715,13 +1561,13 @@ describe("revealNewErrors", () => {
       failure: notes.querySelector("#failure") as HTMLElement,
     };
   }
-  const failure = (over: Record<string, unknown>) =>
-    ({
-      error: null,
-      replaySentence: null,
-      captureSentence: null,
-      ...over,
-    }) as never;
+  const failure = (
+    over: Partial<Parameters<typeof renderFailure>[1]>,
+  ): Parameters<typeof renderFailure>[1] => ({
+    error: null,
+    replaySentence: null,
+    ...over,
+  });
 
   it("opens the panel on an error, once per distinct error", () => {
     const { notes, showPopover, close, failure: box } = panel();
@@ -1745,13 +1591,13 @@ describe("revealNewErrors", () => {
 
   it("leaves the panel shut for notes that are not errors", () => {
     const { notes, showPopover, failure: box } = panel();
-    renderFailure(box, failure({ captureSentence: "Captured at 2x." }));
+    renderFailure(box, failure({}));
     renderTakeNotes(notes.querySelector("#take-notes") as HTMLElement, {
       notices: ["2 recorded pauses could not be placed."],
       hoverReport: null,
     });
-    // Premise: both cards are drawn.
-    expect(notes.querySelectorAll(".notice").length).toBeGreaterThanOrEqual(2);
+    // Premise: the take's card is drawn.
+    expect(notes.querySelectorAll(".notice").length).toBeGreaterThanOrEqual(1);
     revealNewErrors(notes, "");
     expect(showPopover).not.toHaveBeenCalled();
   });

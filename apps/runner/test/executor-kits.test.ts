@@ -17,7 +17,6 @@ describe("readKits", () => {
       state: "ready",
       kits: [],
       defaultId: null,
-      migrationPending: false,
     });
   });
 

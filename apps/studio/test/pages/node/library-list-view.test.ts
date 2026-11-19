@@ -102,6 +102,7 @@ const groups = [
   flow("C", "", [c1]),
 ];
 const model: LibraryModel = {
+  emptyHint: "Ask your agent to record a flow.",
   usedBytes: 0,
   budgetBytes: 0,
   fraction: 1,
@@ -125,7 +126,6 @@ const BY_NAME: LibraryViewChoice = {
 
 const actions = () => ({
   edit: vi.fn(),
-  restore: vi.fn(),
   backToRecording: vi.fn(),
   remove: vi.fn(),
   preview: vi.fn(),
@@ -432,13 +432,10 @@ describe("the list view", () => {
     expect(flowRow.hasAttribute("aria-describedby")).toBe(false);
   });
 
-  it("the rerun line where Restore has no button is the row's line too", () => {
+  it("the rerun line of a reclaimed take is the row's line too", () => {
     expect(a3.canRestore).toBe(true);
     const { grid } = draw();
     const row = rowOf(grid, "f:A");
-    expect(
-      cell(row, "actions").querySelector('[data-action="restore"]'),
-    ).toBeNull();
     const line = row.querySelector("[data-status] [data-rerun-line]");
     expect(line?.textContent).toBe("Run run({ flow }) again to film it.");
     expect(row.getAttribute("aria-describedby")).toBe(

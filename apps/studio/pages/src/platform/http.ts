@@ -663,11 +663,6 @@ export function createPlatform(
       );
       kitsRevision = done.revision;
     },
-    async remove() {
-      // `get` never hands back the old single-kit key, so the store never
-      // owes its removal here.
-      throw new Error("the Studio keeps no old brand kit key to remove");
-    },
   };
   const kitStore = createBrandKitStore(() => area, o.kitLock);
   const kits: Omit<BrandKitStore, "reset"> &
@@ -897,7 +892,6 @@ export function createPlatform(
         return {
           bundle: got.bundle,
           replay: (got.replay ?? null) as ReplayStatus | null,
-          capture: null,
         };
       },
       async load(ref): Promise<Uint8Array | FrameImage> {
@@ -1102,15 +1096,11 @@ export function createPlatform(
       rerun: (id) => {
         const videoId = videoOfTake.get(id);
         const unread = videoErrorOfTake.get(id);
-        return {
-          kind: "line",
-          text:
-            videoId !== undefined
-              ? refilmLine(videoId)
-              : unread !== undefined
-                ? refilmVideoUnread(unread)
-                : REFILM_NO_VIDEO,
-        };
+        return videoId !== undefined
+          ? refilmLine(videoId)
+          : unread !== undefined
+            ? refilmVideoUnread(unread)
+            : REFILM_NO_VIDEO;
       },
       onOpen(fn) {
         openListeners.add(fn);

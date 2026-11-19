@@ -258,7 +258,6 @@ describe("the Background panel, as painted", () => {
 describe("the kit picker, as painted (mockup A)", () => {
   const kits = {
     state: "ready" as const,
-    migrationPending: false,
     defaultId: "a",
     kits: [
       {

@@ -8,103 +8,13 @@ const kit = {
   padding: 0.08,
 };
 
-describe("migration from the single kit", () => {
-  it("moves brandKit into a one-kit list named Brand kit, as the default, then removes it", async () => {
-    const s = fakeStorageArea({ brandKit: kit });
-    const read = await createBrandKitStore(() => s.area).read();
-    expect(read).toEqual({
-      state: "ready",
-      migrationPending: false,
-      defaultId: "kit-migrated",
-      kits: [
-        {
-          id: "kit-migrated",
-          name: "Brand kit",
-          read: { state: "ready", kit },
-        },
-      ],
-    });
-    expect(s.data).toEqual({
-      brandKits: [{ id: "kit-migrated", name: "Brand kit", branding: kit }],
-      defaultKitId: "kit-migrated",
-    });
-    // Red if the removal runs before (or without waiting for) the write.
-    const setOrder = s.area.set.mock.invocationCallOrder[0] ?? Infinity;
-    const removeOrder = s.area.remove.mock.invocationCallOrder[0] ?? -1;
-    expect(removeOrder).toBeGreaterThan(setOrder);
-  });
-
-  // Final review: the worker and an open editor both read on the first
-  // load after the update. Red if each mints its own id: the last write
-  // wins and the other page's selection names a kit that is not there.
-  it("migrates to the same id from two pages reading at once", async () => {
-    const s = fakeStorageArea({ brandKit: kit });
-    const [a, b] = await Promise.all([
-      createBrandKitStore(() => s.area).read(),
-      createBrandKitStore(() => s.area).read(),
-    ]);
-    const idsOf = (r: typeof a) =>
-      r.state === "ready" ? r.kits.map((k) => k.id) : [];
-    expect(idsOf(a)).toEqual(idsOf(b));
-    expect((s.data.brandKits as { id: string }[]).map((k) => k.id)).toEqual(
-      idsOf(a),
-    );
-  });
-
-  // Review Focus 1.
-  it("keeps an invalid single kit, invalid and named, rather than dropping it", async () => {
-    const bad = { ...kit, background: { kind: "solid", color: "navy" } };
-    const s = fakeStorageArea({ brandKit: bad });
-    const read = await createBrandKitStore(() => s.area).read();
-    if (read.state !== "ready") throw new Error(JSON.stringify(read));
-    expect(read.kits[0]?.name).toBe("Brand kit");
-    expect(read.kits[0]?.read.state).toBe("invalid");
-    expect((s.data.brandKits as unknown[])[0]).toMatchObject({ branding: bad });
-  });
-
-  it("reports a refused move and keeps the old key for the next read", async () => {
-    const s = fakeStorageArea({ brandKit: kit });
-    s.refuse.set = new Error("quota");
-    const store = createBrandKitStore(() => s.area);
-    expect(await store.read()).toEqual({
-      state: "invalid",
-      reason: "storage refused moving your brand kit into the kit list: quota",
-      storageRefused: true,
-    });
-    expect(s.data).toEqual({ brandKit: kit });
-    expect(s.area.remove).not.toHaveBeenCalled();
-    // The next read retries, and succeeds.
-    expect((await store.read()).state).toBe("ready");
-    expect(s.data).not.toHaveProperty("brandKit");
-  });
-
-  it("says the migration is pending when the old key could not be removed, and retries", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const s = fakeStorageArea({ brandKit: kit });
-    s.refuse.remove = new Error("busy");
-    const store = createBrandKitStore(() => s.area);
-    const first = await store.read();
-    expect(first.state === "ready" && first.migrationPending).toBe(true);
-    expect(info).toHaveBeenCalledWith(
-      expect.stringMatching(/could not remove the old brand kit key/),
-      expect.any(Error),
-    );
-    const second = await store.read();
-    expect(second.state === "ready" && second.migrationPending).toBe(false);
-    // The retry did not migrate twice: one kit, same id.
-    expect(second.state === "ready" && second.kits.map((k) => k.id)).toEqual([
-      "kit-migrated",
-    ]);
-    info.mockRestore();
-  });
-
+describe("read", () => {
   it("reads nothing stored as no kits, and writes nothing", async () => {
     const s = fakeStorageArea();
     expect(await createBrandKitStore(() => s.area).read()).toEqual({
       state: "ready",
       kits: [],
       defaultId: null,
-      migrationPending: false,
     });
     expect(s.area.set).not.toHaveBeenCalled();
   });
@@ -202,46 +112,7 @@ describe("the kit lock", () => {
   const kitNamed = (id: string, name: string) => ({ id, name, branding: kit });
   const names = (data: Record<string, unknown>) =>
     (data.brandKits as { name: string }[]).map((k) => k.name);
-  /** The same storage, with a `get` that answers what was stored when it
-   *  was called but only after `release` — a page whose read is slow. */
-  const slowReader = (s: ReturnType<typeof fakeStorageArea>) => {
-    let release = (): void => undefined;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    const area = {
-      ...s.area,
-      get: async (keys: string[]) => {
-        const got = await s.area.get(keys);
-        await gate;
-        return got;
-      },
-    };
-    return { area, release };
-  };
   const drain = () => new Promise((r) => setTimeout(r, 0));
-
-  // Red without the lock: the slow page saw the old key and no list, the
-  // other page migrated and added a kit, then the slow page's step 1 wrote
-  // the one-kit list over it.
-  it("keeps a kit added while another page was still reading the old key", async () => {
-    const s = fakeStorageArea({ brandKit: kit });
-    const slow = slowReader(s);
-    const reading = createBrandKitStore(() => slow.area).read();
-    const adding = createBrandKitStore(() => s.area).update((cur) => ({
-      ...cur,
-      kits: [...cur.kits, kitNamed("n", "New")],
-    }));
-    await drain();
-    slow.release();
-    const [read, refused] = await Promise.all([reading, adding]);
-    expect(refused).toBeNull();
-    // The premise: the slow page did read the old key and migrate it.
-    expect(read.state === "ready" && read.kits.map((k) => k.id)).toEqual([
-      "kit-migrated",
-    ]);
-    expect(names(s.data)).toEqual(["Brand kit", "New"]);
-  });
 
   // Red without the lock (and was the shape of Settings' old kitWrite): an
   // update whose change awaits, with another page's update landing inside
@@ -300,7 +171,6 @@ describe("reset", () => {
       state: "ready",
       kits: [],
       defaultId: null,
-      migrationPending: false,
     });
   });
 
