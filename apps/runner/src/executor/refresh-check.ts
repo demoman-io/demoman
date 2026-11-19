@@ -108,6 +108,13 @@ export async function checkCurrent(
       say(`${kept.name}: recorded with no commit`);
       continue;
     }
+    // Committed text, not git's answer: it reaches a git argument (DEM-131).
+    if (!/^[0-9a-f]{7,64}$/.test(code.commit)) {
+      say(
+        `${kept.name}: recorded with no commit (its receipt's commit is not a commit id)`,
+      );
+      continue;
+    }
     const short = code.commit.slice(0, 7);
     const paths = await deps.changedSince(code.commit);
     if (!Array.isArray(paths)) {

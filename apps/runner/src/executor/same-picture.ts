@@ -12,7 +12,7 @@ import type {
   PictureUnreadable,
 } from "../decode-probe-entry.js";
 import { DECODE_PROBE_GLOBAL } from "../entry-globals.js";
-import { listenOnLoopback } from "../loopback.js";
+import { loopbackGuard } from "../loopback.js";
 import type { BrowserSession } from "./browser.js";
 
 type Look = { name: string; block: number; levels: number; allowed: number };
@@ -174,14 +174,15 @@ export async function sameScreens(
         "no screen settled in both the committed video and the new one",
       ),
     };
+  const guard = loopbackGuard();
   const files = new Map<string, Buffer>();
   const paths = new Map<string, string>();
   for (const step of pairs) {
     const name = screenImageName(step);
     const sizes: string[] = [];
     for (const [prefix, side] of [
-      ["/a/", committed],
-      ["/b/", fresh],
+      [`${guard.prefix}/a/`, committed],
+      [`${guard.prefix}/b/`, fresh],
     ] as const) {
       const path = join(side.dir, name);
       paths.set(`${prefix}${name}`, path);
@@ -220,10 +221,15 @@ export async function sameScreens(
   const work = await deps.session.openWorkPage();
   if (!work.ok) throw new Error(`no page to decode on: ${work.detail}`);
   const server = createServer((req, res) => {
-    const bytes = files.get(req.url ?? "");
-    if (bytes === undefined) {
+    if (guard.refused(req, res)) return;
+    if (req.url === "/") {
       res.writeHead(200, { "content-type": "text/html" });
       res.end("<!doctype html><meta charset=utf-8><title>compare</title>");
+      return;
+    }
+    const bytes = files.get(req.url ?? "");
+    if (bytes === undefined) {
+      res.writeHead(404).end();
       return;
     }
     res.writeHead(200, {
@@ -235,7 +241,7 @@ export async function sameScreens(
   let diff: ImagesDiff | PictureUnreadable;
   try {
     // Loopback: `about:blank` is not a secure context.
-    const origin = await listenOnLoopback(server);
+    const origin = await guard.listen(server);
     await work.page.goto(origin);
     await work.page.addScriptTag({ content: await bundleEntry(ENTRY_PATH) });
     diff = await work.page.evaluate(
@@ -252,8 +258,8 @@ export async function sameScreens(
       },
       [
         DECODE_PROBE_GLOBAL,
-        urls("/a/"),
-        urls("/b/"),
+        urls(`${guard.prefix}/a/`),
+        urls(`${guard.prefix}/b/`),
         STILL_LOOKS.map(({ block, levels }) => ({ block, levels })),
       ] as const,
     );
