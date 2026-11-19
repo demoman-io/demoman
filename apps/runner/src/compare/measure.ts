@@ -59,7 +59,10 @@ export async function createMeasurer(options?: {
   /** Tests only: sees the loopback server, to check setup closed it. */
   onServer?: (server: Server) => void;
 }): Promise<Measurer> {
-  const launched = await launch({ headless: true });
+  const launched = await launch({
+    headless: true,
+    log: (line) => console.error(`measure: ${line}`),
+  });
   let served: string | null = null;
   /** Why the server could not hand the page the file, for the measure that
    *  asked; the page sees only a failed fetch. */

@@ -90,7 +90,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       : { executablePath: deps.executablePath };
   const start = async (headless: boolean): Promise<Launched | null> => {
     try {
-      return await launchFn({ headless, ...exe });
+      return await launchFn({ headless, ...exe, log: say });
     } catch (error) {
       say(classifyLaunchError(error, undefined, deps.installCommand).detail);
       return null;

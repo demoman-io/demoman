@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { REPLAY_DPR } from "@demoman/replay-engine";
 import { type Browser, chromium } from "playwright";
 import { describe, expect, it } from "vitest";
@@ -120,6 +123,104 @@ describe("launch", () => {
     } finally {
       await launched.close();
     }
+  }, 30_000);
+
+  // DEM-120. Red: drop `chromiumSandbox: true` from `launchSandboxed`;
+  // Playwright then adds `--no-sandbox`. Strict on macOS, which always
+  // sandboxes; a Linux that cannot must say so, and only then go without.
+  it("runs Chromium with its sandbox, or says why it cannot", async () => {
+    const logs: string[] = [];
+    const launched = await launch({ log: (l) => logs.push(l) });
+    try {
+      // The process's own argv: Browser.getBrowserCommandLine answers only
+      // under --enable-automation, which Playwright does not pass.
+      const cdp = await launched.browser.newBrowserCDPSession();
+      const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
+      await cdp.detach();
+      const pid = processInfo.find((p) => p.type === "browser")?.id;
+      expect(pid, JSON.stringify(processInfo)).toBeTypeOf("number");
+      const argv = execFileSync(
+        "ps",
+        ["-ww", "-o", "args=", "-p", String(pid)],
+        {
+          encoding: "utf8",
+        },
+      ).split(" ");
+      const evidence = `${argv.join(" ")}\nlog: ${logs.join("\n")}`;
+      // Premise: this is the command line launch() built, not some other.
+      expect(argv, evidence).toContain("--headless");
+      // Either line: this launch's own failure, or one earlier in the file
+      // (a launch with no log, as GitHub's Ubuntu runners give, 2026-11-18).
+      const without = logs.some((l) => l.includes("runs without"));
+      if (process.platform === "darwin") expect(without, evidence).toBe(false);
+      expect(argv.includes("--no-sandbox"), evidence).toBe(without);
+    } finally {
+      await launched.close();
+    }
+  }, 30_000);
+
+  // Red: rethrow instead of relaunching, relaunch without the log line,
+  // relaunch only on Playwright's "Chromium sandboxing failed!" rewrite, or
+  // stay quiet on a launch after the first.
+  it("launches without the sandbox on a machine that cannot run it, and says so every time", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-nosandbox-"));
+    const exe = join(dir, "chrome");
+    const tries = join(dir, "tries");
+    // Fails unless told --no-sandbox, then is the real browser. Its words
+    // are a namespace failure Playwright does not rewrite. Each sandboxed
+    // try leaves a line in `tries`.
+    await writeFile(
+      exe,
+      `#!/bin/sh\ncase " $* " in *" --no-sandbox "*) exec "${chromium.executablePath()}" "$@";; esac\necho x >> "${tries}"\necho "Failed to move to new namespace (stand-in)" >&2\nexit 1\n`,
+    );
+    await chmod(exe, 0o755);
+    const logs: string[] = [];
+    const log = (l: string) => logs.push(l);
+    const launched = await launch({ executablePath: exe, log });
+    try {
+      // Premise: the relaunch reached a real browser.
+      expect(launched.browser.isConnected()).toBe(true);
+      expect(logs.join("\n")).toContain(
+        "would not start with Chromium's sandbox",
+      );
+    } finally {
+      await launched.close();
+    }
+    // The next launch, with another log, goes straight without it (no
+    // second sandboxed try) and still says so.
+    const later: string[] = [];
+    const again = await launch({
+      executablePath: exe,
+      log: (l) => later.push(l),
+    });
+    try {
+      expect(again.browser.isConnected()).toBe(true);
+      expect(await readFile(tries, "utf8")).toBe("x\n");
+      expect(later.join("\n")).toContain("earlier in this process");
+    } finally {
+      await again.close();
+    }
+  }, 30_000);
+
+  // Red: throw the relaunch's error without the first one's words.
+  it("names both failures when the browser will not start either way", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-nobrowser-"));
+    const exe = join(dir, "chrome");
+    await writeFile(
+      exe,
+      `#!/bin/sh\necho "nothing here (stand-in)" >&2\nexit 1\n`,
+    );
+    await chmod(exe, 0o755);
+    const logs: string[] = [];
+    const failed = await launch({
+      executablePath: exe,
+      log: (l) => logs.push(l),
+    })
+      .then(() => null)
+      .catch((error: unknown) => String(error));
+    expect(failed).toContain("with its sandbox, it had failed first");
+    // Nothing claims a browser runs.
+    expect(logs).toEqual([]);
   }, 30_000);
 
   // Red: drop endBrowser's kill, leaving only `browser.close()`, which waits

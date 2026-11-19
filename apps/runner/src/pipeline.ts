@@ -239,7 +239,7 @@ export const runPipeline: RunPipeline = async (input) => {
   // is exactly the leak that shipped.
   let launched: Launched;
   try {
-    launched = await launch();
+    launched = await launch({ log: report });
   } catch (error) {
     const install = chromiumInstallCommand();
     const failure: PipelineResult = {

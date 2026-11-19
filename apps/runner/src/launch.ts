@@ -4,6 +4,7 @@ import {
   type BrowserContext,
   type CDPSession,
   chromium,
+  type LaunchOptions,
   type Page,
 } from "playwright";
 import { HELD_FLAGS } from "./executor/held.js";
@@ -195,6 +196,60 @@ async function visibleUserAgentOr(
   }
 }
 
+/** Per executable, why it would not start with its sandbox in this process:
+ *  later launches go straight without it instead of failing first again. */
+const sandboxRefused = new Map<string, string>();
+
+/**
+ * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
+ * asked not to, and nearly every page a run opens is a third party's
+ * (DEM-120). A machine that cannot sandbox (a container running as root, a
+ * Linux whose user namespaces are closed, as GitHub's Ubuntu runners are)
+ * still launches, without it, and says so every time. Any failure counts, not only Playwright's "Chromium
+ * sandboxing failed!": Chromium's namespace and zygote failures do not all
+ * carry it, and a browser that would not start either way still fails.
+ */
+async function launchSandboxed(
+  options: LaunchOptions,
+  log: ((line: string) => void) | undefined,
+): Promise<Browser> {
+  const exe = options.executablePath ?? "";
+  const earlier = sandboxRefused.get(exe);
+  if (earlier !== undefined) {
+    const browser = await chromium.launch({
+      ...options,
+      chromiumSandbox: false,
+    });
+    // Said on every such launch: the caller that asked first may not be
+    // the one reading (CI, 2026-11-18: a test with no log took the line).
+    log?.(
+      `the browser runs without Chromium's sandbox, which would not start earlier in this process (${earlier}): the pages it opens are not walled off from this machine`,
+    );
+    return browser;
+  }
+  let first: string;
+  try {
+    return await chromium.launch({ ...options, chromiumSandbox: true });
+  } catch (error) {
+    first = String(error instanceof Error ? error.message : error).split(
+      "\n",
+    )[0] as string;
+  }
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ ...options, chromiumSandbox: false });
+  } catch (error) {
+    if (error instanceof Error)
+      error.message += `\n(with its sandbox, it had failed first: ${first})`;
+    throw error;
+  }
+  sandboxRefused.set(exe, first);
+  log?.(
+    `the browser would not start with Chromium's sandbox (${first}), so it runs without it: the pages it opens are not walled off from this machine`,
+  );
+  return browser;
+}
+
 /**
  * Launches a real Chromium, wires up the two ports the replay engine cannot
  * get from Node itself (`CdpSession`, `Clock`), and hands both back next to
@@ -258,21 +313,24 @@ export async function launch(options?: {
 }): Promise<Launched> {
   const headless = options?.headless ?? true;
   const display = headless ? options?.display : undefined;
-  const browser = await chromium.launch({
-    headless,
-    ...(options?.executablePath === undefined
-      ? {}
-      : { executablePath: options.executablePath }),
-    args: [
-      ...(display !== undefined
-        ? displayArgs(display)
-        : headless && options?.scale !== undefined
-          ? [`--screen-info={devicePixelRatio=${options.scale}}`]
-          : []),
-      ...(headless ? HEADLESS_GPU_ARGS : []),
-      ...(headless && options?.held === true ? HELD_FLAGS : []),
-    ],
-  });
+  const browser = await launchSandboxed(
+    {
+      headless,
+      ...(options?.executablePath === undefined
+        ? {}
+        : { executablePath: options.executablePath }),
+      args: [
+        ...(display !== undefined
+          ? displayArgs(display)
+          : headless && options?.scale !== undefined
+            ? [`--screen-info={devicePixelRatio=${options.scale}}`]
+            : []),
+        ...(headless ? HEADLESS_GPU_ARGS : []),
+        ...(headless && options?.held === true ? HELD_FLAGS : []),
+      ],
+    },
+    options?.log,
+  );
   let pid: number | null = null;
   try {
     pid = await browserPid(browser);
