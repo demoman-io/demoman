@@ -25,16 +25,23 @@ import {
   type LibraryViewChoice,
   pathFor,
   placeSearch,
+  STUDIO_COOKIE,
   type TakesAnswer,
 } from "@demoman/studio-protocol";
-import type { Page, Route } from "playwright";
+import { type Browser, chromium, type Page, type Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOAST_MS } from "../../pages/src/shell/toast.js";
 import type { StudioCi } from "../../src/repo-ci.js";
 import {
+  contrast,
   distance,
+  inkOnFill,
+  installDrawnOpacity,
   limeOutsideItsPlaces,
   luma,
   pixelsAt,
+  type Rgb,
+  relativeLuminance,
 } from "./look-probes.js";
 import type { PlainTake } from "./painted-take.js";
 import {
@@ -231,20 +238,235 @@ function offerPaint(page: Page) {
   });
 }
 
-/** WCAG relative luminance of a computed `rgb()`/`rgba()` colour. */
-function luminance(css: string): number {
+/** A computed `rgb()`/`rgba()` colour's channels, and its alpha (1 when
+ *  it has none). */
+function rgbIn(css: string): { rgb: Rgb; alpha: number } {
   const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(
     css,
   );
   if (m === null) throw new Error(`not an rgb() colour: ${css}`);
-  if (m[4] !== undefined && Number(m[4]) < 1) {
-    throw new Error(`the body's background is not opaque: ${css}`);
-  }
-  const [r, g, b] = [m[1], m[2], m[3]].map((v) => {
-    const c = Number(v) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  }) as [number, number, number];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return {
+    rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
+    alpha: m[4] === undefined ? 1 : Number(m[4]),
+  };
+}
+
+/** WCAG relative luminance of a computed, opaque `rgb()` colour. */
+function luminance(css: string): number {
+  const { rgb, alpha } = rgbIn(css);
+  if (alpha < 1) throw new Error(`the body's background is not opaque: ${css}`);
+  return relativeLuminance(rgb);
+}
+
+/**
+ * Every control wholly on screen as painted (DEM-215): shown (a box, not
+ * hidden, drawn at full opacity, not disabled, not clipped away by a
+ * scroller), and of those, each one whose centre another element is
+ * painted over, and each pair whose boxes overlap (an ancestor and its
+ * descendant aside). `boxes` is what `inkOnFill` reads.
+ */
+function controlsPainted(page: Page) {
+  return page.evaluate(() => {
+    const name = (el: Element): string => {
+      const attrs = [...el.attributes]
+        .filter((a) => a.name === "id" || a.name.startsWith("data-"))
+        .map((a) =>
+          a.value === ""
+            ? `[${a.name}]`
+            : `[${a.name}=${a.value.slice(0, 20)}]`,
+        )
+        .join("");
+      const label =
+        el.getAttribute("aria-label") ??
+        (el as HTMLElement).innerText?.trim().slice(0, 24) ??
+        "";
+      return `${el.tagName.toLowerCase()}${attrs} "${label}"`;
+    };
+    const clipped = (el: Element, x: number, y: number): boolean => {
+      for (let n = el.parentElement; n !== null; n = n.parentElement) {
+        if (getComputedStyle(n).overflow === "visible") continue;
+        const r = n.getBoundingClientRect();
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) return true;
+      }
+      return false;
+    };
+    const shown = [
+      ...document.querySelectorAll<HTMLElement>(
+        "button, a[href], input:not([type=hidden]), select, textarea, [role=tab], [role=menuitem]",
+      ),
+    ].filter((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return false;
+      if (r.left < 0 || r.top < 0 || r.right > innerWidth) return false;
+      if (r.bottom > innerHeight) return false;
+      if (getComputedStyle(el).visibility !== "visible") return false;
+      if (window.drawnOpacity(el) < 0.99) return false;
+      if ((el as HTMLButtonElement).disabled) return false;
+      if (el.getAttribute("aria-disabled") === "true") return false;
+      return !clipped(el, r.left + r.width / 2, r.top + r.height / 2);
+    });
+    const covered: string[] = [];
+    const uncovered: HTMLElement[] = [];
+    for (const el of shown) {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      if (hit !== null && !el.contains(hit) && !hit.contains(el)) {
+        covered.push(`${name(el)} under ${name(hit)}`);
+      } else uncovered.push(el);
+    }
+    const overlaps: string[] = [];
+    for (const [i, a] of uncovered.entries()) {
+      for (const b of uncovered.slice(i + 1)) {
+        if (a.contains(b) || b.contains(a)) continue;
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        const w = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+        const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+        if (w > 1 && h > 1) {
+          overlaps.push(
+            `${name(a)} and ${name(b)} by ${Math.round(w)}x${Math.round(h)}`,
+          );
+        }
+      }
+    }
+    return {
+      covered,
+      overlaps,
+      boxes: uncovered.map((el) => {
+        const r = el.getBoundingClientRect();
+        // Only words that are painted: shown, drawn, and not cut away by a
+        // clip or a scroller between them and the control (a
+        // `.visually-hidden` name is a 1px box, clipped to nothing).
+        const texts: DOMRect[] = [];
+        const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let t = walk.nextNode(); t !== null; t = walk.nextNode()) {
+          const parent = t.parentElement;
+          if ((t.textContent ?? "").trim() === "" || parent === null) continue;
+          if (getComputedStyle(parent).visibility !== "visible") continue;
+          if (window.drawnOpacity(parent) < 0.01) continue;
+          const range = document.createRange();
+          range.selectNodeContents(t);
+          for (const q of range.getClientRects()) {
+            let box = { l: q.left, t: q.top, r: q.right, b: q.bottom };
+            for (
+              let n: Element | null = parent;
+              n !== null;
+              n = n.parentElement
+            ) {
+              const cs = getComputedStyle(n);
+              if (cs.clipPath !== "none" || cs.clip !== "auto") box.r = box.l;
+              if (cs.overflow !== "visible") {
+                const c = n.getBoundingClientRect();
+                box = {
+                  l: Math.max(box.l, c.left),
+                  t: Math.max(box.t, c.top),
+                  r: Math.min(box.r, c.right),
+                  b: Math.min(box.b, c.bottom),
+                };
+              }
+              if (n === el) break;
+            }
+            if (box.r - box.l >= 2 && box.b - box.t >= 2) {
+              texts.push(
+                new DOMRect(box.l, box.t, box.r - box.l, box.b - box.t),
+              );
+            }
+          }
+        }
+        const left = Math.min(...texts.map((q) => q.left)) - 1;
+        const top = Math.min(...texts.map((q) => q.top)) - 1;
+        return {
+          name: name(el),
+          field: el.matches("input, select, textarea"),
+          words:
+            texts.length === 0
+              ? null
+              : {
+                  x: left,
+                  y: top,
+                  width: Math.max(...texts.map((q) => q.right)) + 1 - left,
+                  height: Math.max(...texts.map((q) => q.bottom)) + 1 - top,
+                },
+          x: r.left,
+          y: r.top,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    };
+  });
+}
+
+/** The least contrast a control's ink keeps on its fill: WCAG's 3:1 for a
+ *  control's glyphs (1.4.11), which the quietest ink here, `--ink-4` on
+ *  the near-black ground, clears at about 4.4:1. */
+const INK_CONTRAST = 3;
+
+/** A phone as Playwright emulates one (DEM-215): a context of its own on
+ *  `browser`, 390x844 at 3x, mobile, touch and a dark system, carrying the
+ *  Studio's cookie, as the window's entry link would set it. */
+async function phonePage(browser: Browser, studio: Studio): Promise<Page> {
+  const phone = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: "dark",
+  });
+  await installDrawnOpacity(phone);
+  await phone.addCookies([
+    { name: STUDIO_COOKIE, value: studio.state.token, url: studio.origin },
+  ]);
+  return phone.newPage();
+}
+
+/**
+ * A timeline handle as the pointer finds it (DEM-215): its box, whether
+ * the point at its middle is the handle and what covers it if not, its
+ * opacity, and of its grab area (the bar and its ::after, 6px inward)
+ * scanned a pixel across and two down, how many points land on it and the
+ * one nearest its middle.
+ */
+function edgeGrab(page: Page, selector: string) {
+  return page.evaluate((sel) => {
+    const e = document.querySelector<HTMLElement>(sel);
+    if (e === null) return null;
+    const r = e.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    let grabAt: { x: number; y: number } | null = null;
+    let grabbable = 0;
+    for (let gy = Math.ceil(r.top); gy < r.bottom; gy += 2) {
+      for (let gx = Math.ceil(r.left - 6); gx <= r.right + 2; gx += 1) {
+        if (document.elementFromPoint(gx, gy) !== e) continue;
+        grabbable += 1;
+        const d = Math.hypot(gx - x, gy - y);
+        if (grabAt === null || d < Math.hypot(grabAt.x - x, grabAt.y - y))
+          grabAt = { x: gx, y: gy };
+      }
+    }
+    return {
+      x,
+      y,
+      top: r.top,
+      bottom: r.bottom,
+      right: r.right,
+      onTop: hit === e,
+      cover:
+        hit === e
+          ? null
+          : ((
+              hit?.closest("[data-tick], button, [data-trim]") ?? hit
+            )?.outerHTML.slice(0, 160) ?? null),
+      grabAt,
+      grabbable,
+      opacity: getComputedStyle(e).opacity,
+    };
+  }, selector);
 }
 
 const ACME = "github.com/acme/web";
@@ -2407,42 +2629,80 @@ describe("the Studio's screenshot set", () => {
       // end pieces' — not their edges, not the trim (the author, 2026-10-22).
       const middle = await probe(".piece-wrap:nth-child(2) .piece");
       if (middle === null) throw new Error("no middle piece");
-      await page.mouse.move((middle.left + middle.right) / 2, middle.top + 4);
-      const shown = () =>
-        page.evaluate(() =>
-          Object.fromEntries(
-            [
-              [
-                "middle start",
-                '.piece-wrap:nth-child(2) > [data-edge="start"]',
-              ],
-              ["middle end", '.piece-wrap:nth-child(2) > [data-edge="end"]'],
-              ["first end", '.piece-wrap:first-child > [data-edge="end"]'],
-              ["head trim", '[data-trim="head"]'],
-            ].map(([name, sel]) => {
-              const n = document.querySelector(sel as string);
-              return [name, n === null ? null : getComputedStyle(n).opacity];
-            }),
-          ),
-        );
-      await vi.waitFor(
-        async () => {
-          const o = await shown();
-          if (o["middle start"] !== "1" || o["head trim"] !== "0")
-            throw new Error(`still changing: ${JSON.stringify(o)}`);
-        },
-        { timeout: PAINT_MS, interval: 50 },
-      );
-      expect(await shown()).toEqual({
+      const pointer = {
+        x: (middle.left + middle.right) / 2,
+        y: middle.top + 4,
+      };
+      // Any render from here rebuilds every piece (`renderTimeline`'s
+      // `replaceChildren`), and a rebuilt edge reads opacity 0 until Chrome
+      // re-applies :hover under the resting pointer and the 120 ms fade
+      // runs. On the macOS runner one landed between a read that matched
+      // and the next (DEM-212), so the rebuilds are counted as evidence.
+      await page.evaluate(() => {
+        const w = window as unknown as { __rebuilds: number };
+        w.__rebuilds = 0;
+        new MutationObserver(() => {
+          w.__rebuilds += 1;
+        }).observe(document.querySelector("#timeline") as Element, {
+          childList: true,
+        });
+      });
+      await page.mouse.move(pointer.x, pointer.y);
+      const want = {
         "middle start": "1",
         "middle end": "1",
         "first end": "0",
         "head trim": "0",
-      });
-
-      await page.screenshot({
-        path: join(SHOTS, "editor-split-1280x720-dark.png"),
-      });
+      };
+      /** The handles' opacities, and why: which piece is hovered and which
+       *  selected, what is under the pointer, and the rebuilds so far. */
+      const shown = () =>
+        page.evaluate(({ x, y }) => {
+          const wraps = [...document.querySelectorAll(".piece-wrap")];
+          return {
+            opacity: Object.fromEntries(
+              [
+                [
+                  "middle start",
+                  '.piece-wrap:nth-child(2) > [data-edge="start"]',
+                ],
+                ["middle end", '.piece-wrap:nth-child(2) > [data-edge="end"]'],
+                ["first end", '.piece-wrap:first-child > [data-edge="end"]'],
+                ["head trim", '[data-trim="head"]'],
+              ].map(([name, sel]) => {
+                const n = document.querySelector(sel as string);
+                return [name, n === null ? null : getComputedStyle(n).opacity];
+              }),
+            ),
+            hovered: wraps.findIndex((w) => w.matches(":hover")),
+            selected: wraps.findIndex((w) => w.hasAttribute("data-selected")),
+            under: document.elementFromPoint(x, y)?.outerHTML.slice(0, 120),
+            rebuilds: (window as unknown as { __rebuilds: number }).__rebuilds,
+          };
+        }, pointer);
+      const matches = (o: Awaited<ReturnType<typeof shown>>) =>
+        JSON.stringify(o.opacity) === JSON.stringify(want);
+      // The shot sits between two reads that both show the middle piece's
+      // handles alone, so it is a picture of that state; a rebuild between
+      // them shoots again.
+      await vi.waitFor(
+        async () => {
+          const before = await shown();
+          if (!matches(before))
+            throw new Error(
+              `the middle piece's handles are not ${JSON.stringify(want)}: ${JSON.stringify({ before, pointer })}`,
+            );
+          await page.screenshot({
+            path: join(SHOTS, "editor-split-1280x720-dark.png"),
+          });
+          const after = await shown();
+          if (!matches(after) || after.rebuilds !== before.rebuilds)
+            throw new Error(
+              `the handles changed, or #timeline was rebuilt, while shot: ${JSON.stringify({ before, after, pointer })}`,
+            );
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
 
       // The dot opens a card, inside the window, and its Restore restores.
       await page.mouse.move(dot.cx, dot.cy);
@@ -4838,11 +5098,18 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A phone as Chrome's device mode makes one (2026-11-03): touch, no
-  // hover, 390x844 at 3x. A narrowed desktop window still hovers, and
-  // the row actions it hides at rest were drawn over Recorded on a phone.
+  // A phone, emulated as Playwright makes one (DEM-215; CDP overrides on
+  // the app window until then): a context of its own, 390x844 at 3x,
+  // mobile, touch, and a dark system, on the Studio's cookie. Not a resized
+  // window, which still hovers: the row actions it hides at rest were drawn
+  // over Recorded on a phone (2026-11-03). Each surface (the list, a flow
+  // opened, a row's menu, a search, the cards, the editor and the Brand
+  // kit) is asserted on its paint: a phone's page under the shell's dark
+  // block, no sideways scroll, no control painted over another, and every
+  // control's ink standing off its fill by INK_CONTRAST; on the list, no
+  // row's ⋯ or buttons drawn over its Recorded date.
   it.runIf(process.platform === "darwin")(
-    "shoots the library, the editor and Settings as a phone draws them",
+    "shoots the library, the editor and the Brand kit as a phone draws them, in dark, each asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-phone-"));
       homes.push(home);
@@ -4851,92 +5118,1298 @@ describe("the Studio's screenshot set", () => {
       await mkdir(SHOTS, { recursive: true });
       const studio = await startStudio(home, join(home, "out"));
       running = studio;
-      const opened = await api(studio, "/api/window", {
-        method: "POST",
-        body: {},
-      });
-      expect(opened.status, opened.text).toBe(200);
-      const context = studio.context();
-      const page = context.pages()[0] as Page;
-      const cdp = await context.newCDPSession(page);
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
-        width: 390,
-        height: 844,
-        deviceScaleFactor: 3,
-        mobile: true,
-      });
-      await cdp.send("Emulation.setTouchEmulationEnabled", {
-        enabled: true,
-        maxTouchPoints: 5,
-      });
-      await cdp.send("Emulation.setEmulatedMedia", {
-        features: [
-          { name: "hover", value: "none" },
-          { name: "any-hover", value: "none" },
-          { name: "pointer", value: "coarse" },
-          { name: "any-pointer", value: "coarse" },
-        ],
-      });
-      const shoot = async (name: string) => {
-        const p = await page.evaluate(() => ({
-          w: innerWidth,
-          hoverNone: matchMedia("(hover: none)").matches,
-          scrollWidth: document.documentElement.scrollWidth,
-        }));
-        // Premises: the page is a phone's, and it hovers nothing.
-        expect(p, name).toMatchObject({ w: 390, hoverNone: true });
-        // Not `fullPage`: Playwright's resize for it drops the emulation
-        // above mid-shot, and a fading swap was caught half done.
-        await page.screenshot({ path: join(SHOTS, `phone-${name}.png`) });
+      let browser: Browser | null = null;
+      try {
+        browser = await chromium.launch({
+          headless: true,
+          executablePath: chromium.executablePath(),
+        });
+        const page = await phonePage(browser, studio);
+        const console_ = watchConsole(page);
+        const shots: string[] = [];
+        /** The least ink contrast on each surface, for the closing line. */
+        const least: string[] = [];
+        /** `designed`: the controls a page covers on purpose, by their
+         *  "<control> under <cover>" line. */
+        const shoot = async (
+          name: string,
+          controls = true,
+          designed: RegExp | null = null,
+        ) => {
+          await settle(page, `phone ${name}`);
+          const p = await page.evaluate(() => ({
+            w: innerWidth,
+            h: innerHeight,
+            dpr: devicePixelRatio,
+            hoverNone: matchMedia("(hover: none)").matches,
+            coarse: matchMedia("(pointer: coarse)").matches,
+            dark: matchMedia("(prefers-color-scheme: dark)").matches,
+            theme: document.documentElement.dataset.theme ?? null,
+            scheme: getComputedStyle(document.documentElement).colorScheme,
+            bg: getComputedStyle(document.body).backgroundColor,
+            scrollWidth: document.documentElement.scrollWidth,
+          }));
+          const at = `phone ${name} ${JSON.stringify(p)}`;
+          // Premises: a phone's page, that hovers nothing, under the
+          // shell's dark block (`:root[data-theme="dark"]`, which the build
+          // writes, with the system dark as well).
+          expect(p, `${at}: a dark phone`).toMatchObject({
+            w: 390,
+            h: 844,
+            dpr: 3,
+            hoverNone: true,
+            coarse: true,
+            dark: true,
+            theme: "dark",
+            scheme: "dark",
+          });
+          expect(luminance(p.bg), `${at}: the near-black ground`).toBeLessThan(
+            0.01,
+          );
+          const file = join(SHOTS, `phone-${name}.png`);
+          await page.screenshot({ path: file });
+          shots.push(file);
+          expect(
+            p.scrollWidth,
+            `${at}: no sideways scroll`,
+          ).toBeLessThanOrEqual(p.w);
+          if (!controls) return;
+          const c = await controlsPainted(page);
+          // The premise of the two below: there are controls to cover.
+          expect(c.boxes.length, `${at}: controls on screen`).toBeGreaterThan(
+            3,
+          );
+          // A cover the page draws on purpose is named, and must be there,
+          // so the exemption cannot outlive it.
+          const meant = (x: string) => designed?.test(x) === true;
+          if (designed !== null) {
+            expect(
+              [...c.covered, ...c.overlaps].filter(meant).length,
+              `${at}: the designed cover ${designed}: ${JSON.stringify(c)}`,
+            ).toBeGreaterThan(0);
+          }
+          expect(
+            c.covered.filter((x) => !meant(x)),
+            `${at}: no control painted over`,
+          ).toEqual([]);
+          expect(
+            c.overlaps.filter((x) => !meant(x)),
+            `${at}: no two controls overlap`,
+          ).toEqual([]);
+          const ink = (await inkOnFill(page, c.boxes)).sort(
+            (a, b) => a.contrast - b.contrast,
+          );
+          least.push(`${name} ${JSON.stringify(ink[0])}`);
+          expect(
+            ink.filter((i) => i.contrast < INK_CONTRAST),
+            `${at}: every control's ink stands off its fill by ${INK_CONTRAST}:1`,
+          ).toEqual([]);
+        };
+        /** Each list row on screen: its Recorded date as laid out, whether
+         *  that date is the thing painted at its middle, and the row's
+         *  shown ⋯ and buttons that are drawn over it. */
+        const recordedClear = () =>
+          page.evaluate(() =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                "[data-list] [role=row][data-key]",
+              ),
+            ]
+              .filter((r) => {
+                const b = r.getBoundingClientRect();
+                return b.height > 0 && b.top >= 0 && b.bottom <= innerHeight;
+              })
+              .map((r) => {
+                const cell = r.querySelector<HTMLElement>(
+                  ':scope > [data-col="recorded"]',
+                );
+                let date: DOMRect | null = null;
+                if (cell !== null) {
+                  const range = document.createRange();
+                  range.selectNodeContents(cell);
+                  const rects = [...range.getClientRects()].filter(
+                    (q) => q.width > 0,
+                  );
+                  if (rects.length > 0) {
+                    const left = Math.min(...rects.map((q) => q.left));
+                    const top = Math.min(...rects.map((q) => q.top));
+                    date = new DOMRect(
+                      left,
+                      top,
+                      Math.max(...rects.map((q) => q.right)) - left,
+                      Math.max(...rects.map((q) => q.bottom)) - top,
+                    );
+                  }
+                }
+                const hit =
+                  date === null
+                    ? null
+                    : document.elementFromPoint(
+                        date.left + date.width / 2,
+                        date.top + date.height / 2,
+                      );
+                const actions = [
+                  ...r.querySelectorAll<HTMLElement>(
+                    ".row-more, .row-actions button",
+                  ),
+                ].filter((b) => {
+                  const q = b.getBoundingClientRect();
+                  return (
+                    q.width > 0 &&
+                    getComputedStyle(b).visibility === "visible" &&
+                    window.drawnOpacity(b) > 0.01
+                  );
+                });
+                const over =
+                  date === null
+                    ? []
+                    : actions
+                        .filter((b) => {
+                          const q = b.getBoundingClientRect();
+                          return (
+                            q.left < (date as DOMRect).right &&
+                            q.right > (date as DOMRect).left &&
+                            q.top < (date as DOMRect).bottom &&
+                            q.bottom > (date as DOMRect).top
+                          );
+                        })
+                        .map(
+                          (b) =>
+                            b.getAttribute("aria-label") ??
+                            b.getAttribute("data-action"),
+                        );
+                return {
+                  row: r.getAttribute("aria-label"),
+                  flow: r.dataset.flow !== undefined,
+                  date: cell?.innerText.trim() ?? "",
+                  datePainted: hit !== null && cell?.contains(hit) === true,
+                  actions: actions.length,
+                  over,
+                };
+              }),
+          );
+        const checkRecorded = async (at: string) => {
+          const rows = await recordedClear();
+          const said = `${at}: ${JSON.stringify(rows)}`;
+          // The premises: rows with a date and a ⋯ each, or "nothing over
+          // the date" holds of a list that draws neither.
+          expect(rows.filter((r) => r.flow).length, said).toBeGreaterThan(2);
+          for (const r of rows.filter((r) => r.flow)) {
+            expect(r.date, said).not.toBe("");
+            expect(r.actions, `${said}: the row's ⋯ is drawn`).toBeGreaterThan(
+              0,
+            );
+          }
+          expect(
+            rows.filter(
+              (r) => r.date !== "" && (!r.datePainted || r.over.length > 0),
+            ),
+            `${said}: every date painted, nothing drawn over it (a day's heading has none)`,
+          ).toEqual([]);
+        };
+
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(`${studio.origin}/`);
+        await page.locator("[role=treegrid] [data-flow]").first().waitFor();
+        await shoot("library-list");
+        await checkRecorded("phone list");
+        await page
+          .locator("[role=treegrid] [data-flow] [data-col=open]")
+          .first()
+          .tap();
+        await page
+          .locator("[role=treegrid] [data-video-row]")
+          .first()
+          .waitFor();
+        await shoot("library-list-opened");
+        await checkRecorded("phone list opened");
+        // A row's buttons behind its ⋯ (none hover here), the menu open:
+        // Rename, Edit and Delete in it, each painted inside the window.
+        await page
+          .locator("[role=treegrid] [data-flow] .row-more")
+          .first()
+          .tap();
+        await page.locator(".row-menu:popover-open").waitFor();
+        await shoot("library-list-menu", false);
+        const menu = await page.evaluate(() =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              ".row-menu:popover-open [role=menuitem]",
+            ),
+          ].map((b) => {
+            const r = b.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              name: b.innerText.trim(),
+              x: r.left,
+              y: r.top,
+              width: r.width,
+              height: r.height,
+              inside:
+                r.left >= 0 &&
+                r.right <= innerWidth &&
+                r.top >= 0 &&
+                r.bottom <= innerHeight,
+              onTop: hit !== null && b.contains(hit),
+            };
+          }),
+        );
+        const menuSaid = `phone row menu: ${JSON.stringify(menu)}`;
+        expect(menu.map((m) => m.name).join(" "), menuSaid).toMatch(
+          /Rename.*Edit.*Delete/s,
+        );
         expect(
-          await page.evaluate(() => matchMedia("(hover: none)").matches),
-          `${name}: still a phone after the shot`,
-        ).toBe(true);
-        return p;
-      };
-      await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
-      await page.goto(`${studio.origin}/`);
-      await page.locator("[role=treegrid] [data-flow]").first().waitFor();
-      await settle(page, "phone list");
-      await shoot("library-list");
-      await page
-        .locator("[role=treegrid] [data-flow] [data-col=open]")
-        .first()
-        .click();
-      await settle(page, "phone list opened");
-      await shoot("library-list-opened");
-      // A row's buttons behind its ⋯ (none hover here), the menu open.
-      await page
-        .locator("[role=treegrid] [data-flow] .row-more")
-        .first()
-        .click();
-      await page.locator(".row-menu:popover-open").waitFor();
-      await shoot("library-list-menu");
-      await page.keyboard.press("Escape");
-      await page
-        .locator("[data-search] input, input[type=search]")
-        .first()
-        .fill("invoice");
-      await settle(page, "phone search");
-      await shoot("library-search");
-      await storeLibraryView(studio, GRID_VIEW);
-      await page.goto(`${studio.origin}/`);
-      await page.locator("article.card[data-row]").first().waitFor();
-      await settle(page, "phone grid");
-      await shoot("library-grid");
-      await page.goto(`${studio.origin}/editor.html?scene=${editorTake}`);
-      await page.locator("#preview").waitFor();
-      await settle(page, "phone editor");
-      await shoot("editor");
-      await page.goto(`${studio.origin}/settings.html`);
-      await page.locator("[data-kit-tile]").first().waitFor();
-      await settle(page, "phone settings");
-      await shoot("settings");
+          menu.filter((m) => !m.inside || !m.onTop),
+          `${menuSaid}: every item inside the window and on top`,
+        ).toEqual([]);
+        const menuInk = await inkOnFill(page, menu);
+        expect(
+          menuInk.filter((i) => i.contrast < INK_CONTRAST),
+          `${menuSaid}: ${JSON.stringify(menuInk)}`,
+        ).toEqual([]);
+        // Closed by a tap outside it, as a phone does: Escape is a case of
+        // its own below (a known bug).
+        // Right of the page title, where nothing is: lower down, a row
+        // would open the editor. Checked, not assumed: what is painted
+        // there is nothing a tap acts on.
+        const empty = await page.evaluate(() => {
+          const hit = document.elementFromPoint(380, 104);
+          return {
+            hit: hit?.outerHTML.slice(0, 120) ?? null,
+            acts:
+              hit
+                ?.closest(
+                  "button, a, input, select, textarea, [role=row], [tabindex]",
+                )
+                ?.outerHTML.slice(0, 120) ?? null,
+          };
+        });
+        expect(
+          empty.acts,
+          `the tap's point is nothing to act on: ${JSON.stringify(empty)}`,
+        ).toBeNull();
+        await page.touchscreen.tap(380, 104);
+        await page.locator(".row-menu:popover-open").waitFor({
+          state: "detached",
+        });
+        /** The flow rows shown, by their names. */
+        const flowNames = () =>
+          page.evaluate(() =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                "[role=treegrid] [data-flow]",
+              ),
+            ]
+              .filter((r) => r.getBoundingClientRect().height > 0)
+              .map((r) => r.getAttribute("aria-label") ?? ""),
+          );
+        const unfiltered = await flowNames();
+        // The premise: some flows shown now name no invoice.
+        expect(
+          unfiltered.filter((n) => !/invoice/i.test(n)).length,
+          `before the search: ${JSON.stringify(unfiltered)}`,
+        ).toBeGreaterThan(0);
+        await page
+          .locator("[data-search] input, input[type=search]")
+          .first()
+          .fill("invoice");
+        // Until the rows are the query's: every flow shown names an
+        // invoice, and the ones that do not are gone. The unfiltered list
+        // is on the page already, so a wait for any row passes at once.
+        const searched = await vi.waitFor(
+          async () => {
+            const names = await flowNames();
+            if (
+              names.length === 0 ||
+              names.length >= unfiltered.length ||
+              names.some((n) => !/invoice/i.test(n))
+            ) {
+              throw new Error(`the rows: ${JSON.stringify(names)}`);
+            }
+            return names;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        expect(searched, "the search's rows").toEqual([
+          "Create an invoice",
+          "Filter invoices",
+        ]);
+        // A held query keeps the box open over the place tabs on a phone
+        // (library index.html, "Open over the tabs").
+        await shoot(
+          "library-search",
+          true,
+          /^button\[data-tab=[^\]]+\] .* under input\[data-search\]/s,
+        );
+        await openPage(page, studio, "library", editorTake, new Set(), 6);
+        await shoot("library-grid");
+        await openPage(page, studio, "editor", editorTake, new Set());
+        // A step's tick is drawn on the clip's piece, a button over a
+        // button, at every width (the split case shoots it at 1280).
+        await shoot(
+          "editor",
+          true,
+          /^button\[data-piece=\d+\] .* and button\[data-tick=/s,
+        );
+        await openPage(page, studio, "kits", editorTake, new Set());
+        // A kit's default star sits in its tile's corner, a button on the
+        // tile's button.
+        await shoot(
+          "settings",
+          true,
+          /^button\[data-kit-select=[^\]]+\] .* and button\[data-kit-star=/s,
+        );
+        expect(shots).toHaveLength(7);
+        expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+        console.info(`phone shots: least ink contrast ${least.join("; ")}`);
+      } finally {
+        await browser?.close();
+      }
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },
     LANE_MS,
   );
+
+  // Escape and a list row's ⋯ menu (DEM-215; "Escape closing only one
+  // panel"): the menu, opened by a tap on a phone, is the innermost thing
+  // open, so one Escape should take it off the painted page.
+  // Known: Escape with a row's ⋯ menu open moves focus to the row and leaves the menu open (list-keys.ts preventDefaults Escape in a cell, which cancels the popover's light dismiss) — DEM-231
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-231 is fixed this is red too; then it
+  // becomes the check that one Escape closes the menu.
+  it.runIf(process.platform === "darwin")(
+    "still leaves a list row's ⋯ menu open after one Escape on a phone (DEM-231), asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-menu-esc-"));
+      homes.push(home);
+      await seedHome(home, VIDEO_TAKES);
+      await joinVideo(home);
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const browser = await chromium.launch({
+        headless: true,
+        executablePath: chromium.executablePath(),
+      });
+      const run = async () => {
+        const page = await phonePage(browser, studio);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(`${studio.origin}/`);
+        await page
+          .locator("[role=treegrid] [data-flow] .row-more")
+          .first()
+          .tap();
+        const menu = () =>
+          page.evaluate(() => {
+            const m = document.querySelector<HTMLElement>(
+              ".row-menu:popover-open",
+            );
+            const r = m?.getBoundingClientRect();
+            const hit =
+              r === undefined
+                ? null
+                : document.elementFromPoint(
+                    r.left + r.width / 2,
+                    r.top + r.height / 2,
+                  );
+            return {
+              painted: m != null && hit !== null && m.contains(hit),
+              active: document.activeElement?.outerHTML.slice(0, 100) ?? null,
+            };
+          });
+        // The premise: the menu is open and painted.
+        const opened = await vi.waitFor(
+          async () => {
+            const m = await menu();
+            if (!m.painted)
+              throw new Error(`no menu painted: ${JSON.stringify(m)}`);
+            return m;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        await page.keyboard.press("Escape");
+        const file = join(SHOTS, "phone-library-list-menu-escape.png");
+        try {
+          // 3 s, not PAINT_MS: the bug waits all of it each run, and a
+          // popover's light dismiss lands in the press's own task.
+          await vi.waitFor(
+            async () => {
+              const m = await menu();
+              if (m.painted) throw new Error(JSON.stringify(m));
+            },
+            { timeout: 3_000, interval: 50 },
+          );
+        } catch (error) {
+          await page.screenshot({ path: file });
+          throw new Error(
+            `one Escape left the row's menu painted: ${String(error)}; before the press ${JSON.stringify(opened)}; shot ${file}`,
+          );
+        }
+      };
+      try {
+        await expect(run(), "DEM-231, and nothing else").rejects.toThrow(
+          /^one Escape left the row's menu painted/,
+        );
+      } finally {
+        await browser.close();
+        running = null;
+        await studio.stop();
+      }
+    },
+    LANE_MS,
+  );
+
+  // The editor under a real pointer and keys (DEM-215): what the author
+  // caught by eye, each by Playwright's mouse and keyboard (never a
+  // synthetic event, which cannot lose a pointer capture it never took),
+  // each asserted on the painted result. On the take with a cut, split
+  // twice into three pieces:
+  // - hover: the middle piece lights, by its computed fill and its pixels,
+  //   and its neighbours keep their rest fill (a hover once lit the lane);
+  // - drag (first, on the take's one piece, before any edit): its end
+  //   handle is what the pointer finds where it grabs, follows the drag,
+  //   and on release the take is shorter on the page, its ruler stretched
+  //   (handles once could not be grabbed);
+  // - Space with Repeat just pressed by the mouse, so focused: the clock
+  //   runs and Repeat's paint is unchanged (Space once toggled Repeat);
+  // - the pause glyph, while playing, stands off its disc (it was white on
+  //   white);
+  // - Escape with Take info open over the Keyboard shortcuts panel: one
+  //   press each, innermost first (the author, 2026-10-19), and after two
+  //   both are gone from the painted page.
+  it.runIf(process.platform === "darwin")(
+    "hovers and drags a split piece, plays with Space past a pressed Repeat, and closes two panels with Escape, by a real pointer and keys, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-pointer-"));
+      homes.push(home);
+      await seedHome(home);
+      await mkdir(SHOTS, { recursive: true });
+      const cutTake = PLAIN.find((t) => (t.cuts ?? []).length > 0);
+      if (cutTake === undefined)
+        throw new Error("PLAIN has no take with a cut");
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      await sizeWindow(context, page, 1280, 720);
+      await openPage(page, studio, "editor", cutTake.id, new Set());
+      /** Shoots `name` between two reads that both pass `check`, so the
+       *  shot is a picture of that state; a change between them reads and
+       *  shoots again (DEM-212's pattern). */
+      const shootWhile = async (
+        name: string,
+        check: () => Promise<string | null>,
+      ) => {
+        const file = join(SHOTS, `${name}-1280x720-dark.png`);
+        await vi.waitFor(
+          async () => {
+            const before = await check();
+            if (before !== null) throw new Error(`${name}: ${before}`);
+            await page.screenshot({ path: file });
+            const after = await check();
+            if (after !== null)
+              throw new Error(`${name}: changed while shot: ${after}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        shots.push(file);
+      };
+
+      /** Each piece's computed fill and box, and which is hovered. */
+      const pieces = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".piece-wrap > .piece")].map((p) => {
+            const r = p.getBoundingClientRect();
+            return {
+              fill: getComputedStyle(p).backgroundColor,
+              left: r.left,
+              right: r.right,
+              width: r.width,
+              top: r.top,
+              bottom: r.bottom,
+              hovered: p.parentElement?.matches(":hover") === true,
+            };
+          }),
+        );
+      type Pieces = Awaited<ReturnType<typeof pieces>>;
+
+      // The drag first, before any edit: an edit's save comes back through
+      // the folder watch a moment later and rebuilds `#timeline`, and one
+      // landing mid-drag leaves the handle being dragged detached (seen in
+      // 3 of 5 runs when this drag followed the splits; see the report).
+      // The take's one piece has an end handle where its tail was removed.
+      // Waited for: the preview paints before the timeline draws its piece.
+      const only = await vi.waitFor(
+        async () => {
+          const f = await pieces();
+          if (f.length !== 1 || (f[0] as Pieces[number]).width === 0)
+            throw new Error(
+              `the take draws no one piece: ${JSON.stringify(f)}`,
+            );
+          return f[0] as Pieces[number];
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
+      await page.mouse.move((only.left + only.right) / 2, only.top + 4);
+      const edge = '.piece-wrap:only-child > [data-edge="end"]';
+      // Waited for whole: the handle shown, its 120 ms fade in run to the
+      // end, and a point of it the pointer lands on. The one nearest its
+      // middle: the middle itself is under a removed step's tick (DEM-232,
+      // the case after this one).
+      const found = await vi
+        .waitFor(
+          async () => {
+            const read = await edgeGrab(page, edge);
+            if (read === null || read.grabAt === null || read.opacity !== "1")
+              throw new Error(JSON.stringify(read));
+            return read;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        )
+        .catch((error: unknown) => {
+          throw new Error(
+            `the piece's end handle is not shown, or no point of it is under the pointer: ${String(error)}`,
+          );
+        });
+      const grab = {
+        ...(found.grabAt as { x: number; y: number }),
+        right: found.right,
+        grabbable: found.grabbable,
+      };
+      // Evidence for a red run: what the press landed on, and how often
+      // `#timeline` was rebuilt from here (a rebuild replaces the handle).
+      await page.evaluate((sel) => {
+        const w = window as unknown as {
+          __grabbed: Element | null;
+          __pressed: string;
+          __rebuilds: number;
+        };
+        w.__grabbed = document.querySelector(sel);
+        w.__pressed = "nothing";
+        w.__rebuilds = 0;
+        window.addEventListener(
+          "pointerdown",
+          (e) => {
+            w.__pressed = `${(e.target as Element).outerHTML.slice(0, 80)} (the handle read: ${e.target === w.__grabbed}; rebuilds before it: ${w.__rebuilds})`;
+          },
+          { capture: true, once: true },
+        );
+        new MutationObserver(() => {
+          w.__rebuilds += 1;
+        }).observe(document.querySelector("#timeline") as Element, {
+          childList: true,
+        });
+      }, edge);
+      /** The ruler's "0:01" as painted: its left edge. The view fits the
+       *  take, so the last piece's end stays at the lane's end whatever its
+       *  length, and a shorter take shows as the ruler stretching. */
+      const second = () =>
+        page.evaluate(
+          () =>
+            [...document.querySelectorAll<HTMLElement>(".ruler .tick")]
+              .find((t) => /^0:01(\.0)?$/.test(t.textContent?.trim() ?? ""))
+              ?.getBoundingClientRect().left ?? null,
+        );
+      const secondBefore = await second();
+      expect(secondBefore, "premise: the ruler labels 0:01").not.toBeNull();
+      await page.mouse.move(grab.x, grab.y);
+      await page.mouse.down();
+      await page.mouse.move(grab.x - 80, grab.y, { steps: 10 });
+      const midDrag = await page.evaluate((sel) => {
+        const w = window as unknown as {
+          __grabbed: Element | null;
+          __pressed: string;
+          __rebuilds: number;
+        };
+        const e = document.querySelector<HTMLElement>(sel);
+        return {
+          dragging: e?.hasAttribute("data-dragging") ?? false,
+          right: e?.getBoundingClientRect().right ?? Number.NaN,
+          readout: e?.getAttribute("data-readout") ?? null,
+          pressed: w.__pressed,
+          sameHandle: e === w.__grabbed,
+          rebuilds: w.__rebuilds,
+        };
+      }, edge);
+      await page.mouse.up();
+      const dragSaid = `the drag: ${JSON.stringify({ grab, midDrag })}`;
+      expect(midDrag.dragging, `${dragSaid}: held`).toBe(true);
+      expect(
+        Math.abs(midDrag.right - (grab.right - 80)),
+        `${dragSaid}: the handle follows the pointer`,
+      ).toBeLessThanOrEqual(3);
+      await page.mouse.move(0, 0);
+      const secondAfter = await vi
+        .waitFor(
+          async () => {
+            const at = await second();
+            if (at === null || at < (secondBefore as number) + 8)
+              throw new Error(
+                `0:01 at ${at}, from ${secondBefore}; pieces ${JSON.stringify(await pieces())}`,
+              );
+            return at;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        )
+        .catch(async (error: unknown) => {
+          throw new Error(
+            `${dragSaid}: the take did not shorten on the page: ${String(error)}; page: ${await pageEvidence(page)}`,
+          );
+        });
+      await settle(page, "the drag");
+      const draggedFile = join(SHOTS, "editor-piece-dragged-1280x720-dark.png");
+      await page.screenshot({ path: draggedFile });
+      shots.push(draggedFile);
+      console.info(
+        `editor pointer: the ruler's 0:01 at ${Math.round(secondBefore as number)} px before the drag, ${Math.round(secondAfter)} after`,
+      );
+
+      // Three pieces, as the split case makes them.
+      for (const want of [2, 3]) {
+        for (let i = 0; i < 2; i += 1)
+          await page.keyboard.press("Shift+ArrowRight");
+        await page.keyboard.press("Meta+b");
+        await vi.waitFor(
+          async () => {
+            const n = await page.locator(".piece-wrap").count();
+            if (n !== want) throw new Error(`${n} pieces, not ${want}`);
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+      }
+      await page.mouse.move(0, 0);
+      const rest = await vi.waitFor(
+        async () => {
+          const f = await pieces();
+          if (f.length !== 3 || f.some((p) => p.hovered))
+            throw new Error(`not three pieces at rest: ${JSON.stringify(f)}`);
+          return f;
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
+      // The premise: one fill at rest, so "lit" is a change of it.
+      expect(
+        new Set(rest.map((p) => p.fill)).size,
+        `the pieces at rest share one fill: ${JSON.stringify(rest)}`,
+      ).toBe(1);
+      const restFill = (rest[0] as Pieces[number]).fill;
+      const mid = rest[1] as Pieces[number];
+      const pointer = { x: (mid.left + mid.right) / 2, y: mid.top + 4 };
+      await page.mouse.move(pointer.x, pointer.y);
+      // Lit: the middle piece's computed fill changed and its pixels with
+      // it; its neighbours' fills are the rest fill and their pixels alike.
+      await shootWhile("editor-piece-hover", async () => {
+        const f = await pieces();
+        const [first, middle, last] = f as [
+          Pieces[number],
+          Pieces[number],
+          Pieces[number],
+        ];
+        const at = (p: Pieces[number]) =>
+          [p.left + p.width / 2 + 12, p.top + 4] as const;
+        const [a, b, c] = (await pixelsAt(page, [
+          at(first),
+          at(middle),
+          at(last),
+        ])) as [Rgb, Rgb, Rgb];
+        const read = { fills: f.map((p) => p.fill), restFill, a, b, c };
+        const lit =
+          middle.hovered &&
+          middle.fill !== restFill &&
+          first.fill === restFill &&
+          last.fill === restFill &&
+          distance(b, a) > 6 &&
+          distance(a, c) <= 6;
+        return lit
+          ? null
+          : `not the middle piece alone lit: ${JSON.stringify(read)}`;
+      });
+
+      // Space, with Repeat pressed by the mouse and so focused.
+      const transport = () =>
+        page.evaluate(() => {
+          const repeat = document.querySelector<HTMLElement>(
+            "[data-transport-repeat]",
+          );
+          const play = document.querySelector<HTMLElement>(
+            "[data-transport-play]",
+          );
+          const pip = repeat?.querySelector(".transport-pip");
+          const r = play?.getBoundingClientRect();
+          return {
+            repeat: {
+              pressed: repeat?.getAttribute("aria-pressed") ?? null,
+              pip: pip ? getComputedStyle(pip).opacity : null,
+              color: repeat ? getComputedStyle(repeat).color : null,
+            },
+            focused: document.activeElement === repeat,
+            playing: play?.hasAttribute("data-playing") ?? false,
+            glyph: play?.firstElementChild?.getAttribute("data-icon") ?? null,
+            disc: play ? getComputedStyle(play).backgroundColor : null,
+            ink: play ? getComputedStyle(play).color : null,
+            play: r
+              ? { x: r.left, y: r.top, width: r.width, height: r.height }
+              : null,
+            clock:
+              document.querySelector("#toolbar-clock .stage-clock")
+                ?.textContent ?? null,
+          };
+        });
+      const repeatBox = await page
+        .locator("[data-transport-repeat]")
+        .boundingBox();
+      if (repeatBox === null) throw new Error("no Repeat drawn");
+      const off = await transport();
+      expect(off, "the transport before Repeat").toMatchObject({
+        repeat: { pressed: "false" },
+        playing: false,
+      });
+      await page.mouse.click(
+        repeatBox.x + repeatBox.width / 2,
+        repeatBox.y + repeatBox.height / 2,
+      );
+      // Off it, and its hover fade run out, so both reads below are its
+      // resting paint; the focus stays where the click put it.
+      await page.mouse.move(0, 0);
+      await vi.waitFor(
+        async () => {
+          const t = await transport();
+          if (t.repeat.pressed !== "true" || t.repeat.pip !== "1")
+            throw new Error(`Repeat not lit: ${JSON.stringify(t)}`);
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
+      await settle(page, "Repeat pressed");
+      const on = await transport();
+      // The premise that lets this fail: Repeat holds the focus, where a
+      // Space the editor does not claim would press it.
+      expect(on.focused, `Repeat is focused: ${JSON.stringify(on)}`).toBe(true);
+      await page.keyboard.press("Space");
+      const playing = await vi
+        .waitFor(
+          async () => {
+            const t = await transport();
+            if (!t.playing || t.glyph !== "pause" || t.clock === on.clock)
+              throw new Error(JSON.stringify(t));
+            return t;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        )
+        .catch(async (error: unknown) => {
+          throw new Error(
+            `Space did not play: ${String(error)}; before ${JSON.stringify(on)}`,
+          );
+        });
+      expect(
+        playing.repeat,
+        `Repeat's paint after Space: ${JSON.stringify({ on, playing })}`,
+      ).toEqual(on.repeat);
+      // The pause glyph on its disc, while playing: computed and painted.
+      const disc = playing.play as NonNullable<typeof playing.play>;
+      await shootWhile("editor-playing", async () => {
+        const t = await transport();
+        if (!t.playing || t.glyph !== "pause")
+          return `not playing: ${JSON.stringify(t)}`;
+        return null;
+      });
+      const [glyph] = await inkOnFill(page, [{ name: "pause", ...disc }]);
+      const computed = contrast(
+        rgbIn(playing.ink ?? "").rgb,
+        rgbIn(playing.disc ?? "").rgb,
+      );
+      const glyphSaid = `the pause glyph: ${JSON.stringify({ glyph, computed, ink: playing.ink, disc: playing.disc })}`;
+      console.info(glyphSaid);
+      expect(glyph?.contrast, glyphSaid).toBeGreaterThanOrEqual(INK_CONTRAST);
+      expect(computed, glyphSaid).toBeGreaterThanOrEqual(INK_CONTRAST);
+      await page.keyboard.press("Space");
+      await vi.waitFor(
+        async () => {
+          const t = await transport();
+          if (t.playing) throw new Error(`still playing: ${JSON.stringify(t)}`);
+          expect(t.repeat, "Repeat after the second Space").toEqual(on.repeat);
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
+
+      // Escape: Take info open over the Keyboard shortcuts panel.
+      /** Whether each of the two is painted: a box, and the point at its
+       *  middle its own. */
+      const open = () =>
+        page.evaluate(() => {
+          const shown = (el: Element | null) => {
+            if (el === null) return false;
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return false;
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return hit !== null && el.contains(hit);
+          };
+          return {
+            takeInfo: shown(document.querySelector("#take-info")),
+            panel: shown(document.querySelector("#inspector")),
+            shortcuts: shown(
+              document.querySelector("#inspector [data-shortcuts-search]"),
+            ),
+          };
+        });
+      const waitOpen = (want: Awaited<ReturnType<typeof open>>, at: string) =>
+        vi
+          .waitFor(
+            async () => {
+              const o = await open();
+              if (JSON.stringify(o) !== JSON.stringify(want))
+                throw new Error(JSON.stringify(o));
+              return o;
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          )
+          .catch(async (error: unknown) => {
+            throw new Error(
+              `${at}: want ${JSON.stringify(want)}, painted ${String(error)}; page: ${await pageEvidence(page)}`,
+            );
+          });
+      await page.locator("#shortcuts-open").click();
+      await waitOpen(
+        { takeInfo: false, panel: true, shortcuts: true },
+        "Keyboard shortcuts opened",
+      );
+      await page.locator("#take-meta").click();
+      // The premise: two open, both painted.
+      await waitOpen(
+        { takeInfo: true, panel: true, shortcuts: true },
+        "Take info opened over it",
+      );
+      await settle(page, "two open");
+      const both = join(SHOTS, "editor-escape-two-open-1280x720-dark.png");
+      await page.screenshot({ path: both });
+      shots.push(both);
+      await page.keyboard.press("Escape");
+      await waitOpen(
+        { takeInfo: false, panel: true, shortcuts: true },
+        "the first Escape closes the innermost, Take info",
+      );
+      await page.keyboard.press("Escape");
+      await waitOpen(
+        { takeInfo: false, panel: false, shortcuts: false },
+        "the second Escape closes the panel",
+      );
+      await settle(page, "both closed");
+      const closed = join(SHOTS, "editor-escape-closed-1280x720-dark.png");
+      await page.screenshot({ path: closed });
+      shots.push(closed);
+      expect(shots).toHaveLength(5);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // A piece's handle and where it is grabbed (DEM-215, "handles that could
+  // not be grabbed"): on the take with a cut at its end, the one piece's
+  // end handle, shown under the pointer, should be the thing at its own
+  // middle.
+  // Known: a removed step's tick (data-cut) is drawn over the piece's end handle, covering its middle 24px; only its top and bottom few px grab — DEM-232
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-232 is fixed this is red too; then it
+  // becomes the check that the handle is grabbed at its middle.
+  it.runIf(process.platform === "darwin")(
+    "still finds a removed step's tick over the middle of the last piece's end handle (DEM-232), asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-handle-"));
+      homes.push(home);
+      await seedHome(home);
+      await mkdir(SHOTS, { recursive: true });
+      const cutTake = PLAIN.find((t) => (t.cuts ?? []).length > 0);
+      if (cutTake === undefined)
+        throw new Error("PLAIN has no take with a cut");
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const run = async () => {
+        const opened = await api(studio, "/api/window", {
+          method: "POST",
+          body: {},
+        });
+        expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+          200,
+        );
+        const context = studio.context();
+        const page = context.pages()[0] as Page;
+        await sizeWindow(context, page, 1280, 720);
+        await openPage(page, studio, "editor", cutTake.id, new Set());
+        // Waited for: the preview paints before the timeline draws its
+        // piece, and one read there found none (1 run of 6, 2026-11-18).
+        const piece = await vi
+          .waitFor(
+            async () => {
+              const box = await page
+                .locator(".piece-wrap:only-child > .piece")
+                .boundingBox({ timeout: 1_000 });
+              if (box === null || box.width === 0)
+                throw new Error(`its box is ${JSON.stringify(box)}`);
+              return box;
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          )
+          .catch((error: unknown) => {
+            throw new Error(`the take draws no one piece: ${String(error)}`);
+          });
+        await page.mouse.move(piece.x + piece.width / 2, piece.y + 4);
+        const edge = '.piece-wrap:only-child > [data-edge="end"]';
+        /** The removed step's tick, as drawn: its box and timing. */
+        const cutTick = () =>
+          page.evaluate(() => {
+            const t = document.querySelector<HTMLElement>(
+              "[data-tick][data-cut]",
+            );
+            const r = t?.getBoundingClientRect();
+            return t == null || r === undefined
+              ? null
+              : {
+                  left: r.left,
+                  right: r.right,
+                  top: r.top,
+                  bottom: r.bottom,
+                  timing: t.dataset.timing ?? null,
+                };
+          });
+        // The premises, waited for whole: the handle shown under the
+        // pointer, and the removed step's tick drawn, the state the bug
+        // needs (a read before the tick is drawn would pass).
+        await vi.waitFor(
+          async () => {
+            const read = await edgeGrab(page, edge);
+            const tick = await cutTick();
+            if (
+              read?.opacity !== "1" ||
+              tick === null ||
+              tick.right <= tick.left
+            )
+              throw new Error(JSON.stringify({ read, tick }));
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        const file = join(SHOTS, "editor-handle-covered-1280x720-dark.png");
+        try {
+          // 3 s, not PAINT_MS: the bug waits all of it each run.
+          // What a pass saw, said in the failure it then is.
+          return await vi.waitFor(
+            async () => {
+              const read = await edgeGrab(page, edge);
+              const tick = await cutTick();
+              if (read?.onTop !== true)
+                throw new Error(JSON.stringify({ read, tick }));
+              return { read, tick };
+            },
+            { timeout: 3_000, interval: 50 },
+          );
+        } catch (error) {
+          await page.screenshot({ path: file });
+          throw new Error(
+            `the handle's middle is under something else: ${String(error)}; shot ${file}`,
+          );
+        }
+      };
+      try {
+        await expect(run(), "DEM-232, and nothing else").rejects.toThrow(
+          /^the handle's middle is under something else: .*data-cut/,
+        );
+      } finally {
+        running = null;
+        await studio.stop();
+      }
+    },
+    LANE_MS,
+  );
+
+  /** The seeded library's list, the default view, in a 1280 x 480 window:
+   *  short, so the list scrolls; scrolled to its foot. */
+  const listAtFoot = async (prefix: string) => {
+    const home = await mkdtemp(join(tmpdir(), prefix));
+    homes.push(home);
+    await seedHome(home, VIDEO_TAKES);
+    await joinVideo(home);
+    await mkdir(SHOTS, { recursive: true });
+    const studio = await startStudio(home, join(home, "out"));
+    running = studio;
+    await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+    const opened = await api(studio, "/api/window", {
+      method: "POST",
+      body: {},
+    });
+    expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+      200,
+    );
+    const context = studio.context();
+    const page = context.pages()[0] as Page;
+    const console_ = watchConsole(page);
+    await installDrawnOpacity(context);
+    await sizeWindow(context, page, 1280, 480);
+    await page.goto(`${studio.origin}/`);
+    await page.locator("[role=treegrid] [data-flow]").first().waitFor();
+    await settle(page, "rows");
+    await page.evaluate(() =>
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: "instant",
+      }),
+    );
+    await settle(page, "rows at the foot");
+    /** The last flow row on screen: its id, its box, the page's scroll. */
+    const foot = () =>
+      page.evaluate(() => {
+        const rows = [
+          ...document.querySelectorAll<HTMLElement>(
+            "[data-list] [role=row][data-flow]",
+          ),
+        ].filter((r) => {
+          const b = r.getBoundingClientRect();
+          return b.height > 0 && b.top >= 0 && b.bottom <= innerHeight;
+        });
+        const row = rows.at(-1);
+        const b = row?.getBoundingClientRect();
+        return {
+          flow: row?.dataset.flow ?? null,
+          top: b?.top ?? Number.NaN,
+          left: b?.left ?? Number.NaN,
+          height: b?.height ?? Number.NaN,
+          scrollY: window.scrollY,
+          scrollable: document.documentElement.scrollHeight - innerHeight,
+        };
+      });
+    return { studio, page, console_, foot };
+  };
+
+  // A list row ticked by the mouse at the foot of a scrolled page should
+  // stay where it was in the window (DEM-215, "the page jumping when a row
+  // is selected"; the cards' form is studio-bulk-scroll.test.ts).
+  // Known: in the list, the first tick at a scrolled page's foot moves the ticked row 64px down the window (the selection bar opens above it and the scroll does not follow) — DEM-233
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-233 is fixed this is red too; then it
+  // becomes the check that the ticked row stays put.
+  it.runIf(process.platform === "darwin")(
+    "still moves a list row ticked at the foot of a scrolled page (DEM-233), by a real pointer, asserted on its paint",
+    async () => {
+      const { studio, page, foot } = await listAtFoot("studio-shots-tick-");
+      const run = async () => {
+        const before = await foot();
+        const footSaid = `the foot: ${JSON.stringify(before)}`;
+        // The premise: the page is scrolled, so a jump has room to show.
+        expect(before.scrollY, footSaid).toBeGreaterThan(40);
+        expect(before.flow, footSaid).not.toBeNull();
+        const flow = before.flow as string;
+        const row = `[data-list] [data-flow="${flow}"]`;
+        // The pointer onto the row, then onto its box where it is drawn.
+        await page.mouse.move(
+          before.left + 200,
+          before.top + before.height / 2,
+        );
+        const box = await vi.waitFor(
+          async () => {
+            const b = await page.evaluate((sel) => {
+              const e = document.querySelector<HTMLElement>(sel);
+              if (e === null) return null;
+              const r = e.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                r.left + r.width / 2,
+                r.top + r.height / 2,
+              );
+              return {
+                x: r.left + r.width / 2,
+                y: r.top + r.height / 2,
+                onTop: hit === e || e.contains(hit),
+              };
+            }, `${row} [data-select]`);
+            if (b === null || !b.onTop)
+              throw new Error(`the box is not painted: ${JSON.stringify(b)}`);
+            return b;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        /** The ticked row's own top in the window, and the page's scroll. */
+        const where = () =>
+          page.evaluate(
+            (sel) => ({
+              top:
+                document.querySelector(sel)?.getBoundingClientRect().top ??
+                null,
+              scrollY: window.scrollY,
+            }),
+            row,
+          );
+        const pressed = await where();
+        await page.mouse.click(box.x, box.y);
+        await vi.waitFor(
+          async () => {
+            const selected = await page
+              .locator(row)
+              .getAttribute("aria-selected");
+            const bar = await page.locator("[data-selection-bar]").isVisible();
+            if (selected !== "true" || !bar)
+              throw new Error(`aria-selected ${selected}, bar shown ${bar}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        // Two frames, then settled: the jump this guards against landed in
+        // the frame after the click's handler.
+        await page.evaluate(
+          () =>
+            new Promise((done) =>
+              requestAnimationFrame(() => requestAnimationFrame(done)),
+            ),
+        );
+        await settle(page, "ticked");
+        const after = await where();
+        // Shot before the verdict, so a red run carries its picture.
+        await page.screenshot({
+          path: join(SHOTS, "library-list-ticked-foot-1280x480-dark.png"),
+        });
+        const moved = (after.top ?? Number.NaN) - (pressed.top ?? Number.NaN);
+        if (!(Math.abs(moved) <= 1)) {
+          throw new Error(
+            `the ticked row moved ${moved}px in the window: ${JSON.stringify({ pressed, after })}`,
+          );
+        }
+      };
+      try {
+        await expect(run(), "DEM-233, and nothing else").rejects.toThrow(
+          /^the ticked row moved [1-9]\d*px in the window/,
+        );
+      } finally {
+        running = null;
+        await studio.stop();
+      }
+    },
+    LANE_MS,
+  );
+
+  // A list row's own Delete, pressed by the mouse, says so in a toast that
+  // leaves the painted page by itself in its time (DEM-215, "a delete toast
+  // that never cleared").
+  it.runIf(process.platform === "darwin")(
+    "deletes a list row by its own Delete and the toast goes by itself, by a real pointer, asserted on its paint",
+    async () => {
+      const { studio, page, console_, foot } = await listAtFoot(
+        "studio-shots-toast-",
+      );
+      const shots: string[] = [];
+      // The row's own Delete, shown under the pointer and pressed by it.
+      const rowNow = await foot();
+      await page.mouse.move(rowNow.left + 200, rowNow.top + rowNow.height / 2);
+      const remove = await vi.waitFor(
+        async () => {
+          const b = await page.evaluate((sel) => {
+            const e = document.querySelector<HTMLElement>(sel);
+            if (e === null) return null;
+            const r = e.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            const o = window.drawnOpacity(e);
+            return {
+              x: r.left + r.width / 2,
+              y: r.top + r.height / 2,
+              onTop: hit === e || e.contains(hit),
+              opacity: o,
+            };
+          }, `[data-list] [data-flow="${rowNow.flow}"] [data-action="delete"]`);
+          if (b === null || !b.onTop || b.opacity < 0.99)
+            throw new Error(`Delete is not painted: ${JSON.stringify(b)}`);
+          return b;
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
+      await page.mouse.click(remove.x, remove.y);
+      await page.locator("[data-confirm-go]").click();
+      /** The toasts as painted: any there whose middle is a toast's own,
+       *  and the words of the first. */
+      const toast = () =>
+        page.evaluate(() => {
+          const all = [
+            ...document.querySelectorAll<HTMLElement>("[data-toast]"),
+          ];
+          const painted = all.filter((t) => {
+            const r = t.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return r.width > 0 && hit?.closest("[data-toast]") != null;
+          });
+          return {
+            painted: painted.length > 0,
+            count: all.length,
+            text: painted[0]?.innerText.trim() ?? null,
+          };
+        });
+      const seen = await vi.waitFor(
+        async () => {
+          const t = await toast();
+          if (!t.painted)
+            throw new Error(`no toast painted: ${JSON.stringify(t)}`);
+          return { ...t, at: Date.now() };
+        },
+        { timeout: PAINT_MS, interval: 25 },
+      );
+      expect(seen.text, "the toast's words").toBe("Deleted the flow");
+      // Its slide in run out, so the shot is the toast at rest.
+      await settle(page, "the toast");
+      const toastFile = join(
+        SHOTS,
+        "library-list-delete-toast-1280x480-dark.png",
+      );
+      await page.screenshot({ path: toastFile });
+      shots.push(toastFile);
+      // Gone by itself: waited for to twice the app's own TOAST_MS, and not
+      // gone before about its time.
+      const gone = await vi
+        .waitFor(
+          async () => {
+            const t = await toast();
+            if (t.painted)
+              throw new Error(`still painted: ${JSON.stringify(t)}`);
+            return Date.now();
+          },
+          { timeout: TOAST_MS * 2, interval: 50 },
+        )
+        .catch((error: unknown) => {
+          throw new Error(
+            `the toast did not clear within ${(TOAST_MS * 2) / 1000} s of being seen: ${String(error)}`,
+          );
+        });
+      const stayed = gone - seen.at;
+      console.info(`library rows: the delete toast stayed ${stayed} ms`);
+      expect(stayed, "the toast stays about its time").toBeGreaterThan(
+        TOAST_MS - 1_000,
+      );
+      expect(
+        await page.locator(`[data-list] [data-flow="${rowNow.flow}"]`).count(),
+        "the deleted flow's row is gone",
+      ).toBe(0);
+      expect(shots).toHaveLength(1);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
   // Add to repo (repo flows Part C, Task 8; trial fixes D): a flow that can
   // be added and one with no repo, on a card and a list row; a trimmed flow
   // refused in the editor and in the sheet; the sheet's form and folder

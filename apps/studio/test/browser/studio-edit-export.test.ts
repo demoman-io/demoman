@@ -42,6 +42,12 @@ import {
 // 1.7-1.8 s. x5 for CI (fff4505) is 30 s; 60 s leaves room for a cold
 // Chromium start on top.
 const LANE_MS = 60_000;
+/** The edit-and-export case. CI's macOS `packages` leg, 2026-11-11 to
+ *  11-18: 83 passes at 23.9-59.6 s (median 43.3 s, 18 over 50 s), and two
+ *  runs out of LANE_MS at 61.2 s, one of them after every stage had
+ *  finished (DEM-213); the ubuntu leg, 91 passes at 4.4-25.0 s. About
+ *  twice the macOS worst. */
+const EDIT_EXPORT_MS = 120_000;
 /** The studio's export, Export pressed to the saved row: inside the 1.8 s
  *  the whole studio part measured, so x5 with room. */
 const EXPORT_WAIT_MS = 30_000;
@@ -246,12 +252,71 @@ async function agentExport(
   }
 }
 
+/** Runs `body` with a `stage(name)` to call as each part begins. When the
+ *  parts outlast `ms` it fails naming the part still running and what each
+ *  part took, rather than vitest's bare "Test timed out" (DEM-213). From
+ *  then `stage` throws, so the body stops at its next part rather than run
+ *  on against the Studio and the home `afterEach` takes away. */
+function staged(
+  ms: number,
+  body: (stage: (name: string) => void) => Promise<void>,
+): () => Promise<void> {
+  return async () => {
+    const marks = [{ name: "seeding", at: Date.now() }];
+    let ranOutAt: number | null = null;
+    const stage = (name: string) => {
+      if (ranOutAt !== null) {
+        throw new Error(
+          `not starting "${name}": the deadline failed this test ${Date.now() - ranOutAt} ms ago`,
+        );
+      }
+      marks.push({ name, at: Date.now() });
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ranOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const now = Date.now();
+        ranOutAt = now;
+        const spent = marks
+          .map((m, i) => `${m.name} ${(marks[i + 1]?.at ?? now) - m.at} ms`)
+          .join(", ");
+        reject(
+          new Error(
+            `still in "${marks.at(-1)?.name}" after ${ms} ms: ${spent}`,
+          ),
+        );
+      }, ms);
+    });
+    const running = body(stage);
+    // Once the deadline has failed the test, how the body then ended is
+    // said here: the race no longer reports it.
+    running.then(
+      () => {
+        if (ranOutAt !== null)
+          console.info("edit-export: the body finished after its deadline");
+      },
+      (error: unknown) => {
+        if (ranOutAt !== null)
+          console.info(
+            `edit-export: the body stopped after its deadline: ${String(error)}`,
+          );
+      },
+    );
+    try {
+      await Promise.race([running, ranOut]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 // ------------------------------------------------------------------ test
 
 describe("the Studio, in a real window", () => {
   it(
     "edits a take with the editor's own controls, exports a GIF through the queue, and says what the agent's export says",
-    async () => {
+    // Its own deadline 5 s inside vitest's, so the stage is what fails.
+    staged(EDIT_EXPORT_MS - 5_000, async (stage) => {
       const started = Date.now();
       const home = await mkdtemp(join(tmpdir(), "studio-lane-"));
       homes.push(home);
@@ -310,6 +375,7 @@ describe("the Studio, in a real window", () => {
       const seeded = Date.now();
 
       // 2. The studio, and its window on the take.
+      stage("opening the Studio's window");
       const studio = await startStudio(home, outDir);
       running = studio;
       const opened = await api(studio, "/api/window", {
@@ -369,6 +435,7 @@ describe("the Studio, in a real window", () => {
         page.evaluate(() => (window as unknown as { __csp: string[] }).__csp);
 
       // 3a. The preview paints the take: a picture, not a blank canvas.
+      stage("painting the preview");
       await vi.waitFor(
         async () => {
           const px = await previewPixels(page);
@@ -382,6 +449,7 @@ describe("the Studio, in a real window", () => {
       // 3b. A motion frame. One Shift+→ puts the playhead at 0.5 s, which is
       // inside the span (source 0.4-3.2 s; measured, and asserted here: the
       // preview shows the span's blue, which no keyframe has).
+      stage("the motion frame at 0.5 s");
       await page.locator("body").focus();
       const clock = page.locator("#toolbar-clock");
       const first = await previewPixels(page);
@@ -416,6 +484,7 @@ describe("the Studio, in a real window", () => {
       // press is 0.5 s (NUDGE_COARSE_MS), and each waits for the clock to
       // show where that press put the playhead, so the trim's position is
       // the presses' and not how fast the page drew.
+      stage("moving the playhead to 3.0 s");
       const TRIM_AT_MS = 3_000;
       let playheadMs = 500;
       let presses = 1;
@@ -434,6 +503,7 @@ describe("the Studio, in a real window", () => {
           );
         }
       }
+      stage("saving the trim");
       const before = await sceneOf(studio, takeId);
       await page.keyboard.press("o");
       const trimmed = await vi.waitFor(
@@ -453,6 +523,7 @@ describe("the Studio, in a real window", () => {
       );
 
       // 3d. Portrait, from the aspect control under the preview.
+      stage("saving portrait");
       await page.locator('[data-aspect="9:16"]:visible').click();
       await vi.waitFor(
         async () => {
@@ -465,6 +536,7 @@ describe("the Studio, in a real window", () => {
       );
 
       // 3e. GIF alone (MP4 unticked), Export, and the outcome row's summary.
+      stage("the Studio's GIF export");
       await page.locator('[data-file-type="mp4"]').click();
       await page.locator('[data-file-type="gif"]').click();
       await expect
@@ -501,6 +573,7 @@ describe("the Studio, in a real window", () => {
       ]);
 
       // 4. outputs.json: one row, its file there, its summary the page's.
+      stage("reading the Studio's GIF");
       const rows = JSON.parse(
         await readFile(join(home, "takes", takeId, "outputs.json"), "utf8"),
       ) as OutputRecord[];
@@ -559,6 +632,7 @@ describe("the Studio, in a real window", () => {
       // 5. The agent's door, on the same take as the studio left it, saves
       // to the same path (the studio's file moved aside) and says the same
       // sentence.
+      stage("the agent's export");
       await rename(row.path, `${row.path}.studio`);
       const agent = await agentExport(home, outDir, takeId);
       if (agent.outcome !== "saved" || agent.fileType === "stills") {
@@ -571,6 +645,7 @@ describe("the Studio, in a real window", () => {
       expect(agent.summary).toBe(pageSummary);
 
       // The studio ends cleanly: exit 0, and studio.json removed.
+      stage("stopping the Studio");
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
       expect(await readStudioState(home)).toBeNull();
@@ -578,8 +653,8 @@ describe("the Studio, in a real window", () => {
       console.info(
         `studio lane: span painted ${spanPaintMs} ms after its press, seeding ${seeded - started} ms, studio ${exported - seeded} ms, total ${Date.now() - started} ms; GIF ${trimmedGif.ms} ms of ${untrimmedGif.ms} ms`,
       );
-    },
-    LANE_MS,
+    }),
+    EDIT_EXPORT_MS,
   );
 });
 
