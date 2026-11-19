@@ -3,6 +3,14 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.9.7" description="Every step on the same frame">
+  - Headless runs hold the page's clock, so one script puts each step on the same frame on any machine; a slow one just records more slowly. `DEMOMAN_HELD_CLOCK=0` records in real time.
+  - The run report says which clock recorded and what it could not hold. A page that never answers stops the run in about 19 seconds.
+  - On a slow machine the cursor follows its path instead of jumping, and the zoomed camera eases into the page's edge.
+  - Chromium runs in its sandbox where it can. `add` and refresh never write into `.git` or `.github`, and committed run reports leave out your machine's paths.
+  - Known issue: a video playing on the page can freeze in a held recording; record it with `DEMOMAN_HELD_CLOCK=0`.
+</Update>
+
 <Update label="0.9.6" description="The same take on any machine, and uploads ask first">
   - A scripted video's pauses are planned, not measured: one script gets the same pauses, zoom and pan on any machine. `pause` is kept as written. Run reports add `plannedMs` and `unplacedBeats`.
   - Headless records motion at a fixed scale (2x, 3x for a phone), and a flow keeps the size it was first recorded at.
