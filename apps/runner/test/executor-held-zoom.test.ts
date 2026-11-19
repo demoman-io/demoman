@@ -11,10 +11,12 @@ import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
-// A one-click take and one default export, at most; measured beside
-// executor-export-zooms.test.ts, which records and exports as much.
+// A one-click take, as executor-export-zooms.test.ts records one. No export:
+// the default 1440p export took over 120 s on an ubuntu runner without a GPU
+// (PR #100). That the 1.347 this saves is the export's own grant is the
+// run-core test's (`auto-zoom-held-default.test.ts`, pinned to the measured
+// grant) and `apps/runner/compare/pacing-pairs.mjs`'s, which exports it.
 const RUN_MS = 60_000;
-const EXPORT_MS = 120_000;
 
 /** One small button, so the zoom's fit is the default and nothing else. */
 const APP = `<!doctype html><meta charset=utf-8><title>Held zoom</title>
@@ -36,7 +38,7 @@ const was = {
  * DEM-164: a held take records its stills at the flow's scale, here 2x as
  * the CLI records (`standInDisplay`, `DEMOMAN_DISPLAY`), which back less than
  * the camera's 1.8x at the default export. The take is saved with the zoom
- * its stills back, says so, and the export cuts nothing.
+ * its stills back, and says so.
  */
 beforeAll(async () => {
   delete process.env.DEMOMAN_HELD_CLOCK;
@@ -95,7 +97,7 @@ afterAll(async () => {
 
 describe("a held take at 2x", () => {
   it(
-    "is saved with the zoom its stills back, says why, and exports it uncut",
+    "is saved with the zoom its stills back, and says why",
     async () => {
       const library = createLibrary(home);
       const scene = (await library.getScene(takeId)) as SceneDocument;
@@ -121,20 +123,7 @@ describe("a held take at 2x", () => {
       expect(report.zoomDefault, evidence).toBe(
         "Zooms start at 1.35x, not 1.8x: the video's frames are 2x, and the default export cannot zoom further without upscaling them.",
       );
-
-      const exported = await executor.request("export", {
-        takeId,
-        callId: "export-held-zoom-take",
-      });
-      const answer = (exported.ok ? exported.value : exported) as {
-        outcome?: string;
-        warnings?: { detailViolations?: unknown[] };
-      };
-      expect(answer.outcome, JSON.stringify(answer)).toBe("saved");
-      expect(answer.warnings?.detailViolations, JSON.stringify(answer)).toEqual(
-        [],
-      );
     },
-    EXPORT_MS,
+    RUN_MS,
   );
 });
