@@ -168,7 +168,9 @@ describe("a 9:16 export of a take whose zooms do not all play as asked", () => {
         reason: "targetTooWide",
         scale: expect.any(Number),
       });
-      // ...and the other three each carry the landscape default, 1.8x.
+      // ...and the other three each carry the landscape default, 1.8x,
+      // which a real-time take's 3x stills back, so none is recorded.
+      expect(scene.zoomDefault, evidence).toBeUndefined();
       const zoomOn = (actionId: string) =>
         scene.camera.find((c) => c.marker.actionId === actionId)?.scale;
       expect(zoomOn(row.id), evidence).toBe(1.8);

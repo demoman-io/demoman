@@ -37,7 +37,12 @@ for (const file of process.argv.slice(2)) {
     ],
     { encoding: "utf8" },
   );
-  if (probe.status !== 0) throw new Error(`ffprobe ${file}: ${probe.stderr}`);
+  if (probe.status !== 0) {
+    // A missing ffprobe has no status and no stderr: its error says so.
+    throw new Error(
+      `ffprobe ${file}: ${probe.error?.message ?? probe.stderr ?? "no output"}`,
+    );
+  }
   const s = JSON.parse(probe.stdout).streams[0];
   const [n, d] = s.r_frame_rate.split("/").map(Number);
   const fps = n / d;
@@ -60,6 +65,11 @@ for (const file of process.argv.slice(2)) {
   ff.stderr.on("data", (c) => {
     err += c;
   });
+  // A missing ffmpeg: its spawn error, said, rather than an unhandled event.
+  const spawned = new Promise((_, reject) =>
+    ff.on("error", (e) => reject(new Error(`ffmpeg ${file}: ${e.message}`))),
+  );
+  spawned.catch(() => undefined);
   let pending = Buffer.alloc(0);
   let prev = null;
   let index = 0;
@@ -86,7 +96,10 @@ for (const file of process.argv.slice(2)) {
       pending = pending.subarray(size);
     }
   }
-  const code = await new Promise((r) => ff.on("close", r));
+  const code = await Promise.race([
+    spawned,
+    new Promise((r) => ff.on("close", r)),
+  ]);
   if (code !== 0) throw new Error(`ffmpeg ${file} exited ${code}: ${err}`);
 
   const freezes = [];

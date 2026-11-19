@@ -57,6 +57,7 @@ import {
   type SceneDocument,
   SceneDocumentSchema,
   type SceneMarker,
+  type SceneZoomDefault,
   type SceneZoomSkipped,
   type ScriptStep,
   type ScriptTarget,
@@ -360,17 +361,19 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
  *  drawn in: what `zoomDefaultFor` (`@demoman/run-core`) sizes the default
  *  zoom from (DEM-164). */
 export interface StillBacking {
-  /** Still px per CSS px. */
-  stillScale: number;
+  /** The take's frames: its stills and the size they were recorded at. */
+  bundle: FrameBundle;
   branding: SceneBranding;
   aspect: SceneAspect;
 }
 
-/** What `AuthoredDeps.cameraFor` answers: the zooms, and every click they
- *  left without one. */
+/** What `AuthoredDeps.cameraFor` answers: the zooms, every click they left
+ *  without one, and the default they started from when the stills backed
+ *  less than the camera's (`SceneDocument.zoomDefault`). */
 export interface CameraPlan {
   camera: SceneDocument["camera"];
   zoomsSkipped: SceneZoomSkipped[];
+  zoomDefault?: SceneZoomDefault;
 }
 
 export interface AuthoredResult extends ReplayResult {
@@ -1359,6 +1362,9 @@ export function assembleAuthored(
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
+    ...(args.camera.zoomDefault === undefined
+      ? {}
+      : { zoomDefault: args.camera.zoomDefault }),
     // Nothing has edited this take: it is one second old. The script's trim
     // is the run's, written as the markers a Studio trim would be.
     edits: { masks: [], holds: [], gaps: [], splits: [], removed: [] },
@@ -1874,14 +1880,14 @@ export async function runAuthored(
     walked.bundle?.viewportTransforms ?? [],
     walked.decided,
   );
-  // Held: every still is a held frame at the flow's scale, so the first says
-  // what they all back. Branding and aspect as `assembleAuthored` writes them.
-  const still = walked.bundle?.keyframes[0];
+  // Held: every still is a held frame at the flow's scale, which may back
+  // less than the camera's default. Branding and aspect as
+  // `assembleAuthored` writes them.
   const backing: StillBacking | undefined =
-    deps.held === undefined || still === undefined
+    deps.held === undefined || walked.bundle === null
       ? undefined
       : {
-          stillScale: still.width / viewport.width,
+          bundle: walked.bundle,
           branding: script.look?.branding ?? deps.startingBranding,
           aspect: script.look?.canvas?.aspect ?? CANVAS_DEFAULTS.aspect,
         };

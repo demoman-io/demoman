@@ -67,6 +67,7 @@ export {
   type SceneMarker,
   type SceneMotion,
   type SceneNetworkEntry,
+  type SceneZoomDefault,
   type SceneZoomSkipped,
   type SourcePoint,
   SourcePointSchema,

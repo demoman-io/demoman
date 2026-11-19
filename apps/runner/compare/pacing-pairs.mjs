@@ -206,7 +206,9 @@ for (const scriptPath of positionals) {
         trim: trimOf(scene?.edits?.trim, film),
         markers: bundle.markers.map((m) => m.sourceTimeMs),
         display: process.env.DEMOMAN_DISPLAY,
-        held: process.env.DEMOMAN_HELD_CLOCK !== "0",
+        // What the run did, not what was asked: a held clock a page refused
+        // records in real time and says why.
+        recording: report.run?.recording ?? null,
         target: answer.target
           ? { width: answer.target.width, height: answer.target.height }
           : null,

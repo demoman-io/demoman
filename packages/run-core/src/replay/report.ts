@@ -1,7 +1,8 @@
-import type {
-  Degradation,
-  FrameBundle,
-  MadeFromStep,
+import {
+  CAMERA_DEFAULTS,
+  type Degradation,
+  type FrameBundle,
+  type MadeFromStep,
 } from "@demoman/compositor";
 import {
   type AuthoredStep,
@@ -362,6 +363,9 @@ export interface RunReport {
   opening?: OpeningReport;
   /** One sentence per click whose asked-for `zoom` the take refused. */
   zoomNotes?: { step: number; sentence: string }[];
+  /** Why the take's zooms start under the camera's default
+   *  (`SceneDocument.zoomDefault`). Absent when they start at it. */
+  zoomDefault?: string;
   /** One sentence per side of the script's `trim` that did not apply as asked. */
   trimNotes?: string[];
 }
@@ -600,6 +604,16 @@ function trimNotesOf(
     );
   }
   return notes;
+}
+
+/** Why the take's zooms start lower than the camera's default, or null. */
+export function zoomDefaultSentence(
+  scene: Pick<SceneDocument, "zoomDefault"> | null,
+): string | null {
+  const d = scene?.zoomDefault;
+  if (d === undefined) return null;
+  const x = (n: number) => `${Number(n.toFixed(2))}x`;
+  return `Zooms start at ${x(d.scale)}, not ${x(CAMERA_DEFAULTS.defaultZoomScale)}: the video's frames are ${x(d.stillScale)}, and the default export cannot zoom further without upscaling them.`;
 }
 
 /** A click's asked-for zoom that the take refused, per script step. */
@@ -948,6 +962,7 @@ export function buildRunReport(args: BuildArgs): RunReport {
       ? []
       : trimNotesOf(args.script, args.steps, args.walk);
   const zoomNotes = zoomNotesOf(args.scene, args.steps);
+  const zoomDefault = zoomDefaultSentence(args.scene);
 
   return {
     run: args.run,
@@ -985,6 +1000,7 @@ export function buildRunReport(args: BuildArgs): RunReport {
     ),
     ...(opening === undefined ? {} : { opening }),
     ...(zoomNotes.length === 0 ? {} : { zoomNotes }),
+    ...(zoomDefault === null ? {} : { zoomDefault }),
     ...(trimNotes.length === 0 ? {} : { trimNotes }),
   };
 }

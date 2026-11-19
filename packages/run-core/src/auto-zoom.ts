@@ -3,28 +3,30 @@ import {
   contentScale,
   derivePresentation,
   fitScaleFor,
-  HIGH_LANDSCAPE,
-  landscapeFrame,
 } from "@demoman/compositor";
 import type { StillBacking } from "@demoman/replay-engine";
 import {
   dragPoints,
   type SceneDocument,
+  type SceneZoomDefault,
   type SceneZoomSkipped,
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
 import { pointRect } from "./drag-points.js";
+import { DEFAULT_EXPORT_QUALITY, targetFor } from "./export/target.js";
 import { MIN_ZOOM_GAP_MS } from "./zoom-defaults.js";
 
 type CameraEvent = SceneDocument["camera"][number];
 
 /** The zooms a take is saved with, and the clicks they leave out. Two halves
  *  of one answer, returned together so no caller can write the camera and
- *  drop the reasons. */
+ *  drop the reasons. `zoomDefault`: the default they started from, when the
+ *  stills backed less than the camera's (`zoomDefaultFor`). */
 export interface ClickZooms {
   camera: CameraEvent[];
   zoomsSkipped: SceneZoomSkipped[];
+  zoomDefault?: SceneZoomDefault;
 }
 
 /** The last click a zoom was made for, which the next is measured from. */
@@ -130,7 +132,9 @@ function dragBox(
  * extend its end. Nothing ever re-adds one. That is the difference from the
  * auto-zoom removed on 2026-08-30, which was a rule applied at render time
  * that refilled whatever the author deleted, so the lane could only be
- * argued with (v8 §6).
+ * argued with (v8 §6). On a held take whose stills back less, the default
+ * scale is the take's `zoomDefault`; the editor still writes 1.8x until
+ * DEM-242.
  *
  * Close clicks. Every click gets its zoom however close it follows the one
  * before: where there is no room to return to full frame between two
@@ -191,10 +195,16 @@ export function zoomsForClicks(
   backing?: StillBacking,
 ): ClickZooms {
   const { leadInMs } = CAMERA_DEFAULTS;
-  const defaultScale =
-    backing === undefined
-      ? CAMERA_DEFAULTS.defaultZoomScale
+  const backed =
+    backing === undefined || backing.bundle.keyframes.length === 0
+      ? undefined
       : zoomDefaultFor(backing, viewport);
+  // Recorded only when it lowers the default: absent says the stills back it.
+  const zoomDefault =
+    backed !== undefined && backed.scale < CAMERA_DEFAULTS.defaultZoomScale
+      ? backed
+      : undefined;
+  const defaultScale = zoomDefault?.scale ?? CAMERA_DEFAULTS.defaultZoomScale;
   const camera: CameraEvent[] = [];
   const zoomsSkipped: SceneZoomSkipped[] = [];
   let last: LastZoom | null = null;
@@ -240,7 +250,11 @@ export function zoomsForClicks(
       timestamp: action.timestamp,
     };
   }
-  return { camera, zoomsSkipped };
+  return {
+    camera,
+    zoomsSkipped,
+    ...(zoomDefault === undefined ? {} : { zoomDefault }),
+  };
 }
 
 /**
@@ -308,31 +322,40 @@ function fittedScale(
  * `detailViolations`. The author chose a lower default over 3x frames.
  *
  * The sum is the export's own clamp (`clampToSourceDetail`): source px per
- * CSS px over output px per CSS px, against the default export's frame
- * (`HIGH_LANDSCAPE`, framed as `targetFor` frames it) in the take's own
- * branding. Never above the camera's default. Never under
- * `ZOOM_FLOOR_SCALE`, so the floor still decides alone which clicks zoom,
- * and the room policy (`room.ts`), which asks that at the camera's default,
- * reads the same answer: a cut to the floor is still reported by the clamp.
- * A smaller export backs more than this; a larger one is cut, and reported.
+ * CSS px over output px per CSS px, against the frame the default export
+ * draws (`targetFor` at `DEFAULT_EXPORT_QUALITY`, from these stills, so a
+ * phone's or a narrow window's export is the 1080p tier and 9:16 its own
+ * crop) in the take's own branding, from its narrowest still, since the
+ * clamp reads the still before each zoom. Never above the camera's default.
+ * Never under `ZOOM_FLOOR_SCALE`, so the floor still decides alone which
+ * clicks zoom, and the room policy (`room.ts`), which asks that at the
+ * camera's default, reads the same answer: a cut to the floor is still
+ * reported by the clamp. A smaller export backs more than this; a larger
+ * one is cut, and reported.
  */
 export function zoomDefaultFor(
   backing: StillBacking,
   viewport: { width: number; height: number },
-): number {
-  const { branding } = backing;
-  const target = landscapeFrame(
+): SceneZoomDefault {
+  const { bundle, branding } = backing;
+  const stillScale =
+    Math.min(...bundle.keyframes.map((k) => k.width)) / viewport.width;
+  const target = targetFor(
+    "mp4",
     backing.aspect,
-    HIGH_LANDSCAPE,
-    viewport,
-    branding.padding,
+    bundle,
+    { padding: branding.padding, viewport },
+    { quality: DEFAULT_EXPORT_QUALITY },
   );
   const { frameRect } = derivePresentation(branding, target, viewport);
-  const backed = backing.stillScale / contentScale(frameRect, viewport);
-  return Math.min(
-    CAMERA_DEFAULTS.defaultZoomScale,
-    Math.max(ZOOM_FLOOR_SCALE, backed),
-  );
+  const backed = stillScale / contentScale(frameRect, viewport);
+  return {
+    scale: Math.min(
+      CAMERA_DEFAULTS.defaultZoomScale,
+      Math.max(ZOOM_FLOOR_SCALE, backed),
+    ),
+    stillScale,
+  };
 }
 
 /**
