@@ -38,16 +38,22 @@ function videoLines(result: RefreshResult): {
   };
 }
 
-/** After a failed video's line: the fix when recording again is it
- *  (DEM-146), then where its run report and last still were kept (DEM-147). */
-export function failedTail(v: RefreshVideo): string {
+/** After a failed video's line: the fix when the flow must be recorded
+ *  again (DEM-146), then where its run report and last still were kept, or
+ *  why there is no still (DEM-147). One sentence for the terminal and the
+ *  pull request, which passes `span` for its code spans and `where`. */
+export function failedTail(
+  v: RefreshVideo,
+  span: (text: string) => string = (text) => text,
+  where = "",
+): string {
   const e = v.evidence;
   const kept =
     e === undefined
       ? ""
       : e.noStill === null
-        ? ` Its run report and last still are in ${e.folder}.`
-        : ` Its run report is in ${e.folder}; there is no last still: ${e.noStill}.`;
+        ? ` Its run report and last still are in ${span(e.folder)}${where}.`
+        : ` Its run report is in ${span(e.folder)}${where}; there is no last still: ${span(e.noStill)}.`;
   return `${v.fix === undefined ? "" : ` — ${v.fix}`}${kept}`;
 }
 

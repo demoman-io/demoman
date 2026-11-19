@@ -94,15 +94,16 @@ An app that shows today's date changes every day. Pin its clock with `now`
   request, "Refresh demo videos", listing each changed video and any flow
   that failed, with its fix when the flow must be recorded again. Open its files
   under "Files changed" to watch them.
-
-When a flow fails in the workflow `setup --ci` writes, the run uploads a
-`demoman-failed` artifact: each failed flow's run report and the last frame
-it recorded, so you can see where it broke without running it yourself. A
-workflow set up with Demoman 0.9.7 or earlier lacks this step: delete
-`.github/workflows/demoman.yml` on the default branch, then run
-`npx demoman setup --ci` again.
 - **`main`**: one "Refresh demo videos" commit on the branch, pushed with no
   review.
+
+When a flow fails in the workflow `setup --ci` writes, the run keeps each
+failed flow's run report and the last frame it recorded, so you can see
+where it broke without running it yourself: a refresh uploads them as the
+`demoman-failed` artifact, and the check on a pull request keeps them in
+`failed/` inside its `demoman-check` artifact. A workflow set up with
+Demoman 0.9.7 or earlier lacks this: delete `.github/workflows/demoman.yml`
+on the default branch, then run `npx demoman setup --ci` again.
 
 When no video changed, nothing is committed, and an open refresh pull request
 whose videos are now out of date is closed with a comment.

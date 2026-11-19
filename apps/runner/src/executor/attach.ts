@@ -579,12 +579,8 @@ const LABEL_MAX = 120;
  *  would close the span), whitespace collapses to one line, the length is
  *  capped, and `@` is still stripped as defence in depth. */
 export function commentBody(label: string): string {
-  const one = label.replace(/[`@]/g, "").replace(/\s+/g, " ").trim();
-  if (one === "") return "Demo";
-  const chars = Array.from(one);
-  const cut =
-    chars.length > LABEL_MAX ? `${chars.slice(0, LABEL_MAX).join("")}…` : one;
-  return `Demo: \`${cut}\``;
+  const cut = codeSpanText(label, LABEL_MAX);
+  return cut === "" ? "Demo" : `Demo: \`${cut}\``;
 }
 
 /** Page text made safe to sit inside an inline code span on GitHub:

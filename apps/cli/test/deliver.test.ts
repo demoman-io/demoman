@@ -602,6 +602,7 @@ describe("deliver", () => {
           detail,
           fix,
           evidence: { folder: "demoman-failed/broken", noStill: null },
+          notes: ["its report could not be kept in x (EACCES) @octocat"],
         },
       ]),
     );
@@ -613,9 +614,14 @@ describe("deliver", () => {
     expect(entry).toContain("`![x](https://e.example/p.png) octocat`");
     expect(body).not.toContain("@octocat");
     // The fix keeps its own code spans: it is ours, not the page's.
-    expect(entry).toContain(` ${fix}`);
+    expect(entry).toContain(` — ${fix}`);
     expect(entry).toContain(
       "Its run report and last still are in `demoman-failed/broken` among this run's artifacts.",
+    );
+    // A failed flow's notes reach the PR too (a copy that failed is said).
+    const lines = body.split("\n");
+    expect(lines[lines.indexOf(entry ?? "") + 1]).toBe(
+      "  - `its report could not be kept in x (EACCES) octocat`",
     );
   });
 

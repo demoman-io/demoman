@@ -7,6 +7,7 @@ import {
   type RefreshResult,
 } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
+import { failedTail } from "./refresh-lines.js";
 
 export const COMMIT_SUBJECT = "Refresh demo videos";
 export const BRANCH = "demoman/refresh";
@@ -24,13 +25,6 @@ const codeSpan = (text: string, max: number): string => {
   const t = codeSpanText(text, max);
   return t === "" ? "(nothing said)" : `\`${t}\``;
 };
-/** Where a failed flow's run was kept, in the run's artifacts (DEM-147). */
-const keptIn = (e: RefreshResult["videos"][number]["evidence"]): string =>
-  e === undefined
-    ? ""
-    : e.noStill === null
-      ? ` Its run report and last still are in ${codeSpan(e.folder, 200)} among this run's artifacts.`
-      : ` Its run report is in ${codeSpan(e.folder, 200)} among this run's artifacts; there is no last still: ${codeSpan(e.noStill, 200)}.`;
 // git's client-side refusal of a push that is behind the remote branch.
 const BEHIND = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
 
@@ -275,14 +269,14 @@ export async function deliver(
       ? [
           "",
           "Not refreshed:",
-          // The detail can quote the recorded page (DEM-118), so it and the
-          // name sit in code spans; the fix and the folder are ours, outside.
+          // The detail and the notes can quote the recorded page (DEM-118),
+          // so they and the name sit in code spans; the fix is ours, outside.
           ...result.videos
             .filter((v) => v.outcome === "failed")
-            .map(
-              (v) =>
-                `- ${codeSpan(v.name, 120)}: ${codeSpan(v.detail, DETAIL_MAX)}${v.fix === undefined ? "" : ` ${v.fix}`}${keptIn(v.evidence)}`,
-            ),
+            .flatMap((v) => [
+              `- ${codeSpan(v.name, 120)}: ${codeSpan(v.detail, DETAIL_MAX)}${failedTail(v, (s) => codeSpan(s, 200), " among this run's artifacts")}`,
+              ...v.notes.map((n) => `  - ${codeSpan(n, DETAIL_MAX)}`),
+            ]),
         ]
       : []),
     ...(runUrl === null ? [] : ["", `Run: ${runUrl}`]),

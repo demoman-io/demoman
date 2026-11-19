@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import type { ReplayStopReason } from "@demoman/replay-engine";
 import {
   committedRunReport,
   DEGRADATION_WORDS,
@@ -190,24 +191,37 @@ const SCRIPT_REFUSALS = new Set([
   "notAnObject",
   "unfilledHoles",
 ]);
-/** Stops whose sentence sends the author to change the step (REASON_TEXT):
- *  a target gone, ambiguous or framed elsewhere, a wait that never came, a
- *  step the run cannot perform. A stop the app, the machine or the session
- *  caused (pageSilent, pageFaulted, signedOut, pageWentElsewhere,
- *  clickNotDelivered, portFailure…) is not one: recording again would not
- *  fix it. */
-const SCRIPT_STOPS = new Set([
-  "unresolvedAnchor",
-  "ambiguousAnchor",
-  "anchorNotRendered",
-  "anchorFrameMismatch",
-  "redactedWithoutReplacement",
-  "unperformableStep",
-  "dragEndOutOfView",
-  "dragNoDistance",
-  "waitTimeout",
-  "noActions",
-]);
+/** Whether a stop is the script's to fix, decided for every reason so a
+ *  new one must be decided too (REASON_TEXT says each): true when its
+ *  sentence sends the author to change the step. A stop the app, the
+ *  machine or the session caused is false: recording again would not fix
+ *  it. `waitTimeout` is false too: on a slow runner the app can miss the
+ *  wait and pass on the author's machine (review of this branch). */
+const SCRIPT_STOPS: Record<ReplayStopReason, boolean> = {
+  unresolvedAnchor: true,
+  ambiguousAnchor: true,
+  anchorNotRendered: true,
+  anchorFrameMismatch: true,
+  redactedWithoutReplacement: true,
+  unperformableStep: true,
+  dragEndOutOfView: true,
+  dragNoDistance: true,
+  noActions: true,
+  waitTimeout: false,
+  mutating: false,
+  cancelledByAuthor: false,
+  pageSilent: false,
+  pageFaulted: false,
+  anchorUnreachable: false,
+  pageWentElsewhere: false,
+  signedOut: false,
+  clickNotDelivered: false,
+  occlusionTimeout: false,
+  windowClosed: false,
+  debuggerUnavailable: false,
+  deviceFailed: false,
+  portFailure: false,
+};
 
 /** The one line a failure the script causes is delivered with (DEM-146).
  *  Markdown as written: it goes into a pull request body as it is, so the
@@ -298,7 +312,8 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
   // reason, or finished with a step the video does not show.
   const rerecord =
     r.outcome === "stopped"
-      ? SCRIPT_STOPS.has(String(r.stopped?.reason))
+      ? (SCRIPT_STOPS as Record<string, boolean>)[String(r.stopped?.reason)] ===
+        true
       : r.outcome === "complete" &&
         r.stopped === undefined &&
         r.verdict?.kind === "diverged";
@@ -713,6 +728,8 @@ export async function keepFailure(
   const shown = join(failures, basename(file, ".json"));
   try {
     const at = resolve(shown);
+    // Never an earlier run's still beside this run's report.
+    await rm(at, { recursive: true, force: true });
     await mkdir(at, { recursive: true });
     await writeFile(
       join(at, "report.json"),

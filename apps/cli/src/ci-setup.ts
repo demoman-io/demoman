@@ -744,10 +744,16 @@ async function makePlan(
       "secretTooShort",
       `${list(short)} ${short.length === 1 ? "is" : "are"} shorter than ${SECRET_MIN_LENGTH} characters, which a run refuses; give longer values, then run setup again`,
     );
+  // DEM-129: secrets.env takes a secret's whole name, so the example is one
+  // of the missing names, never a prefix to add or drop.
+  const eg =
+    missing.find(
+      (m) => m.for === "account" && !m.name.endsWith(SECRET_ORIGIN_SUFFIX),
+    )?.name ?? `${SECRET_PREFIX}NAME`;
   if (missing.length > 0)
     return stop(
       "secretMissing",
-      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}; set each in the environment (an account's can also go in .demoman/secrets.env as a ${SECRET_PREFIX}NAME=value line, its name as written here, with its ${SECRET_PREFIX}NAME${SECRET_ORIGIN_SUFFIX}=<origin> line beside it), or give it when setup asks, then run setup again`,
+      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}; set each in the environment (an account's can also go in .demoman/secrets.env as a line such as ${eg}=value, with ${eg}${SECRET_ORIGIN_SUFFIX}=<origin> beside it), or give it when setup asks, then run setup again`,
       { secrets: missing },
     );
   const replace = choices.replaceSecrets ?? [];

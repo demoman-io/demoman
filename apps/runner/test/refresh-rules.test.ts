@@ -1,7 +1,12 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DEGRADATION_WORDS } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
 import {
   degradedNote,
+  keepFailure,
   recordWithRetry,
   runVerdict,
 } from "../src/executor/refresh.js";
@@ -102,8 +107,8 @@ describe("runVerdict", () => {
       { outcome: "stopped", stopped: { reason: "unresolvedAnchor" } },
     ],
     [
-      "a wait that never came",
-      { outcome: "stopped", stopped: { reason: "waitTimeout" } },
+      "a target not rendered",
+      { outcome: "stopped", stopped: { reason: "anchorNotRendered" } },
     ],
   ])("sends %s to be recorded again", (_, more) => {
     expect(verdictOf(more)).toEqual({
@@ -112,15 +117,19 @@ describe("runVerdict", () => {
       rerecord: true,
     });
   });
-  it.each(["pageSilent", "signedOut", "clickNotDelivered", "portFailure"])(
-    "does not send a run stopped by %s to be recorded again",
-    (reason) => {
-      expect(verdictOf({ outcome: "stopped", stopped: { reason } })).toEqual({
-        kind: "failed",
-        detail: "the run's own line",
-      });
-    },
-  );
+  it.each([
+    "pageSilent",
+    "signedOut",
+    "clickNotDelivered",
+    "portFailure",
+    // A slow runner can miss a wait the author's machine makes.
+    "waitTimeout",
+  ])("does not send a run stopped by %s to be recorded again", (reason) => {
+    expect(verdictOf({ outcome: "stopped", stopped: { reason } })).toEqual({
+      kind: "failed",
+      detail: "the run's own line",
+    });
+  });
   it("sends a script the door refused to be recorded again, not a reset", () => {
     expect(
       runVerdict({
@@ -149,6 +158,63 @@ describe("runVerdict", () => {
       kind: "failed",
       detail: "the run threw: boom",
     });
+  });
+});
+
+// DEM-147. Red when an earlier run's still survives beside a later run's
+// report, or a run with no still is said to have kept one.
+describe("keepFailure", () => {
+  it("keeps one run's report and still, never an earlier run's still", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "keep-failure-"));
+    try {
+      const png = join(dir, "still.png");
+      await writeFile(png, "png bytes");
+      const run = (still: unknown) => ({
+        outcome: "stopped",
+        summary: "Stopped at script step 2 of 3",
+        provenance: { videoId: "v" },
+        still,
+      });
+      const failures = join(dir, "failed");
+      const flow = ".demoman/flows/broken.json";
+      const first = await keepFailure(run({ path: png }), failures, flow);
+      const at = join(failures, "broken");
+      expect(first).toEqual({ evidence: { folder: at, noStill: null } });
+      // Premise: the first run kept a still for the second to replace.
+      expect(await readFile(join(at, "final-still.png"), "utf8")).toBe(
+        "png bytes",
+      );
+      const second = await keepFailure(
+        run({ unavailable: "no frames to show" }),
+        failures,
+        flow,
+      );
+      expect(second).toEqual({
+        evidence: { folder: at, noStill: "no frames to show" },
+      });
+      expect(existsSync(join(at, "final-still.png"))).toBe(false);
+      const report = JSON.parse(
+        await readFile(join(at, "report.json"), "utf8"),
+      );
+      expect(report.still).toEqual({ unavailable: "no frames to show" });
+      // A refusal at the door made no report: nothing to keep, nothing said.
+      expect(
+        await keepFailure({ outcome: "refusedBeforeRun" }, failures, flow),
+      ).toEqual({ note: null });
+      // A copy that fails is said, not kept quiet.
+      const lost = await keepFailure(
+        run({ path: join(dir, "gone.png") }),
+        failures,
+        flow,
+      );
+      expect(lost).toEqual({
+        note: expect.stringMatching(
+          /^its run report and last still could not be kept in .*broken \(.*ENOENT/,
+        ),
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

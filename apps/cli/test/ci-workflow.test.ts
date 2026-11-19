@@ -639,11 +639,13 @@ describe("the loop guard", () => {
       expect(all[1]).toContain("id: guard");
       expect(all[1]).toContain(`SHA: ${expr(sha)}`);
       for (const later of all.slice(2)) {
-        // The failure upload runs only after a failure, and never past the guard.
-        expect(
-          [`if: ${skipIf}`, `if: ${failedIf}`].some((c) => later?.includes(c)),
-          later,
-        ).toBe(true);
+        // Only the failure upload waits for a failure, and never past the
+        // guard; every other step runs on the guard alone.
+        expect(later, later).toContain(
+          later?.startsWith("      - name: Keep what the failed flows showed")
+            ? `if: ${failedIf}`
+            : `if: ${skipIf}`,
+        );
       }
       // The sha reaches the script through env, never interpolated into it.
       expect(all[1]?.split("run: |")[1]).not.toContain("${{");
@@ -747,11 +749,13 @@ describe("the default-branch guard", () => {
       );
       expect(all.length).toBeGreaterThan(4);
       for (const later of all.slice(2)) {
-        // The failure upload runs only after a failure, and never past the guard.
-        expect(
-          [`if: ${skipIf}`, `if: ${failedIf}`].some((c) => later?.includes(c)),
-          later,
-        ).toBe(true);
+        // Only the failure upload waits for a failure, and never past the
+        // guard; every other step runs on the guard alone.
+        expect(later, later).toContain(
+          later?.startsWith("      - name: Keep what the failed flows showed")
+            ? `if: ${failedIf}`
+            : `if: ${skipIf}`,
+        );
       }
     });
   }
