@@ -254,20 +254,29 @@ async function agentExport(
 
 /** Runs `body` with a `stage(name)` to call as each part begins. When the
  *  parts outlast `ms` it fails naming the part still running and what each
- *  part took, rather than vitest's bare "Test timed out" (DEM-213). */
+ *  part took, rather than vitest's bare "Test timed out" (DEM-213). From
+ *  then `stage` throws, so the body stops at its next part rather than run
+ *  on against the Studio and the home `afterEach` takes away. */
 function staged(
   ms: number,
   body: (stage: (name: string) => void) => Promise<void>,
 ): () => Promise<void> {
   return async () => {
     const marks = [{ name: "seeding", at: Date.now() }];
+    let ranOutAt: number | null = null;
     const stage = (name: string) => {
+      if (ranOutAt !== null) {
+        throw new Error(
+          `not starting "${name}": the deadline failed this test ${Date.now() - ranOutAt} ms ago`,
+        );
+      }
       marks.push({ name, at: Date.now() });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ranOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         const now = Date.now();
+        ranOutAt = now;
         const spent = marks
           .map((m, i) => `${m.name} ${(marks[i + 1]?.at ?? now) - m.at} ms`)
           .join(", ");
@@ -278,8 +287,23 @@ function staged(
         );
       }, ms);
     });
+    const running = body(stage);
+    // Once the deadline has failed the test, how the body then ended is
+    // said here: the race no longer reports it.
+    running.then(
+      () => {
+        if (ranOutAt !== null)
+          console.info("edit-export: the body finished after its deadline");
+      },
+      (error: unknown) => {
+        if (ranOutAt !== null)
+          console.info(
+            `edit-export: the body stopped after its deadline: ${String(error)}`,
+          );
+      },
+    );
     try {
-      await Promise.race([body(stage), ranOut]);
+      await Promise.race([running, ranOut]);
     } finally {
       clearTimeout(timer);
     }

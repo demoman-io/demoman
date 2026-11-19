@@ -30,14 +30,18 @@ import {
 } from "@demoman/studio-protocol";
 import { type Browser, chromium, type Page, type Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOAST_MS } from "../../pages/src/shell/toast.js";
 import type { StudioCi } from "../../src/repo-ci.js";
 import {
   contrast,
   distance,
+  inkOnFill,
+  installDrawnOpacity,
   limeOutsideItsPlaces,
   luma,
   pixelsAt,
   type Rgb,
+  relativeLuminance,
 } from "./look-probes.js";
 import type { PlainTake } from "./painted-take.js";
 import {
@@ -234,43 +238,25 @@ function offerPaint(page: Page) {
   });
 }
 
-/** WCAG relative luminance of a computed `rgb()`/`rgba()` colour. */
-function luminance(css: string): number {
+/** A computed `rgb()`/`rgba()` colour's channels, and its alpha (1 when
+ *  it has none). */
+function rgbIn(css: string): { rgb: Rgb; alpha: number } {
   const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(
     css,
   );
   if (m === null) throw new Error(`not an rgb() colour: ${css}`);
-  if (m[4] !== undefined && Number(m[4]) < 1) {
-    throw new Error(`the body's background is not opaque: ${css}`);
-  }
-  const [r, g, b] = [m[1], m[2], m[3]].map((v) => {
-    const c = Number(v) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  }) as [number, number, number];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return {
+    rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
+    alpha: m[4] === undefined ? 1 : Number(m[4]),
+  };
 }
 
-/** A computed `rgb()`/`rgba()` colour's channels. */
-function rgbIn(css: string): Rgb {
-  const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(css);
-  if (m === null) throw new Error(`not an rgb() colour: ${css}`);
-  return [Number(m[1]), Number(m[2]), Number(m[3])];
+/** WCAG relative luminance of a computed, opaque `rgb()` colour. */
+function luminance(css: string): number {
+  const { rgb, alpha } = rgbIn(css);
+  if (alpha < 1) throw new Error(`the body's background is not opaque: ${css}`);
+  return relativeLuminance(rgb);
 }
-
-/** A painted box in CSS px, named for a failure message. `words` is where
- *  its text is laid out, 1px round, when it has any: a tile whose middle is
- *  a picture is read at its name. A field (a box, a text input) is read
- *  whole and 3px round, its edge against the page: an unticked box's
- *  middle is its own fill and nothing else. */
-type NamedBox = {
-  name: string;
-  field?: boolean;
-  words?: { x: number; y: number; width: number; height: number } | null;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
 
 /**
  * Every control wholly on screen as painted (DEM-215): shown (a box, not
@@ -296,13 +282,6 @@ function controlsPainted(page: Page) {
         "";
       return `${el.tagName.toLowerCase()}${attrs} "${label}"`;
     };
-    const opacity = (el: Element): number => {
-      let o = 1;
-      for (let n: Element | null = el; n !== null; n = n.parentElement) {
-        o *= Number(getComputedStyle(n).opacity);
-      }
-      return o;
-    };
     const clipped = (el: Element, x: number, y: number): boolean => {
       for (let n = el.parentElement; n !== null; n = n.parentElement) {
         if (getComputedStyle(n).overflow === "visible") continue;
@@ -321,7 +300,7 @@ function controlsPainted(page: Page) {
       if (r.left < 0 || r.top < 0 || r.right > innerWidth) return false;
       if (r.bottom > innerHeight) return false;
       if (getComputedStyle(el).visibility !== "visible") return false;
-      if (opacity(el) < 0.99) return false;
+      if (window.drawnOpacity(el) < 0.99) return false;
       if ((el as HTMLButtonElement).disabled) return false;
       if (el.getAttribute("aria-disabled") === "true") return false;
       return !clipped(el, r.left + r.width / 2, r.top + r.height / 2);
@@ -358,13 +337,44 @@ function controlsPainted(page: Page) {
       overlaps,
       boxes: uncovered.map((el) => {
         const r = el.getBoundingClientRect();
+        // Only words that are painted: shown, drawn, and not cut away by a
+        // clip or a scroller between them and the control (a
+        // `.visually-hidden` name is a 1px box, clipped to nothing).
         const texts: DOMRect[] = [];
         const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         for (let t = walk.nextNode(); t !== null; t = walk.nextNode()) {
-          if ((t.textContent ?? "").trim() === "") continue;
+          const parent = t.parentElement;
+          if ((t.textContent ?? "").trim() === "" || parent === null) continue;
+          if (getComputedStyle(parent).visibility !== "visible") continue;
+          if (window.drawnOpacity(parent) < 0.01) continue;
           const range = document.createRange();
           range.selectNodeContents(t);
-          texts.push(...[...range.getClientRects()].filter((q) => q.width > 0));
+          for (const q of range.getClientRects()) {
+            let box = { l: q.left, t: q.top, r: q.right, b: q.bottom };
+            for (
+              let n: Element | null = parent;
+              n !== null;
+              n = n.parentElement
+            ) {
+              const cs = getComputedStyle(n);
+              if (cs.clipPath !== "none" || cs.clip !== "auto") box.r = box.l;
+              if (cs.overflow !== "visible") {
+                const c = n.getBoundingClientRect();
+                box = {
+                  l: Math.max(box.l, c.left),
+                  t: Math.max(box.t, c.top),
+                  r: Math.min(box.r, c.right),
+                  b: Math.min(box.b, c.bottom),
+                };
+              }
+              if (n === el) break;
+            }
+            if (box.r - box.l >= 2 && box.b - box.t >= 2) {
+              texts.push(
+                new DOMRect(box.l, box.t, box.r - box.l, box.b - box.t),
+              );
+            }
+          }
         }
         const left = Math.min(...texts.map((q) => q.left)) - 1;
         const top = Math.min(...texts.map((q) => q.top)) - 1;
@@ -390,94 +400,6 @@ function controlsPainted(page: Page) {
   });
 }
 
-/**
- * Each box's middle half as painted (its words' box when it has words; a
- * field's whole box and 3px round it), from one screenshot: the colour that
- * fills most of it, and the WCAG contrast of the pixel that stands out most
- * from that fill. A control's words or glyph painted in its own fill's
- * colour (a white pause glyph on a white disc) reads 1:1 however its fill
- * stands against the page. The middle half, so a round disc's corners,
- * which are the page, are not read as its ink.
- */
-async function inkOnFill(page: Page, boxes: readonly NamedBox[]) {
-  const png = (await page.screenshot({ type: "png" })).toString("base64");
-  return page.evaluate(
-    async ({ png, boxes }) => {
-      const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
-      const bitmap = await createImageBitmap(
-        new Blob([bytes], { type: "image/png" }),
-      );
-      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = canvas.getContext("2d", {
-        willReadFrequently: true,
-      }) as OffscreenCanvasRenderingContext2D;
-      ctx.drawImage(bitmap, 0, 0);
-      const scale = bitmap.width / innerWidth;
-      const rel = (r: number, g: number, b: number): number => {
-        const [R, G, B] = [r, g, b].map((v) => {
-          const c = v / 255;
-          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-        }) as [number, number, number];
-        return 0.2126 * R + 0.7152 * G + 0.0722 * B;
-      };
-      return boxes.map((b) => {
-        const r =
-          b.field === true
-            ? { x: b.x - 3, y: b.y - 3, w: b.width + 6, h: b.height + 6 }
-            : b.words != null
-              ? {
-                  x: b.words.x,
-                  y: b.words.y,
-                  w: b.words.width,
-                  h: b.words.height,
-                }
-              : {
-                  x: b.x + b.width / 4,
-                  y: b.y + b.height / 4,
-                  w: b.width / 2,
-                  h: b.height / 2,
-                };
-        const x = Math.max(0, Math.floor(r.x * scale));
-        const y = Math.max(0, Math.floor(r.y * scale));
-        const w = Math.max(1, Math.floor(r.w * scale));
-        const h = Math.max(1, Math.floor(r.h * scale));
-        const px = ctx.getImageData(x, y, w, h).data;
-        const counts = new Map<number, number>();
-        for (let i = 0; i < px.length; i += 4) {
-          const key =
-            ((px[i] as number) << 16) |
-            ((px[i + 1] as number) << 8) |
-            (px[i + 2] as number);
-          counts.set(key, (counts.get(key) ?? 0) + 1);
-        }
-        const fillKey =
-          [...counts.entries()].sort((p, q) => q[1] - p[1])[0]?.[0] ?? 0;
-        const rgb = (k: number) => [(k >> 16) & 255, (k >> 8) & 255, k & 255];
-        const fill = rgb(fillKey) as [number, number, number];
-        const lf = rel(...fill);
-        let best = 1;
-        let ink = fill;
-        for (const k of counts.keys()) {
-          const c = rgb(k) as [number, number, number];
-          const lc = rel(...c);
-          const ratio = (Math.max(lf, lc) + 0.05) / (Math.min(lf, lc) + 0.05);
-          if (ratio > best) {
-            best = ratio;
-            ink = c;
-          }
-        }
-        return {
-          name: b.name,
-          fill: `rgb(${fill.join(", ")})`,
-          ink: `rgb(${ink.join(", ")})`,
-          contrast: Math.round(best * 100) / 100,
-        };
-      });
-    },
-    { png, boxes },
-  );
-}
-
 /** The least contrast a control's ink keeps on its fill: WCAG's 3:1 for a
  *  control's glyphs (1.4.11), which the quietest ink here, `--ink-4` on
  *  the near-black ground, clears at about 4.4:1. */
@@ -494,6 +416,7 @@ async function phonePage(browser: Browser, studio: Studio): Promise<Page> {
     hasTouch: true,
     colorScheme: "dark",
   });
+  await installDrawnOpacity(phone);
   await phone.addCookies([
     { name: STUDIO_COOKIE, value: studio.state.token, url: studio.origin },
   ]);
@@ -2773,9 +2696,9 @@ describe("the Studio's screenshot set", () => {
             path: join(SHOTS, "editor-split-1280x720-dark.png"),
           });
           const after = await shown();
-          if (!matches(after))
+          if (!matches(after) || after.rebuilds !== before.rebuilds)
             throw new Error(
-              `the handles changed while shot: ${JSON.stringify({ before, after, pointer })}`,
+              `the handles changed, or #timeline was rebuilt, while shot: ${JSON.stringify({ before, after, pointer })}`,
             );
         },
         { timeout: PAINT_MS, interval: 50 },
@@ -5325,13 +5248,6 @@ describe("the Studio's screenshot set", () => {
                         date.left + date.width / 2,
                         date.top + date.height / 2,
                       );
-                const opacity = (el: Element): number => {
-                  let o = 1;
-                  for (let n: Element | null = el; n; n = n.parentElement) {
-                    o *= Number(getComputedStyle(n).opacity);
-                  }
-                  return o;
-                };
                 const actions = [
                   ...r.querySelectorAll<HTMLElement>(
                     ".row-more, .row-actions button",
@@ -5341,7 +5257,7 @@ describe("the Studio's screenshot set", () => {
                   return (
                     q.width > 0 &&
                     getComputedStyle(b).visibility === "visible" &&
-                    opacity(b) > 0.01
+                    window.drawnOpacity(b) > 0.01
                   );
                 });
                 const over =
@@ -5457,16 +5373,70 @@ describe("the Studio's screenshot set", () => {
         // Closed by a tap outside it, as a phone does: Escape is a case of
         // its own below (a known bug).
         // Right of the page title, where nothing is: lower down, a row
-        // would open the editor.
+        // would open the editor. Checked, not assumed: what is painted
+        // there is nothing a tap acts on.
+        const empty = await page.evaluate(() => {
+          const hit = document.elementFromPoint(380, 104);
+          return {
+            hit: hit?.outerHTML.slice(0, 120) ?? null,
+            acts:
+              hit
+                ?.closest(
+                  "button, a, input, select, textarea, [role=row], [tabindex]",
+                )
+                ?.outerHTML.slice(0, 120) ?? null,
+          };
+        });
+        expect(
+          empty.acts,
+          `the tap's point is nothing to act on: ${JSON.stringify(empty)}`,
+        ).toBeNull();
         await page.touchscreen.tap(380, 104);
         await page.locator(".row-menu:popover-open").waitFor({
           state: "detached",
         });
+        /** The flow rows shown, by their names. */
+        const flowNames = () =>
+          page.evaluate(() =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                "[role=treegrid] [data-flow]",
+              ),
+            ]
+              .filter((r) => r.getBoundingClientRect().height > 0)
+              .map((r) => r.getAttribute("aria-label") ?? ""),
+          );
+        const unfiltered = await flowNames();
+        // The premise: some flows shown now name no invoice.
+        expect(
+          unfiltered.filter((n) => !/invoice/i.test(n)).length,
+          `before the search: ${JSON.stringify(unfiltered)}`,
+        ).toBeGreaterThan(0);
         await page
           .locator("[data-search] input, input[type=search]")
           .first()
           .fill("invoice");
-        await page.locator("[role=treegrid] [data-flow]").first().waitFor();
+        // Until the rows are the query's: every flow shown names an
+        // invoice, and the ones that do not are gone. The unfiltered list
+        // is on the page already, so a wait for any row passes at once.
+        const searched = await vi.waitFor(
+          async () => {
+            const names = await flowNames();
+            if (
+              names.length === 0 ||
+              names.length >= unfiltered.length ||
+              names.some((n) => !/invoice/i.test(n))
+            ) {
+              throw new Error(`the rows: ${JSON.stringify(names)}`);
+            }
+            return names;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        expect(searched, "the search's rows").toEqual([
+          "Create an invoice",
+          "Filter invoices",
+        ]);
         // A held query keeps the box open over the place tabs on a phone
         // (library index.html, "Open over the tabs").
         await shoot(
@@ -5504,12 +5474,15 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // Escape closes a list row's ⋯ menu (DEM-215; "Escape closing only one
+  // Escape and a list row's ⋯ menu (DEM-215; "Escape closing only one
   // panel"): the menu, opened by a tap on a phone, is the innermost thing
-  // open, so one Escape takes it off the painted page.
+  // open, so one Escape should take it off the painted page.
   // Known: Escape with a row's ⋯ menu open moves focus to the row and leaves the menu open (list-keys.ts preventDefaults Escape in a cell, which cancels the popover's light dismiss) — DEM-231
-  (process.platform === "darwin" ? it.fails : it.skip)(
-    "closes a list row's ⋯ menu with one Escape on a phone, asserted on its paint",
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-231 is fixed this is red too; then it
+  // becomes the check that one Escape closes the menu.
+  it.runIf(process.platform === "darwin")(
+    "still leaves a list row's ⋯ menu open after one Escape on a phone (DEM-231), asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-menu-esc-"));
       homes.push(home);
@@ -5522,7 +5495,7 @@ describe("the Studio's screenshot set", () => {
         headless: true,
         executablePath: chromium.executablePath(),
       });
-      try {
+      const run = async () => {
         const page = await phonePage(browser, studio);
         await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
         await page.goto(`${studio.origin}/`);
@@ -5561,8 +5534,8 @@ describe("the Studio's screenshot set", () => {
         await page.keyboard.press("Escape");
         const file = join(SHOTS, "phone-library-list-menu-escape.png");
         try {
-          // 3 s, not PAINT_MS: an it.fails case waits all of it each run,
-          // and a popover's light dismiss lands in the press's own task.
+          // 3 s, not PAINT_MS: the bug waits all of it each run, and a
+          // popover's light dismiss lands in the press's own task.
           await vi.waitFor(
             async () => {
               const m = await menu();
@@ -5576,6 +5549,11 @@ describe("the Studio's screenshot set", () => {
             `one Escape left the row's menu painted: ${String(error)}; before the press ${JSON.stringify(opened)}; shot ${file}`,
           );
         }
+      };
+      try {
+        await expect(run(), "DEM-231, and nothing else").rejects.toThrow(
+          /^one Escape left the row's menu painted/,
+        );
       } finally {
         await browser.close();
         running = null;
@@ -5673,14 +5651,24 @@ describe("the Studio's screenshot set", () => {
       // landing mid-drag leaves the handle being dragged detached (seen in
       // 3 of 5 runs when this drag followed the splits; see the report).
       // The take's one piece has an end handle where its tail was removed.
-      const [only] = await pieces();
-      if (only === undefined) throw new Error("the take draws no piece");
+      // Waited for: the preview paints before the timeline draws its piece.
+      const only = await vi.waitFor(
+        async () => {
+          const f = await pieces();
+          if (f.length !== 1 || (f[0] as Pieces[number]).width === 0)
+            throw new Error(
+              `the take draws no one piece: ${JSON.stringify(f)}`,
+            );
+          return f[0] as Pieces[number];
+        },
+        { timeout: PAINT_MS, interval: 50 },
+      );
       await page.mouse.move((only.left + only.right) / 2, only.top + 4);
       const edge = '.piece-wrap:only-child > [data-edge="end"]';
       // Waited for whole: the handle shown, its 120 ms fade in run to the
       // end, and a point of it the pointer lands on. The one nearest its
-      // middle: the middle itself is under a removed step's tick (the
-      // it.fails case below).
+      // middle: the middle itself is under a removed step's tick (DEM-232,
+      // the case after this one).
       const found = await vi
         .waitFor(
           async () => {
@@ -5939,8 +5927,8 @@ describe("the Studio's screenshot set", () => {
       });
       const [glyph] = await inkOnFill(page, [{ name: "pause", ...disc }]);
       const computed = contrast(
-        rgbIn(playing.ink ?? ""),
-        rgbIn(playing.disc ?? ""),
+        rgbIn(playing.ink ?? "").rgb,
+        rgbIn(playing.disc ?? "").rgb,
       );
       const glyphSaid = `the pause glyph: ${JSON.stringify({ glyph, computed, ink: playing.ink, disc: playing.disc })}`;
       console.info(glyphSaid);
@@ -6032,13 +6020,16 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A piece's handle is grabbed where it is drawn (DEM-215, "handles that
-  // could not be grabbed"): on the take with a cut at its end, the one
-  // piece's end handle, shown under the pointer, is the thing at its own
+  // A piece's handle and where it is grabbed (DEM-215, "handles that could
+  // not be grabbed"): on the take with a cut at its end, the one piece's
+  // end handle, shown under the pointer, should be the thing at its own
   // middle.
   // Known: a removed step's tick (data-cut) is drawn over the piece's end handle, covering its middle 24px; only its top and bottom few px grab — DEM-232
-  (process.platform === "darwin" ? it.fails : it.skip)(
-    "grabs the take's last piece's end handle at its middle, asserted on its paint",
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-232 is fixed this is red too; then it
+  // becomes the check that the handle is grabbed at its middle.
+  it.runIf(process.platform === "darwin")(
+    "still finds a removed step's tick over the middle of the last piece's end handle (DEM-232), asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-handle-"));
       homes.push(home);
@@ -6049,45 +6040,94 @@ describe("the Studio's screenshot set", () => {
         throw new Error("PLAIN has no take with a cut");
       const studio = await startStudio(home, join(home, "out"));
       running = studio;
-      const opened = await api(studio, "/api/window", {
-        method: "POST",
-        body: {},
-      });
-      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
-        200,
-      );
-      const context = studio.context();
-      const page = context.pages()[0] as Page;
-      await sizeWindow(context, page, 1280, 720);
-      await openPage(page, studio, "editor", cutTake.id, new Set());
-      const piece = await page
-        .locator(".piece-wrap:only-child > .piece")
-        .boundingBox();
-      if (piece === null) throw new Error("the take draws no one piece");
-      await page.mouse.move(piece.x + piece.width / 2, piece.y + 4);
-      const edge = '.piece-wrap:only-child > [data-edge="end"]';
-      // The premise: the handle is there and shown under the pointer.
-      await vi.waitFor(
-        async () => {
-          const read = await edgeGrab(page, edge);
-          if (read?.opacity !== "1") throw new Error(JSON.stringify(read));
-        },
-        { timeout: PAINT_MS, interval: 50 },
-      );
-      const file = join(SHOTS, "editor-handle-covered-1280x720-dark.png");
-      try {
-        // 3 s, not PAINT_MS: an it.fails case waits all of it each run.
+      const run = async () => {
+        const opened = await api(studio, "/api/window", {
+          method: "POST",
+          body: {},
+        });
+        expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+          200,
+        );
+        const context = studio.context();
+        const page = context.pages()[0] as Page;
+        await sizeWindow(context, page, 1280, 720);
+        await openPage(page, studio, "editor", cutTake.id, new Set());
+        // Waited for: the preview paints before the timeline draws its
+        // piece, and one read there found none (1 run of 6, 2026-11-18).
+        const piece = await vi
+          .waitFor(
+            async () => {
+              const box = await page
+                .locator(".piece-wrap:only-child > .piece")
+                .boundingBox({ timeout: 1_000 });
+              if (box === null || box.width === 0)
+                throw new Error(`its box is ${JSON.stringify(box)}`);
+              return box;
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          )
+          .catch((error: unknown) => {
+            throw new Error(`the take draws no one piece: ${String(error)}`);
+          });
+        await page.mouse.move(piece.x + piece.width / 2, piece.y + 4);
+        const edge = '.piece-wrap:only-child > [data-edge="end"]';
+        /** The removed step's tick, as drawn: its box and timing. */
+        const cutTick = () =>
+          page.evaluate(() => {
+            const t = document.querySelector<HTMLElement>(
+              "[data-tick][data-cut]",
+            );
+            const r = t?.getBoundingClientRect();
+            return t == null || r === undefined
+              ? null
+              : {
+                  left: r.left,
+                  right: r.right,
+                  top: r.top,
+                  bottom: r.bottom,
+                  timing: t.dataset.timing ?? null,
+                };
+          });
+        // The premises, waited for whole: the handle shown under the
+        // pointer, and the removed step's tick drawn, the state the bug
+        // needs (a read before the tick is drawn would pass).
         await vi.waitFor(
           async () => {
             const read = await edgeGrab(page, edge);
-            if (read?.onTop !== true) throw new Error(JSON.stringify(read));
+            const tick = await cutTick();
+            if (
+              read?.opacity !== "1" ||
+              tick === null ||
+              tick.right <= tick.left
+            )
+              throw new Error(JSON.stringify({ read, tick }));
           },
-          { timeout: 3_000, interval: 50 },
+          { timeout: PAINT_MS, interval: 50 },
         );
-      } catch (error) {
-        await page.screenshot({ path: file });
-        throw new Error(
-          `the handle's middle is under something else: ${String(error)}; shot ${file}`,
+        const file = join(SHOTS, "editor-handle-covered-1280x720-dark.png");
+        try {
+          // 3 s, not PAINT_MS: the bug waits all of it each run.
+          // What a pass saw, said in the failure it then is.
+          return await vi.waitFor(
+            async () => {
+              const read = await edgeGrab(page, edge);
+              const tick = await cutTick();
+              if (read?.onTop !== true)
+                throw new Error(JSON.stringify({ read, tick }));
+              return { read, tick };
+            },
+            { timeout: 3_000, interval: 50 },
+          );
+        } catch (error) {
+          await page.screenshot({ path: file });
+          throw new Error(
+            `the handle's middle is under something else: ${String(error)}; shot ${file}`,
+          );
+        }
+      };
+      try {
+        await expect(run(), "DEM-232, and nothing else").rejects.toThrow(
+          /^the handle's middle is under something else: .*data-cut/,
         );
       } finally {
         running = null;
@@ -6118,6 +6158,7 @@ describe("the Studio's screenshot set", () => {
     const context = studio.context();
     const page = context.pages()[0] as Page;
     const console_ = watchConsole(page);
+    await installDrawnOpacity(context);
     await sizeWindow(context, page, 1280, 480);
     await page.goto(`${studio.origin}/`);
     await page.locator("[role=treegrid] [data-flow]").first().waitFor();
@@ -6154,15 +6195,18 @@ describe("the Studio's screenshot set", () => {
     return { studio, page, console_, foot };
   };
 
-  // A list row ticked by the mouse at the foot of a scrolled page stays
-  // where it was in the window (DEM-215, "the page jumping when a row is
-  // selected"; the cards' form is studio-bulk-scroll.test.ts).
+  // A list row ticked by the mouse at the foot of a scrolled page should
+  // stay where it was in the window (DEM-215, "the page jumping when a row
+  // is selected"; the cards' form is studio-bulk-scroll.test.ts).
   // Known: in the list, the first tick at a scrolled page's foot moves the ticked row 64px down the window (the selection bar opens above it and the scroll does not follow) — DEM-233
-  (process.platform === "darwin" ? it.fails : it.skip)(
-    "ticks a list row at the foot of a scrolled page without moving it, by a real pointer, asserted on its paint",
+  // Pinned by the bug's own message: a premise that fails says something
+  // else and is red, and once DEM-233 is fixed this is red too; then it
+  // becomes the check that the ticked row stays put.
+  it.runIf(process.platform === "darwin")(
+    "still moves a list row ticked at the foot of a scrolled page (DEM-233), by a real pointer, asserted on its paint",
     async () => {
       const { studio, page, foot } = await listAtFoot("studio-shots-tick-");
-      try {
+      const run = async () => {
         const before = await foot();
         const footSaid = `the foot: ${JSON.stringify(before)}`;
         // The premise: the page is scrolled, so a jump has room to show.
@@ -6197,7 +6241,18 @@ describe("the Studio's screenshot set", () => {
           },
           { timeout: PAINT_MS, interval: 50 },
         );
-        const scrolledBefore = await foot();
+        /** The ticked row's own top in the window, and the page's scroll. */
+        const where = () =>
+          page.evaluate(
+            (sel) => ({
+              top:
+                document.querySelector(sel)?.getBoundingClientRect().top ??
+                null,
+              scrollY: window.scrollY,
+            }),
+            row,
+          );
+        const pressed = await where();
         await page.mouse.click(box.x, box.y);
         await vi.waitFor(
           async () => {
@@ -6219,23 +6274,22 @@ describe("the Studio's screenshot set", () => {
             ),
         );
         await settle(page, "ticked");
-        const after = await page.evaluate(
-          (sel) => ({
-            top:
-              document.querySelector(sel)?.getBoundingClientRect().top ?? null,
-            scrollY: window.scrollY,
-          }),
-          row,
-        );
-        const tickSaid = `the tick: ${JSON.stringify({ before: scrolledBefore, after })}`;
+        const after = await where();
         // Shot before the verdict, so a red run carries its picture.
         await page.screenshot({
           path: join(SHOTS, "library-list-ticked-foot-1280x480-dark.png"),
         });
-        expect(
-          Math.abs((after.top ?? Number.NaN) - scrolledBefore.top),
-          `${tickSaid}: the row stays where it was in the window`,
-        ).toBeLessThanOrEqual(1);
+        const moved = (after.top ?? Number.NaN) - (pressed.top ?? Number.NaN);
+        if (!(Math.abs(moved) <= 1)) {
+          throw new Error(
+            `the ticked row moved ${moved}px in the window: ${JSON.stringify({ pressed, after })}`,
+          );
+        }
+      };
+      try {
+        await expect(run(), "DEM-233, and nothing else").rejects.toThrow(
+          /^the ticked row moved [1-9]\d*px in the window/,
+        );
       } finally {
         running = null;
         await studio.stop();
@@ -6267,9 +6321,7 @@ describe("the Studio's screenshot set", () => {
               r.left + r.width / 2,
               r.top + r.height / 2,
             );
-            let o = 1;
-            for (let n: Element | null = e; n; n = n.parentElement)
-              o *= Number(getComputedStyle(n).opacity);
+            const o = window.drawnOpacity(e);
             return {
               x: r.left + r.width / 2,
               y: r.top + r.height / 2,
@@ -6324,9 +6376,8 @@ describe("the Studio's screenshot set", () => {
       );
       await page.screenshot({ path: toastFile });
       shots.push(toastFile);
-      // Gone by itself: TOAST_MS (pages/src/shell/toast.ts) is 4 s; waited
-      // for to 4 s more, and not gone before about its time.
-      const TOAST_STAYS_MS = 4_000;
+      // Gone by itself: waited for to twice the app's own TOAST_MS, and not
+      // gone before about its time.
       const gone = await vi
         .waitFor(
           async () => {
@@ -6335,17 +6386,17 @@ describe("the Studio's screenshot set", () => {
               throw new Error(`still painted: ${JSON.stringify(t)}`);
             return Date.now();
           },
-          { timeout: TOAST_STAYS_MS * 2, interval: 50 },
+          { timeout: TOAST_MS * 2, interval: 50 },
         )
         .catch((error: unknown) => {
           throw new Error(
-            `the toast did not clear within ${(TOAST_STAYS_MS * 2) / 1000} s of being seen: ${String(error)}`,
+            `the toast did not clear within ${(TOAST_MS * 2) / 1000} s of being seen: ${String(error)}`,
           );
         });
       const stayed = gone - seen.at;
       console.info(`library rows: the delete toast stayed ${stayed} ms`);
       expect(stayed, "the toast stays about its time").toBeGreaterThan(
-        TOAST_STAYS_MS - 1_000,
+        TOAST_MS - 1_000,
       );
       expect(
         await page.locator(`[data-list] [data-flow="${rowNow.flow}"]`).count(),
