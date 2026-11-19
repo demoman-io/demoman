@@ -17,6 +17,7 @@ import {
   STUDIO_HEADER,
   type WindowAnswer,
 } from "@demoman/studio-protocol";
+import { messageOf } from "./files.js";
 import {
   readStudioState,
   removeStudioState,
@@ -30,14 +31,11 @@ export type StudioAnswer =
 
 const STALE_NOTE = "A stale Studio record was replaced.";
 const REPLACED_LATER_NOTE =
-  "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.";
+  "An older Studio is running an export, an add to a repo or a CI setup; it stays open until that work ends and its window closes, and the next Studio call starts the new version.";
 const PING_TIMEOUT_MS = 2_000;
 const PING_TRIES = 3;
 const WINDOW_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 10;
-
-const messageOf = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e);
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -436,7 +434,8 @@ export async function openStudio(o: {
 }
 
 /**
- * Ends the studio now. `cutShort` is how many exports it was holding. Only a
+ * Ends the studio now. `cutShort` is how much work it was holding: exports
+ * and adds queued or running, and CI setups running. Only a
  * studio that answers as the pid its file names is signalled: a pid the
  * system has reused is left alone.
  */

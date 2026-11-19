@@ -13,13 +13,11 @@ import type {
   CiPlannedWire,
   CiState,
   CiStopWire,
-  Refusal,
   SetupPrWire,
   StudioEvent,
-  StudioReason,
 } from "@demoman/studio-protocol";
 import { messageOf } from "./files.js";
-import type { Handler } from "./server.js";
+import { type Handler, refuse } from "./server.js";
 
 export interface StudioCi {
   /** Never `running` or `finished`: those are this server's. */
@@ -73,15 +71,6 @@ export interface CiJobs {
    *  reveal shows beside the exports (DEM-56). */
   wrote(path: string): boolean;
 }
-
-const refuse = (
-  status: number,
-  reason: StudioReason,
-  detail: string,
-): { status: number; json: Refusal } => {
-  const body: Refusal = { reason, detail };
-  return { status, json: body };
-};
 
 /** Each typed value as `•••`. */
 const hide = (text: string, values: Map<string, string>): string =>

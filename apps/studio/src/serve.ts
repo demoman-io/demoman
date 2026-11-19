@@ -26,16 +26,14 @@ import {
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
-  Refusal,
   RepoAddBody,
   RepoAddStarted,
   RepoRemoveAnswer,
   StudioEvent,
-  StudioReason,
   WindowAnswer,
 } from "@demoman/studio-protocol";
 import { createEventHub, type EventHub } from "./events.js";
-import { messageOf, noTakeRefusal, readIfPresent } from "./files.js";
+import { messageOf, readIfPresent } from "./files.js";
 import { createPageServer } from "./pages.js";
 import {
   createExportQueue,
@@ -49,6 +47,10 @@ import { createRunExport } from "./run-export.js";
 import {
   createStudioServer,
   type Handler,
+  json,
+  noTake,
+  noVideo,
+  refuse,
   type StudioHandlers,
   type StudioResponse,
 } from "./server.js";
@@ -70,19 +72,6 @@ const QUEUE_STATUS: Record<QueueRefusal["reason"], number> = {
   takeNotFound: 404,
   sceneNotSaved: 409,
   libraryUnreadable: 500,
-};
-
-const json = (status: number, body: unknown): StudioResponse => ({
-  status,
-  json: body,
-});
-const refuse = (
-  status: number,
-  reason: StudioReason,
-  detail: string,
-): StudioResponse => {
-  const body: Refusal = { reason, detail };
-  return { status, json: body };
 };
 
 /** The body as JSON; an empty body is `{}` (a window with no take). */
@@ -125,10 +114,10 @@ export function buildHandlers(o: {
   upkeepOnStart?: boolean;
   /** The CI routes; absent, they answer `routeNotFound`. */
   ci?: CiJobs;
+  /** Told each add that ended, so one with no window open is still said. */
+  tell?: (e: StudioEvent) => void;
 }): StudioHandlers {
   const { library } = o;
-  const noTake = (id: string): StudioResponse =>
-    json(404, noTakeRefusal(library, id));
 
   /** Whether `id` is a take that loads: parsed, not only stat'd as
    *  `takeExists` does, so the window never opens on one that will not. */
@@ -138,8 +127,6 @@ export function buildHandlers(o: {
   const videos = createVideoStore(o.home, library, { log: o.log });
   const keep = o.keep ?? keepVideo;
   const removeFlow = o.removeFlow ?? removeRepoFlow;
-  const noVideo = (id: string): StudioResponse =>
-    refuse(404, "videoNotFound", `There is no flow "${id}".`);
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -162,7 +149,9 @@ export function buildHandlers(o: {
       events: o.events,
       log: o.log,
       version: o.version,
-      queued: () => o.queue.size(),
+      // A CI apply watches its run for up to half an hour: work a newer
+      // version's open must not stop underneath it (DEM-126).
+      queued: () => o.queue.size() + ci.running(),
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
@@ -201,7 +190,7 @@ export function buildHandlers(o: {
       if (takeId !== undefined) {
         // An unknown take is refused; the library is not opened instead.
         try {
-          if (!(await loads(takeId))) return noTake(takeId);
+          if (!(await loads(takeId))) return noTake(library, takeId);
         } catch (error) {
           return libraryRefusal(error);
         }
@@ -267,6 +256,16 @@ export function buildHandlers(o: {
       }
       const jobId = randomUUID();
       const at = { type: "repo", videoId: id, jobId } as const;
+      const ended = (e: StudioEvent) => {
+        o.events.send(e);
+        o.tell?.(e);
+      };
+      // Said in studio.log too: with no window open, the event alone reaches
+      // nobody (DEM-125).
+      const failed = (reason: string, detail: string) => {
+        o.log(`studio: add ${jobId} failed (${reason}): ${detail}`);
+        ended({ ...at, phase: "failed", reason, detail });
+      };
       void o.queue
         .serial(
           async () => {
@@ -276,6 +275,9 @@ export function buildHandlers(o: {
                 repoRoot: can.root,
                 deliver: add.deliver,
                 to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
+                // The version vetted as Add was pressed: keep adds that one,
+                // or refuses videoChanged (DEM-140).
+                pressed: { takeId: can.takeId, revision: can.revision },
               },
               {
                 home: o.home,
@@ -299,16 +301,11 @@ export function buildHandlers(o: {
               },
             );
             if (!answer.ok) {
-              o.events.send({
-                ...at,
-                phase: "failed",
-                reason: answer.reason,
-                detail: answer.detail,
-              });
+              failed(answer.reason, answer.detail);
               return;
             }
             ci.added(can.root, answer.written);
-            o.events.send({
+            ended({
               ...at,
               phase: "added",
               file: answer.file,
@@ -326,13 +323,10 @@ export function buildHandlers(o: {
           (position) => o.events.send({ ...at, phase: "queued", position }),
         )
         .catch((error: unknown) => {
-          o.log(`studio: add ${jobId} threw: ${messageOf(error)}`);
-          o.events.send({
-            ...at,
-            phase: "failed",
-            reason: "internalError",
-            detail: `The add stopped with an error: ${messageOf(error)}.`,
-          });
+          failed(
+            "internalError",
+            `The add stopped with an error: ${messageOf(error)}.`,
+          );
         })
         .finally(() => adding.delete(id));
       const started: RepoAddStarted = { jobId };
@@ -372,7 +366,7 @@ export function buildHandlers(o: {
 
     async exportStart(req) {
       const id = req.params.id as string;
-      if (!library.isTakeId(id)) return noTake(id);
+      if (!library.isTakeId(id)) return noTake(library, id);
       const body = await bodyOf(req);
       if (!body.ok) {
         return refuse(
@@ -526,9 +520,16 @@ export function notifyOnMac(title: string, body: string): Promise<void> {
   });
 }
 
-/** What a notification says for an export or a CI apply that ended; null
- *  for any other event. */
-function endedSentence(e: StudioEvent): string | null {
+/** What a notification says for an export, an add or a CI apply that ended;
+ *  null for any other event. */
+export function endedSentence(e: StudioEvent): string | null {
+  if (e.type === "repo") {
+    if (e.phase === "failed") return `Not added to the repo: ${e.detail}`;
+    if (e.phase !== "added") return null;
+    // The video, when one was rendered; the DemoScript alone otherwise.
+    const added = basename(e.written[0] ?? e.file);
+    return [`Added ${added} to the repo.`, ...e.notes].join(" ");
+  }
   if (e.type === "ci") {
     if (e.phase !== "done" || e.step !== "apply") return null;
     const a = e.answer;
@@ -659,7 +660,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     const notice = notify("Demoman", sentence)
       .catch((error: unknown) => {
         log(
-          `studio: ${e.type === "ci" ? "CI setup" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
+          `studio: ${e.type === "ci" ? "CI setup" : e.type === "repo" ? "an add to the repo" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
         );
       })
       .finally(() => notices.delete(notice));
@@ -705,6 +706,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     outDir: o.outDir,
     upkeepOnStart: true,
     ci,
+    tell: tellIfUnseen,
     window: {
       open: async (t) => {
         opening += 1;
@@ -785,11 +787,19 @@ export async function runServe(o: ServeOptions): Promise<never> {
   noWindow.unref?.();
 
   const onSignal = (name: string) => () => {
-    const left = queue.size();
+    // The queue holds exports and adds; a CI apply runs beside it.
+    const queued = queue.size();
+    const applies = ci.running();
+    const left = [
+      queued > 0
+        ? `${queued} export${queued === 1 ? "" : "s"} or add${queued === 1 ? "" : "s"}`
+        : "",
+      applies > 0 ? `${applies} CI setup${applies === 1 ? "" : "s"}` : "",
+    ].filter((s) => s !== "");
     log(
-      left === 0
+      left.length === 0
         ? `studio: ${name}; stopping`
-        : `studio: ${name}; stopping with ${left} export${left === 1 ? "" : "s"} unfinished`,
+        : `studio: ${name}; stopping with ${left.join(" and ")} unfinished`,
     );
     void stop(0);
   };

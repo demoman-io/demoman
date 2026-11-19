@@ -384,7 +384,10 @@ describe("the CLI's recipe", () => {
     // envFileUnreadable: only setup --ci's --env-file reads a .env; the `ci`
     // tool takes no env file (a value never passes through the agent).
     // noCheckout: checkAddable's, the Studio's listing and button only; add (keepVideo) takes its checkout and never answers it.
+    // videoChanged: keepVideo answers it only to a `pressed` version, which
+    // the Studio's Add passes and the `add` tool never does (DEM-140).
     const TERMINAL_REASONS = [
+      "videoChanged",
       "sameFlow",
       "markMoved",
       "repoCheckoutMissing",

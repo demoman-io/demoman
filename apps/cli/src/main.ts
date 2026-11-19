@@ -282,7 +282,7 @@ async function studio(args: string[]): Promise<void> {
     }
     process.stdout.write(
       stopped
-        ? `Stopped the Studio.${cutShort > 0 ? " An export was cut short." : ""}\n`
+        ? `Stopped the Studio.${cutShort > 0 ? " Work it was doing (an export, an add or a CI setup) was cut short." : ""}\n`
         : "No Studio is running.\n",
     );
     process.exit(0);

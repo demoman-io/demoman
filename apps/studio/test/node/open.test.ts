@@ -412,7 +412,7 @@ describe("openStudio", () => {
         });
         expect(a).toMatchObject({
           outcome: "opened",
-          note: "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.",
+          note: "An older Studio is running an export, an add to a repo or a CI setup; it stays open until that work ends and its window closes, and the next Studio call starts the new version.",
         });
         const now = await readStudioState(home);
         if (now === null || "unreadable" in now) throw new Error("no state");
