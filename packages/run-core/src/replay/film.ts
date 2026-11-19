@@ -3,6 +3,7 @@ import {
   contentScale,
   derivePresentation,
   type FrameBundle,
+  followInReach,
   frameTrack,
   inScreenSpace,
   isHeld,
@@ -419,6 +420,19 @@ export function filmQuality(
     bundle.viewport,
     scene.branding.padding,
   );
+  // The follow as it is drawn on that frame, aimed in reach as the export's
+  // is (DEM-211): the camera measured is the camera in the video.
+  const track: CameraTrack = {
+    ...resolved,
+    cameraFollow: followInReach(
+      resolved,
+      bundle,
+      resolved.cameraKeys,
+      derivePresentation(scene.branding, frame, bundle.viewport).frameRect,
+      bundle.viewport,
+      frame,
+    ),
+  };
 
   const steps: FilmStep[] = scene.actions.map((action): FilmStep => {
     const blank = {
@@ -447,7 +461,7 @@ export function filmQuality(
       return { ...blank, outputMs, unknown: "noRect", framing: null };
     }
     const { visible, shot } = visibleRegion(
-      resolved,
+      track,
       outputMs,
       bundle.viewport,
       scene.branding,
@@ -478,7 +492,7 @@ export function filmQuality(
     const atRelease =
       action.kind === "drag" && releaseMs !== undefined
         ? visibleRegion(
-            resolved,
+            track,
             out(releaseMs),
             bundle.viewport,
             scene.branding,

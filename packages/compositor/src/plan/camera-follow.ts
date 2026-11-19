@@ -59,9 +59,12 @@ function departs(keys: CameraKey[], i: number): number {
  *   at or below it) at rest on that key's centre, so the push-in, its
  *   landing and the first click's framing are exactly the keys'. It runs
  *   through every following key above 1 up to the pull-out.
- * - The target is the pointer, unclamped: `frameCamera` clamps at render as
- *   it always has. It is the aim in force instead (the latest key whose
- *   move has set off) when `cursorAt` is null (follow off, or no pointer
+ * - The target is the pointer, moved by `legal` to where the window can
+ *   stand at the zoom of that instant: a spring chasing a point out of reach
+ *   (a toolbar at the page's edge) was stopped dead against the edge by the
+ *   render clamp, at full speed, and let go at full speed (DEM-211). Aimed
+ *   in reach, it eases into the edge. It is the aim in force instead (the
+ *   latest key whose move has set off) when `cursorAt` is null (follow off, or no pointer
  *   is drawn), when it answers null, and while a drag's button is held:
  *   the drag's zoom is fitted to both its ends, and trailing the hand from
  *   the press would cut off the far one. It stays the aim after the release
@@ -76,8 +79,12 @@ export function solveFollow(args: {
   outputDurationMs: number;
   /** `MotionTimings.followRatePerS`. */
   rate: number;
+  /** Where the camera can stand at a scale (`frameTrack`'s canvas clamp).
+   *  The default aims as planned, for readers with no canvas. */
+  legal?: (center: Vec, scale: number) => Vec;
 }): FollowStretch[] {
   const { keys, cursorAt, holds, outputDurationMs } = args;
+  const legal = args.legal ?? ((center: Vec) => center);
   const omega = args.rate / 1000;
   const held = (t: number) => holds.some((h) => h.startMs <= t && t < h.endMs);
   const stretches: FollowStretch[] = [];
@@ -110,12 +117,33 @@ export function solveFollow(args: {
     };
     // A hand resting where a drag let go is still in the drag's fitted
     // frame: the aim holds until it moves on, or the camera lurches to the
-    // drop as the button lifts (the Sublime board, 2026-11-08).
+    // drop as the button lifts (the Sublime board, 2026-11-08). It is the
+    // keys' aim in force, so a step that does not move the pointer (a key
+    // press after a drag) is still framed when its key sets off.
+    // Leaving the rest, the aim is a lead that moves with the hand and closes
+    // on it by no more than the hand's own step: it may wait, never move
+    // against the hand. Aimed at the hand at once, the camera went down to
+    // the drop as the hand went up from it (DEM-211, Excalidraw). While the
+    // hand is still, the lead closes on it at the follow's own rate, unless
+    // that would go against where the hand moves next: a pause on the way
+    // is waited out, not lurched toward (review of PR #86).
     let holding = false;
     let rest: Vec | null = null;
-    const targetAt = (t: number): Vec => {
+    let lead: { at: Vec; hand: Vec; next?: Vec | null } | null = null;
+    /** The hand's next move from `from`, still at `t`, in this stretch. */
+    const nextMove = (t: number, from: Vec): Vec | null => {
+      for (let s = t + FOLLOW_STEP_MS; s < endMs; s += FOLLOW_STEP_MS) {
+        const h = cursorAt?.(s) ?? null;
+        if (h === null) return null;
+        const d = { x: h.x - from.x, y: h.y - from.y };
+        if (Math.hypot(d.x, d.y) >= CURSOR_MOTION_EPSILON_PX) return d;
+      }
+      return null;
+    };
+    const targetAt = (t: number, dt: number): Vec => {
       if (held(t)) {
         holding = true;
+        lead = null;
         return aimAt(t);
       }
       const hand = cursorAt?.(t) ?? null;
@@ -130,16 +158,45 @@ export function solveFollow(args: {
       ) {
         return aimAt(t);
       }
+      if (rest !== null && hand !== null) lead = { at: aimAt(t), hand: rest };
       rest = null;
-      return hand ?? aimAt(t);
+      if (hand === null) {
+        lead = null;
+        return aimAt(t);
+      }
+      if (lead === null) return hand;
+      const step = { x: hand.x - lead.hand.x, y: hand.y - lead.hand.y };
+      const moved = Math.hypot(step.x, step.y);
+      const carried = { x: lead.at.x + step.x, y: lead.at.y + step.y };
+      const gap = { x: hand.x - carried.x, y: hand.y - carried.y };
+      const left = Math.hypot(gap.x, gap.y);
+      if (moved === 0) {
+        if (lead.next === undefined) lead.next = nextMove(t, hand);
+        const next = lead.next;
+        if (next !== null && gap.x * next.x + gap.y * next.y < 0) {
+          lead = { ...lead, hand };
+          return lead.at;
+        }
+      }
+      const reach = moved > 0 ? moved : left * (1 - Math.exp(-omega * dt));
+      if (left <= reach) {
+        lead = null;
+        return hand;
+      }
+      const k = reach / left;
+      lead = {
+        at: { x: carried.x + gap.x * k, y: carried.y + gap.y * k },
+        hand,
+      };
+      return lead.at;
     };
 
     let x = landing.center;
     let v = { x: 0, y: 0 };
     const centers: Vec[] = [x];
     for (let t = landing.outputTimeMs; t < endMs; t += FOLLOW_STEP_MS) {
-      const target = targetAt(t);
       const dt = Math.min(FOLLOW_STEP_MS, endMs - t);
+      const target = legal(targetAt(t, dt), sampleCamera(keys, t).scale);
       const e = Math.exp(-omega * dt);
       const step = (y: number, vel: number) => {
         const k = vel + omega * y;
@@ -237,6 +294,19 @@ export function sampleTrack(
  * draws or overlays the picture goes through this one, so they all draw
  * the same camera.
  */
+/** Where the camera can stand at a scale: the canvas clamp every reader
+ *  draws with. The follow is solved with this same clamp so it aims in
+ *  reach (DEM-211): one definition, or the aim and the drawing drift apart. */
+export function legalFor(
+  base: number,
+  frameRect: Rect,
+  viewport: { width: number; height: number },
+  canvas: { width: number; height: number },
+): (center: Vec, scale: number) => Vec {
+  return (center, scale) =>
+    frameCamera({ center, scale }, base, frameRect, viewport, canvas).center;
+}
+
 export function frameTrack(
   track: CameraTrack,
   outputTimeMs: number,
@@ -246,10 +316,12 @@ export function frameTrack(
   viewport: { width: number; height: number },
   canvas: { width: number; height: number },
 ): ReturnType<typeof frameCamera> {
-  const legal = (center: Vec, scale: number) =>
-    frameCamera({ center, scale }, base, frameRect, viewport, canvas).center;
   return frameCamera(
-    sampleTrack(track, outputTimeMs, legal),
+    sampleTrack(
+      track,
+      outputTimeMs,
+      legalFor(base, frameRect, viewport, canvas),
+    ),
     base,
     frameRect,
     viewport,

@@ -204,6 +204,97 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
   });
 
+  // DEM-211 (Excalidraw, 2026-11-18): a drag dropped below its aim, the next
+  // step's key (a toolbar, above) set off while the hand still rested at the
+  // drop, and the hand then went up to it. The camera went up to the
+  // toolbar, back down to the hand as it set off, then up again with it.
+  describe("after a drag, toward a target above the drop", () => {
+    const drop = { x: 520, y: 420 };
+    const toolbar = { x: 700, y: 40 };
+    const keys = [
+      cameraKey({
+        outputTimeMs: 0,
+        center: { x: 640, y: 400 },
+        scale: 1,
+        transitionMs: 0,
+      }),
+      cameraKey({ outputTimeMs: 1000, center: A, scale: 2 }),
+      // Sets off at 3300, while the hand rests at the drop until 4000.
+      cameraKey({
+        outputTimeMs: 4800,
+        center: toolbar,
+        scale: 2,
+        transitionMs: 1500,
+      }),
+      // The pull-out sets off at 5750 and moves the centre itself.
+      cameraKey({ outputTimeMs: 7000, center: toolbar, scale: 1 }),
+    ];
+    const pressed = [{ startMs: 1500, endMs: 2500 }];
+    /** The largest step down, px per 60 fps frame, from `from` to `to`. */
+    const mostDown = (
+      t: ReturnType<typeof track>,
+      from: number,
+      to: number,
+    ) => {
+      let worst = 0;
+      let previous = sampleTrack(t, from).center;
+      for (let at = from + 1000 / 60; at <= to; at += 1000 / 60) {
+        const now = sampleTrack(t, at).center;
+        worst = Math.max(worst, now.y - previous.y);
+        previous = now;
+      }
+      return worst;
+    };
+
+    it("never moves down, from the release to the toolbar", () => {
+      const hand = pointerThrough([
+        [0, A],
+        [1500, A],
+        [2200, drop],
+        [4000, drop],
+        [4600, toolbar],
+      ]);
+      const t = track({ keys, cursorAt: hand, holds: pressed });
+      // Premise: the hand rests at the drop, below the aim, then goes up.
+      expect(drop.y).toBeGreaterThan(A.y);
+      expect(hand(3900)).toEqual(hand(2500));
+      expect(mostDown(t, 2500, 5700)).toBeLessThan(0.5);
+      expect(dist(sampleTrack(t, 5700).center, toolbar)).toBeLessThan(3);
+    });
+
+    // Review of PR #86: the drag's aim was kept for the whole rest, so a
+    // step that does not move the pointer (a key press) was never framed.
+    it("frames the next step's key while the hand stays at the drop", () => {
+      const hand = pointerThrough([
+        [0, A],
+        [1500, A],
+        [2200, drop],
+        [7000, drop],
+      ]);
+      const t = track({ keys, cursorAt: hand, holds: pressed });
+      expect(dist(sampleTrack(t, 5000).center, toolbar)).toBeLessThan(3);
+    });
+
+    // Review of PR #86: any pause in the hand's travel dropped what was left
+    // of its offset at once, and the camera lurched down toward the paused
+    // hand, then went up again with it.
+    it("does not lurch toward a hand that pauses on its way", () => {
+      const midway = { x: 610, y: 230 };
+      const hand = pointerThrough([
+        [0, A],
+        [1500, A],
+        [2200, drop],
+        [4000, drop],
+        [4300, midway],
+        [4500, midway],
+        [4800, toolbar],
+      ]);
+      const t = track({ keys, cursorAt: hand, holds: pressed });
+      expect(mostDown(t, 2500, 5700)).toBeLessThan(2);
+      expect(dist(sampleTrack(t, 5700).center, toolbar)).toBeLessThan(3);
+    });
+  });
+
   it("leaves the spring for the pull-out without a jump", () => {
     const t = track();
     let previous = sampleTrack(t, 5200);

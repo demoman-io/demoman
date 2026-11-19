@@ -685,6 +685,8 @@ export function resolveCameraFollow(args: {
   cursor: CursorSample[];
   motion: SceneMotion;
   drawsPointer: boolean;
+  /** `solveFollow`'s `legal`: where the camera can stand on the canvas. */
+  legal?: (center: Vec, scale: number) => Vec;
 }): FollowStretch[] {
   const { keys, plan, bundle, timeline, cursor, motion } = args;
   const zoomedActions = new Set(plan.cameraIntents.map((i) => i.actionId));
@@ -702,6 +704,7 @@ export function resolveCameraFollow(args: {
       })),
     outputDurationMs: timeline.outputDurationMs,
     rate: motionTimings(motion.smoothness).followRatePerS,
+    ...(args.legal === undefined ? {} : { legal: args.legal }),
   });
 }
 
