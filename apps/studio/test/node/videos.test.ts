@@ -240,6 +240,27 @@ describe("the takes listing's videos", () => {
     expect(body.videoOf["inv-2"]?.expired).toBe(false);
   });
 
+  it("says an old version expiry left alone for a lease that will not read (DEM-127)", async () => {
+    // Red: read only `failed` from the expiry result — the pass succeeds,
+    // inv-1 keeps its frames, and no row says why.
+    await createLibrary(home).putJson("inv-1", "script.json", {});
+    const busy = join(home, "takes", "inv-1", ".busy");
+    await mkdir(busy, { recursive: true });
+    await writeFile(join(busy, "broken.json"), "{nope");
+    const frames = join(home, "takes", "inv-1", "frames");
+    // Premise: there are frames the test above shows a pass removes.
+    expect(await exists(frames)).toBe(true);
+    const body = await listing();
+    const said = JSON.stringify(body.unreadable);
+    expect(body.videoOf["inv-1"]?.expired, said).toBe(false);
+    expect(await exists(frames)).toBe(true);
+    const row = body.unreadable.find((u) => u.folder === "expiring old videos");
+    expect(row?.kind, said).toBe("upkeep");
+    expect(row?.reason, said).toContain("video inv-1:");
+    expect(row?.reason, said).toContain("broken.json");
+    expect(h.logs.join("\n")).toContain("broken.json");
+  });
+
   it.skipIf(process.getuid?.() === 0)(
     "a migration that fails still answers the listing, with a row saying why",
     async () => {

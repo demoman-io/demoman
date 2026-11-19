@@ -243,11 +243,13 @@ async function runSteps(
             .locator(`[${SIGN_IN_MARK}="${i}"]`)
             .elementHandle({ timeout: left() });
           try {
-            // The frame's URL, which the browser keeps: page script can
-            // forge `ownerDocument`, and `ownerFrame()` reads it too, so a
-            // forgery answers null, refused (audit run 1).
-            const frame = await handle.ownerFrame();
-            const here = frame === null ? null : new URL(frame.url()).origin;
+            // The main frame's URL (`page.url()`), which the browser keeps: a page locator
+            // resolves only there, so that is the field's frame. Never
+            // `handle.ownerFrame()`: Playwright asks the page for
+            // `ownerDocument.documentElement`, and a field whose getter
+            // answers an iframe of the site reads as that iframe (DEM-116).
+            const url = page.url();
+            const here = URL.canParse(url) ? new URL(url).origin : null;
             if (here !== origin && /\{secret:/.test(step.text)) {
               throw new StepFailed(
                 "secretOffOrigin",
@@ -411,6 +413,7 @@ export async function signInAccount(
         ...(deps.executablePath === undefined
           ? {}
           : { executablePath: deps.executablePath }),
+        log: deps.log,
       });
     } catch (error) {
       const c = classifyLaunchError(error, undefined, deps.installCommand);

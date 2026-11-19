@@ -363,6 +363,17 @@ export function createRoutes(o: {
           reason: `old videos could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
         });
       }
+      // A video left alone for a file that will not read (DEM-127): the
+      // pass went on, and this one keeps its frames until the file reads.
+      for (const why of "skippedUnreadable" in last
+        ? (last.skippedUnreadable ?? [])
+        : []) {
+        rows.push({
+          folder: "expiring old videos",
+          kind: "upkeep",
+          reason: `an old video was not expired: ${why}`,
+        });
+      }
       for (const r of rows) log(`studio: ${r.folder}: ${r.reason}`);
       return rows;
     });

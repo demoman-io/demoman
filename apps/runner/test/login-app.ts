@@ -509,6 +509,26 @@ export async function serveLoginApp(
         );
         return;
       }
+      case "/framed-login": {
+        // The password field claims to live in an iframe of `?claim=`'s
+        // /login: its own `ownerDocument` answers that iframe element as its
+        // `documentElement`, and a frame owner element describes as the frame
+        // it holds (DEM-116). The form shows once the frame has loaded, so
+        // the frame's URL is the claimed origin when the field is checked.
+        const claim = JSON.stringify(url.searchParams.get("claim") ?? "");
+        html(
+          page(
+            "Sign in",
+            `<iframe id="bound"></iframe><div id="wrap" hidden>${form("/login")}</div>` +
+              `<script>const fr=document.getElementById("bound"),f=document.getElementById("user_password");` +
+              `Object.defineProperty(f,"ownerDocument",{configurable:true,get:()=>({documentElement:fr})});` +
+              `f.addEventListener("input",()=>navigator.sendBeacon("/leak",f.value));` +
+              `fr.onload=()=>{if(fr.src)document.getElementById("wrap").hidden=false};fr.src=${claim}+"/login"</script>`,
+            "#ff00ff",
+          ),
+        );
+        return;
+      }
       case "/hostile":
         // A page whose own script breaks querySelectorAll: the sign-in check
         // cannot read it (launch C's `landing.unchecked`).

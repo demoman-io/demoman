@@ -500,6 +500,18 @@ describe("export names", () => {
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(cut)).toBe(false);
   });
 
+  it("cuts a long CJK name to 200 bytes, so the file name stays under 255 (DEM-132)", () => {
+    // Red: cut by characters alone — 120 three-byte characters are 360.
+    const name = "請求書を作成して送信する".repeat(10);
+    expect(Buffer.byteLength(name)).toBeGreaterThan(255);
+    const cut = exportBaseName(name);
+    expect(Buffer.byteLength(cut)).toBe(198);
+    expect(name.startsWith(cut)).toBe(true);
+    const file = exportFileName("mp4", "9:16", `${cut} (1)`);
+    expect(Buffer.byteLength(file)).toBeLessThan(255);
+    expect(Buffer.byteLength(stillsFolder("9:16", cut))).toBeLessThan(255);
+  });
+
   it("gives each file type a content type", () => {
     expect(contentTypeFor("mp4")).toBe("video/mp4");
     expect(contentTypeFor("gif")).toBe("image/gif");

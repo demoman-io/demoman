@@ -6,10 +6,16 @@
 //
 // Some package tests read files outside any package: the cli's docs guards
 // read apps/docs, the README and scripts/changelog.mjs. A change to one of
-// those tests the packages that read it (READERS), and a change to what
-// every package's tests run under (the lockfile, the tier script) tests all
-// of them. The output names the packages that ran, or says that none did:
-// a run that tested nothing must not read as one that passed.
+// those tests the packages that read it (READERS).
+//
+// It never runs every package (DEM-221): on 2026-11-18 a run that selected
+// every package took the 16 GB Mac down. A change to what every package's
+// tests run under (the lockfile, the tier script) is left to CI, which runs
+// every package anyway, and a selection reaching half the workspace or more
+// runs one test file at a time. Only CI runs every package; nothing in CI
+// calls this script. The first line names the packages that ran, or says
+// that none did, and says what was left to CI and why: a run that tested
+// nothing must not read as one that passed, nor a narrowed one as a full one.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -20,7 +26,8 @@ export const ROOT = "demoman-monorepo";
 
 /**
  * Files outside any package, and the packages whose tests read them. `*` is
- * every package. `test-changed.test.mjs` fails when a package test reads a
+ * every package, which this script leaves to CI and names in its first
+ * line. `test-changed.test.mjs` fails when a package test reads a
  * file outside the packages that no entry here names for it.
  *
  * @type {Array<[RegExp, "*" | string[]]>}
@@ -37,7 +44,8 @@ export const READERS = [
 
 /**
  * The pnpm `--filter` arguments for a branch's changed files, and why;
- * `filters` is null when no package is selected.
+ * `filters` is null when no package is selected. `shared` lists the changed
+ * files every package's tests read, which select nothing here.
  *
  * @param {string[]} changed repo-relative paths changed since the merge-base
  * @param {Array<{ name: string, dir: string }>} packages the workspace's
@@ -46,7 +54,8 @@ export const READERS = [
 export function selection(changed, packages) {
   const owned = new Set();
   const readers = new Set();
-  const everything = [];
+  /** @type {string[]} */
+  const shared = [];
   for (const file of changed) {
     const pkg = packages.find((p) => file.startsWith(`${p.dir}/`));
     if (pkg) {
@@ -55,18 +64,16 @@ export function selection(changed, packages) {
     }
     for (const [pattern, who] of READERS) {
       if (!pattern.test(file)) continue;
-      if (who === "*") everything.push(file);
+      if (who === "*") shared.push(file);
       else for (const name of who) readers.add(name);
     }
   }
-  if (everything.length > 0) {
-    return {
-      filters: ["--filter", `!${ROOT}`],
-      why: `every package: ${everything.join(", ")} changed, and every package's tests read it`,
-    };
-  }
   if (owned.size === 0 && readers.size === 0) {
-    return { filters: null, why: "no package changed, and no file a package's tests read" };
+    return {
+      filters: null,
+      why: "no package changed, and no file a package's tests read",
+      shared,
+    };
   }
   return {
     filters: [
@@ -76,20 +83,58 @@ export function selection(changed, packages) {
       `!${ROOT}`,
     ],
     why: "the packages changed, those that depend on them, and those whose tests read a changed file outside the packages",
+    shared,
   };
 }
 
 /**
- * The first line of the run: the packages it tests, or that it tests none.
+ * Whether a selection is wide enough to run one test file at a time. Half the
+ * workspace is where it nears "every package": a base package like
+ * scene-schema reaches 10 of 11. It counts packages in the dependency graph,
+ * not a measured time, so the same branch always lands on the same side.
+ *
+ * @param {number} selectedCount
+ * @param {number} workspaceCount
+ */
+export function oneWorker(selectedCount, workspaceCount) {
+  return selectedCount * 2 >= workspaceCount;
+}
+
+/**
+ * The environment the package tests run under: the fast tier, and one file
+ * at a time when `single` (`testWorkers()` in scripts/test-tier.mjs reads it).
+ *
+ * @param {boolean} single
+ * @param {NodeJS.ProcessEnv} env
+ */
+export function runEnv(single, env) {
+  return {
+    ...env,
+    DEMOMAN_TEST_TIER: "fast",
+    ...(single ? { DEMOMAN_TEST_WORKERS: "1" } : {}),
+  };
+}
+
+/**
+ * The first line of the run: the packages it tests, or that it tests none,
+ * and what it left to CI.
  *
  * @param {string[]} names the packages pnpm selected
  * @param {string} why
+ * @param {{ shared?: string[], single?: boolean }} [width]
  */
-export function heading(names, why) {
+export function heading(names, why, { shared = [], single = false } = {}) {
+  const notes = [
+    shared.length > 0 &&
+      `every package's tests read ${shared.join(", ")}, and every package at once took the Mac down (DEM-221), so that run is CI's`,
+    single &&
+      "one test file at a time: this selection is half the workspace or more (DEM-221)",
+  ].filter(Boolean);
+  const tail = notes.map((n) => `; ${n}`).join("");
   if (names.length === 0) {
-    return `demoman test:changed: no package tests ran: ${why} (the root scripts' own tests still run)`;
+    return `demoman test:changed: no package tests ran: ${why}${tail} (the root scripts' own tests still run)`;
   }
-  return `demoman test:changed: fast tier of ${names.join(", ")}: ${why}`;
+  return `demoman test:changed: fast tier of ${names.join(", ")}: ${why}${tail}`;
 }
 
 /** The packages pnpm selects for these filters, the root left out.
@@ -119,9 +164,10 @@ function main() {
     name: p.name,
     dir: p.path.slice(top.length + 1),
   }));
-  const { filters, why } = selection(changed, packages);
+  const { filters, why, shared } = selection(changed, packages);
   const names = filters === null ? [] : selected(filters).map((p) => p.name);
-  console.log(heading(names, why));
+  const single = names.length > 0 && oneWorker(names.length, packages.length);
+  console.log(heading(names, why, { shared, single }));
   if (filters === null || names.length === 0) return;
   // One package at a time, the heavy packages' own limit (test:heavy): the
   // light ones together take seconds, so nothing is lost running them in line.
@@ -130,7 +176,7 @@ function main() {
     ["-r", "--workspace-concurrency=1", ...filters, "test"],
     {
       stdio: "inherit",
-      env: { ...process.env, DEMOMAN_TEST_TIER: "fast" },
+      env: runEnv(single, process.env),
     },
   );
   if (run.error) throw run.error;

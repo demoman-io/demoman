@@ -57,6 +57,95 @@ describe("schema 13: masks in the frames' own time (audit run 1)", () => {
   });
 });
 
+describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
+  type Doc = ReturnType<typeof v12>;
+  const timeOf = (doc: Doc, id: string) =>
+    (doc.actions as { id: string; timestamp: number }[]).find(
+      (a) => a.id === id,
+    )?.timestamp as number;
+  /** The stretch between the ranged mask's end step and its end. */
+  const endStretch = (doc: Doc) => {
+    const step = timeOf(doc, "act-3");
+    return [step, step + 400] as const;
+  };
+  const removedAt = (actionId: string, from: number, to: number) => ({
+    id: "rm-1",
+    start: { actionId, sourceOffsetMs: from },
+    end: { actionId, sourceOffsetMs: to },
+  });
+  // Red: the 12 -> 13 step pushes no note — the mask is read on the source
+  // axis, an edit between its step and its edge moves it, and nothing says.
+  it.each([
+    [
+      "a removed piece",
+      (d: Doc) => {
+        d.edits.removed = [removedAt("act-3", 100, 300)];
+        return timeOf(d, "act-3") + 100;
+      },
+    ],
+    [
+      "a shortened gap",
+      (d: Doc) => {
+        d.edits.gaps = [{ id: "gap-1", afterActionId: "act-3", durationMs: 0 }];
+        return timeOf(d, "act-3");
+      },
+    ],
+    [
+      "a hold",
+      (d: Doc) => {
+        d.edits.holds = [
+          {
+            id: "hold-1",
+            marker: { actionId: "act-3", offsetMs: 100 },
+            durationMs: 500,
+          },
+        ];
+        return timeOf(d, "act-3") + 100;
+      },
+    ],
+  ])("says so with %s between the mask's step and its edge", (_, edit) => {
+    const before = v12();
+    const at = edit(before);
+    // Premise: the edit lies inside the end's stretch (act-3 to +400 ms).
+    const [lo, hi] = endStretch(before);
+    expect(at, `${at} in [${lo}, ${hi}]`).toBeGreaterThanOrEqual(lo);
+    expect(at).toBeLessThan(hi);
+    const notes: string[] = [];
+    migrateToCurrent(before, notes);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(
+      /1 mask on this take was drawn before Demoman 0\.7\.3/,
+    );
+  });
+
+  // Red: note on any edit anywhere (review of DEM-115) — the removed piece
+  // below lies outside both of the mask's stretches.
+  it("says nothing when no edit lies between a step and its edge, or no mask is ranged", () => {
+    const notes: string[] = [];
+    migrateToCurrent(v12(), notes);
+    const outside = v12();
+    outside.edits.removed = [removedAt("act-2", 50, 300)];
+    // Premise: the piece (act-2 +50..+300) misses the start's stretch
+    // (act-2 -120..0) and the end's (act-3 ..+400).
+    const piece = [
+      timeOf(outside, "act-2") + 50,
+      timeOf(outside, "act-2") + 300,
+    ];
+    expect(piece[0]).toBeGreaterThan(timeOf(outside, "act-2"));
+    expect(piece[1]).toBeLessThan(endStretch(outside)[0]);
+    migrateToCurrent(outside, notes);
+    const whole = v12();
+    whole.edits.masks = (whole.edits.masks as unknown[]).slice(0, 1);
+    whole.edits.gaps = [{ id: "gap-1", afterActionId: "act-2", durationMs: 0 }];
+    // Premise: the one mask left covers the whole take.
+    expect(whole.edits.masks).toEqual([
+      expect.not.objectContaining({ start: expect.anything() }),
+    ]);
+    migrateToCurrent(whole, notes);
+    expect(notes).toEqual([]);
+  });
+});
+
 describe("schema 14: click at a spot, and press", () => {
   it("migrates a v13 scene to v14 unchanged but its version", () => {
     const before = readonly();
