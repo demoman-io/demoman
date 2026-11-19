@@ -35,7 +35,6 @@ describe("runVerdict", () => {
       "complete but stopped (a bundle that did not persist)",
       { stopped: { reason: "portFailure" } },
     ],
-    ["a step not shown", { verdict: { kind: "diverged", diverged: [{}] } }],
     ["no frames block", { frames: undefined }],
     ["a record not stored", { notStored: [{ what: "status", error: "x" }] }],
   ])("fails %s, with the run's own line", (_, more) => {
@@ -90,7 +89,53 @@ describe("runVerdict", () => {
     ).toEqual({
       kind: "failed",
       detail: `the run's own line — ${STILL}`,
+      rerecord: true,
     });
+  });
+  // DEM-146: only a failure whose cure is a new script says "record again".
+  // Red when the set loses a reason, or when a stop the app or the machine
+  // caused is sent to the agent.
+  it.each([
+    ["a step not shown", { verdict: { kind: "diverged", diverged: [{}] } }],
+    [
+      "a target gone",
+      { outcome: "stopped", stopped: { reason: "unresolvedAnchor" } },
+    ],
+    [
+      "a wait that never came",
+      { outcome: "stopped", stopped: { reason: "waitTimeout" } },
+    ],
+  ])("sends %s to be recorded again", (_, more) => {
+    expect(verdictOf(more)).toEqual({
+      kind: "failed",
+      detail: "the run's own line",
+      rerecord: true,
+    });
+  });
+  it.each(["pageSilent", "signedOut", "clickNotDelivered", "portFailure"])(
+    "does not send a run stopped by %s to be recorded again",
+    (reason) => {
+      expect(verdictOf({ outcome: "stopped", stopped: { reason } })).toEqual({
+        kind: "failed",
+        detail: "the run's own line",
+      });
+    },
+  );
+  it("sends a script the door refused to be recorded again, not a reset", () => {
+    expect(
+      runVerdict({
+        outcome: "refusedBeforeRun",
+        reason: "invalidScript",
+        detail: "d",
+      }),
+    ).toEqual({ kind: "failed", detail: "invalidScript: d", rerecord: true });
+    expect(
+      runVerdict({
+        outcome: "refusedBeforeRun",
+        reason: "reset failed",
+        detail: "d",
+      }),
+    ).toEqual({ kind: "failed", detail: "reset failed: d" });
   });
   it("names a refusal and a throw, which carry no line", () => {
     expect(

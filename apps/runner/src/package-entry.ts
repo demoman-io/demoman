@@ -33,6 +33,7 @@ export {
   type VerifyTarget,
   verifySetup,
 } from "./executor/app-verify.js";
+export { codeSpanText } from "./executor/attach.js";
 export { fullChromiumPath, launchFailure } from "./executor/browser.js";
 export { createLocalExecutor } from "./executor/executor.js";
 export {

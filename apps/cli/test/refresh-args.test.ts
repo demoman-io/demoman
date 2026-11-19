@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { parseRefreshArgs } from "../src/refresh-args.js";
 
 describe("parseRefreshArgs", () => {
-  it("passes --out-dir and --previous on to refreshKept's arguments", () => {
+  it("passes --out-dir, --previous and --failures on to refreshKept's arguments", () => {
     expect(
       parseRefreshArgs(["a-flow", "--out-dir", "out", "--previous", "last"]),
     ).toEqual({ only: ["a-flow"], outDir: "out", previous: "last" });
+    expect(parseRefreshArgs(["--failures", "kept"])).toEqual({
+      only: [],
+      failures: "kept",
+    });
   });
   it("takes --check alone or with --previous, and nothing else beside it", () => {
     expect(parseRefreshArgs(["--check"])).toEqual({ only: [], check: true });
@@ -23,7 +27,12 @@ describe("parseRefreshArgs", () => {
     expect(parseRefreshArgs(["--check", "--since", "not a sha"])).toEqual({
       error: '--since is a commit sha, not "not a sha"',
     });
-    for (const more of [["--deliver", "pr"], ["a-flow"], ["--out-dir", "o"]])
+    for (const more of [
+      ["--deliver", "pr"],
+      ["a-flow"],
+      ["--out-dir", "o"],
+      ["--failures", "f"],
+    ])
       expect(parseRefreshArgs(["--check", ...more])).toEqual({
         error: "--check takes only --previous and --since",
       });

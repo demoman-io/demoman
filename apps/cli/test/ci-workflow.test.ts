@@ -419,10 +419,33 @@ exit 0
     );
     expect(push).not.toContain("--previous");
     expect(push.slice(0, push.indexOf("\n  check:\n"))).not.toContain(
-      "upload-artifact",
+      "name: demoman-videos",
     );
     expect(push).not.toContain("gh run download");
     expect(push).not.toContain("actions: read");
+  });
+  // DEM-147: red when a failed flow's report and still are kept only with
+  // --artifact, or the upload waits for a success that never comes.
+  it("keeps a failed flow's report and still with or without the artifact", () => {
+    for (const y of [push, art]) {
+      const refresh = lines(y).find((l) => l.includes(" refresh --deliver"));
+      expect(refresh).toMatch(/ --failures demoman-failed$/);
+      const at = lines(y).indexOf(
+        "      - name: Keep what the failed flows showed",
+      );
+      // Premise: the step exists and follows the refresh step.
+      expect(at).toBeGreaterThan(lines(y).indexOf(refresh ?? ""));
+      const step = lines(y).slice(at, at + 7);
+      expect(step).toEqual([
+        "      - name: Keep what the failed flows showed",
+        `        if: ${expr("failure() && steps.guard.outputs.skip != 'true'")}`,
+        "        uses: actions/upload-artifact@v4",
+        "        with:",
+        "          name: demoman-failed",
+        "          path: demoman-failed",
+        "          if-no-files-found: ignore",
+      ]);
+    }
   });
 });
 
@@ -597,6 +620,7 @@ describe("ciWorkflow", () => {
 
 describe("the loop guard", () => {
   const skipIf = expr("steps.guard.outputs.skip != 'true'");
+  const failedIf = expr("failure() && steps.guard.outputs.skip != 'true'");
   /** The steps of the job, each as its own block of lines. */
   const steps = (y: string) =>
     y
@@ -615,7 +639,11 @@ describe("the loop guard", () => {
       expect(all[1]).toContain("id: guard");
       expect(all[1]).toContain(`SHA: ${expr(sha)}`);
       for (const later of all.slice(2)) {
-        expect(later, later).toContain(`if: ${skipIf}`);
+        // The failure upload runs only after a failure, and never past the guard.
+        expect(
+          [`if: ${skipIf}`, `if: ${failedIf}`].some((c) => later?.includes(c)),
+          later,
+        ).toBe(true);
       }
       // The sha reaches the script through env, never interpolated into it.
       expect(all[1]?.split("run: |")[1]).not.toContain("${{");
@@ -684,6 +712,7 @@ describe("the default-branch guard", () => {
     route: "pr",
   });
   const skipIf = expr("steps.guard.outputs.skip != 'true'");
+  const failedIf = expr("failure() && steps.guard.outputs.skip != 'true'");
   const steps = (y: string) =>
     y
       .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
@@ -718,7 +747,11 @@ describe("the default-branch guard", () => {
       );
       expect(all.length).toBeGreaterThan(4);
       for (const later of all.slice(2)) {
-        expect(later, later).toContain(`if: ${skipIf}`);
+        // The failure upload runs only after a failure, and never past the guard.
+        expect(
+          [`if: ${skipIf}`, `if: ${failedIf}`].some((c) => later?.includes(c)),
+          later,
+        ).toBe(true);
       }
     });
   }
@@ -1863,7 +1896,7 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
       });
       const mine = refreshStep(check, false);
       expect(mine?.run).toMatch(
-        / refresh( --base-url "[^"]+")? --out-dir demoman-check$/,
+        / refresh( --base-url "[^"]+")? --out-dir demoman-check --failures demoman-check\/failed$/,
       );
       expect(JSON.stringify(check)).not.toContain("--deliver");
       expect(JSON.stringify(check)).not.toContain("contents: write");
@@ -2113,7 +2146,10 @@ describe("the app's package manager is there in both jobs", () => {
   const corepack = (j: Job) =>
     j.steps.filter((s) => s.run === "corepack enable");
   const bun = (j: Job) =>
-    j.steps.filter((s) => s.uses === "oven-sh/setup-bun@v2");
+    j.steps.filter(
+      (s) =>
+        s.uses === "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
+    );
   const bunApp = ciWorkflow({
     version: "0.2.0",
     trigger: "daily",
@@ -2144,6 +2180,14 @@ describe("the app's package manager is there in both jobs", () => {
       expect(bun(j)).toHaveLength(1);
       expect(corepack(j)).toHaveLength(1);
     }
+  });
+  // DEM-135: by commit in the job that can push, the tag beside it for a
+  // reader. Red when it goes back to a tag a release can move.
+  it("pins setup-bun by commit, naming its tag", () => {
+    expect(bunApp).toContain(
+      "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0",
+    );
+    expect(bunApp).not.toMatch(/setup-bun@v\d/);
   });
 
   it("adds neither when no app is started", () => {

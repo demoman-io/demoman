@@ -132,11 +132,12 @@ const USAGE = `demoman ${VERSION}
   npx demoman remove <flow>  remove a flow from the repo: its DemoScript and receipt go, its exports stay
   npx demoman join-flow <from> <into>
                              move a flow's videos into the repo flow that has its name, and remove the flow
-  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
+  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>] [--failures <folder>]
                              record the repo's flows again and replace the exports whose picture changed;
                              --deliver commits them on main, or opens a pull request (CI);
                              --out-dir writes the files flows and demoman-refresh.json there,
-                             --previous is the folder the last --out-dir was kept in
+                             --previous is the folder the last --out-dir was kept in,
+                             --failures keeps each failed flow's run report and last still there
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -688,7 +689,7 @@ async function refresh(args: string[]): Promise<void> {
   };
   const parsed = parseRefreshArgs(args);
   if ("error" in parsed) return usage(parsed.error);
-  const { only, route, baseUrl, outDir, previous } = parsed;
+  const { only, route, baseUrl, outDir, previous, failures } = parsed;
   const fail = (detail: string): never => {
     process.stderr.write(`demoman refresh: ${detail}\n`);
     process.exit(1);
@@ -752,6 +753,7 @@ async function refresh(args: string[]): Promise<void> {
             ...(baseUrl === undefined ? {} : { baseUrl }),
             ...(outDir === undefined ? {} : { outDir }),
             ...(previous === undefined ? {} : { previous }),
+            ...(failures === undefined ? {} : { failures }),
             library: process.env.CI === "true" ? "throwaway" : "local",
           },
           {

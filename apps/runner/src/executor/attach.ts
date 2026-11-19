@@ -587,6 +587,14 @@ export function commentBody(label: string): string {
   return `Demo: \`${cut}\``;
 }
 
+/** Page text made safe to sit inside an inline code span on GitHub:
+ *  backticks (which would close the span) and `@` removed, one line, capped
+ *  at `max` characters with an ellipsis. The caller adds the backticks. */
+export function codeSpanText(text: string, max: number): string {
+  const one = Array.from(text.replace(/[`@]/g, "").replace(/\s+/g, " ").trim());
+  return one.length > max ? `${one.slice(0, max).join("")}…` : one.join("");
+}
+
 /** Paragraph breaks: a blank line, CRLF or not, kept as written. */
 const PARAGRAPHS = /(\r?\n[ \t]*\r?\n)/;
 

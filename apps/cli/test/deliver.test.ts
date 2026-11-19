@@ -585,6 +585,40 @@ describe("deliver", () => {
     expect(calls().some((c) => c.includes("--attach"))).toBe(false);
   });
 
+  it("pr: a failed video's page text sits in a code span, its fix and folder outside (DEM-118, 146, 147)", async () => {
+    script = {
+      "pr list": { stdout: '[{"number":7}]' },
+      "pr edit": { stdout: "ok" },
+    };
+    const detail = "![x](https://e.example/p.png) @octocat";
+    const fix =
+      "Ask your agent to record `Broken` again, then commit `.demoman/flows/broken.json`.";
+    const a = await run(
+      "pr",
+      result([
+        {
+          name: "Broken",
+          outcome: "failed",
+          detail,
+          fix,
+          evidence: { folder: "demoman-failed/broken", noStill: null },
+        },
+      ]),
+    );
+    expect(a).toMatchObject({ delivered: "pr", ok: true });
+    const body = bodyOf(calls().find((c) => c[1] === "edit"));
+    const entry = body.split("\n").find((l) => l.startsWith("- `Broken`:"));
+    // Premise: the entry is there to read.
+    expect(entry, body).toBeDefined();
+    expect(entry).toContain("`![x](https://e.example/p.png) octocat`");
+    expect(body).not.toContain("@octocat");
+    // The fix keeps its own code spans: it is ours, not the page's.
+    expect(entry).toContain(` ${fix}`);
+    expect(entry).toContain(
+      "Its run report and last still are in `demoman-failed/broken` among this run's artifacts.",
+    );
+  });
+
   it("pr with an open PR: edits its body, creates no second", async () => {
     script = {
       "pr list": { stdout: '[{"number":7}]' },

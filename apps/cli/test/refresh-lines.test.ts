@@ -63,6 +63,39 @@ describe("refreshLines", () => {
       code: 1,
     });
   });
+  // DEM-146 and 147: red when the fix or the kept folder is dropped from
+  // the line, or a failure the script did not cause is sent to the agent.
+  it("ends a failed line with its fix and where its run was kept, when it has them", () => {
+    const fix =
+      "Ask your agent to record `b` again, then commit `.demoman/flows/b.json`.";
+    expect(
+      refreshLines({
+        videos: [
+          video("b", {
+            outcome: "failed",
+            detail: "Stopped at script step 2 of 3",
+            notes: ["n"],
+            fix,
+            evidence: { folder: "demoman-failed/b", noStill: null },
+          }),
+          video("c", { outcome: "failed", detail: "reset failed: d" }),
+          // Red when a run that made no still is said to have kept one.
+          video("d", {
+            outcome: "failed",
+            detail: "x",
+            evidence: {
+              folder: "demoman-failed/d",
+              noStill: "video v has no frames to show",
+            },
+          }),
+        ],
+      }).lines,
+    ).toEqual([
+      `b: failed: Stopped at script step 2 of 3 (n) — ${fix} Its run report and last still are in demoman-failed/b.`,
+      "c: failed: reset failed: d",
+      "d: failed: x Its run report is in demoman-failed/d; there is no last still: video v has no frames to show.",
+    ]);
+  });
   it("prints every caveat a video carries, not only failures", () => {
     const notes = [
       "docs/x.mp4 was replaced without a comparison: the committed file could not be decoded (bad)",
