@@ -13,7 +13,30 @@ import {
   HEADLESS_GPU_ARGS,
   killBrowser,
   launch,
+  launchFailure,
 } from "../src/launch.js";
+
+// Red when the FATAL line loses to an earlier stderr line, or the reason
+// is dropped for Playwright's first line alone (DEM-120).
+describe("launchFailure", () => {
+  it("names Chromium's FATAL line after Playwright's first", () => {
+    const message = [
+      "browserType.launch: Target page, context or browser has been closed",
+      "Browser logs:",
+      "",
+      "<launching> /ms-playwright/chromium/chrome --headless",
+      "<launched> pid=812",
+      "[pid=812][err] [812:830:ERROR:bus.cc(407)] Failed to connect to the bus",
+      "[pid=812][err] [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!",
+      "Call log:",
+      "  - <launching> /ms-playwright/chromium/chrome",
+    ].join("\n");
+    expect(launchFailure(message)).toBe(
+      "browserType.launch: Target page, context or browser has been closed: [812:812:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!",
+    );
+    expect(launchFailure("plain words\nno logs")).toBe("plain words");
+  });
+});
 
 /**
  * A headless launch's screen, user agent and the decoded size of one
@@ -182,6 +205,12 @@ describe("launch", () => {
       expect(launched.browser.isConnected()).toBe(true);
       expect(logs.join("\n")).toContain(
         "would not start with Chromium's sandbox",
+      );
+      // Red when only Playwright's first line is kept: on CI that was
+      // "Target page, context or browser has been closed", with Chromium's
+      // own reason (its stderr, under "Browser logs") dropped.
+      expect(logs.join("\n")).toContain(
+        "Failed to move to new namespace (stand-in)",
       );
     } finally {
       await launched.close();

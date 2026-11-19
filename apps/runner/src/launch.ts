@@ -201,6 +201,22 @@ async function visibleUserAgentOr(
 const sandboxRefused = new Map<string, string>();
 
 /**
+ * A failed launch in one line: Playwright's first line, and Chromium's own
+ * reason from the "Browser logs" below it (a FATAL line first, else its
+ * first stderr line). The first line alone is often only "Target page,
+ * context or browser has been closed" (Linux CI, 2026-11-18).
+ */
+export function launchFailure(message: string): string {
+  const lines = message.split("\n");
+  const err = lines.filter((l) => /^\[pid=\d+\]\[err\] \S/.test(l));
+  const cause = err.find((l) => l.includes("FATAL")) ?? err[0];
+  const head = lines[0] as string;
+  return cause === undefined
+    ? head
+    : `${head}: ${cause.replace(/^\[pid=\d+\]\[err\] /, "")}`;
+}
+
+/**
  * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
  * asked not to, and nearly every page a run opens is a third party's
  * (DEM-120). A machine that cannot sandbox (a container running as root, a
@@ -231,9 +247,9 @@ async function launchSandboxed(
   try {
     return await chromium.launch({ ...options, chromiumSandbox: true });
   } catch (error) {
-    first = String(error instanceof Error ? error.message : error).split(
-      "\n",
-    )[0] as string;
+    first = launchFailure(
+      String(error instanceof Error ? error.message : error),
+    );
   }
   let browser: Browser;
   try {
