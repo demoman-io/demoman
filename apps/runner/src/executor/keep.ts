@@ -36,6 +36,7 @@ import {
   LEGACY_FLOWS_DIR,
   normaliseName,
   notCarriedOf,
+  outputPathRefusal,
   type PageScreens,
   parseFilmedCode,
   parseKept,
@@ -56,6 +57,7 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { type AccountsFound, chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { readTag } from "./export-tag.js";
 import { filmedScale } from "./flow-size.js";
 import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
@@ -85,8 +87,9 @@ export type KeepRefusal =
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
   | "cannotRefilm"
-  /** The request itself is refused (a `files` output given as a path, or
-   *  a name two flows in this repo share). */
+  /** The request itself is refused (a `files` output given as a path, a
+   *  name two flows in this repo share, a path in `.git` or `.github`, or
+   *  one that does not end in its file type's extension). */
   | "keepRefused"
   /** The DemoScript was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
@@ -236,7 +239,10 @@ export async function keepVideo(
   // `files` outputs are names for --out-dir, not places in this repo: the
   // same clash checks run over the bare names, which must not be the names
   // a refresh gives its own files there either.
-  for (const asked of [...args.to.map((o) => o.path), args.report]) {
+  for (const [i, asked] of [
+    ...args.to.map((o) => o.path),
+    args.report,
+  ].entries()) {
     if (asked === undefined) continue;
     let p = asked;
     if (deliver === "files") {
@@ -250,6 +256,17 @@ export async function keepVideo(
       const at = await inRepo(asked);
       if (typeof at !== "string") return refuse("outsideRepo", at.outside);
       p = at;
+      // An agent names these paths (DEM-111): the rule the kept file's
+      // reader holds them to, asked before anything renders.
+      const why = outputPathRefusal(
+        p,
+        i < args.to.length ? `.${args.to[i]?.fileType}` : ".json",
+      );
+      if (why !== null)
+        return refuse(
+          "keepRefused",
+          `${why} — add never writes into .git or .github, and an output's path ends in its file type's extension`,
+        );
     }
     if (paths.includes(p) || p === fileRel) {
       return refuse(
@@ -262,6 +279,8 @@ export async function keepVideo(
   const outputPaths = paths.slice(0, args.to.length);
   const report = args.report === undefined ? null : (paths.at(-1) ?? null);
 
+  /** The paths this flow's own kept file already writes. */
+  const ownBefore = new Set<string>();
   // The paths other kept videos already write.
   for (const rel of await repoFlowFiles(root)) {
     const name = basename(rel);
@@ -273,6 +292,9 @@ export async function keepVideo(
       continue;
     }
     const { kept } = other;
+    if (kept.flow === video.id)
+      for (const p of [...kept.outputs.map((o) => o.path), kept.report])
+        if (p !== null) ownBefore.add(p);
     // Refused, not moved: keep writes only this keep's files, and moving
     // another recipe and its receipt is renameKept's, with its undo steps.
     if (
@@ -343,6 +365,34 @@ export async function keepVideo(
       return refuse(
         "outputTaken",
         `${clash} is already an output of the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
+      );
+    }
+  }
+
+  // A file already there is replaced only when it is this flow's own output
+  // or a video Demoman tagged: never source, a .env or a config (DEM-111).
+  if (deliver === "commit") {
+    for (const p of paths) {
+      if (ownBefore.has(p)) continue;
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(join(root, p));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        return refuse(
+          "outputTaken",
+          `${p} is already there and could not be read (${messageOf(error)}), so add does not replace it — choose another path, or remove it`,
+        );
+      }
+      // This flow's own report by what it says, when its recipe cannot be
+      // read to list it (a repair by adding again).
+      if (
+        p === report ? reportOf(bytes) === video.id : "found" in readTag(bytes)
+      )
+        continue;
+      return refuse(
+        "outputTaken",
+        `${p} is already there and is not ${p === report ? "this flow's report" : "a Demoman video"} — add replaces only its own files; choose another path, or remove ${p}`,
       );
     }
   }
@@ -1547,6 +1597,20 @@ export async function libraryAhead(
   }
 }
 
+/** The flow id a served run report (`servedRunReport`) names, or null. */
+function reportOf(bytes: Uint8Array): string | null {
+  try {
+    const flow = (
+      JSON.parse(new TextDecoder().decode(bytes)) as {
+        flow?: { id?: unknown };
+      }
+    ).flow;
+    return typeof flow?.id === "string" ? flow.id : null;
+  } catch {
+    return null; // not JSON: not a report, which the caller says
+  }
+}
+
 /** `path` as a repo-relative posix path when it is inside the repo once
  *  links are followed (`rootReal` is the root's realpath), else why not. */
 export async function repoPath(
@@ -1565,7 +1629,19 @@ export async function repoPath(
     rel !== ".." &&
     !rel.startsWith(`..${sep}`) &&
     !isAbsolute(rel);
-  if (inside) return rel.split(sep).join("/");
+  if (inside) {
+    // Where it really lands, links followed: a link into .git or .github
+    // is no way round the rule (DEM-111).
+    const why = outputPathRefusal(
+      relative(rootReal, real as string)
+        .split(sep)
+        .join("/"),
+    );
+    if (why === null) return rel.split(sep).join("/");
+    return {
+      outside: `${path} resolves to ${real}, and ${why} — ${who === "keep" ? "add" : "refresh"} never writes into .git or .github`,
+    };
+  }
   return {
     outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who === "keep" ? "add" : "refresh"} writes only into the repo the flow is in`,
   };

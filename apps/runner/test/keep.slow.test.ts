@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -1514,6 +1515,112 @@ describe("keep's repo check", () => {
       await rm(join(repo, "out"));
     }
   });
+});
+
+// DEM-111: an agent names add's paths, so add never writes into .git or
+// .github, only a name its type fits, and never over a file that is not
+// this flow's output or a Demoman video. Each is refused before rendering.
+describe("add's outputs replace only their own files", () => {
+  const addTo = (path: string, fileType: "mp4" | "gif" = "mp4") =>
+    keepVideo(
+      {
+        video: "Add a task",
+        to: [{ path, fileType, aspect: "16:9", quality: "share" }],
+        repoRoot: repo,
+      },
+      deps(),
+    );
+
+  // Red: drop the `.git`/`.github` check; .git/hooks/x.mp4 is a fine name.
+  it("refuses a path inside any .git folder or .github", async () => {
+    for (const [path, said] of [
+      [".git/hooks/x.mp4", "inside a .git folder"],
+      ["vendor/lib/.git/x.mp4", "inside a .git folder"],
+      [".github/workflows/x.mp4", "inside .github"],
+    ] as const) {
+      const out = await addTo(path);
+      // Lexically (keepRefused) or where it really lands (outsideRepo).
+      expect(out.ok, path).toBe(false);
+      if (!out.ok) expect(out.detail, path).toContain(said);
+      expect(existsSync(join(repo, path)), path).toBe(false);
+    }
+  });
+
+  // Red: drop the real-path check in repoPath; the link's own name passes.
+  it("refuses a path whose folder links into .github", async () => {
+    await mkdir(join(repo, ".github/workflows"), { recursive: true });
+    await symlink(join(repo, ".github/workflows"), join(repo, "ci"));
+    try {
+      const out = await addTo("ci/x.mp4");
+      expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
+      if (!out.ok) expect(out.detail).toContain("inside .github");
+      expect(await readdir(join(repo, ".github/workflows"))).toEqual([]);
+    } finally {
+      await rm(join(repo, "ci"));
+      await rm(join(repo, ".github"), { recursive: true, force: true });
+    }
+  });
+
+  // Red: drop the extension check.
+  it("refuses a path that does not end in its file type's extension", async () => {
+    const out = await addTo("docs/demo.gif", "mp4");
+    expect(out).toMatchObject({ ok: false, reason: "keepRefused" });
+    if (!out.ok) expect(out.detail).toContain("does not end in .mp4");
+  });
+
+  // Red: drop the existing-file check; the source file's bytes are lost.
+  it("refuses to replace a file that is neither its output nor a Demoman video", async () => {
+    await mkdir(join(repo, "src"), { recursive: true });
+    const source = join(repo, "src/app.mp4");
+    await writeFile(source, "export const app = 1;\n");
+    try {
+      const out = await addTo("src/app.mp4");
+      expect(out).toMatchObject({ ok: false, reason: "outputTaken" });
+      if (!out.ok) expect(out.detail).toContain("not a Demoman video");
+      expect(await readFile(source, "utf8")).toBe("export const app = 1;\n");
+    } finally {
+      await rm(join(repo, "src"), { recursive: true, force: true });
+    }
+  });
+
+  // Red: drop `reportOf`; with its recipe unreadable, the flow's own report
+  // is refused as not its own, and adding again cannot repair it.
+  it(
+    "replaces this flow's own report when its recipe cannot be read, and not another flow's",
+    async () => {
+      const made = await videoOf("scene-repair-1", "Repair me");
+      await copyFrames("scene-repair-1");
+      const recipe = join(repo, ".demoman/flows", keptFileName("Repair me"));
+      await mkdir(dirname(recipe), { recursive: true });
+      await writeFile(recipe, "{ not json");
+      const report = join(repo, "docs/repair.json");
+      await mkdir(dirname(report), { recursive: true });
+      const add = () =>
+        keepVideo(
+          {
+            video: "Repair me",
+            to: [
+              {
+                path: "docs/repair.gif",
+                fileType: "gif",
+                aspect: "16:9",
+                quality: "share",
+              },
+            ],
+            report: "docs/repair.json",
+            repoRoot: repo,
+          },
+          deps(),
+        );
+      await writeFile(report, JSON.stringify({ flow: { id: "another" } }));
+      const other = await add();
+      expect(other).toMatchObject({ ok: false, reason: "outputTaken" });
+      await writeFile(report, JSON.stringify({ flow: { id: made.videoId } }));
+      const own = await add();
+      expect(own.ok, JSON.stringify(own)).toBe(true);
+    },
+    KEEP_MS,
+  );
 });
 
 // Review Focus 2 for keep's own files: the kept JSON and the logo copy go

@@ -19,7 +19,16 @@ export async function refreshCheck(
     {
       changedSince: async (commit) => {
         const d = await git(
-          ["diff", "--name-only", "-z", commit, "HEAD", "--"],
+          // `--end-of-options`: a commit is never read as an option (DEM-131).
+          [
+            "diff",
+            "--name-only",
+            "-z",
+            "--end-of-options",
+            commit,
+            "HEAD",
+            "--",
+          ],
           root,
         );
         return d.code === 0

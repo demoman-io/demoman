@@ -125,7 +125,14 @@ export type Executor = "cli";
  *  (null before the first commit), and whether the two differ. `none` says
  *  why it could not be read. */
 export type FilmedCode =
-  | { commit: string | null; tree: string; dirty: boolean }
+  | {
+      commit: string | null;
+      tree: string;
+      dirty: boolean;
+      /** Filters the folder's own git config names, which the tree was
+       *  read without (DEM-113); absent when there were none. */
+      unfiltered?: string[];
+    }
   | { none: string };
 
 /** A `filmedCode` read from a stored report or receipt, or null when it is
@@ -142,7 +149,15 @@ export function parseFilmedCode(raw: unknown): FilmedCode | null {
     typeof c.tree === "string" &&
     typeof c.dirty === "boolean"
   )
-    return { commit: c.commit, tree: c.tree, dirty: c.dirty };
+    return {
+      commit: c.commit,
+      tree: c.tree,
+      dirty: c.dirty,
+      ...(Array.isArray(c.unfiltered) &&
+      c.unfiltered.every((n) => typeof n === "string")
+        ? { unfiltered: c.unfiltered as string[] }
+        : {}),
+    };
   return null;
 }
 

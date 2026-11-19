@@ -183,6 +183,31 @@ describe("the kept file", () => {
     },
   );
 
+  // DEM-111: refresh writes these paths from committed text. Red: drop the
+  // outputPathRefusal calls in parseKept.
+  it("refuses a path a refresh must never write: .git anywhere, .github, the wrong extension", () => {
+    const output = (path: string) =>
+      withChange({ outputs: [{ ...kept.outputs[0], path }] });
+    expect(refusal(output(".github/workflows/ci.mp4"))).toContain(
+      "inside .github",
+    );
+    expect(refusal(output("vendor/lib/.git/x.mp4"))).toContain(
+      "inside a .git folder",
+    );
+    expect(refusal(output("src/index.ts"))).toContain("does not end in .mp4");
+    expect(refusal(withChange({ report: "src/app.ts" }))).toContain(
+      "does not end in .json",
+    );
+    expect(refusal(withChange({ logo: ".git/config" }))).toContain(
+      "inside a .git folder",
+    );
+    // Premise: the same shape with a fit path is read.
+    expect(parseKept(output("docs/ok.MP4"), "x.json").ok).toBe(true);
+    expect(parseKept(withChange({ report: "docs/r.json" }), "x.json").ok).toBe(
+      true,
+    );
+  });
+
   it("refuses no outputs", () => {
     expect(refusal(withChange({ outputs: [] }))).toContain("outputs");
   });

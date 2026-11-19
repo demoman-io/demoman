@@ -1,8 +1,12 @@
 import { EventEmitter } from "node:events";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { LOOPBACK_HOST, listenOnLoopback } from "../src/loopback.js";
+import {
+  LOOPBACK_HOST,
+  listenOnLoopback,
+  loopbackGuard,
+} from "../src/loopback.js";
 
 /**
  * The one choke point both of the runner's http servers go through.
@@ -70,4 +74,51 @@ describe("listenOnLoopback", () => {
     // exactly the difference the fix is about.
     await expect(listenOnLoopback(fake)).rejects.toThrow(/EACCES/);
   }, 5_000);
+});
+
+// DEM-114. Red: make `refused` answer false, or serve the files at the
+// bare path; the foreign Host, or the request without the secret, gets them.
+describe("loopbackGuard", () => {
+  const get = (port: number, path: string, host: string) =>
+    new Promise<{ status: number; body: string }>((done, fail) => {
+      request({ host: LOOPBACK_HOST, port, path, headers: { host } }, (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => done({ status: res.statusCode ?? 0, body }));
+      })
+        .on("error", fail)
+        .end();
+    });
+
+  it("hands its files only to its own Host, and only under its secret", async () => {
+    const guard = loopbackGuard();
+    const server = createServer((req, res) => {
+      if (guard.refused(req, res)) return;
+      if (req.url === `${guard.prefix}/a`) res.end("the bytes");
+      else res.writeHead(404).end();
+    });
+    onTestFinished(() => {
+      server.close();
+    });
+    const origin = await guard.listen(server);
+    const { port, host } = new URL(origin);
+    expect(guard.prefix).toMatch(/^\/[0-9a-f]{32}$/);
+    // Premise: the right Host and path get the bytes.
+    expect(await get(Number(port), `${guard.prefix}/a`, host)).toEqual({
+      status: 200,
+      body: "the bytes",
+    });
+    const foreign = await get(
+      Number(port),
+      `${guard.prefix}/a`,
+      `evil.test:${port}`,
+    );
+    expect(foreign.status).toBe(404);
+    expect(foreign.body).not.toContain("the bytes");
+    const bare = await get(Number(port), "/a", host);
+    expect(bare.status).toBe(404);
+    expect(bare.body).not.toContain("the bytes");
+  });
 });
