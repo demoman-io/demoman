@@ -52,6 +52,7 @@ import {
   serializeReceipt,
   servedRunReport,
   targetFor,
+  videoSlug,
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
@@ -229,6 +230,9 @@ export async function keepVideo(
   // The name it had before DEM-68, in either folder: moved here too, and its
   // receipt and screens with it, so the move lands in one commit.
   const trimmedName = `${normaliseName(video.name).replace(/ /g, "-") || "video"}.json`;
+  // Before DEM-132 cut a slug at 206 bytes, a "files" recipe of up to 209
+  // wrote under its whole name: found there and moved, never refused.
+  const uncutName = `${videoSlug(video.name, Number.POSITIVE_INFINITY)}.json`;
   let moveFrom: string | null = null;
   /** The old receipt and screens a move from the trimmed name removes. */
   let leftovers: string[] = [];
@@ -309,7 +313,7 @@ export async function keepVideo(
     if (
       kept.flow === video.id &&
       rel !== fileRel &&
-      (rel === legacyRel || name === trimmedName)
+      (rel === legacyRel || name === trimmedName || name === uncutName)
     ) {
       // One move per add: a second would be left behind as a second recipe.
       if (moveFrom !== null) {

@@ -17,7 +17,7 @@ export {
   createBrowserSession,
   fullChromiumPath,
 } from "./executor/browser.js";
-export { expireOld, expiryStatus } from "./executor/expiry.js";
+export { expireOld, expiryStatus, skippedOf } from "./executor/expiry.js";
 export {
   type ExportDeps,
   type Exporting,

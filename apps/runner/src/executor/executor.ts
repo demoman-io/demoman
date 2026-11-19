@@ -42,7 +42,7 @@ import {
 import { attachProjectRefused, attachTake, attachThrew } from "./attach.js";
 import { createBrowserSession, linkedLibraries } from "./browser.js";
 import { deriveOp } from "./derive.js";
-import { expireOld, expiryStatus } from "./expiry.js";
+import { expireOld, expiryStatus, skippedOf } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
@@ -146,14 +146,12 @@ export function createJobTable(kept: number = JOBS_KEPT) {
     },
     /** Gives `job` its answer and moves it to the end, so a long call is
      *  not let go first for having started first (DEM-141, as the MCP's
-     *  list since DEM-106). A job not in the table is only answered. */
-    settle(job: Job, final: Outcome): Outcome {
+     *  list since DEM-106). A job set under no id is only answered. */
+    settle(id: string | null, job: Job, final: Outcome): Outcome {
       job.final = final;
-      for (const [id, was] of jobs) {
-        if (was !== job) continue;
+      if (id !== null && jobs.get(id) === job) {
         jobs.delete(id);
         jobs.set(id, job);
-        break;
       }
       evict();
       return final;
@@ -574,7 +572,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       log(`the run threw — ${messageOf(error)}`);
       out = { ok: true, value: { outcome: "threw", error: messageOf(error) } };
     }
-    return jobs.settle(job, out);
+    return jobs.settle(callId, job, out);
   }
 
   async function runJob(
@@ -637,10 +635,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // Never refuses the run: a failure is logged here and said by status.
       const expiry = await expireOld(videos, library, new Date());
       if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
-      for (const why of "skippedUnreadable" in expiry
-        ? (expiry.skippedUnreadable ?? [])
-        : [])
-        log(`expiry left a video alone: ${why}`);
+      for (const why of skippedOf(expiry))
+        log(`expiry left a flow or video alone: ${why}`);
       if ("held" in expiry) {
         log(
           `expiry put off after ${expiry.expired} videos: ${expiry.held}; a later run expires the rest`,
@@ -913,7 +909,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             look.reason === "kitsUnreadable"
               ? refusal("kitsUnreadable", look.detail, "look.kit")
               : refusal("unknownKit", look.detail, "look.kit");
-          jobs.settle(job, out);
           return out;
         }
       }
@@ -925,7 +920,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       );
       if (choice.kind === "refused") {
         const out = refusal(choice.reason, choice.detail, choice.field);
-        jobs.settle(job, out);
         return out;
       }
       await learnSecrets(choice);
@@ -953,7 +947,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       const browser = await session.ensure({ scale });
       if (!browser.ok) {
         const out = refusal(browser.reason, browser.detail);
-        jobs.settle(job, out);
         return out;
       }
       // A script's image path becomes the take's own copy before anything
@@ -983,7 +976,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             owned.detail,
             "look.branding.background",
           );
-          jobs.settle(job, out);
           return out;
         }
       }
@@ -1013,7 +1005,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             `the brand kit "${namedKit.name}" names an image that cannot be used: ${owned.detail}`,
             "look.kit",
           );
-          jobs.settle(job, out);
           return out;
         }
       }
@@ -1025,7 +1016,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       );
       if (!loaded.ok) {
         const out = refusal(loaded.reason, loaded.detail);
-        jobs.settle(job, out);
         return out;
       }
       // Signing in is the repo's steps in a browser of their own; this
@@ -1049,7 +1039,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       if (chosen !== null && !hasSession(loaded.files, chosen)) {
         const refused = await signInNow(new Date());
         if (refused !== null) {
-          jobs.settle(job, refused);
           return refused;
         }
       }
@@ -1166,12 +1155,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             stillSignedOut(chosen, script.target),
             "account",
           );
-          jobs.settle(job, out);
           return out;
         }
         const refused = await signInNow();
         if (refused !== null) {
-          jobs.settle(job, refused);
           return refused;
         }
         report = await film();
@@ -1181,7 +1168,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             stillSignedOut(chosen, script.target),
             "account",
           );
-          jobs.settle(job, out);
           return out;
         }
       }
@@ -1229,7 +1215,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           ...(signedIn === undefined ? {} : { signedIn }),
         },
       };
-      jobs.settle(job, out);
       return out;
     } catch (error) {
       log(`the run threw — ${messageOf(error)}`);
@@ -1237,7 +1222,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         ok: true,
         value: { outcome: "threw", error: messageOf(error) },
       };
-      jobs.settle(job, out);
       return out;
     }
   }
@@ -1536,10 +1520,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                   onProgress?.(said);
                 },
               );
-              return jobs.settle(job, { ok: true, value: answer });
+              return jobs.settle(callId, job, { ok: true, value: answer });
             } catch (error) {
               log(`the export threw — ${messageOf(error)}`);
-              return jobs.settle(job, {
+              return jobs.settle(callId, job, {
                 ok: true,
                 value: withSummary({
                   outcome: "threw",
@@ -1570,7 +1554,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             try {
               const where = await projectFolder(args.project);
               if ("kind" in where) {
-                return jobs.settle(job, {
+                return jobs.settle(callId, job, {
                   ok: true,
                   value: attachProjectRefused(where.detail),
                 });
@@ -1597,10 +1581,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                   onProgress?.(progress);
                 },
               );
-              return jobs.settle(job, { ok: true, value: answer });
+              return jobs.settle(callId, job, { ok: true, value: answer });
             } catch (error) {
               log(`the attach threw — ${messageOf(error)}`);
-              return jobs.settle(job, {
+              return jobs.settle(callId, job, {
                 ok: true,
                 value: attachThrew(messageOf(error)),
               });

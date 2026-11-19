@@ -89,6 +89,79 @@ describe("library: revisions, leases, delete, outputs", () => {
     }
   });
 
+  // Review of DEM-115. Red: drop keepMigrationNotes from putSceneIf — the
+  // save writes the current schema, the next read migrates nothing, and the
+  // note that a mask may have moved is gone for good.
+  it("keeps what reading an older scene said across a save, once, and says a notes file that will not read", async () => {
+    const lib = createLibrary(home);
+    // scene-schema's own fixture: its steps carry times (act-2 at 1200 ms).
+    const v12 = JSON.parse(
+      await readFile(
+        resolve(
+          dirname(fileURLToPath(import.meta.url)),
+          "../../../packages/scene-schema/fixtures/readonly-scene.json",
+        ),
+        "utf8",
+      ),
+    ) as Record<string, unknown> & {
+      meta: { id: string };
+      actions: { id: string; timestamp: number }[];
+      edits: Record<string, unknown>;
+    };
+    v12.schemaVersion = 12;
+    const step = v12.actions.find((a) => a.id === "act-2");
+    expect(step?.timestamp).toBe(1200);
+    // A mask starting 400 ms after act-2, with a piece removed inside that
+    // stretch (100-300 ms after it).
+    v12.edits.masks = [
+      {
+        id: "m1",
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        start: { actionId: "act-2", offsetMs: 400 },
+        end: { actionId: "act-4", offsetMs: 0 },
+      },
+    ];
+    v12.edits.removed = [
+      {
+        id: "r1",
+        start: { actionId: "act-2", sourceOffsetMs: 100 },
+        end: { actionId: "act-2", sourceOffsetMs: 300 },
+      },
+    ];
+    const dir = lib.takeDir(v12.meta.id);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "scene.json"), JSON.stringify(v12));
+    const first = await lib.getSceneRead(v12.meta.id);
+    // Premise: reading the v12 scene says the mask may have moved.
+    expect(first?.notes).toHaveLength(1);
+    expect(first?.notes[0]).toMatch(/drawn before Demoman 0\.7\.3/);
+    const note = first?.notes[0];
+
+    const saved = await lib.putSceneIf(
+      first?.scene as SceneDocument,
+      first?.revision ?? "",
+    );
+    expect(saved.ok).toBe(true);
+    // Premise: the file is now the current schema, so no read migrates it.
+    const raw = JSON.parse(await readFile(join(dir, "scene.json"), "utf8"));
+    expect(raw.schemaVersion).toBeGreaterThan(12);
+    const second = await lib.getSceneRead(v12.meta.id);
+    expect(second?.notes).toEqual([note]);
+
+    // A second save keeps it once, not twice.
+    await lib.putSceneIf(
+      second?.scene as SceneDocument,
+      second?.revision ?? "",
+    );
+    expect((await lib.getSceneRead(v12.meta.id))?.notes).toEqual([note]);
+
+    await writeFile(join(dir, "migration-notes.json"), "{nope");
+    const broken = await lib.getSceneRead(v12.meta.id);
+    expect(broken?.notes).toHaveLength(1);
+    expect(broken?.notes[0]).toContain(join(dir, "migration-notes.json"));
+    expect(broken?.notes[0]).toContain("would not read");
+  });
+
   it("a live lease makes deleteTake answer holders and keeps the folder", async () => {
     const lib = createLibrary(home);
     const doc = scene();

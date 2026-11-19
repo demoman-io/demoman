@@ -274,8 +274,9 @@ const steps: Record<number, MigrationStep> = {
   // v12 -> v13 (audit run 1): a mask's ends move to the frames' own time,
   // as removed pieces are, so a later cut cannot slide or drop a redaction.
   // The output offset is taken as the source one: exact for a mask with no
-  // cut, gap or hold between its step and its edge. Not converted where
-  // there is one, but said (DEM-115, `maskMayHaveMoved`).
+  // cut, gap or hold between its step and its edge. Every mask is
+  // converted so; where there is one, the edge may have moved, and that is
+  // said (DEM-115, `maskMayHaveMoved`).
   12: (doc, notes) => {
     const edits = doc.edits;
     if (edits === null || typeof edits !== "object") {
@@ -507,8 +508,15 @@ function maskMayHaveMoved(
     const lo = Math.min(step, end);
     const hi = Math.max(step, end);
     if (lo === hi) return false;
-    return retimed.some(
-      ([a, b]) => Number.isNaN(a) || Number.isNaN(b) || (a <= hi && lo <= b),
+    // A stretch that only meets the step or the edge retimes nothing
+    // between them (a cut ends at the next step's 0 ms); a hold is a point,
+    // and one at either end counts.
+    return retimed.some(([a, b]) =>
+      Number.isNaN(a) || Number.isNaN(b)
+        ? true
+        : a === b
+          ? lo <= a && a <= hi
+          : a < hi && lo < b,
     );
   });
 }

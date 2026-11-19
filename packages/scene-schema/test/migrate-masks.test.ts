@@ -144,6 +144,43 @@ describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
     migrateToCurrent(whole, notes);
     expect(notes).toEqual([]);
   });
+
+  // Review of DEM-115. Red: count a stretch that only meets the step or the
+  // edge (closed intervals) — every v12 take whose cut ends at the mask's
+  // step, as `cutsToRemoved` always ends one, gets a note.
+  it("says nothing for a cut or gap that only meets a mask's step or edge", () => {
+    const notes: string[] = [];
+    const cut = v12();
+    // A cut from act-2 that ends where act-3 begins, as cutsToRemoved writes.
+    cut.edits.removed = [
+      {
+        id: "rm-1",
+        start: { actionId: "act-2", sourceOffsetMs: 0 },
+        end: { actionId: "act-3", sourceOffsetMs: 0 },
+      },
+    ];
+    const gap = v12();
+    gap.edits.gaps = [{ id: "gap-1", afterActionId: "act-2", durationMs: 0 }];
+    // Premise: each spans act-2 to act-3, which meets the start's stretch
+    // (act-2 -120..0) at act-2 and the end's (act-3 ..+400) at act-3, and
+    // enters neither.
+    expect(endStretch(gap)[0]).toBe(timeOf(gap, "act-3"));
+    expect(timeOf(gap, "act-3")).toBeGreaterThan(timeOf(gap, "act-2"));
+    migrateToCurrent(cut, notes);
+    migrateToCurrent(gap, notes);
+    expect(notes).toEqual([]);
+    // Positive control: a hold, a point, at the end's step still counts.
+    const hold = v12();
+    hold.edits.holds = [
+      {
+        id: "hold-1",
+        marker: { actionId: "act-3", offsetMs: 0 },
+        durationMs: 500,
+      },
+    ];
+    migrateToCurrent(hold, notes);
+    expect(notes).toHaveLength(1);
+  });
 });
 
 describe("schema 14: click at a spot, and press", () => {

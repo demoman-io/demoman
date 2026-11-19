@@ -28,6 +28,7 @@ import {
   readUserSettings,
   readWallpaper,
   renameKept,
+  skippedOf,
   VideoError,
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
@@ -351,15 +352,14 @@ export function createRoutes(o: {
           reason: `old videos could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
         });
       }
-      // A video left alone for a file that will not read (DEM-127): the
-      // pass went on, and this one keeps its frames until the file reads.
-      for (const why of "skippedUnreadable" in last
-        ? (last.skippedUnreadable ?? [])
-        : []) {
+      // A flow or video left alone for a file that will not read (DEM-127):
+      // the pass went on, and it keeps its frames until the file reads. A
+      // pass the lock put off says its own, never the last one saved.
+      for (const why of skippedOf("held" in expiry ? expiry : last)) {
         rows.push({
           folder: "expiring old videos",
           kind: "upkeep",
-          reason: `an old video was not expired: ${why}`,
+          reason: `left alone by expiry: ${why}`,
         });
       }
       for (const r of rows) log(`studio: ${r.folder}: ${r.reason}`);
