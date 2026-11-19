@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GRANT_EXPIRY_TIMEOUT_MS,
   HELD_FRAMES_SCRIPT,
+  SECOND_READ_MS,
   WALK_GAP_CREDIT_MS,
 } from "../../src/held-clock.js";
 import {
@@ -27,7 +28,12 @@ function setup(
     ) => "expire" | "silent" | "refuse";
     listen?: boolean;
     /** What the page answers the pin with (default: nothing it could not pin). */
-    pin?: (heldMs: number) => unknown;
+    pin?: (heldMs: number, source: string) => unknown;
+    /** The screenshot's answer, in place of a frame at once. */
+    shot?: () => Promise<{ bytes: Uint8Array; width: number; height: number }>;
+    /** What the browser answers `Target.getTargetInfo` with. */
+    targetInfo?: () => Promise<unknown>;
+    scrubUrl?: (url: string) => string;
     /** What the network watch says it stopped counting. */
     ignored?: string[];
     /** The real time the wait ended, once it has (`NetworkWatch.quietSince`). */
@@ -61,6 +67,8 @@ function setup(
   const cdp: CdpSession = {
     async send(method, params = {}) {
       sent.push(method);
+      if (method === "Target.getTargetInfo")
+        return (await o.targetInfo?.()) as Record<string, unknown>;
       if (method !== "Emulation.setVirtualTimePolicy") return {};
       policies.push(params);
       // As Chrome answers (measured 2026-11-15, apps/runner/compare/held-probe-basics.mjs).
@@ -108,8 +116,10 @@ function setup(
     network,
     scale: 1,
     realNow: () => real,
+    scrubUrl: o.scrubUrl,
     capture: async () => {
       log.push("capture");
+      if (o.shot) return o.shot();
       real +=
         typeof o.captureMs === "function"
           ? o.captureMs(shots)
@@ -123,7 +133,7 @@ function setup(
     evaluate: async (source, arg, server) => {
       log.push(`pin ${arg}`);
       pins.push({ source, arg, server });
-      return o.pin ? o.pin(arg) : [];
+      return o.pin ? o.pin(arg, source) : [];
     },
   });
   // A wait that never ends: every sleep of the test is inside it.
@@ -1103,11 +1113,72 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     const said = expect(clock.sleep(100)).rejects.toThrow(
-      /did not answer within 15 s.*DEMOMAN_HELD_CLOCK=0/,
+      /did not answer within 15 s.*the animation pin went unanswered, and a second read too: a script on it is still running.*DEMOMAN_HELD_CLOCK=0/,
     );
-    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
     await said;
     expect(frames).toHaveLength(0);
+  });
+
+  // DEM-237: two CI refreshes stopped on the opening load with the loop
+  // sentence, on pages with no loop. Red if a page that answers a second
+  // read is still blamed for a loop, or the sentence leaves out which read
+  // hung, where the browser had the page, or what the network watch saw.
+  it("says a page that answers a second read ran no script, with which read hung and where the page was", async () => {
+    vi.useFakeTimers();
+    const { clock, frames } = setup({
+      pin: (_, source) =>
+        source.includes("readyState")
+          ? ["http://localhost:4402/board/web?key=SECRET", "interactive"]
+          : [],
+      shot: () => new Promise(() => undefined),
+      targetInfo: async () => ({
+        targetInfo: { url: "http://localhost:4402/sign-in/SECRET" },
+      }),
+      scrubUrl: (url) => url.replaceAll("SECRET", "[redacted]"),
+      loading: () => true,
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    const said = String(failed);
+    expect(said).toMatch(
+      /did not answer within 15 s at 33 ms of the recording: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at \/board\/web, document interactive\), so no script of it was running; the browser has it at \/sign-in\/\[redacted\]; its document's request was still open/,
+    );
+    expect(said).not.toMatch(/SECRET|loop|DEMOMAN_HELD_CLOCK/);
+    expect(clock.failed()?.message).toBe((failed as Error).message);
+    expect(frames).toHaveLength(0);
+  });
+
+  // Red if a read that answers while the page is asked again still stops
+  // the run: its held time never moved, so the take is the same.
+  it("goes on when the frame's read answers while the page is asked again", async () => {
+    vi.useFakeTimers();
+    const { clock, frames } = setup({
+      pin: (_, source) =>
+        source.includes("readyState") ? new Promise(() => undefined) : [],
+      shot: () =>
+        new Promise((r) =>
+          setTimeout(
+            () => r({ bytes: new Uint8Array([1]), width: 2, height: 1 }),
+            GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS / 2,
+          ),
+        ),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(HELD_FRAME_MS).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(failed).toBeNull();
+    expect(clock.failed()).toBeNull();
+    expect(frames, "the frame the late screenshot answered").toHaveLength(1);
   });
 
   // Review of 2026-11-16: a grant does not expire while a navigation waits

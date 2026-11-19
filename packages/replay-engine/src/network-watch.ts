@@ -57,7 +57,7 @@ export interface NetworkWatch {
   stop(): void;
 }
 
-const pathOf = (url: unknown): string => {
+export const pathOf = (url: unknown): string => {
   try {
     return new URL(String(url)).pathname;
   } catch {

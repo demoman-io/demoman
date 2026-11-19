@@ -1,4 +1,4 @@
-import type { NetworkWatch } from "./network-watch.js";
+import { type NetworkWatch, pathOf } from "./network-watch.js";
 import type { CdpSession, Clock } from "./types.js";
 
 /** One video frame of page time. */
@@ -9,6 +9,27 @@ export const HELD_FRAME_MS = 1000 / 30;
  *  hold the recording for good. 15 s is the spike's watchdog: room for a page's
  *  own long task, short enough to say what happened. */
 export const GRANT_EXPIRY_TIMEOUT_MS = 15_000;
+
+/** Real time a second read of the page is given once a frame's read went
+ *  unanswered: a page whose script is not running answers in milliseconds. */
+export const SECOND_READ_MS = 1000;
+
+/** Page script: where the page is and how far its document loaded, for the
+ *  sentence of a read it did not answer. */
+const PAGE_FACTS = `() => [location.href, document.readyState]`;
+
+const SILENT = Symbol("silent");
+
+/** `p`'s answer or its error, or SILENT after SECOND_READ_MS. */
+const bounded = (p: Promise<unknown>): Promise<unknown> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.catch((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
+    new Promise((r) => {
+      timer = setTimeout(() => r(SILENT), SECOND_READ_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+};
 
 /** Real time the walk itself spends between two frames of a stretch that
  *  counts as the server's: its own work there (a condition read, a few page
@@ -342,8 +363,14 @@ export function createHeldClock(deps: {
   /** Closes the page from the browser's side, where a page whose script
    *  never ends still closes: every call waiting on it answers at once. */
   abandon?: () => Promise<void>;
+  /** Takes secrets out of an address the clock says (the network watch's
+   *  `scrubUrl`). Default: kept. */
+  scrubUrl?: (url: string) => string;
 }): HeldClock {
   const { cdp, network, realNow } = deps;
+  /** An address as the clock says it: its path, scrubbed, as the network
+   *  watch names requests. */
+  const where = (url: string) => pathOf((deps.scrubUrl ?? ((u) => u))(url));
   const wait =
     deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   /** The frame of the grid at or after `ms`, or at or before it. */
@@ -497,19 +524,68 @@ export function createHeldClock(deps: {
 
   /** A frame's read of the page, bounded: page time stands still while a
    *  script runs, so a loop that waits on `performance.now()` or
-   *  `Date.now()` never ends and its page never answers. */
-  const answered = <T>(read: Promise<T>): Promise<T> => {
+   *  `Date.now()` never ends and its page never answers. `what`: the read,
+   *  as the sentence names it. */
+  const answered = <T>(read: Promise<T>, what: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let over = false;
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        fatal ??= new Error(
-          `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s at ${Math.round(held)} ms of the recording: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; record this page in real time with DEMOMAN_HELD_CLOCK=0`,
-        );
-        void deps.abandon?.().catch(() => undefined); // its calls answer, closed
-        reject(fatal);
+        void unanswered(what).then((error) => {
+          // Answered while the page was asked again: the run goes on, and
+          // its held time never moved, so the picture is the same.
+          if (over) return;
+          fatal ??= error;
+          void deps.abandon?.().catch(() => undefined); // its calls answer, closed
+          reject(fatal);
+        });
       }, GRANT_EXPIRY_TIMEOUT_MS);
     });
-    return Promise.race([read, late]).finally(() => clearTimeout(timer));
+    return Promise.race([read, late]).finally(() => {
+      over = true;
+      clearTimeout(timer);
+    });
+  };
+
+  /** Why a frame's read went unanswered, in what the page and the browser
+   *  say a moment later. A page that answers a second read runs no script,
+   *  so a loop is not what held it (DEM-237: two CI refreshes blamed one on
+   *  pages that have none, during the opening load). */
+  const unanswered = async (what: string): Promise<Error> => {
+    const at = `at ${Math.round(held)} ms of the recording`;
+    const [page, target] = await Promise.all([
+      bounded(deps.evaluate(PAGE_FACTS, 0, false)),
+      bounded(cdp.send("Target.getTargetInfo")),
+    ]);
+    const url = (target as { targetInfo?: { url?: unknown } } | undefined)
+      ?.targetInfo?.url;
+    const facts = [
+      typeof url === "string"
+        ? `the browser has it at ${where(url)}`
+        : `the browser did not say where it is (${target instanceof Error ? target.message : target === SILENT ? `no answer within ${SECOND_READ_MS} ms` : "no address"})`,
+      network.loading()
+        ? "its document's request was still open"
+        : network.labels().length > 0
+          ? `it was waiting on ${network.labels().join(", ")}`
+          : "no request of it was open",
+    ].join("; ");
+    /** The page's own answer: its address, and how far its document loaded. */
+    const answer = (a: unknown) =>
+      Array.isArray(a) && typeof a[0] === "string"
+        ? `at ${where(a[0])}, document ${String(a[1])}`
+        : String(a);
+    const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered`;
+    if (page instanceof Error)
+      return new Error(
+        `${head}, and a second read failed (${page.message}); ${facts}`,
+      );
+    if (page !== SILENT)
+      return new Error(
+        `${head}, though the page answered a second read within ${SECOND_READ_MS} ms (${answer(page)}), so no script of it was running; ${facts}`,
+      );
+    return new Error(
+      `${head}, and a second read too: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; ${facts}; record this page in real time with DEMOMAN_HELD_CLOCK=0`,
+    );
   };
 
   /** `server`: the frame was shot following the server (a stretch's). */
@@ -517,7 +593,10 @@ export function createHeldClock(deps: {
     if (fatal !== null) throw fatal;
     let failed: unknown;
     try {
-      failed = await answered(deps.evaluate(PIN_ANIMATIONS, held, server));
+      failed = await answered(
+        deps.evaluate(PIN_ANIMATIONS, held, server),
+        "the animation pin",
+      );
     } catch (e) {
       throw new Error(
         `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
@@ -529,7 +608,7 @@ export function createHeldClock(deps: {
       );
     for (const what of failed)
       unpinned.push({ atMs: held, what: String(what) });
-    const shot = await answered(deps.capture());
+    const shot = await answered(deps.capture(), "its screenshot");
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
     if (listeners.length === 0)
