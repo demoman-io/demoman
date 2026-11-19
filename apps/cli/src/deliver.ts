@@ -1,8 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { GitRunner, RefreshResult } from "@demoman/runner/package";
+import {
+  codeSpanText,
+  type GitRunner,
+  type RefreshResult,
+} from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
+import { failedTail } from "./refresh-lines.js";
 
 export const COMMIT_SUBJECT = "Refresh demo videos";
 export const BRANCH = "demoman/refresh";
@@ -11,6 +16,15 @@ const BOT_NAME = "github-actions[bot]";
 const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
 const BOT = ["-c", `user.name=${BOT_NAME}`, "-c", `user.email=${BOT_EMAIL}`];
 const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
+/** A failure's detail in the pull request, in characters; the job log has
+ *  all of it. */
+const DETAIL_MAX = 500;
+/** `text` as a code span on GitHub (attach's rule): shown literally, so a
+ *  page's text cannot post a link, an image or a mention (DEM-118). */
+const codeSpan = (text: string, max: number): string => {
+  const t = codeSpanText(text, max);
+  return t === "" ? "(nothing said)" : `\`${t}\``;
+};
 // git's client-side refusal of a push that is behind the remote branch.
 const BEHIND = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
 
@@ -255,9 +269,14 @@ export async function deliver(
       ? [
           "",
           "Not refreshed:",
+          // The detail and the notes can quote the recorded page (DEM-118),
+          // so they and the name sit in code spans; the fix is ours, outside.
           ...result.videos
             .filter((v) => v.outcome === "failed")
-            .map((v) => `- \`${v.name}\`: ${v.detail}`),
+            .flatMap((v) => [
+              `- ${codeSpan(v.name, 120)}: ${codeSpan(v.detail, DETAIL_MAX)}${failedTail(v, (s) => codeSpan(s, 200), " among this run's artifacts")}`,
+              ...v.notes.map((n) => `  - ${codeSpan(n, DETAIL_MAX)}`),
+            ]),
         ]
       : []),
     ...(runUrl === null ? [] : ["", `Run: ${runUrl}`]),

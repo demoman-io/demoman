@@ -1,4 +1,4 @@
-import type { RefreshResult } from "@demoman/runner/package";
+import type { RefreshResult, RefreshVideo } from "@demoman/runner/package";
 
 /** What `demoman refresh` prints and exits with: a line per video with what
  *  its comparison found (one word per outcome: changed, added, uncompared,
@@ -32,10 +32,29 @@ function videoLines(result: RefreshResult): {
     lines: result.videos.map((v) => {
       const said = v.detail === "" ? v.outcome : `${v.outcome}: ${v.detail}`;
       const notes = v.notes.length > 0 ? ` (${v.notes.join("; ")})` : "";
-      return `${v.name}: ${said}${notes}`;
+      return `${v.name}: ${said}${notes}${failedTail(v)}`;
     }),
     code: result.videos.some((v) => v.outcome === "failed") ? 1 : 0,
   };
+}
+
+/** After a failed video's line: the fix when the flow must be recorded
+ *  again (DEM-146), then where its run report and last still were kept, or
+ *  why there is no still (DEM-147). One sentence for the terminal and the
+ *  pull request, which passes `span` for its code spans and `where`. */
+export function failedTail(
+  v: RefreshVideo,
+  span: (text: string) => string = (text) => text,
+  where = "",
+): string {
+  const e = v.evidence;
+  const kept =
+    e === undefined
+      ? ""
+      : e.noStill === null
+        ? ` Its run report and last still are in ${span(e.folder)}${where}.`
+        : ` Its run report is in ${span(e.folder)}${where}; there is no last still: ${span(e.noStill)}.`;
+  return `${v.fix === undefined ? "" : ` — ${v.fix}`}${kept}`;
 }
 
 /** What `demoman refresh` says and exits with when the app does not start:

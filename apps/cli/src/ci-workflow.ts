@@ -27,6 +27,12 @@ import type { Watched } from "./ci-watch.js";
 import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
+/** setup-bun by commit, not tag: it runs in the job that can push and open
+ *  pull requests, and a tag can be moved to other code (DEM-135). The tag
+ *  rides in the workflow's comment. `gh api
+ *  repos/oven-sh/setup-bun/git/ref/tags/<tag>` gives a newer one's sha. */
+export const SETUP_BUN = "0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0";
+
 export interface CiOptions {
   version: string;
   trigger: "push" | "release" | "daily" | { deployment: string };
@@ -212,8 +218,7 @@ jobs:
 ${services}    steps:
 ${refreshSteps(o, {
   deliver: true,
-  outDir:
-    o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "",
+  outDir: `${o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : ""} --failures demoman-failed`,
 })}  check:
     if: ${expr("github.event_name == 'pull_request'")}
     runs-on: ubuntu-24.04
@@ -223,7 +228,7 @@ ${refreshSteps(o, {
       group: demoman-check-${expr("github.ref")}
       cancel-in-progress: true
 ${services}    steps:
-${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check" })}      - name: Gather the files a commit flow would write
+${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check --failures demoman-check/failed" })}      - name: Gather the files a commit flow would write
         if: always()
         run: |
           [ -f demoman-check/demoman-refresh.json ] || exit 0
@@ -399,7 +404,7 @@ ${DEPLOYED_SCRIPT.split("\n")
       ? ""
       : `      - name: Turn on pnpm and yarn${ifRun}
         run: corepack enable
-${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - uses: oven-sh/setup-bun@v2${ifRun}\n` : ""}`;
+${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - uses: oven-sh/setup-bun@${SETUP_BUN}${ifRun}\n` : ""}`;
   const script = [
     ...(onDefault ? [ON_DEFAULT_SCRIPT] : []),
     ...(loopGuard ? [GUARD_SCRIPT] : []),
@@ -458,6 +463,20 @@ ${
         with:
           name: demoman-videos
           path: demoman-out
+`
+    : ""
+}${
+  // Whether or not the artifact is on: a failed flow's report and last
+  // still are the only record of where it broke (DEM-147). The check job
+  // keeps them inside demoman-check.
+  deliver
+    ? `      - name: Keep what the failed flows showed
+        if: ${expr(skipCond === null ? "failure()" : `failure() && ${skipCond}`)}
+        uses: actions/upload-artifact@v4
+        with:
+          name: demoman-failed
+          path: demoman-failed
+          if-no-files-found: ignore
 `
     : ""
 }`;

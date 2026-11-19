@@ -14,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   CAMERA_DEFAULTS,
   motionTimings,
@@ -57,6 +57,7 @@ import {
   type RefreshVideo,
   type RunVerdict,
   refreshKept,
+  rerecordFix,
   runVerdict,
 } from "../src/executor/refresh.js";
 import { sameScreens } from "../src/executor/same-picture.js";
@@ -1630,7 +1631,11 @@ export const replaceChain = () => {
       html = html.replace(REPORTS_LINK, "");
       expect(html).not.toContain(">Reports<");
       const before = await bytes(out.bMp4);
-      const r = await refresh();
+      const failures = await mkdtemp(join(tmpdir(), "refresh-failures-"));
+      const r = await refreshKept(
+        { repoRoot: repo, library: "throwaway", failures },
+        deps(),
+      );
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("failed");
       // The script's own step, as its label says (DEM-61).
@@ -1640,6 +1645,29 @@ export const replaceChain = () => {
       expect((await bytes(out.bMp4)).equals(before)).toBe(true);
       // The nav lost a link, so the other video's picture changed too.
       expect(byName(r, A).outcome).toBe("changed");
+      // DEM-146: a target gone is the script's to fix, and says how.
+      expect(b.fix).toBe(rerecordFix(B, b.file));
+      // DEM-147: the stopped run's report and last still outlive the
+      // throwaway library; the video that refreshed kept nothing.
+      const at = join(failures, basename(b.file, ".json"));
+      expect(b.evidence, JSON.stringify(b)).toEqual({
+        folder: at,
+        noStill: null,
+      });
+      expect(byName(r, A).evidence).toBeUndefined();
+      expect(await readdir(failures)).toEqual([basename(at)]);
+      const report = JSON.parse(
+        await readFile(join(at, "report.json"), "utf8"),
+      );
+      expect(report.outcome).toBe("stopped");
+      expect(report.summary).toBe(b.detail);
+      // As a repo would commit it: no path on this machine (DEM-227).
+      expect(report.still).toBeUndefined();
+      // The still is the picture the run ended on, not an empty file.
+      const still = pngSize(await readFile(join(at, "final-still.png")));
+      expect(still.width, JSON.stringify(still)).toBeGreaterThan(100);
+      expect(still.height).toBeGreaterThan(100);
+      await rm(failures, { recursive: true, force: true });
     },
     BOTH_MS,
   );

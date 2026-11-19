@@ -6,6 +6,8 @@ export type RefreshArgs = {
   baseUrl?: string;
   outDir?: string;
   previous?: string;
+  /** `--failures`: where each failed run's report and last still are kept. */
+  failures?: string;
   /** `--check`: say whether anything is new since the last refresh. */
   check?: true;
   /** With `--check`: the commit the last successful refresh ran at. */
@@ -21,6 +23,7 @@ export function parseRefreshArgs(
     deliver?: string;
     "out-dir"?: string;
     previous?: string;
+    failures?: string;
     check?: boolean;
     since?: string;
   };
@@ -33,6 +36,7 @@ export function parseRefreshArgs(
         deliver: { type: "string" },
         "out-dir": { type: "string" },
         previous: { type: "string" },
+        failures: { type: "string" },
         check: { type: "boolean" },
         since: { type: "string" },
       },
@@ -47,7 +51,8 @@ export function parseRefreshArgs(
     (positionals.length > 0 ||
       values.deliver !== undefined ||
       values["base-url"] !== undefined ||
-      values["out-dir"] !== undefined)
+      values["out-dir"] !== undefined ||
+      values.failures !== undefined)
   )
     return { error: "--check takes only --previous and --since" };
   if (values.since !== undefined && values.check !== true)
@@ -74,6 +79,7 @@ export function parseRefreshArgs(
     ...(baseUrl === undefined ? {} : { baseUrl }),
     ...(values["out-dir"] === undefined ? {} : { outDir: values["out-dir"] }),
     ...(values.previous === undefined ? {} : { previous: values.previous }),
+    ...(values.failures === undefined ? {} : { failures: values.failures }),
     ...(values.check === true ? { check: true as const } : {}),
     ...(values.since === undefined ? {} : { since: values.since }),
   };

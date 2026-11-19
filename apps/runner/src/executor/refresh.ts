@@ -1,13 +1,17 @@
 import {
   access,
+  copyFile,
+  mkdir,
   mkdtemp,
   readFile,
   realpath,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import type { ReplayStopReason } from "@demoman/replay-engine";
 import {
   committedRunReport,
   DEGRADATION_WORDS,
@@ -38,7 +42,7 @@ import {
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { type StageTimes, stageTimes } from "../stage-times.js";
-import { codeClause, prLine } from "./attach.js";
+import { codeClause, codeSpanText, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
 import type { ScreensAnswer } from "./export.js";
 import {
@@ -92,7 +96,17 @@ export interface RefreshVideo {
    *  it (`committedRunReport`): the list is published too. */
   screens: PageScreens | null;
   report: unknown | null;
+  /** A failure that recording the flow again fixes (`rerecordFix`): the one
+   *  line that says how. Absent for every other outcome and failure. */
+  fix?: string;
+  /** Where a failed run's report and last still were kept under
+   *  `failures` (that folder as given), and why there is no still when the
+   *  run made none. Absent when nothing was kept (no run, or no
+   *  `failures`); a copy that failed is said in `notes`. */
+  evidence?: Evidence;
 }
+
+export type Evidence = { folder: string; noStill: string | null };
 
 export interface RefreshResult {
   videos: RefreshVideo[];
@@ -137,7 +151,7 @@ export interface RefreshDeps {
 /** Said beside a video replaced without a pin whose last screen showed
  *  dates (DEM-79): a likely cause, never the certain one. */
 export const DATES_NOTE = (samples: string[]): string =>
-  `this video shows dates such as ${samples.map((s) => `\`${s}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/reference/app-json#pinned-dates`;
+  `this video shows dates such as ${samples.map((s) => `\`${codeSpanText(s, 40)}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/reference/app-json#pinned-dates`;
 
 /** The display a device script films on; its own size comes from the
  *  device, so only the scale here matters. */
@@ -160,12 +174,60 @@ type Job = {
    *  files flow; null when none was given) and where new ones are written. */
   from: string | null;
   to: string;
+  /** Where this flow's failed run was kept, once it was (`keepFailure`). */
+  evidence?: Evidence;
 };
 
 export type RunVerdict =
   | { kind: "clean" }
   | { kind: "degraded"; problems: string[] }
-  | { kind: "failed"; detail: string };
+  /** `rerecord`: the script no longer fits the page, so recording the flow
+   *  again with an agent is the fix (DEM-146). */
+  | { kind: "failed"; detail: string; rerecord?: true };
+
+/** Refused at the door for the script itself (recipe section 7). */
+const SCRIPT_REFUSALS = new Set([
+  "invalidScript",
+  "notAnObject",
+  "unfilledHoles",
+]);
+/** Whether a stop is the script's to fix, decided for every reason so a
+ *  new one must be decided too (REASON_TEXT says each): true when its
+ *  sentence sends the author to change the step. A stop the app, the
+ *  machine or the session caused is false: recording again would not fix
+ *  it. `waitTimeout` is false too: on a slow runner the app can miss the
+ *  wait and pass on the author's machine (review of this branch). */
+const SCRIPT_STOPS: Record<ReplayStopReason, boolean> = {
+  unresolvedAnchor: true,
+  ambiguousAnchor: true,
+  anchorNotRendered: true,
+  anchorFrameMismatch: true,
+  redactedWithoutReplacement: true,
+  unperformableStep: true,
+  dragEndOutOfView: true,
+  dragNoDistance: true,
+  noActions: true,
+  waitTimeout: false,
+  mutating: false,
+  cancelledByAuthor: false,
+  pageSilent: false,
+  pageFaulted: false,
+  anchorUnreachable: false,
+  pageWentElsewhere: false,
+  signedOut: false,
+  clickNotDelivered: false,
+  occlusionTimeout: false,
+  windowClosed: false,
+  debuggerUnavailable: false,
+  deviceFailed: false,
+  portFailure: false,
+};
+
+/** The one line a failure the script causes is delivered with (DEM-146).
+ *  Markdown as written: it goes into a pull request body as it is, so the
+ *  name, which may come from a page's title, is a safe code span. */
+export const rerecordFix = (name: string, file: string): string =>
+  `Ask your agent to record \`${codeSpanText(name, 120)}\` again, then commit \`${codeSpanText(file, 200)}\`.`;
 
 /** The degradations that leave a video correct, only less smooth or less
  *  sharp: a soft still, a scroll still moving, motion frames dropped or kept
@@ -216,7 +278,11 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
     frames?: { spans?: number; degradations?: string[] };
   };
   if (r.outcome === "refusedBeforeRun")
-    return { kind: "failed", detail: `${r.reason}: ${r.detail}` };
+    return {
+      kind: "failed",
+      detail: `${r.reason}: ${r.detail}`,
+      ...(SCRIPT_REFUSALS.has(String(r.reason)) ? { rerecord: true } : {}),
+    };
   if (r.outcome === "threw")
     return { kind: "failed", detail: `the run threw: ${r.error}` };
   const kinds = [...new Set(r.frames?.degradations ?? [])];
@@ -242,9 +308,19 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
     typeof r.summary === "string"
       ? r.summary
       : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+  // A step the page no longer does as asked: stopped on the script's own
+  // reason, or finished with a step the video does not show.
+  const rerecord =
+    r.outcome === "stopped"
+      ? (SCRIPT_STOPS as Record<string, boolean>)[String(r.stopped?.reason)] ===
+        true
+      : r.outcome === "complete" &&
+        r.stopped === undefined &&
+        r.verdict?.kind === "diverged";
   return {
     kind: "failed",
     detail: problems.length === 0 ? line : `${line} — ${problems.join("; ")}`,
+    ...(rerecord ? { rerecord: true } : {}),
   };
 }
 
@@ -318,6 +394,9 @@ export async function refreshKept(
     /** A folder an earlier `outDir` was kept in: what `files` flows are
      *  compared against. */
     previous?: string;
+    /** Where each failed run's report and last still are kept, in a folder
+     *  per flow, before the throwaway library goes (DEM-147). */
+    failures?: string;
   },
   deps: RefreshDeps,
 ): Promise<RefreshResult> {
@@ -328,6 +407,7 @@ export async function refreshKept(
     who: { name: string; file: string; kept?: KeptVideo },
     detail: string,
     notes: string[] = [],
+    more: Pick<RefreshVideo, "fix" | "evidence"> = {},
   ) =>
     videos.push({
       name: who.name,
@@ -345,6 +425,7 @@ export async function refreshKept(
       files: [],
       screens: null,
       report: null,
+      ...more,
     });
 
   const { entries, duplicates } = await readKeptFlows(root);
@@ -540,7 +621,27 @@ export async function refreshKept(
           deps.log(`refresh: running "${job.kept.name}" at ${display}`);
           try {
             const one = await filmOne(job, root, executor, home, deps);
-            if ("failed" in one) failed(who, one.failed, job.notes);
+            // Kept now: the throwaway library goes with this group.
+            const run =
+              "failed" in one
+                ? one.answer
+                : one.failure === null
+                  ? undefined
+                  : (one.report as unknown as Record<string, unknown>);
+            if (args.failures !== undefined && run !== undefined) {
+              const kept = await keepFailure(run, args.failures, job.file);
+              if ("evidence" in kept) job.evidence = kept.evidence;
+              else if (kept.note !== null) job.notes.push(kept.note);
+            }
+            if ("failed" in one)
+              failed(who, one.failed, job.notes, {
+                ...(one.rerecord === true
+                  ? { fix: rerecordFix(job.kept.name, job.file) }
+                  : {}),
+                ...(job.evidence === undefined
+                  ? {}
+                  : { evidence: job.evidence }),
+              });
             else filmed.push(one);
           } catch (error) {
             failed(who, `refresh threw: ${messageOf(error)}`, job.notes);
@@ -611,6 +712,51 @@ function scriptFor(
   return script;
 }
 
+/**
+ * A failed run's report (as a repo would commit it) and its last still,
+ * copied to `<failures>/<flow file's name>/` before the throwaway library is
+ * removed (DEM-147). Answers that folder as given, or why it could not be
+ * kept; `note: null` when the run made no report to keep (a refusal at the
+ * door, whose line already says all of it).
+ */
+export async function keepFailure(
+  run: Record<string, unknown>,
+  failures: string,
+  file: string,
+): Promise<{ evidence: Evidence } | { note: string | null }> {
+  if (!("provenance" in run)) return { note: null };
+  const shown = join(failures, basename(file, ".json"));
+  try {
+    const at = resolve(shown);
+    // Never an earlier run's still beside this run's report.
+    await rm(at, { recursive: true, force: true });
+    await mkdir(at, { recursive: true });
+    await writeFile(
+      join(at, "report.json"),
+      `${JSON.stringify(committedRunReport(run as unknown as RunReport, homedir()), null, 2)}\n`,
+    );
+    const still = (run as Partial<RunReport>).still;
+    if (still !== undefined && "path" in still)
+      await copyFile(still.path, join(at, "final-still.png"));
+    // A run with no still says why; the line must not promise one.
+    return {
+      evidence: {
+        folder: shown,
+        noStill:
+          still === undefined
+            ? "the run made none"
+            : "unavailable" in still
+              ? still.unavailable
+              : null,
+      },
+    };
+  } catch (error) {
+    return {
+      note: `its run report and last still could not be kept in ${shown} (${messageOf(error)})`,
+    };
+  }
+}
+
 async function remove(dir: string, deps: RefreshDeps): Promise<void> {
   await rm(dir, { recursive: true, force: true }).catch((error: unknown) =>
     deps.log(`refresh: ${dir} was not removed (${messageOf(error)})`),
@@ -664,7 +810,9 @@ async function filmOne(
   executor: LocalExecutor,
   home: string,
   deps: RefreshDeps,
-): Promise<Filmed | { failed: string }> {
+): Promise<
+  Filmed | { failed: string; rerecord?: true; answer?: Record<string, unknown> }
+> {
   const { kept, script, previous, from, receiptFile } = job;
   const times = stageTimes();
   const run = async (): Promise<Record<string, unknown>> => {
@@ -694,12 +842,18 @@ async function filmOne(
   const { answer, verdict } = await recordWithRetry(run, kept.name, deps.log);
   // The group's first run includes the browser launch.
   times.mark("record");
-  if (verdict.kind === "failed") return { failed: verdict.detail };
+  if (verdict.kind === "failed")
+    return {
+      failed: verdict.detail,
+      ...(verdict.rerecord === true ? { rerecord: true as const } : {}),
+      answer,
+    };
   if (verdict.kind === "degraded")
     job.notes.push(degradedNote(verdict.problems));
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
-  if (takeId === null) return { failed: "the run is clean but made no video" };
+  if (takeId === null)
+    return { failed: "the run is clean but made no video", answer };
   const read = await createLibrary(home).getJson(takeId, "report.json");
   const stored: Filmed["stored"] =
     "value" in read
@@ -716,6 +870,7 @@ async function filmOne(
   if (deps.pinnedNow !== undefined && report.pinnedNow !== deps.pinnedNow)
     return {
       failed: `the run did not confirm its page's clock was pinned to ${deps.pinnedNow}; nothing was replaced`,
+      answer,
     };
 
   /** One output's export, or with `screensOnly` the take's page screens. */
@@ -762,7 +917,7 @@ async function filmOne(
   const j = judgedOutput(kept.outputs);
   const judged = kept.outputs[j] as KeptOutput;
   const shot = await exportOf(judged, true);
-  if ("failed" in shot) return shot;
+  if ("failed" in shot) return { ...shot, answer };
   times.mark("screens");
   const shots: Filmed["shots"] = {
     screens: shot.screens,
@@ -870,7 +1025,7 @@ async function filmOne(
     }
   }
   const failed = await exportAll(toWrite);
-  if (failed !== null) return failed;
+  if (failed !== null) return { ...failed, answer };
   return filmed(same, toWrite);
 }
 
@@ -957,7 +1112,10 @@ async function deliverOne(
   // they were.
   if (failure !== null) {
     said.splice(0, said.length, failure);
-    return answer("failed", [], null);
+    return {
+      ...answer("failed", [], null),
+      ...(job.evidence === undefined ? {} : { evidence: job.evidence }),
+    };
   }
   const writeReceipt = same !== true;
   // A report an earlier demoman committed may hold its picture's path on

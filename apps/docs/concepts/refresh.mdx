@@ -31,7 +31,7 @@ run it locally too.
 | `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written. Once, after its receipt predates page screens, `added: recorded again and not compared`: every file is replaced, with nothing compared |
 | `<name>: uncompared: nothing to compare against; delivered as new` | No earlier video to compare with. The files are written |
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
-| `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
+| `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1. When the script no longer fits the page (a target is gone, a step did not do what it asked), the line ends with the fix: ask your agent to record the flow again, then commit its `.demoman/flows/` file. With `--failures`, it also says where the run's report and last still are |
 
 ## How a change is judged
 
@@ -92,9 +92,18 @@ An app that shows today's date changes every day. Pin its clock with `now`
 
 - **`pr`**: force-pushes `demoman/refresh` and opens or updates one pull
   request, "Refresh demo videos", listing each changed video and any flow
-  that failed. Open its files under "Files changed" to watch them.
+  that failed, with its fix when the flow must be recorded again. Open its files
+  under "Files changed" to watch them.
 - **`main`**: one "Refresh demo videos" commit on the branch, pushed with no
   review.
+
+When a flow fails in the workflow `setup --ci` writes, the run keeps each
+failed flow's run report and the last frame it recorded, so you can see
+where it broke without running it yourself: a refresh uploads them as the
+`demoman-failed` artifact, and the check on a pull request keeps them in
+`failed/` inside its `demoman-check` artifact. A workflow set up with
+Demoman 0.9.7 or earlier lacks this: delete `.github/workflows/demoman.yml`
+on the default branch, then run `npx demoman setup --ci` again.
 
 When no video changed, nothing is committed, and an open refresh pull request
 whose videos are now out of date is closed with a comment.
