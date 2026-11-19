@@ -3,6 +3,13 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.9.8" description="Failed refreshes keep their evidence">
+  - Rerun `npx demoman setup --ci` to update the generated workflow. A failed refresh then keeps its run report and final still as a `demoman-failed` artifact.
+  - A failed refresh that its script caused says how to fix it: record the flow again.
+  - A held recording that stops because the page stopped answering says which read hung, what the network was doing and where the page was. It suggests `DEMOMAN_HELD_CLOCK=0` only for a page that really loops.
+  - Known issue: a video playing on the page can freeze in a held recording; record it with `DEMOMAN_HELD_CLOCK=0`.
+</Update>
+
 <Update label="0.9.7" description="Every step on the same frame">
   - Headless runs hold the page's clock, so one script puts each step on the same frame on any machine; a slow one just records more slowly. `DEMOMAN_HELD_CLOCK=0` records in real time.
   - The run report says which clock recorded and what it could not hold. A page that never answers stops the run in about 19 seconds.
