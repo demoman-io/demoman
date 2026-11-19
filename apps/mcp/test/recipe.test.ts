@@ -324,6 +324,13 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
     const notLocal = flat.slice(flat.search(/not clearly local/i));
     expect(notLocal).toContain("npx demoman signin");
   });
+  // Red if the recipe lets the agent commit a demo account's files before
+  // the user opts into CI: a test user's video PR carried accounts.json.
+  it("keeps a demo account's files uncommitted until CI is set up", () => {
+    const step = flat.slice(flat.search(/local development database/i));
+    expect(step).toMatch(/Commit none of it[^.]*until the user sets up CI/);
+    expect(step.slice(0, step.search(/Commit none/))).not.toMatch(/commit/i);
+  });
   it("teaches reuse by about, and the dev-only sign-in route", () => {
     expect(flat).toMatch(/`about`/);
     expect(flat).toMatch(/dev-only/i);

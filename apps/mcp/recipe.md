@@ -46,7 +46,7 @@ user; section 7 lists every reason.
 `status.secretsFile` is `null` (no usable accounts file), `{path, absent:
 true}` (no secrets file: only `DEMOMAN_SECRET_*` can supply values),
 `{path, git: "ignored"}` (git ignores it: safe), `{path, git: "notGit"}`
-(not in git, so unchecked: tell the user), or `{path, refused}` (unreadable; `refused` is why,
+(not in git, unchecked: tell the user), or `{path, refused}` (unreadable; `refused` is why,
 as `secretsFileNotIgnored` or `secretsFileInvalid` will be). Never a value.
 
 A page behind a login answers `signedOut` and `status` shows no account for
@@ -55,14 +55,15 @@ its site. Then, in order:
 1. **Reuse first.** Pick the account whose `about` fits the demo. Name it in the script's `account`, or omit it for the `default`.
 2. **The app's repo is open and runs against a local development database:**
    create a demo account and the data the demo needs, with a seed script
-   committed in the app and safe to run twice (`db/seeds/demo.rb`); a reset
+   in the app, safe to run twice (`db/seeds/demo.rb`); a reset
    script goes in `.demoman/app.json` as `reset`.
-   Generate a random password of 20+ characters.
+   Generate a random 20+ character password.
    Write `DEMOMAN_SECRET_<NAME>=…` and
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
    `.demoman/secrets.env`, and `.gitignore` it if missing. Add the
    account to `accounts.json`, formatted as the repo's formatter writes it
-   (its CI lints it), tell the user in a line, `snapshot` again.
+   (its CI lints it), `snapshot` again. Commit none of it until the user
+   sets up CI, and say so in a line.
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
    route, reachable only in development, and make the account's `signIn` one
    `goto` to it. Phoenix:
@@ -70,7 +71,7 @@ its site. Then, in order:
    It starts a session only.
 4. **The database is not clearly local** (a remote `DATABASE_URL`, staging,
    production): create nothing. Ask the user, or give them
-   `npx demoman signin <url>`, which signs in by hand in a window: the way
+   `npx demoman signin <url>`, which signs in by hand in a window:
    for a real account, single sign-on and two-factor.
 
 The file, with one account:
@@ -83,7 +84,7 @@ The file, with one account:
       "default": "seller",
       "accounts": {
         "seller": {
-          "about": "Sonny BBQ: a seller with 6 custom requests and no orders needing action",
+          "about": "a seller with 6 custom requests, no orders to act on",
           "checkUrl": "/admin/dashboard",
           "signIn": [
             { "do": "goto", "url": "/users/log-in" },
