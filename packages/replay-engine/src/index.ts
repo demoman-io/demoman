@@ -55,6 +55,7 @@ export {
   type IntentCapture,
   type IntentResolution,
   runAuthored,
+  type StillBacking,
 } from "./authored.js";
 export {
   buildCaptureBundle,

@@ -52,6 +52,7 @@ import {
   type FailureReasonName,
   type SceneAction,
   type SceneAnchor,
+  type SceneAspect,
   type SceneBranding,
   type SceneDocument,
   SceneDocumentSchema,
@@ -349,7 +350,20 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
     scaleAt: (action: SceneAction) => number,
     /** What the script said about a click's or drag's zoom, by action id. */
     intentOf: ZoomIntentOf,
+    /** What a held take's stills back, for the default zoom; absent in
+     *  real time, whose 3x stills back the camera's default. */
+    backing?: StillBacking,
   ): CameraPlan;
+}
+
+/** A held take's stills, at the flow's scale, in the frame the take is
+ *  drawn in: what `zoomDefaultFor` (`@demoman/run-core`) sizes the default
+ *  zoom from (DEM-164). */
+export interface StillBacking {
+  /** Still px per CSS px. */
+  stillScale: number;
+  branding: SceneBranding;
+  aspect: SceneAspect;
 }
 
 /** What `AuthoredDeps.cameraFor` answers: the zooms, and every click they
@@ -1860,11 +1874,23 @@ export async function runAuthored(
     walked.bundle?.viewportTransforms ?? [],
     walked.decided,
   );
+  // Held: every still is a held frame at the flow's scale, so the first says
+  // what they all back. Branding and aspect as `assembleAuthored` writes them.
+  const still = walked.bundle?.keyframes[0];
+  const backing: StillBacking | undefined =
+    deps.held === undefined || still === undefined
+      ? undefined
+      : {
+          stillScale: still.width / viewport.width,
+          branding: script.look?.branding ?? deps.startingBranding,
+          aspect: script.look?.canvas?.aspect ?? CANVAS_DEFAULTS.aspect,
+        };
   const camera = deps.cameraFor(
     inputs.actions,
     viewport,
     inputs.scaleAt,
     run.zoomIntentOf,
+    backing,
   );
   // Pan or return, as the walk decided it for the click: recorded on the
   // zoom so the renderer reads it rather than asking again.

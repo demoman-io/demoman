@@ -1,4 +1,12 @@
-import { CAMERA_DEFAULTS, fitScaleFor } from "@demoman/compositor";
+import {
+  CAMERA_DEFAULTS,
+  contentScale,
+  derivePresentation,
+  fitScaleFor,
+  HIGH_LANDSCAPE,
+  landscapeFrame,
+} from "@demoman/compositor";
+import type { StillBacking } from "@demoman/replay-engine";
 import {
   dragPoints,
   type SceneDocument,
@@ -47,6 +55,8 @@ export function decideZoom(
   scaleOf: () => number,
   /** The script's say on this click (`ZoomIntent`); absent leaves it to the camera. */
   intent?: ZoomIntent,
+  /** The zoom a click gets before its fit (`zoomDefaultFor`). */
+  defaultScale: number = CAMERA_DEFAULTS.defaultZoomScale,
 ): { zoom: true; scale: number } | { zoom: false; skipped: SceneZoomSkipped } {
   if (intent === false) {
     return { zoom: false, skipped: { actionId: click.id, reason: "off" } };
@@ -77,6 +87,7 @@ export function decideZoom(
       ? undefined
       : { width: click.rect.width * scale, height: click.rect.height * scale },
     viewport,
+    defaultScale,
   );
   if (fitted < ZOOM_FLOOR_SCALE) {
     return {
@@ -176,8 +187,14 @@ export function zoomsForClicks(
   scaleAt: (action: SceneDocument["actions"][number]) => number = () => 1,
   // The script's say per action id; the room policy reads the same one.
   intentOf?: ZoomIntentOf,
+  // What the take's stills back (`zoomDefaultFor`); absent: the camera's default.
+  backing?: StillBacking,
 ): ClickZooms {
   const { leadInMs } = CAMERA_DEFAULTS;
+  const defaultScale =
+    backing === undefined
+      ? CAMERA_DEFAULTS.defaultZoomScale
+      : zoomDefaultFor(backing, viewport);
   const camera: CameraEvent[] = [];
   const zoomsSkipped: SceneZoomSkipped[] = [];
   let last: LastZoom | null = null;
@@ -193,6 +210,7 @@ export function zoomsForClicks(
       viewport,
       () => scaleAt(action),
       intent,
+      defaultScale,
     );
     if (!decided.zoom) {
       zoomsSkipped.push(decided.skipped);
@@ -275,10 +293,46 @@ export const ZOOM_FIT_MARGIN_PX = CAMERA_DEFAULTS.fitMarginPx;
 function fittedScale(
   rect: { width: number; height: number } | undefined,
   viewport: { width: number; height: number },
+  defaultScale: number,
 ): number {
-  const { defaultZoomScale } = CAMERA_DEFAULTS;
-  if (!rect) return defaultZoomScale;
-  return Math.min(defaultZoomScale, fitScaleFor(rect, viewport));
+  if (!rect) return defaultScale;
+  return Math.min(defaultScale, fitScaleFor(rect, viewport));
+}
+
+/**
+ * The default zoom a take's stills can play at its default export, decided
+ * when the take is saved so the export never cuts it (DEM-164). A held take's
+ * stills are its frames, at the flow's scale (2x by `CAPTURE_SCALE`), not
+ * the 3x of a real-time still: measured 2026-11-19 at 1440x900@2, every 1.8x
+ * zoom was cut to 1.35x at the default 1440p export, said only in
+ * `detailViolations`. The author chose a lower default over 3x frames.
+ *
+ * The sum is the export's own clamp (`clampToSourceDetail`): source px per
+ * CSS px over output px per CSS px, against the default export's frame
+ * (`HIGH_LANDSCAPE`, framed as `targetFor` frames it) in the take's own
+ * branding. Never above the camera's default. Never under
+ * `ZOOM_FLOOR_SCALE`, so the floor still decides alone which clicks zoom,
+ * and the room policy (`room.ts`), which asks that at the camera's default,
+ * reads the same answer: a cut to the floor is still reported by the clamp.
+ * A smaller export backs more than this; a larger one is cut, and reported.
+ */
+export function zoomDefaultFor(
+  backing: StillBacking,
+  viewport: { width: number; height: number },
+): number {
+  const { branding } = backing;
+  const target = landscapeFrame(
+    backing.aspect,
+    HIGH_LANDSCAPE,
+    viewport,
+    branding.padding,
+  );
+  const { frameRect } = derivePresentation(branding, target, viewport);
+  const backed = backing.stillScale / contentScale(frameRect, viewport);
+  return Math.min(
+    CAMERA_DEFAULTS.defaultZoomScale,
+    Math.max(ZOOM_FLOOR_SCALE, backed),
+  );
 }
 
 /**
