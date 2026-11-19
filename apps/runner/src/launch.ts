@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { CdpSession, Clock } from "@demoman/replay-engine";
 import {
   type Browser,
@@ -247,6 +248,49 @@ export function launchFailure(said: string): {
 }
 
 /**
+ * What on this Linux keeps Chromium's sandbox from starting; null off
+ * Linux. A browser that closes after it started fails with Playwright's
+ * "Target page, context or browser has been closed" and none of Chromium's
+ * own words (its stderr reaches no error or logger), so the fallback says
+ * these instead (DEM-120). A setting that cannot be read is not claimed.
+ */
+export function sandboxBlockers(
+  read: (path: string) => string = (p) => readFileSync(p, "utf8").trim(),
+  uid: number | undefined = process.getuid?.(),
+  platform: NodeJS.Platform = process.platform,
+): string[] | null {
+  if (platform !== "linux") return null;
+  const setting = (path: string): string | null => {
+    try {
+      return read(path);
+    } catch {
+      return null;
+    }
+  };
+  const why: string[] = [];
+  if (uid === 0) why.push("it runs as root");
+  for (const [path, off, words] of [
+    [
+      "/proc/sys/kernel/apparmor_restrict_unprivileged_userns",
+      "1",
+      "AppArmor restricts unprivileged user namespaces",
+    ],
+    [
+      "/proc/sys/kernel/unprivileged_userns_clone",
+      "0",
+      "unprivileged user namespaces are off",
+    ],
+    ["/proc/sys/user/max_user_namespaces", "0", "user namespaces are off"],
+  ] as const) {
+    if (setting(path) === off)
+      why.push(
+        `${words} (${path.slice("/proc/sys/".length).replaceAll("/", ".")}=${off})`,
+      );
+  }
+  return why;
+}
+
+/**
  * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
  * asked not to, and nearly every page a run opens is a third party's
  * (DEM-120). A machine that cannot sandbox (a container running as root, a
@@ -277,9 +321,14 @@ async function launchSandboxed(
   try {
     return await chromium.launch({ ...options, chromiumSandbox: true });
   } catch (error) {
-    first = launchFailure(
+    const said = launchFailure(
       String(error instanceof Error ? error.message : error),
     ).line;
+    const why = sandboxBlockers();
+    first =
+      why === null
+        ? said
+        : `${said}; ${why.length > 0 ? `this machine: ${why.join(", ")}` : "this machine shows none of the known causes (root, a user-namespace rule)"}`;
   }
   let browser: Browser;
   try {

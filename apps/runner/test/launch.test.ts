@@ -14,7 +14,47 @@ import {
   killBrowser,
   launch,
   launchFailure,
+  sandboxBlockers,
 } from "../src/launch.js";
+
+// Red when a cause is dropped, claimed from a setting that could not be
+// read, or claimed off Linux (DEM-120).
+describe("sandboxBlockers", () => {
+  const proc = (values: Record<string, string>) => (path: string) => {
+    const v = values[path];
+    if (v === undefined) throw new Error(`ENOENT: ${path}`);
+    return v;
+  };
+  it("names root and each user-namespace rule this Linux has", () => {
+    expect(
+      sandboxBlockers(
+        proc({
+          "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": "1",
+          "/proc/sys/kernel/unprivileged_userns_clone": "0",
+          "/proc/sys/user/max_user_namespaces": "0",
+        }),
+        0,
+        "linux",
+      ),
+    ).toEqual([
+      "it runs as root",
+      "AppArmor restricts unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1)",
+      "unprivileged user namespaces are off (kernel.unprivileged_userns_clone=0)",
+      "user namespaces are off (user.max_user_namespaces=0)",
+    ]);
+  });
+  it("claims nothing it could not read, and nothing off Linux", () => {
+    expect(sandboxBlockers(proc({}), 1000, "linux")).toEqual([]);
+    expect(
+      sandboxBlockers(
+        proc({ "/proc/sys/user/max_user_namespaces": "63000" }),
+        1000,
+        "linux",
+      ),
+    ).toEqual([]);
+    expect(sandboxBlockers(proc({}), 0, "darwin")).toBeNull();
+  });
+});
 
 // Red when the FATAL line loses to an earlier stderr line, the reason is
 // dropped for Playwright's first line alone (DEM-120), unrelated stderr
@@ -236,6 +276,9 @@ describe("launch", () => {
       expect(logs.join("\n")).toContain(
         "Failed to move to new namespace (stand-in)",
       );
+      // Red when the fallback stops saying what this Linux shows.
+      if (process.platform === "linux")
+        expect(logs.join("\n")).toContain("; this machine");
     } finally {
       await launched.close();
     }
