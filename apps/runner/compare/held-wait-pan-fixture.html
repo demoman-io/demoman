@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Held wait pan</title>
+<!-- DEM-187: a zoomed click starts 3 s of page time the walk's designed
+     clock does not count (a load, here a timer), then a second zoomed click
+     far from the first. held-wait-pan.json records it. -->
+<style>
+  body { margin: 0; font: 16px system-ui, sans-serif; background: #f4f4f4 }
+  button { position: absolute; width: 160px; height: 48px; font-size: 16px }
+  #load { left: 80px; top: 120px }
+  #next { left: 1040px; top: 680px }
+  #status { position: absolute; left: 80px; top: 200px }
+</style>
+<button type="button" id="load">Load</button>
+<button type="button" id="next">Next</button>
+<p id="status">ready</p>
+<script>
+  const $ = (id) => document.getElementById(id);
+  $("load").onclick = () => {
+    $("next").hidden = true;
+    $("status").textContent = "loading";
+    setTimeout(() => {
+      $("next").hidden = false;
+      $("status").textContent = "loaded";
+    }, 3000);
+  };
+  $("next").onclick = () => {
+    $("status").textContent = "done";
+  };
+</script>

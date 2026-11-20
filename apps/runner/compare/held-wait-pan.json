@@ -1,0 +1,16 @@
+{
+  "scriptVersion": 1,
+  "name": "Held wait pan",
+  "target": "{fixture}/held-wait-pan-fixture.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "button", "name": "Load" } },
+    {
+      "do": "waitFor",
+      "on": { "role": "button", "name": "Next" },
+      "until": "visible"
+    },
+    { "do": "click", "on": { "role": "button", "name": "Next" } },
+    { "do": "pause", "ms": 1000 }
+  ]
+}
