@@ -1,13 +1,21 @@
 // Slow tier: records held videos of pages that wait on their server.
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { HELD_FRAME_MS, STEP_REQUEST_CAP_MS } from "@demoman/replay-engine";
 import type { FilmReport } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listenOnLoopback } from "../src/loopback.js";
-import { pageFrames, type Recorded, record } from "./held-record.js";
+import {
+  greyDiff,
+  NOISE,
+  pageFrames,
+  type Recorded,
+  record,
+} from "./held-record.js";
 
 /**
  * The network half of held capture (spec tests 3, 4 and 6): while the page
@@ -99,6 +107,30 @@ const STALLED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,"
   v.play().catch(() => undefined);
 });</script>`;
 
+/** A click adds a muted autoplaying video (`fixtures/ramp-4s.webm`: 4 s, a
+ *  flat grey 14 to 28 levels lighter every frame, back to black every 10;
+ *  VP8, as this Chromium plays no H.264), sent faster than it plays,
+ *  as `compare/held-push.sh`'s video page. Made with
+ *  `ffmpeg -f lavfi -i "color=c=black:s=320x180:r=30:d=4,format=yuv420p,geq=lum='20+mod(N*20\,200)':cb=128:cr=128" -c:v libvpx -b:v 400k -auto-alt-ref 0`. */
+const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
+<button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>
+<script>document.getElementById("ask").addEventListener("click", () => {
+  const v = document.createElement("video");
+  v.muted = true;
+  v.autoplay = true;
+  v.src = "/clip.webm";
+  v.style.cssText = "position:absolute;left:40px;top:120px;width:320px;height:180px";
+  document.body.append(v);
+});</script>`;
+const CLIP = readFileSync(
+  fileURLToPath(new URL("./fixtures/ramp-4s.webm", import.meta.url)),
+);
+/** The clip in 16 parts, 125 ms apart: its 4 s, in 2 s. Sent at the rate it
+ *  plays, it waited over 3 s to start even paced, as Chrome starts one only
+ *  with data to play through (2026-11-19). */
+const CLIP_PARTS = 16;
+const CLIP_GAP_MS = 125;
+
 let home: string;
 let server: Server;
 let url: string;
@@ -148,6 +180,29 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "video/webm" });
       res.flushHeaders();
       open.push(res);
+      return;
+    }
+    if (path === "/clip.webm") {
+      res.writeHead(200, {
+        "content-type": "video/webm",
+        "content-length": CLIP.length,
+        "cache-control": "no-store",
+      });
+      const part = Math.ceil(CLIP.length / CLIP_PARTS);
+      let at = 0;
+      const send = () => {
+        res.write(CLIP.subarray(at, at + part));
+        at += part;
+        if (at >= CLIP.length) res.end();
+        else timer = setTimeout(send, CLIP_GAP_MS);
+      };
+      let timer = setTimeout(send, 0);
+      req.on("close", () => clearTimeout(timer));
+      return;
+    }
+    if (path === "/autoplay") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(AUTOPLAY);
       return;
     }
     if (path === "/stalled") {
@@ -464,5 +519,51 @@ describe("a held recording that waits on its server", () => {
     expect(said, JSON.stringify(r.bundle.degradations)).toContain(
       "a video stopped on one frame while playing",
     );
+  }, 120_000);
+
+  // DEM-207: on a clock ahead of real time, an autoplaying video never had
+  // the data to start, and stood on its first frame, unsaid. Red if the
+  // clock does not pace it (held-clock.ts `grant`): the video region then
+  // never moves.
+  it("plays a video whose download runs at its own pace", async () => {
+    const r = await record(home, `${url}/autoplay`, [
+      { do: "click", on: { stableId: "ask" }, zoom: false },
+      { do: "pause", ms: 3000 },
+    ]);
+    const notes = r.bundle.degradations.map((d) => d.note);
+    // The video's box (40, 120, 320 x 180) in the 1280 x 800 frame, inset.
+    const frames = await pageFrames(r, [
+      50 / 1280,
+      130 / 800,
+      350 / 1280,
+      290 / 800,
+    ]);
+    const moved = frames.filter(
+      (f, i) => i > 0 && greyDiff(f.grey, frames[i - 1]?.grey ?? "") > NOISE,
+    ).length;
+    const mean = (grey: string) => {
+      const b = Buffer.from(grey, "base64");
+      return Math.round(b.reduce((s, x) => s + x, 0) / (b.length || 1));
+    };
+    const said = JSON.stringify({
+      notes,
+      moved,
+      greys: frames.map((f) => [Math.round(f.ms), mean(f.grey)]),
+    });
+    // It started: the pin saw it playing, and never said it waited.
+    expect(notes, said).toContain(
+      "a playing video runs on its own clock: it was not held",
+    );
+    expect(
+      notes.filter((n) => n.includes("waited")),
+      said,
+    ).toEqual([]);
+    // And it plays in the picture: a second or more of the page's frames
+    // in motion, and the ramp, which changes on every one of its own
+    // frames, moving on most of them. Its frames and the recording's are
+    // not in step on a paced clock, so some repeat: 35 of 46 here
+    // (2026-11-19). Frozen, it stood on its first frame (held-probe-video.mjs).
+    expect(frames.length, said).toBeGreaterThanOrEqual(30);
+    expect(moved, said).toBeGreaterThan(frames.length / 2);
   }, 120_000);
 });
