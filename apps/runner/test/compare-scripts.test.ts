@@ -44,13 +44,12 @@ describe("film:compare's scripts", () => {
       const got = loadScript(join(DIR, f), places);
       expect(got, f).toMatchObject({ ok: true });
       // A script served from the fixtures folder must name a page that is there.
-      const local =
-        got.ok && /^http:\/\/127\.0\.0\.1:8130\/(.+)$/.exec(got.script.target);
-      if (!local) continue;
+      const page =
+        got.ok &&
+        /^http:\/\/127\.0\.0\.1:8130\/(.+)$/.exec(got.script.target)?.[1];
+      if (!page) continue;
       served += 1;
-      expect(existsSync(join(FIXTURES, local[1])), `${f}: ${local[1]}`).toBe(
-        true,
-      );
+      expect(existsSync(join(FIXTURES, page)), `${f}: ${page}`).toBe(true);
     }
     // same-document.json and the five input go/no-gos: the check above ran.
     expect(served).toBe(6);
