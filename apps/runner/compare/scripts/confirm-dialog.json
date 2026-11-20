@@ -1,0 +1,10 @@
+{
+  "name": "Delete a project behind a confirm",
+  "target": "http://127.0.0.1:8131/confirm-dialog-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "delete" } },
+    { "do": "click", "on": { "stableId": "undo" } }
+  ]
+}

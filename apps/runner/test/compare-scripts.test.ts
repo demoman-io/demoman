@@ -8,7 +8,7 @@ const DIR = join(import.meta.dirname, "..", "compare", "scripts");
 const places = { sample: "http://127.0.0.1:5000" };
 
 describe("film:compare's scripts", () => {
-  it("are the ten, and each is a valid DemoScript once its places are filled", () => {
+  it("are the fifteen, and each is a valid DemoScript once its places are filled", () => {
     const files = readdirSync(DIR)
       .filter((f) => f.endsWith(".json"))
       .sort();
@@ -18,12 +18,18 @@ describe("film:compare's scripts", () => {
     // (2026-10-27); `button-run.json` the camera's follow through a run
     // (2026-10-22); `video-as-code.json` the script's trim and per-click
     // zoom (2026-11-02); `same-document.json` an address change inside one
-    // document (DEM-61, 2026-11-07).
+    // document (DEM-61, 2026-11-07). Five are input-coverage go/no-gos
+    // (DEM-156, 158, 160, 161, 2026-11-11), each against its own fixture page.
     expect(files).toEqual([
       "actual.json",
       "button-run.json",
       "chatbot.json",
+      "confirm-dialog.json",
       "excalidraw.json",
+      "keydown-field.json",
+      "native-select-click.json",
+      "native-select-keys.json",
+      "new-tab.json",
       "same-document.json",
       "sample-app.json",
       "tremor-filter.json",

@@ -1,0 +1,11 @@
+{
+  "name": "Open a report in a new tab",
+  "target": "http://127.0.0.1:8131/new-tab-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "open-report" } },
+    { "do": "pause", "ms": 600 },
+    { "do": "click", "on": { "stableId": "download" } }
+  ]
+}

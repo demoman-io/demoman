@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Project settings</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 40px; }
+      button { font: inherit; margin: 8px 0; padding: 6px 10px; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- DEM-161: a click that opens confirm(). OK shows #undo, Cancel shows
+         #kept, so the page says which answer the run gave; nothing appears
+         while the dialog is still open. -->
+    <h1>Northwind</h1>
+    <button type="button" id="delete">Delete project</button>
+    <p id="answer"></p>
+    <button type="button" id="undo" hidden>Undo delete</button>
+    <button type="button" id="kept" hidden>Project kept</button>
+    <script>
+      document.getElementById("delete").addEventListener("click", () => {
+        const ok = confirm("Delete Northwind?");
+        document.getElementById("answer").textContent = `confirm() answered ${ok}`;
+        document.getElementById(ok ? "undo" : "kept").hidden = false;
+      });
+    </script>
+  </body>
+</html>

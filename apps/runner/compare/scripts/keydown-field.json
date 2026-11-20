@@ -1,0 +1,12 @@
+{
+  "name": "Type into a field that listens for keys",
+  "target": "http://127.0.0.1:8131/keydown-field-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "type", "into": { "stableId": "company" }, "text": "North" },
+    { "do": "waitFor", "on": { "stableId": "typed" }, "until": "visible" },
+    { "do": "pause", "ms": 400 },
+    { "do": "click", "on": { "stableId": "suggestion" } }
+  ]
+}
