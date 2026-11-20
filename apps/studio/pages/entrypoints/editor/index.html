@@ -1312,10 +1312,16 @@
       /* A piece's edge: the trim handle's bracket, just inside the piece's
          end, its grab reaching inward so two touching pieces never share a
          press. Shown under the pointer, on the selected piece, and held
-         while dragged, when it says by how much the piece grows or shrinks. */
-      .edge { position: absolute; top: 0; bottom: 0; width: 4px; background: var(--ink); cursor: ew-resize; touch-action: none; z-index: 5; opacity: 0; transition: opacity 120ms; }
+         while dragged, when it says by how much the piece grows or shrinks.
+         Below the beats between two pieces, where the two edges' grabs
+         cover the seam and a beat there (a split at a step, a removed
+         piece's cut step) is clicked; above them at the clip's two ends,
+         which are its trim (DEM-232, `.handle` below). */
+      .edge { position: absolute; top: 0; bottom: 0; width: 4px; background: var(--ink); cursor: ew-resize; touch-action: none; z-index: 3; opacity: 0; transition: opacity 120ms; }
       .edge[data-edge="start"] { left: 0; border-radius: 3px 0 0 3px; }
       .edge[data-edge="end"] { right: 0; border-radius: 0 3px 3px 0; }
+      .piece-wrap:first-child > .edge[data-edge="start"],
+      .piece-wrap:last-child > .edge[data-edge="end"] { z-index: 5; }
       [data-pieces] > .piece-wrap:not(:first-child) > .edge[data-edge="start"] { left: 1px; }
       [data-pieces] > .piece-wrap:not(:last-child) > .edge[data-edge="end"] { right: 1px; }
       .edge::after { content: ""; position: absolute; top: 0; bottom: 0; }
@@ -1405,8 +1411,8 @@
          cannot be selected. Transparent is still pressable: the grab zone is
          there before the bar fades in.
 
-         Above the beats (`.tick`, z-index 4), as is a piece's `.edge`: the
-         whole handle starts a trim, and a beat under it is reached anywhere
+         Above the beats (`.tick`, z-index 4), as is a piece's `.edge` at
+         the clip's two ends: the whole handle starts a trim, and a beat under it is reached anywhere
          outside the handle's 10px (the author, 2026-11-19, DEM-232). Below
          them from 2026-09-22, a beat at the end covered the handle's middle
          and only its top and bottom few px grabbed. */
@@ -1728,15 +1734,17 @@
          (`bottom: 100%`, until fix round 1) it crossed the dock's 16px seam
          and painted over the bottom of the stage: 7px for one line, 23px
          for two, over the picture the spec keeps clear of controls. Below,
-         it stays inside the dock card. `z-index: 5` puts it over the
-         lanes' own layers, whose highest is the beats at 4; `--error-soft`
-         is opaque in both themes, so no lane shows through it. */
+         it stays inside the dock card. `z-index: 7` puts it over the
+         lanes' own layers, whose highest is a join's dot at 6 (the trim
+         handles at 5 took presses meant for its Dismiss while it was 5,
+         DEM-232); `--error-soft` is opaque in both themes, so no lane shows
+         through it. */
       #stage-tools [data-stage-error] {
         position: absolute;
         right: 0;
         top: 100%;
         margin-top: 6px;
-        z-index: 5;
+        z-index: 7;
         max-width: 360px;
         padding: 6px 10px;
         border-radius: var(--radius);

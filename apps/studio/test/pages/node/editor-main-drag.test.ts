@@ -451,6 +451,63 @@ describe("editor main — what a drag's three outcomes each do", () => {
     expect(refusalText()).toBe(said);
   });
 
+  // A render that lands mid-drag waits for the release (DEM-234), so the
+  // drag's own render is stale by then: the drop resolves against the
+  // newest model, or a head dropped past a tail set mid-drag was saved.
+  it("resolves a drop against the edit made while the handle was held", async () => {
+    await boot();
+    const handle = document.querySelector(
+      '[data-track="clip"] [data-trim="head"]',
+    ) as HTMLElement;
+    const track = document.querySelector('[data-track="clip"]') as HTMLElement;
+    track.getBoundingClientRect = () =>
+      ({ left: 0, width: TRACK_WIDTH, right: TRACK_WIDTH }) as DOMRect;
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: 0,
+        pointerId: 1,
+      }),
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: TRACK_WIDTH * 0.5,
+      }),
+    );
+    // Mid-drag: the playhead to 1 s and the tail trimmed there (O).
+    const key = (k: string, shiftKey = false) =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, shiftKey, bubbles: true }),
+      );
+    key("ArrowRight", true);
+    key("ArrowRight", true);
+    key("o");
+    await vi.waitFor(() => {
+      const put = puts()[0];
+      if (!(put?.scene as SceneDocument | undefined)?.edits.trim?.tail)
+        throw new Error(`no tail trim saved: ${JSON.stringify(puts())}`);
+      // The premise: the render of that edit reached the timeline and
+      // waits there for the release.
+      if (
+        !document.querySelector("#timeline")?.hasAttribute("data-render-held")
+      )
+        throw new Error("the edit's render is not held");
+    });
+    window.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        clientX: TRACK_WIDTH * 0.5,
+      }),
+    );
+    await Promise.resolve();
+    expect(refusalText()).toMatch(/would leave nothing/i);
+    expect(
+      puts().map((p) => (p.scene as SceneDocument).edits.trim?.head ?? null),
+      "no head saved past the tail",
+    ).toEqual([null]);
+  });
+
   it("says nothing at all when the drag ends where it began", async () => {
     await boot();
     // With the zoom track's own width stubbed to 0, `msPerPx` is 0 and any

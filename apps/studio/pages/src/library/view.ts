@@ -250,6 +250,21 @@ function fillBar(
 }
 
 /**
+ * Runs `change`, the selection bar going in or out above `below`, and on a
+ * scrolled page scrolls by however far that moved `below` in the window,
+ * so what is ticked stays under the pointer. The list's scroll anchoring
+ * did not hold: the ticked row moved 64px down, off a page's foot
+ * (DEM-233). Where anchoring holds (the cards) it has moved the scroll
+ * already by the measure here, and this moves it by nothing.
+ */
+function keepInPlace(below: Element | null, change: () => void): void {
+  const was = below?.getBoundingClientRect().top;
+  change();
+  if (below !== null && was !== undefined && window.scrollY > 0)
+    window.scrollBy(0, below.getBoundingClientRect().top - was);
+}
+
+/**
  * Shows `selection` on the cards already drawn — each flow's tick and ring,
  * the page's selecting state, the bar — changing them in place. A tick is
  * page state, not a new library: re-rendering the list for one replaced the
@@ -315,7 +330,10 @@ export function applySelection(
   }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
-    bar?.remove();
+    if (bar !== null) {
+      const shown = bar;
+      keepInPlace(shown.nextElementSibling, () => shown.remove());
+    }
     barHeights.get(root)?.disconnect();
     root.style.removeProperty("--selection-bar");
     return;
@@ -323,19 +341,16 @@ export function applySelection(
   if (bar === null) {
     const notices = headers.get(root)?.notices;
     if (notices === undefined) return;
-    bar = selectionBar(actions);
-    const below = notices.nextElementSibling;
-    const was = below?.getBoundingClientRect().top;
-    notices.after(bar);
-    // The bar opens above what is ticked: on a scrolled page what is below
-    // it stays where it was in the window. The list's scroll anchoring did
-    // not hold, and the ticked row moved 64px down, off a page's foot
-    // (DEM-233). Where anchoring holds (the cards), it has already moved
-    // the scroll by the measure here, and this moves it by nothing.
-    if (opening && below != null && was !== undefined && window.scrollY > 0)
-      window.scrollBy(0, below.getBoundingClientRect().top - was);
+    const made = selectionBar(actions);
+    // Filled before it goes in, so the height it adds is its own.
+    fillBar(made, selected.size, bulk);
+    const put = () => notices.after(made);
+    if (opening) keepInPlace(notices.nextElementSibling, put);
+    else put();
+    bar = made;
+  } else {
+    fillBar(bar, selected.size, bulk);
   }
-  fillBar(bar, selected.size, bulk);
   // The list's sticky head stands under the bar, so it needs the bar's
   // height, which wraps with the window and the sentence it holds. A
   // render replaces the bar, so the watch moves to whichever is shown.

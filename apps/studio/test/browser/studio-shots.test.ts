@@ -6247,15 +6247,32 @@ describe("the Studio's screenshot set", () => {
           "",
         );
         await read;
-        // Two frames for the render that read leads to.
-        await page.evaluate(
-          () =>
-            new Promise((done) =>
-              requestAnimationFrame(() => requestAnimationFrame(done)),
-            ),
-        );
+        // The premise: the render that read leads to reached the timeline
+        // while the pointer is down, held (`data-render-held`) or, without
+        // the hold, drawn (a rebuild).
+        const arrived = await vi
+          .waitFor(
+            async () => {
+              const got = await page.evaluate(() => ({
+                held: document
+                  .querySelector("#timeline")
+                  ?.hasAttribute("data-render-held"),
+                rebuilds: (window as unknown as { __rebuilds: number })
+                  .__rebuilds,
+              }));
+              if (got.held !== true && got.rebuilds === 0)
+                throw new Error(JSON.stringify(got));
+              return got;
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          )
+          .catch((error: unknown) => {
+            throw new Error(
+              `no render reached the timeline mid-drag: ${String(error)}`,
+            );
+          });
         await page.mouse.move(grab.x - 80, grab.y, { steps: 6 });
-        const midDrag = await held();
+        const midDrag = { ...(await held()), arrived };
         await page.mouse.up();
         const said = `the drag: ${JSON.stringify({ grab, midDrag })}`;
         expect(midDrag.sameHandle, `${said}: the same handle`).toBe(true);
@@ -6265,13 +6282,18 @@ describe("the Studio's screenshot set", () => {
           `${said}: the handle follows the pointer`,
         ).toBeLessThanOrEqual(3);
         // And the render that waited lands on release: the timeline is
-        // rebuilt, still in three pieces.
+        // rebuilt, still in three pieces, and nothing waits.
         await vi.waitFor(
           async () => {
             const after = await held();
             const n = await page.locator(".piece-wrap").count();
-            if (after.rebuilds === 0 || n !== 3)
-              throw new Error(`${JSON.stringify(after)}, ${n} pieces`);
+            const waits = await page
+              .locator("#timeline[data-render-held]")
+              .count();
+            if (after.rebuilds === 0 || n !== 3 || waits !== 0)
+              throw new Error(
+                `${JSON.stringify(after)}, ${n} pieces, held ${waits}`,
+              );
           },
           { timeout: PAINT_MS, interval: 50 },
         );
@@ -6344,111 +6366,168 @@ describe("the Studio's screenshot set", () => {
     return { studio, page, console_, foot };
   };
 
-  // A list row ticked by the mouse at the foot of a scrolled page should
-  // stay where it was in the window (DEM-215, "the page jumping when a row
-  // is selected"; the cards' form is studio-bulk-scroll.test.ts).
-  // It once moved 64px down the window: the selection bar opened above it
-  // and the scroll anchored on the list's stuck head, which did not move
-  // (DEM-233).
-  it.runIf(process.platform === "darwin")(
-    "keeps a list row ticked at the foot of a scrolled page where it was (DEM-233), by a real pointer, asserted on its paint",
-    async () => {
-      const { studio, page, foot } = await listAtFoot("studio-shots-tick-");
-      const run = async () => {
-        const before = await foot();
-        const footSaid = `the foot: ${JSON.stringify(before)}`;
-        // The premise: the page is scrolled, so a jump has room to show.
-        expect(before.scrollY, footSaid).toBeGreaterThan(40);
-        expect(before.flow, footSaid).not.toBeNull();
-        const flow = before.flow as string;
-        const row = `[data-list] [data-flow="${flow}"]`;
-        // The pointer onto the row, then onto its box where it is drawn.
-        await page.mouse.move(
-          before.left + 200,
-          before.top + before.height / 2,
+  // A list row ticked by the mouse on a scrolled page should stay where
+  // it was in the window, and again when it is unticked (DEM-215, "the page
+  // jumping when a row is selected"; the cards' form is
+  // studio-bulk-scroll.test.ts). It once moved 64px down the window: the
+  // selection bar opened above it and the scroll did not follow (DEM-233).
+  // At the foot and halfway: at the foot the scroll is at its end, which
+  // hides a scroll that goes too far; halfway it has room either way.
+  for (const at of ["foot", "middle"] as const)
+    it.runIf(process.platform === "darwin")(
+      `keeps a list row ticked and unticked at the ${at} of a scrolled page where it was (DEM-233), by a real pointer, asserted on its paint`,
+      async () => {
+        const { studio, page, foot } = await listAtFoot(
+          `studio-shots-tick-${at}-`,
         );
-        const box = await vi.waitFor(
-          async () => {
-            const b = await page.evaluate((sel) => {
-              const e = document.querySelector<HTMLElement>(sel);
-              if (e === null) return null;
-              const r = e.getBoundingClientRect();
-              const hit = document.elementFromPoint(
-                r.left + r.width / 2,
-                r.top + r.height / 2,
-              );
-              return {
-                x: r.left + r.width / 2,
-                y: r.top + r.height / 2,
-                onTop: hit === e || e.contains(hit),
-              };
-            }, `${row} [data-select]`);
-            if (b === null || !b.onTop)
-              throw new Error(`the box is not painted: ${JSON.stringify(b)}`);
-            return b;
-          },
-          { timeout: PAINT_MS, interval: 50 },
-        );
-        /** The ticked row's own top in the window, and the page's scroll. */
-        const where = () =>
-          page.evaluate((sel) => {
-            const w = window as unknown as { __row?: Element | null };
-            const e = document.querySelector(sel);
-            w.__row ??= e;
-            return {
-              top: e?.getBoundingClientRect().top ?? null,
-              scrollY: window.scrollY,
-              // Evidence for a red run: the scroll's room, and whether the
-              // ticked row is still the node pressed (a redraw loses the
-              // scroll anchor).
-              scrollable:
-                document.documentElement.scrollHeight - window.innerHeight,
-              sameRow: e === w.__row,
-            };
-          }, row);
-        const pressed = await where();
-        await page.mouse.click(box.x, box.y);
-        await vi.waitFor(
-          async () => {
-            const selected = await page
-              .locator(row)
-              .getAttribute("aria-selected");
-            const bar = await page.locator("[data-selection-bar]").isVisible();
-            if (selected !== "true" || !bar)
-              throw new Error(`aria-selected ${selected}, bar shown ${bar}`);
-          },
-          { timeout: PAINT_MS, interval: 50 },
-        );
-        // Two frames, then settled: the jump this guards against landed in
-        // the frame after the click's handler.
-        await page.evaluate(
-          () =>
-            new Promise((done) =>
-              requestAnimationFrame(() => requestAnimationFrame(done)),
-            ),
-        );
-        await settle(page, "ticked");
-        const after = await where();
-        // Shot before the verdict, so a red run carries its picture.
-        await page.screenshot({
-          path: join(SHOTS, "library-list-ticked-foot-1280x480-dark.png"),
-        });
-        const moved = (after.top ?? Number.NaN) - (pressed.top ?? Number.NaN);
-        if (!(Math.abs(moved) <= 1)) {
-          throw new Error(
-            `the ticked row moved ${moved}px in the window: ${JSON.stringify({ pressed, after })}`,
+        const run = async () => {
+          if (at === "middle") {
+            await page.evaluate(() =>
+              window.scrollTo({
+                top: Math.round(
+                  (document.documentElement.scrollHeight - innerHeight) / 2,
+                ),
+                behavior: "instant",
+              }),
+            );
+            await settle(page, "rows halfway");
+          }
+          const before = await foot();
+          const footSaid = `the ${at}: ${JSON.stringify(before)}`;
+          // The premise: the page is scrolled, so a jump has room to show;
+          // halfway, short of the scroll's end, so it cannot be clamped away.
+          expect(before.scrollY, footSaid).toBeGreaterThan(40);
+          if (at === "middle")
+            expect(before.scrollY, footSaid).toBeLessThan(
+              before.scrollable - 40,
+            );
+          expect(before.flow, footSaid).not.toBeNull();
+          const flow = before.flow as string;
+          const row = `[data-list] [data-flow="${flow}"]`;
+          // The pointer onto the row, then onto its box where it is drawn.
+          await page.mouse.move(
+            before.left + 200,
+            before.top + before.height / 2,
           );
+          const box = await vi.waitFor(
+            async () => {
+              const b = await page.evaluate((sel) => {
+                const e = document.querySelector<HTMLElement>(sel);
+                if (e === null) return null;
+                const r = e.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  r.left + r.width / 2,
+                  r.top + r.height / 2,
+                );
+                return {
+                  x: r.left + r.width / 2,
+                  y: r.top + r.height / 2,
+                  onTop: hit === e || e.contains(hit),
+                };
+              }, `${row} [data-select]`);
+              if (b === null || !b.onTop)
+                throw new Error(`the box is not painted: ${JSON.stringify(b)}`);
+              return b;
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+          /** The ticked row's own top in the window, and the page's scroll. */
+          const where = () =>
+            page.evaluate((sel) => {
+              const w = window as unknown as { __row?: Element | null };
+              const e = document.querySelector(sel);
+              w.__row ??= e;
+              return {
+                top: e?.getBoundingClientRect().top ?? null,
+                scrollY: window.scrollY,
+                // Evidence for a red run: the scroll's room, and whether the
+                // ticked row is still the node pressed (a redraw loses the
+                // scroll anchor).
+                scrollable:
+                  document.documentElement.scrollHeight - window.innerHeight,
+                sameRow: e === w.__row,
+              };
+            }, row);
+          const pressed = await where();
+          await page.mouse.click(box.x, box.y);
+          await vi.waitFor(
+            async () => {
+              const selected = await page
+                .locator(row)
+                .getAttribute("aria-selected");
+              const bar = await page
+                .locator("[data-selection-bar]")
+                .isVisible();
+              if (selected !== "true" || !bar)
+                throw new Error(`aria-selected ${selected}, bar shown ${bar}`);
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+          // Two frames, then settled: the jump this guards against landed in
+          // the frame after the click's handler.
+          await page.evaluate(
+            () =>
+              new Promise((done) =>
+                requestAnimationFrame(() => requestAnimationFrame(done)),
+              ),
+          );
+          await settle(page, "ticked");
+          const after = await where();
+          // Shot before the verdict, so a red run carries its picture.
+          await page.screenshot({
+            path: join(SHOTS, `library-list-ticked-${at}-1280x480-dark.png`),
+          });
+          const moved = (after.top ?? Number.NaN) - (pressed.top ?? Number.NaN);
+          if (!(Math.abs(moved) <= 1)) {
+            throw new Error(
+              `the ticked row moved ${moved}px in the window: ${JSON.stringify({ pressed, after })}`,
+            );
+          }
+          // Unticked, the bar goes, and the row stays where it is.
+          const ticked = await page.evaluate((sel) => {
+            const r = document.querySelector(sel)?.getBoundingClientRect();
+            return r === undefined
+              ? null
+              : { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }, `${row} [data-select]`);
+          if (ticked === null) throw new Error("the ticked row's box is gone");
+          await page.mouse.click(ticked.x, ticked.y);
+          await vi.waitFor(
+            async () => {
+              const selected = await page
+                .locator(row)
+                .getAttribute("aria-selected");
+              const bar = await page.locator("[data-selection-bar]").count();
+              if (selected !== "false" || bar !== 0)
+                throw new Error(`aria-selected ${selected}, bars ${bar}`);
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+          await page.evaluate(
+            () =>
+              new Promise((done) =>
+                requestAnimationFrame(() => requestAnimationFrame(done)),
+              ),
+          );
+          await settle(page, "unticked");
+          const untouched = await where();
+          const back =
+            (untouched.top ?? Number.NaN) - (after.top ?? Number.NaN);
+          if (!(Math.abs(back) <= 1)) {
+            throw new Error(
+              `the unticked row moved ${back}px in the window: ${JSON.stringify({ pressed, after, untouched })}`,
+            );
+          }
+        };
+        try {
+          await run();
+        } finally {
+          running = null;
+          await studio.stop();
         }
-      };
-      try {
-        await run();
-      } finally {
-        running = null;
-        await studio.stop();
-      }
-    },
-    LANE_MS,
-  );
+      },
+      LANE_MS,
+    );
 
   // A list row's own Delete, pressed by the mouse, says so in a toast that
   // leaves the painted page by itself in its time (DEM-215, "a delete toast

@@ -518,6 +518,11 @@ let lastModel: LaneModel | null = null;
  */
 let lastView: TimelineView | null = null;
 let lastDurationMs = 0;
+/** The last `render()`'s gesture, against its model. A drag dispatches
+ *  through this rather than through the render that drew its handle: a
+ *  refresh mid-drag renders a newer model, and the timeline holds that
+ *  render until the release (DEM-234), so the drag's own closure is stale. */
+let gestureNow: ((gesture: Gesture) => void) | null = null;
 /** The window of output time the timeline is showing. Null until the first
  *  draw fits one. */
 let viewport: Viewport | null = null;
@@ -2370,8 +2375,10 @@ function render(snapshot: SessionSnapshot): void {
   // `Fit` moved off the timeline's own bar onto `#transport`, but the
   // gesture they dispatch and the viewport/snapping state they read are
   // still the timeline's — two render calls now draw one behaviour.
-  const onGesture = (gesture: Gesture) =>
+  const resolveHere = (gesture: Gesture) =>
     applyGesture(resolveGesture(model, view, gesture, gestureCtx));
+  gestureNow = resolveHere;
+  const onGesture = (gesture: Gesture) => (gestureNow ?? resolveHere)(gesture);
   const onViewportChange = (next: Viewport) => {
     viewport = next;
     render(session.snapshot());

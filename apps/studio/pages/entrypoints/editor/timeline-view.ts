@@ -515,16 +515,28 @@ function armDrag(
       if (Math.abs(move.clientX - startX) > DRAG_THRESHOLD_PX) moved = true;
       if (moved) preview?.move(dropAt(move.clientX));
     };
-    const onUp = (up: PointerEvent): void => {
+    const off = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       target.removeAttribute("data-dragging");
+    };
+    const onUp = (up: PointerEvent): void => {
+      off();
       if (!moved) return; // a press that never moved is a click
       preview?.end();
       handlers.onGesture(make(dropAt(up.clientX)));
     };
+    // A touch the browser took for a pan: no gesture, and the drag ends
+    // here, or a render held for its release waited for the next tap and
+    // that tap's pointerup dropped the drag where it landed (DEM-234).
+    const onCancel = (): void => {
+      off();
+      if (moved) preview?.end();
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   });
 }
 
@@ -1187,9 +1199,12 @@ export function renderTimeline(
       window.addEventListener("pointercancel", release);
     }
     heldRenders.set(root, () => renderTimeline(root, model, state, handlers));
+    // Said on the root while it waits, for a test to see the hold happen.
+    root.setAttribute("data-render-held", "");
     return;
   }
   heldRenders.delete(root);
+  root.removeAttribute("data-render-held");
   const box = el("div", "timeline");
 
   // Clicking past everything drops the selection.
