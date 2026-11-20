@@ -1,10 +1,11 @@
 // apps/runner/test/compare-scripts.test.ts
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../src/compare/scripts.js";
 
 const DIR = join(import.meta.dirname, "..", "compare", "scripts");
+const FIXTURES = join(import.meta.dirname, "fixtures");
 const places = { sample: "http://127.0.0.1:5000" };
 
 describe("film:compare's scripts", () => {
@@ -19,7 +20,8 @@ describe("film:compare's scripts", () => {
     // (2026-10-22); `video-as-code.json` the script's trim and per-click
     // zoom (2026-11-02); `same-document.json` an address change inside one
     // document (DEM-61, 2026-11-07). Five are input-coverage go/no-gos
-    // (DEM-156, 158, 160, 161, 2026-11-11), each against its own fixture page.
+    // (DEM-156, 158, 160, 161), against four fixture pages (the two
+    // native-select scripts share one).
     expect(files).toEqual([
       "actual.json",
       "button-run.json",
@@ -37,10 +39,21 @@ describe("film:compare's scripts", () => {
       "video-as-code.json",
       "wikipedia.json",
     ]);
+    let served = 0;
     for (const f of files) {
       const got = loadScript(join(DIR, f), places);
       expect(got, f).toMatchObject({ ok: true });
+      // A script served from the fixtures folder must name a page that is there.
+      const local =
+        got.ok && /^http:\/\/127\.0\.0\.1:8130\/(.+)$/.exec(got.script.target);
+      if (!local) continue;
+      served += 1;
+      expect(existsSync(join(FIXTURES, local[1])), `${f}: ${local[1]}`).toBe(
+        true,
+      );
     }
+    // same-document.json and the five input go/no-gos: the check above ran.
+    expect(served).toBe(6);
   });
 
   it("fills {sample}", () => {

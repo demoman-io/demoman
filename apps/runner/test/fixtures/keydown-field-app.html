@@ -38,7 +38,9 @@
         seen.push(mods + (e.key || "?"));
         document.getElementById("key-log").textContent = `keydown events: ${keys}`;
         document.getElementById("keys-seen").textContent = `keys seen: ${seen.join(" ")}`;
-        const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey;
+        // A key sent as text with no `key` (CDP allows that) still counts as typed.
+        const named = e.key.length === 1 || e.key === "" || e.key === "Unidentified";
+        const printable = named && !e.ctrlKey && !e.metaKey;
         if (printable) document.getElementById("suggestion").hidden = false;
       });
     </script>

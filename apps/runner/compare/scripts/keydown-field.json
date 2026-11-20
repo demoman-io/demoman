@@ -1,6 +1,6 @@
 {
   "name": "Type into a field that listens for keys",
-  "target": "http://127.0.0.1:8131/keydown-field-app.html",
+  "target": "http://127.0.0.1:8130/keydown-field-app.html",
   "viewport": { "width": 1280, "height": 800 },
   "steps": [
     { "do": "waitForLoad" },

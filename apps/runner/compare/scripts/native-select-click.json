@@ -1,6 +1,6 @@
 {
   "name": "Pick a plan by clicking its option",
-  "target": "http://127.0.0.1:8131/native-select-app.html",
+  "target": "http://127.0.0.1:8130/native-select-app.html",
   "viewport": { "width": 1280, "height": 800 },
   "steps": [
     { "do": "waitForLoad" },
