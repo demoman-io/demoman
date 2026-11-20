@@ -30,6 +30,7 @@ import {
   HELD_SCROLL_STEP,
   runAuthored,
   SCROLL_MARKER,
+  SETTLE_MARKER,
   SETTLE_MS,
   STEP_SETTLE_MARKER,
   TAKE_TAIL_MS,
@@ -119,6 +120,8 @@ function fakeHeld(o: {
   const waits: { now: number; since: number | null }[] = [];
   let waitDepth = 0;
   let now = START;
+  /** When the walk said the take starts, on the clock. */
+  let tookAt: number | null = null;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
   const frames: HeldFrame[] = [];
   const clock: HeldClock = {
@@ -135,6 +138,9 @@ function fakeHeld(o: {
     loading: () => o.loading?.() ?? false,
     owing: () => o.loading?.() ?? false,
     pageOf: (wallMs) => wallMs - START,
+    startTake: () => {
+      tookAt = now;
+    },
     waiting: async (run, since) => {
       waits.push({ now, since: since ?? null });
       waitDepth++;
@@ -173,7 +179,7 @@ function fakeHeld(o: {
       o.moved?.(now);
     },
   };
-  return { clock, frames, sleeps, waits };
+  return { clock, frames, sleeps, waits, tookAt: () => tookAt };
 }
 
 const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
@@ -229,6 +235,11 @@ async function run(
     navigatesInSettle?: "sameDocument" | "newDocument";
     /** `HeldClock.failed`: the clock gave up on the page. */
     heldFailed?: Error;
+    /** The opening's paint settle answers only once this much page time has
+     *  passed: a page that loads slowly. */
+    openingPaintAnswersAfterMs?: number;
+    /** Instead, it fails that late: the page navigated out from under it. */
+    openingPaintFails?: boolean;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -240,6 +251,8 @@ async function run(
   const network = [...(opts.network ?? [])];
   /** Settle probes waiting on page time, answered as it passes. */
   const settleWaiters: { due: number; answer: () => void }[] = [];
+  /** Paint settles asked so far: the first is the opening's. */
+  let paintProbes = 0;
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
     ...(opts.heldFailed === undefined ? {} : { failed: opts.heldFailed }),
@@ -356,6 +369,24 @@ async function run(
           cdp.emit("Page.frameNavigated", { frame: { id: "top" } });
         cdp.emit("Page.frameStoppedLoading", { frameId: "top" });
       }
+    }
+    if (
+      method === "Runtime.evaluate" &&
+      expression.includes(SETTLE_MARKER) &&
+      opts.openingPaintAnswersAfterMs !== undefined &&
+      paintProbes++ === 0
+    ) {
+      const due = held.clock.now() + opts.openingPaintAnswersAfterMs;
+      const fails = opts.openingPaintFails === true;
+      return new Promise((resolve, reject) =>
+        settleWaiters.push({
+          due,
+          answer: () =>
+            fails
+              ? reject(new Error("Execution context was destroyed"))
+              : resolve(send(method, params)),
+        }),
+      );
     }
     if (
       method === "Runtime.evaluate" &&
@@ -498,6 +529,7 @@ async function run(
     result,
     cdp,
     frames: held.frames,
+    tookAt: held.tookAt,
     sleeps: held.sleeps,
     waits: held.waits,
     store,
@@ -523,6 +555,20 @@ const evidenceOf = (result: AuthoredResult, progress: ReplayProgress[] = []) =>
     ]),
     screens: result.bundle?.pageScreens?.map((s) => s.sourceTimeMs),
   });
+
+type Sleep = { atMs: number; ms: number; waiting: boolean };
+
+/**
+ * Where the take's time starts, from the clock's start (DEM-186): where the
+ * opening still's one designed frame began, the walk's first sleep outside a
+ * wait on the page (the load, its settle and the landing check are waits).
+ */
+const leadOf = (sleeps: readonly Sleep[]): number => {
+  const frameIn = sleeps.find((s) => !s.waiting);
+  if (frameIn === undefined || Math.abs(frameIn.ms - HELD_FRAME_MS) > 1e-6)
+    throw new Error(`no opening frame among ${JSON.stringify(sleeps)}`);
+  return frameIn.atMs;
+};
 
 const markerOf = (result: AuthoredResult, index: number) => {
   const id = result.steps[index]?.actionId;
@@ -787,15 +833,21 @@ describe("the walk on a held clock", () => {
 
   // Review, Session C: each wait on the page is its own region, so each is
   // asserted alone. Red if that region's sleeps are designed time.
-  type Sleep = { atMs: number; ms: number; waiting: boolean };
   const waitedMs = (sleeps: Sleep[]) =>
     sleeps.filter((s) => s.waiting).reduce((sum, s) => sum + s.ms, 0);
 
   it("waits out the opening as a wait on the page", async () => {
-    const { result, sleeps, progress } = await run([click("a")], {
+    const {
+      result,
+      sleeps: onClock,
+      progress,
+    } = await run([click("a")], {
       settleAnswersAfterMs: 500,
     });
-    const said = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    const said = `${evidenceOf(result, progress)} ${JSON.stringify(onClock)}`;
+    // On the take's time, as the bundle's.
+    const lead = leadOf(onClock);
+    const sleeps = onClock.map((s) => ({ ...s, atMs: s.atMs - lead }));
     const still = result.bundle?.keyframes[0]?.sourceTimeMs ?? Number.NaN;
     const screen = result.bundle?.pageScreens?.[0]?.sourceTimeMs ?? Number.NaN;
     // The load, its settle, the landing check and the opening screen; not
@@ -923,21 +975,27 @@ describe("the walk on a held clock", () => {
   });
 
   it("returns no pacing plan and a held bundle", async () => {
-    const { result, progress } = await run([click("a")], { network: NETWORK });
+    const { result, sleeps, progress } = await run([click("a")], {
+      network: NETWORK,
+    });
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");
     expect(result.pacing).toBeUndefined();
     expect(result.bundle?.clock).toBe("held");
     expect(result.bundle?.timing).toBe("real");
-    // On the walk's time, from its start.
+    // On the take's time, from its opening still (DEM-186).
+    const lead = leadOf(sleeps);
+    // Premise: the take started after the clock did, and before the times.
+    expect(lead, evidence).toBeGreaterThan(0);
+    expect(lead, evidence).toBeLessThan(40);
     expect(result.bundle?.networkSpans).toEqual([
-      { startMs: 400, endMs: 900, label: "POST /api/chat" },
+      { startMs: 400 - lead, endMs: 900 - lead, label: "POST /api/chat" },
     ]);
     const said = (kind: string) =>
       result.bundle?.degradations
         .filter((d) => d.kind === kind)
         .map((d) => [d.startMs, d.note]);
-    expect(said("animationUnpinned")).toEqual([[40, UNPINNED[0]?.what]]);
+    expect(said("animationUnpinned")).toEqual([[40 - lead, UNPINNED[0]?.what]]);
     expect(said("connectionIgnored")).toEqual([[0, IGNORED[0]]]);
     // The tail is played: the take runs its planned tail past the last act.
     expect(TAIL).not.toBe(TAKE_TAIL_MS);
@@ -994,7 +1052,9 @@ describe("the walk on a held clock", () => {
   });
 
   it("a step's still is the held frame", async () => {
-    const { result, cdp, frames, store, progress } = await run([click("a")]);
+    const { result, cdp, frames, sleeps, store, progress } = await run([
+      click("a"),
+    ]);
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");
     const shots = cdp.calls.filter(
@@ -1007,8 +1067,9 @@ describe("the walk on a held clock", () => {
       (k) => k.actionId === marker.actionId,
     );
     expect(still, evidence).toBeDefined();
+    const start = START + leadOf(sleeps);
     const latest = frames
-      .filter((f) => f.sourceTimeMs - START <= marker.sourceTimeMs + 1e-6)
+      .filter((f) => f.sourceTimeMs - start <= marker.sourceTimeMs + 1e-6)
       .at(-1);
     // Premise: a frame had been captured before the step's still.
     expect(latest, evidence).toBeDefined();
@@ -1052,10 +1113,8 @@ describe("the walk on a held clock", () => {
 describe("the walk's own scroll on a held clock", () => {
   // R5: Chrome's smooth scroll runs on its real clock; the walk plays it.
   it("plays the corrective scroll one step a frame, eased, and lands it", async () => {
-    const { result, progress, scrollSteps, scrollAsked, frames } = await run([
-      click("a"),
-      click("far"),
-    ]);
+    const { result, progress, scrollSteps, scrollAsked, frames, sleeps } =
+      await run([click("a"), click("far")]);
     const evidence = `${evidenceOf(result, progress)} ${scrollSteps.join(",")}`;
     expect(result.outcome, evidence).toBe("complete");
     const n = Math.ceil(HELD_SCROLL_MS / HELD_FRAME_MS - 1e-6);
@@ -1075,7 +1134,8 @@ describe("the walk's own scroll on a held clock", () => {
     // One captured frame a step: the scroll ends where its last frame is.
     const far = markerOf(result, 1);
     const scrollEnd = far.scrollEndSourceTimeMs ?? Number.NaN;
-    const filmed = frames.map((f) => f.sourceTimeMs - START);
+    const start = START + leadOf(sleeps);
+    const filmed = frames.map((f) => f.sourceTimeMs - start);
     const during = filmed.filter(
       (t) => t > scrollEnd - HELD_SCROLL_MS + 1e-6 && t <= scrollEnd + 1e-6,
     );
@@ -1128,17 +1188,83 @@ describe("in-page waits on a held clock", () => {
   });
 
   it("files no frame from before the opening", async () => {
-    const { result, frames, progress } = await run([click("a")]);
+    const { result, frames, sleeps, progress } = await run([click("a")]);
     const evidence = evidenceOf(result, progress);
     const opening = result.bundle?.keyframes[0]?.sourceTimeMs ?? Number.NaN;
     // Premise: page time was played, and a frame captured, before it.
     expect(frames[0]?.sourceTimeMs ?? Number.NaN, evidence).toBeLessThan(
-      START + opening,
+      START + leadOf(sleeps) + opening,
     );
     for (const k of result.bundle?.keyframes ?? [])
       expect(k.sourceTimeMs, evidence).toBeGreaterThanOrEqual(opening);
     for (const s of result.bundle?.motionSpans ?? [])
       expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
+  });
+
+  // DEM-186 review: what the opening said before the take is moved with
+  // it. Red if the opening's degradations keep the walk's start: the failed
+  // settle says 600 ms into a take that has not started.
+  it("says what the opening said at the take's start", async () => {
+    const { result, sleeps, progress } = await run([click("a")], {
+      openingPaintAnswersAfterMs: 600,
+      openingPaintFails: true,
+    });
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(result.bundle?.degradations)}`;
+    // Premise: the opening's settle failed 600 ms in, before the take.
+    expect(leadOf(sleeps), evidence).toBeGreaterThanOrEqual(600);
+    const said = result.bundle?.degradations.filter(
+      (d) => d.kind === "pageNeverSettled",
+    );
+    expect(said?.length, evidence).toBe(1);
+    expect(
+      said?.map((d) => [d.startMs, d.endMs]),
+      evidence,
+    ).toEqual([[0, 0]]);
+  });
+
+  // DEM-186: the renderer plays source time from 0, so a take timed from
+  // before its opening load opened on its first frame for as long as the
+  // load took (617 ms on a moving page). Red if the take is timed from the
+  // walk's start: its first frame lands 600 ms and a frame in.
+  it("starts the take's time at its opening still, after a slow load", async () => {
+    const { result, frames, sleeps, tookAt, progress } = await run(
+      [click("a")],
+      {
+        openingPaintAnswersAfterMs: 600,
+        network: [
+          { startMs: START, endMs: START + 300, label: "GET /" },
+          { startMs: START + 500, endMs: START + 900, label: "GET /app.js" },
+        ],
+      },
+    );
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    expect(result.outcome, evidence).toBe("complete");
+    const lead = leadOf(sleeps);
+    // Premise: the load played 600 ms of page time, frames and all.
+    expect(lead, evidence).toBeGreaterThanOrEqual(600);
+    expect(
+      frames.filter((f) => f.sourceTimeMs < START + lead).length,
+      evidence,
+    ).toBeGreaterThanOrEqual(18);
+    expect(result.bundle?.keyframes[0]?.sourceTimeMs, evidence).toBeCloseTo(
+      HELD_FRAME_MS,
+      6,
+    );
+    // Recorded, and told to the clock, so a stop says the video's time.
+    expect(result.bundle?.openingMs, evidence).toBeCloseTo(lead, 6);
+    expect(tookAt(), evidence).toBeCloseTo(START + lead, 6);
+    // A request that ended before the take is not in it; one still open
+    // when it started starts with it.
+    expect(result.bundle?.networkSpans, evidence).toEqual([
+      { startMs: 0, endMs: START + 900 - (START + lead), label: "GET /app.js" },
+    ]);
+    // What was said before the take is said at its start.
+    expect(
+      result.bundle?.degradations
+        .filter((d) => d.kind === "animationUnpinned")
+        .map((d) => d.startMs),
+      evidence,
+    ).toEqual([0]);
   });
 });
 
@@ -1214,9 +1340,10 @@ describe("a click's read on a held clock", () => {
   // only once the new page commits; that wait is played as page time, so a
   // server's wait is in the video. Red if the read is awaited unplayed.
   it("plays page time while the page that was clicked does not answer", async () => {
-    const { result, progress, frames } = await run([click("a")], {
+    const { result, progress, frames, sleeps } = await run([click("a")], {
       clickReadAnswersAfterMs: 400,
     });
+    const start = START + leadOf(sleeps);
     const evidence = evidenceOf(result, progress);
     expect(result.outcome, evidence).toBe("complete");
     const marker = markerOf(result, 0);
@@ -1227,8 +1354,8 @@ describe("a click's read on a held clock", () => {
     // Premise: frames were captured while the read waited.
     const during = frames.filter(
       (f) =>
-        f.sourceTimeMs - START > marker.sourceTimeMs &&
-        f.sourceTimeMs - START <= marker.sourceTimeMs + 400,
+        f.sourceTimeMs - start > marker.sourceTimeMs &&
+        f.sourceTimeMs - start <= marker.sourceTimeMs + 400,
     );
     expect(during.length, evidence).toBeGreaterThanOrEqual(11);
   });

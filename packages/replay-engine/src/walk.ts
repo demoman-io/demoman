@@ -874,7 +874,11 @@ export async function runWalk(
   // policy.ts) rather than re-derived here.
   if (!deps.mayReplay) return empty("mutating");
 
-  const started = clock.now();
+  /** Held: moved to the opening still once there is one (DEM-186). */
+  let started = clock.now();
+  /** Held: the page time the opening played before it, the bundle's
+   *  `openingMs`; none when the take never started (signed out). */
+  let openingMs: number | undefined;
   const at = (): number => clock.now() - started;
   const continuous = deps.recording === "continuous";
   /** Continuous only: whether the opening still has been taken, and so
@@ -3311,7 +3315,23 @@ export async function runWalk(
       // Held: the opening still is the take's first frame, one frame in,
       // and the opening rest is played from it.
       filing = true;
-      if (held !== undefined) await clock.sleep(HELD_FRAME_MS);
+      if (held !== undefined) {
+        // DEM-186: a held take's time starts here, not before the opening
+        // load. The renderer plays source time from 0, and the load and
+        // settle have no frame, so the video opened on its first frame for
+        // as long as they took (617 ms on a moving page). Decided here and
+        // recorded in every time the take holds; what was stamped before
+        // moves with it, and a stretch that ended before it is said at 0.
+        const leadMs = at();
+        started += leadMs;
+        openingMs = leadMs;
+        held.startTake();
+        for (const d of degradations) {
+          d.startMs = Math.max(0, d.startMs - leadMs);
+          d.endMs = Math.max(0, d.endMs - leadMs);
+        }
+        await clock.sleep(HELD_FRAME_MS);
+      }
       await shot(null);
       if (heldPlan) heldActEnd = at();
       filming = true;
@@ -4158,7 +4178,7 @@ export async function runWalk(
     for (const u of held.unpinned()) {
       if (said.has(u.what)) continue;
       said.add(u.what);
-      const atMs = u.atMs - started;
+      const atMs = Math.max(0, u.atMs - started);
       degradations.push(degradation("animationUnpinned", atMs, atMs, u.what));
     }
     for (const label of held.ignoredConnections()) {
@@ -4239,11 +4259,16 @@ export async function runWalk(
           ? {}
           : {
               clock: "held" as const,
-              networkSpans: held.networkSpans().map((s) => ({
-                ...s,
-                startMs: s.startMs - started,
-                endMs: s.endMs - started,
-              })),
+              ...(openingMs === undefined ? {} : { openingMs }),
+              // The opening load's requests began before the take did.
+              networkSpans: held
+                .networkSpans()
+                .filter((s) => s.endMs > started)
+                .map((s) => ({
+                  ...s,
+                  startMs: Math.max(0, s.startMs - started),
+                  endMs: s.endMs - started,
+                })),
             }),
         ...(pacedGaps.length > 0 ? { pacedGaps } : {}),
         dpr: stillScale,

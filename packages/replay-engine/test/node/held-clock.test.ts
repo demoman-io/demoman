@@ -751,6 +751,32 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
   });
 
+  // DEM-186 review: only the first unpaced time is kept, so one in the
+  // opening, which the video leaves out, hid a later one it shows. Red if
+  // the take's start keeps the opening's, or forgets one after it.
+  it("says unpaced data from the take's start, not the opening's", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: () => true,
+      followedDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.sleep(3 * HELD_FRAME_MS);
+    advance(50);
+    dataAt = 40;
+    await clock.sleep(HELD_FRAME_MS);
+    // Premise: the opening had unpaced data.
+    expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
+    clock.startTake();
+    expect(clock.unpaced()).toBeNull();
+    await clock.sleep(HELD_FRAME_MS);
+    advance(50);
+    dataAt = 140;
+    await clock.sleep(HELD_FRAME_MS);
+    expect(clock.unpaced()).toBe(5 * HELD_FRAME_MS);
+  });
+
   // Review, Session C: a stream's last chunk and its end inside one designed
   // frame went unsaid. Red if the note needs the connection still open.
   it("says an answer that finished in designed time, the connection already closed", async () => {
@@ -1157,12 +1183,51 @@ describe("createHeldClock", () => {
     await slept;
     const said = String(failed);
     expect(said).toMatch(
-      /did not answer within 15 s at 33 ms of the recording: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
+      /did not answer within 15 s during the opening, 33 ms into its load: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
     );
     expect(said).not.toMatch(/SECRET|loop|DEMOMAN_HELD_CLOCK/);
     expect(asked, "the page was asked again").toBe(true);
     expect(clock.failed()?.message).toBe((failed as Error).message);
     expect(frames).toHaveLength(0);
+  });
+
+  // DEM-186: the video's time starts at the opening still, after the
+  // opening's load. Red if a stop after it says the clock's own time, which
+  // runs ahead of the video by the opening.
+  it("says a stop's time from the take's start, once it has one", async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    const { clock } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS
+          ? []
+          : ["http://localhost:4402/board/web", "complete"],
+      shot: () =>
+        hang
+          ? new Promise(() => undefined)
+          : Promise.resolve({
+              bytes: new Uint8Array([1]),
+              width: 2,
+              height: 1,
+            }),
+    });
+    await clock.hold(START);
+    await clock.sleep(200);
+    clock.startTake();
+    await clock.sleep(100);
+    hang = true;
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    // Premise: the clock is 333 ms in, a frame into the hung sleep, and
+    // the take started at 200 of them.
+    expect(clock.now()).toBeCloseTo(1000 / 3, 6);
+    expect(String(failed)).toMatch(
+      /did not answer within 15 s at 133 ms of the recording: its screenshot/,
+    );
   });
 
   // Red if a branch of the sentence says the wrong thing: a second read
@@ -1358,7 +1423,7 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await expect(clock.sleep(100)).rejects.toThrow(
-      /could not pin the page's animations at 33\.3\d* ms.*Execution context was destroyed/,
+      /could not pin the page's animations during the opening, 33 ms into its load.*Execution context was destroyed/,
     );
     expect(frames).toHaveLength(0);
   });

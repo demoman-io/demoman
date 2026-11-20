@@ -158,22 +158,20 @@ describe("a held recording", () => {
         slow: two.timing,
       };
       const said = JSON.stringify(measured);
-      // Premise: two requests, the document's (over before the first frame)
-      // and the other site's after the click, each a network stretch (the
-      // icons are empty, so Chrome fetches none).
+      // Premise: two requests, the document's and the other site's after
+      // the click (the icons are empty, so Chrome fetches none). Only the
+      // second is a network stretch of the take: the document's was over
+      // before its first frame, where the take's time starts (DEM-186).
       const premise = [["a GET /", "b GET /there"]];
       expect(measured.requests, said).toEqual([...premise, ...premise]);
       for (const [i, r] of [one, two].entries())
         expect(
           (measured.network[i] ?? []).map((s) => [
             s.label,
-            s.endMs < r.originMs,
+            s.startMs > r.originMs,
           ]),
           said,
-        ).toEqual([
-          ["GET /", true],
-          ["GET /there", false],
-        ]);
+        ).toEqual([["GET /there", true]]);
       // The slowed recording really was slower.
       expect(slow.realMs, said).toBeGreaterThan(fast.realMs + 10_000);
       if (process.env.WRITE_GOLDEN === "1")

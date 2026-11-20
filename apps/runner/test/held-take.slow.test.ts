@@ -355,6 +355,7 @@ describe("a held recording", () => {
       printed,
       markers: r.bundle.markers,
       network: r.bundle.networkSpans,
+      openingMs: r.bundle.openingMs,
     });
     // Premise: the other site's page printed its clock.
     const there = printed.find((p) => p.label === "there");
@@ -367,9 +368,11 @@ describe("a held recording", () => {
     expect(wait, said).toBeDefined();
     const waitMs = (wait?.endMs ?? 0) - Math.max(wait?.startMs ?? 0, click);
     expect(waitMs, said).toBeGreaterThanOrEqual(150);
-    // The walk's clock is the held clock from its hold, so the page's
-    // Date.now() less the pinned instant is the held time it ran at.
-    const at = (there?.t ?? Number.NaN) - Date.parse(PIN);
+    // The page's Date.now() less the pinned instant is the held time it ran
+    // at, and the take's time starts after the opening (DEM-186).
+    const opening = r.bundle.openingMs ?? Number.NaN;
+    expect(opening, said).toBeGreaterThan(0);
+    const at = (there?.t ?? Number.NaN) - Date.parse(PIN) - opening;
     expect(Math.abs(at - click), said).toBeLessThanOrEqual(2 * HELD_FRAME_MS);
     expect(deadlinesMissed(r), said).toEqual([]);
   }, 120_000);

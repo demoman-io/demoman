@@ -358,6 +358,10 @@ export interface HeldClock extends Clock {
   waiting<T>(run: () => Promise<T>, since?: number | null): Promise<T>;
   /** A page's `wallTime` (ms, its held clock) as `now()` ms. */
   pageOf(wallMs: number): number;
+  /** The recording's time starts now, at its opening still (DEM-186): a
+   *  stop says its time from here, and one before it says it was in the
+   *  opening, whose page time the video leaves out. */
+  startTake(): void;
   /** The held time data first arrived at, outside a wait or on a request
    *  older than its window, on a connection the recording had followed: an
    *  answer that landed where the machine put it. Null when none did. */
@@ -421,6 +425,13 @@ export function createHeldClock(deps: {
     Math.floor(ms / HELD_FRAME_MS + EPS) * HELD_FRAME_MS;
   let startEpochMs: number | null = null;
   let held = 0;
+  /** `HeldClock.startTake`'s held time; null before it. */
+  let takeFrom: number | null = null;
+  /** When a stop happened, in the video's time. */
+  const whenSaid = (): string =>
+    takeFrom === null
+      ? `during the opening, ${Math.round(held)} ms into its load`
+      : `at ${Math.round(held - takeFrom)} ms of the recording`;
   /** `HeldClock.failed`. */
   let fatal: Error | null = null;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -560,7 +571,7 @@ export function createHeldClock(deps: {
         settle(
           new Error(
             waits === null
-              ? `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant at ${held} ms within ${GRANT_EXPIRY_TIMEOUT_MS} ms`
+              ? `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant ${whenSaid()} within ${GRANT_EXPIRY_TIMEOUT_MS} ms`
               : `the page's clock did not move: the page was waiting on its server (${waits.labels.join(", ")}), which had not answered ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s on`,
           ),
         );
@@ -602,7 +613,7 @@ export function createHeldClock(deps: {
           .catch(
             (e: unknown) =>
               new Error(
-                `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s at ${Math.round(held)} ms of the recording: ${what} went unanswered, and saying why failed (${e instanceof Error ? e.message : String(e)})`,
+                `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${whenSaid()}: ${what} went unanswered, and saying why failed (${e instanceof Error ? e.message : String(e)})`,
               ),
           )
           .then((error) => {
@@ -623,7 +634,7 @@ export function createHeldClock(deps: {
    *  now, so a loop is not what holds it (DEM-237: two CI refreshes blamed
    *  one on pages that have none, during the opening load). */
   const unanswered = async (what: string): Promise<Error> => {
-    const at = `at ${Math.round(held)} ms of the recording`;
+    const at = whenSaid();
     // As the read went unanswered, not a second later.
     const labels = network.labels();
     const net = network.loading()
@@ -673,13 +684,13 @@ export function createHeldClock(deps: {
       );
     } catch (e) {
       throw new Error(
-        `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
+        `could not pin the page's animations ${whenSaid()} (${(e as Error).message})`,
       );
     }
     const pinned = failed as { said?: unknown; video?: unknown } | null;
     if (!Array.isArray(pinned?.said))
       throw new Error(
-        `the animation pin at ${held} ms answered ${JSON.stringify(failed)}, not the animations it could not pin`,
+        `the animation pin ${whenSaid()} answered ${JSON.stringify(failed)}, not the animations it could not pin`,
       );
     for (const what of pinned.said)
       unpinned.push({ atMs: held, what: String(what) });
@@ -746,6 +757,7 @@ export function createHeldClock(deps: {
       await pause(epochMs / 1000);
       startEpochMs = epochMs;
       held = 0;
+      takeFrom = null;
       lookedAt = { real: realNow(), held };
       // A request already open at the hold: its real time before it is not
       // the page's.
@@ -912,6 +924,12 @@ export function createHeldClock(deps: {
         }
         await shoot();
       }
+    },
+    startTake() {
+      takeFrom = held;
+      // Data before it is not in the video, and only the first time is
+      // kept: one there would hide a later one the video shows.
+      unpacedAt = null;
     },
     pageOf(wallMs) {
       if (startEpochMs === null) throw new Error("pageOf before hold");

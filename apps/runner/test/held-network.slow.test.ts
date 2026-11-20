@@ -79,6 +79,8 @@ const FED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
   }
 })();</script>`;
 const LATE_MS = 700;
+/** Times the server was asked for the late document. */
+let lateAsked = 0;
 const LATE = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
 <button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>`;
 
@@ -137,6 +139,11 @@ let home: string;
 let server: Server;
 let url: string;
 const open: ServerResponse[] = [];
+/** Each streamed answer as the server sent it, in real ms: when it was
+ *  asked for and when each chunk was written. A loaded machine sends late
+ *  (DEM-235: chunks 8-10 shown together on CI's macOS), and the video
+ *  follows what the server did, not the 200 ms it was told. */
+const streams: { askedAt: number; sentAt: number[] }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
 
 beforeAll(async () => {
@@ -147,9 +154,12 @@ beforeAll(async () => {
     if (path === "/answer") {
       // One byte a chunk, the first at once, the last 1800 ms later.
       res.writeHead(200, { "content-type": "text/plain" });
+      const stream = { askedAt: Date.now(), sentAt: [] as number[] };
+      streams.push(stream);
       let sent = 0;
       const send = () => {
         res.write("x");
+        stream.sentAt.push(Date.now());
         if (++sent === CHUNKS) res.end();
         else setTimeout(send, CHUNK_GAP_MS);
       };
@@ -164,6 +174,7 @@ beforeAll(async () => {
       return;
     }
     if (path === "/late") {
+      lateAsked++;
       setTimeout(() => {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(LATE);
@@ -299,10 +310,21 @@ const STREAMS_MS = 300_000;
 describe("a held recording that waits on its server", () => {
   let normal: Recorded;
   let slowed: Recorded;
+  /** The server's side of each one's answer (`streams`). */
+  const served = new Map<Recorded, (typeof streams)[number] | undefined>();
 
   beforeAll(async () => {
+    const from = streams.length;
     normal = await record(home, `${url}/`, ASK, {}, undefined, FAR_PIN);
+    served.set(
+      normal,
+      streams.length === from + 1 ? streams.at(-1) : undefined,
+    );
     slowed = await record(home, `${url}/`, ASK, {}, 40, FAR_PIN);
+    served.set(
+      slowed,
+      streams.length === from + 2 ? streams.at(-1) : undefined,
+    );
   }, STREAMS_MS);
 
   // Spec test 3. Red when the stream is played on the held grid instead of
@@ -317,43 +339,63 @@ describe("a held recording that waits on its server", () => {
   // so the premise asks for most of the states, not each.
   it("a streamed answer follows real time", async () => {
     const both = await Promise.all(
-      [normal, slowed].map(async (r) => ({
-        ...(await streamed(r)),
-        stretch: (r.bundle.networkSpans ?? []).find((n) =>
-          n.label.includes("POST /answer"),
-        ),
-        realMs: r.realMs,
-        network: r.bundle.networkSpans,
-      })),
+      [normal, slowed].map(async (r) => {
+        const server = served.get(r);
+        const sent = server?.sentAt ?? [];
+        return {
+          ...(await streamed(r)),
+          stretch: (r.bundle.networkSpans ?? []).find((n) =>
+            n.label.includes("POST /answer"),
+          ),
+          realMs: r.realMs,
+          network: r.bundle.networkSpans,
+          // The server's chunks, from when it was asked.
+          sent: sent.map((t) => t - (server?.askedAt ?? Number.NaN)),
+        };
+      }),
     );
     const said = JSON.stringify(both);
     expect(slowed.realMs, said).toBeGreaterThan(normal.realMs + 10_000);
     for (const s of both) {
+      // Premise: the server sent one answer, all ten chunks, at least 200 ms
+      // apart (each is set off by the one before).
+      expect(s.sent, said).toHaveLength(CHUNKS);
+      const firstSent = s.sent[0] ?? Number.NaN;
+      const lastSent = s.sent.at(-1) ?? Number.NaN;
+      expect(lastSent - firstSent, said).toBeGreaterThanOrEqual(
+        (CHUNKS - 1) * CHUNK_GAP_MS,
+      );
       // Premise: the answer grew in the frames, from none to all ten, over
       // at least six states seen, and at least 1200 ms of it is measured.
       expect(s.rising, said).toBe(true);
       expect(s.states[0], said).toBe(0);
       expect(s.states.at(-1), said).toBe(CHUNKS);
       expect(s.states.length, said).toBeGreaterThanOrEqual(6);
+      // Within a frame, or the held frame after: the page can run a chunk's
+      // script in the grant after it arrived, at the first chunk as at the
+      // last (the check below allows it from the wait's start). Measured
+      // against the server's own times, the first chunk showed 44 ms after
+      // it was sent, a frame being 33 ms (2026-11-19); against the 1800 ms
+      // it was told, that held frame had been hidden in the send's lag.
       expect(
-        Math.abs(s.last - s.first - (CHUNKS - 1) * CHUNK_GAP_MS),
+        Math.abs(s.last - s.first - (lastSent - firstSent)),
         said,
-      ).toBeLessThanOrEqual(s.frameMs);
-      // And from where the wait began: the server answers at once, so its
-      // last chunk is 1800 ms on, within a frame, or the held frame after:
+      ).toBeLessThanOrEqual(s.frameMs + HELD_FRAME_MS);
+      // And from where the wait began: the last chunk shows as long after it
+      // as the server sent it after being asked, within a frame, or the held
+      // frame after:
       // the page can run the last chunk's script in the grant after the
       // wait ends (44 ms here, 2 runs of about 12, 2026-11-16; the next
       // test allows the same). The stretch lasts no longer than the stream
       // and a frame either side.
       const start = s.stretch?.startMs ?? Number.NaN;
-      expect(
-        Math.abs(s.last - start - (CHUNKS - 1) * CHUNK_GAP_MS),
-        said,
-      ).toBeLessThanOrEqual(s.frameMs + HELD_FRAME_MS);
+      expect(Math.abs(s.last - start - lastSent), said).toBeLessThanOrEqual(
+        s.frameMs + HELD_FRAME_MS,
+      );
       expect(
         (s.stretch?.endMs ?? Number.NaN) - start,
         said,
-      ).toBeLessThanOrEqual((CHUNKS - 1) * CHUNK_GAP_MS + 2 * s.frameMs);
+      ).toBeLessThanOrEqual(lastSent + 2 * s.frameMs);
     }
   });
 
@@ -472,16 +514,28 @@ describe("a held recording that waits on its server", () => {
   // The anti-goal of the same change: a wait left out, so page time outruns
   // the server. The opening's load is the first wait there is. Red if the
   // document's wait is not in the video as the server's time.
-  it("the opening's load behind a slow server is the server's time", async () => {
+  // DEM-186: the take's time starts at its opening still, so the opening's
+  // load is not in it: timed from before the load, the video opened on its
+  // first frame for as long as the server took. Red if the take is timed
+  // from the walk's start: its first frame and the load's span 700 ms in.
+  it("starts the take after the opening's load behind a slow server", async () => {
+    const asked = lateAsked;
     const r = await record(home, `${url}/late`, [
       { do: "click", on: { stableId: "ask" }, zoom: false },
     ]);
     const spans = r.bundle.networkSpans ?? [];
-    const late = spans.find((n) => n.label.includes("GET /late"));
+    const first = r.bundle.keyframes[0]?.sourceTimeMs ?? Number.NaN;
+    const opening = r.bundle.openingMs ?? Number.NaN;
+    const said = JSON.stringify({ spans, first, opening });
+    // Premise: the take loaded the document the server held back, and the
+    // opening played that wait as the server's time.
+    expect(lateAsked - asked, said).toBe(1);
+    expect(opening, said).toBeGreaterThanOrEqual(LATE_MS - 200);
+    expect(first, said).toBeLessThanOrEqual(HELD_FRAME_MS + 1e-6);
     expect(
-      (late?.endMs ?? 0) - (late?.startMs ?? 0),
-      JSON.stringify(spans),
-    ).toBeGreaterThanOrEqual(LATE_MS - 200);
+      spans.filter((n) => n.label.includes("GET /late")),
+      said,
+    ).toEqual([]);
   }, 120_000);
 
   // DEM-203: an iframe's document was counted as the page loading, so a
