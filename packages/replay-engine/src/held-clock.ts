@@ -180,7 +180,9 @@ export const PIN_ANIMATIONS = `(v, server) => {
       s.n = 0;
     } else if (++s.n === ${VIDEO_STALL_PINS} && !s.said) {
       s.said = true;
-      unpinned.push("a video stopped on one frame while playing");
+      // Its state, so a stop on a machine nobody can watch says why.
+      const b = m.buffered.length > 0 ? m.buffered.end(m.buffered.length - 1) : 0;
+      unpinned.push("a video stopped on one frame while playing (at " + m.currentTime.toFixed(2) + " s of " + m.duration.toFixed(2) + ", readyState " + m.readyState + ", buffered to " + b.toFixed(2) + " s, networkState " + m.networkState + ")");
     }
   }
   return { said: unpinned, video };
