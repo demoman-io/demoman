@@ -79,6 +79,8 @@ const FED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
   }
 })();</script>`;
 const LATE_MS = 700;
+/** Times the server was asked for the late document. */
+let lateAsked = 0;
 const LATE = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
 <button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>`;
 
@@ -164,6 +166,7 @@ beforeAll(async () => {
       return;
     }
     if (path === "/late") {
+      lateAsked++;
       setTimeout(() => {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(LATE);
@@ -472,16 +475,28 @@ describe("a held recording that waits on its server", () => {
   // The anti-goal of the same change: a wait left out, so page time outruns
   // the server. The opening's load is the first wait there is. Red if the
   // document's wait is not in the video as the server's time.
-  it("the opening's load behind a slow server is the server's time", async () => {
+  // DEM-186: the take's time starts at its opening still, so the opening's
+  // load is not in it: timed from before the load, the video opened on its
+  // first frame for as long as the server took. Red if the take is timed
+  // from the walk's start: its first frame and the load's span 700 ms in.
+  it("starts the take after the opening's load behind a slow server", async () => {
+    const asked = lateAsked;
     const r = await record(home, `${url}/late`, [
       { do: "click", on: { stableId: "ask" }, zoom: false },
     ]);
     const spans = r.bundle.networkSpans ?? [];
-    const late = spans.find((n) => n.label.includes("GET /late"));
+    const first = r.bundle.keyframes[0]?.sourceTimeMs ?? Number.NaN;
+    const opening = r.bundle.openingMs ?? Number.NaN;
+    const said = JSON.stringify({ spans, first, opening });
+    // Premise: the take loaded the document the server held back, and the
+    // opening played that wait as the server's time.
+    expect(lateAsked - asked, said).toBe(1);
+    expect(opening, said).toBeGreaterThanOrEqual(LATE_MS - 200);
+    expect(first, said).toBeLessThanOrEqual(HELD_FRAME_MS + 1e-6);
     expect(
-      (late?.endMs ?? 0) - (late?.startMs ?? 0),
-      JSON.stringify(spans),
-    ).toBeGreaterThanOrEqual(LATE_MS - 200);
+      spans.filter((n) => n.label.includes("GET /late")),
+      said,
+    ).toEqual([]);
   }, 120_000);
 
   // DEM-203: an iframe's document was counted as the page loading, so a

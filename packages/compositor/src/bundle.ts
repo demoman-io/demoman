@@ -353,6 +353,13 @@ export const FrameBundleSchema = z
      */
     clock: z.literal("held").optional(),
     /**
+     * A held replay only: the page time its opening played before the first
+     * frame (the load, its settle, the sign-in check), which the take leaves
+     * out: its source time starts after it (DEM-186). Absent on a held take
+     * recorded before, whose source time includes it.
+     */
+    openingMs: z.number().nonnegative().optional(),
+    /**
      * A held replay only: the stretches of source time spent waiting on the
      * network, `label` the connections that made each ("POST /api/chat").
      */

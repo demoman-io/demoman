@@ -1157,12 +1157,51 @@ describe("createHeldClock", () => {
     await slept;
     const said = String(failed);
     expect(said).toMatch(
-      /did not answer within 15 s at 33 ms of the recording: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
+      /did not answer within 15 s during the opening, 33 ms into its load: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
     );
     expect(said).not.toMatch(/SECRET|loop|DEMOMAN_HELD_CLOCK/);
     expect(asked, "the page was asked again").toBe(true);
     expect(clock.failed()?.message).toBe((failed as Error).message);
     expect(frames).toHaveLength(0);
+  });
+
+  // DEM-186: the video's time starts at the opening still, after the
+  // opening's load. Red if a stop after it says the clock's own time, which
+  // runs ahead of the video by the opening.
+  it("says a stop's time from the take's start, once it has one", async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    const { clock } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS
+          ? []
+          : ["http://localhost:4402/board/web", "complete"],
+      shot: () =>
+        hang
+          ? new Promise(() => undefined)
+          : Promise.resolve({
+              bytes: new Uint8Array([1]),
+              width: 2,
+              height: 1,
+            }),
+    });
+    await clock.hold(START);
+    await clock.sleep(200);
+    clock.startTake();
+    await clock.sleep(100);
+    hang = true;
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    // Premise: the clock is 333 ms in, a frame into the hung sleep, and
+    // the take started at 200 of them.
+    expect(clock.now()).toBeCloseTo(1000 / 3, 6);
+    expect(String(failed)).toMatch(
+      /did not answer within 15 s at 133 ms of the recording: its screenshot/,
+    );
   });
 
   // Red if a branch of the sentence says the wrong thing: a second read
