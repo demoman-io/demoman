@@ -652,7 +652,9 @@ describe("a continuous walk settles each step and captures its page", () => {
         .map((d, i) => ({ i, d }))
         .filter(({ d }) => d.maxDelta < 0 || d.looks.some((l) => l.over))
         .map(({ i }) => i),
-      `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(b.against.map((d, i) => ({ i, after: a.screens[i]?.after, ...d })).filter((d) => d.pixels !== 0))}`,
+      // DEM-243: macOS CI read screens 3 on as changed in the page's top
+      // left; what held focus at each capture says whether the field did.
+      `focus a ${a.focusAtHold} b ${b.focusAtHold}; sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(b.against.map((d, i) => ({ i, after: a.screens[i]?.after, ...d })).filter((d) => d.pixels !== 0))}`,
     ).toEqual([]);
   });
 

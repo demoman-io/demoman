@@ -167,6 +167,10 @@ async function run(steps: Step[], scriptVersion = 1) {
       markers: bundle.markers,
       camera: scene.camera,
       pacing: scene.pacing,
+      // What the recorder saw move, which an act's end is read from
+      // (DEM-239: a never-quiet page's act ended at its click on CI).
+      motion: bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
+      degradations: bundle.degradations.map((d) => [d.kind, d.startMs, d.note]),
     });
   // The take as it renders: its output clock, and each zoom's segment.
   const resolved = resolvePlan(planScene(scene), bundle, scene);
