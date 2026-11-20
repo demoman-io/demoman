@@ -110,7 +110,8 @@ const STALLED = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,"
 /** A click adds a muted autoplaying video (`fixtures/ramp-4s.webm`: 4 s, a
  *  flat grey 14 to 28 levels lighter every frame, back to black every 10;
  *  VP8, as this Chromium plays no H.264), sent faster than it plays,
- *  as `compare/held-push.sh`'s video page. Made with
+ *  as `compare/held-push.sh`'s video page. It loops, so it still plays at
+ *  the pause's end however slowly the machine captures. Made with
  *  `ffmpeg -f lavfi -i "color=c=black:s=320x180:r=30:d=4,format=yuv420p,geq=lum='20+mod(N*20\,200)':cb=128:cr=128" -c:v libvpx -b:v 400k -auto-alt-ref 0`. */
 const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,">
 <button id=ask style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ask</button>
@@ -118,6 +119,7 @@ const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,
   const v = document.createElement("video");
   v.muted = true;
   v.autoplay = true;
+  v.loop = true;
   v.src = "/clip.webm";
   v.style.cssText = "position:absolute;left:40px;top:120px;width:320px;height:180px";
   document.body.append(v);

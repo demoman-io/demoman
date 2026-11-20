@@ -1396,6 +1396,27 @@ describe("createHeldClock", () => {
     for (const w of waits) expect(w).toBeCloseTo(HELD_FRAME_MS, 6);
   });
 
+  // Review of 2026-11-19: real time the clock fell behind was caught up by
+  // grants with no wait, which play the video in slow motion. Red if more
+  // than the one grant after a slow capture goes unwaited.
+  it("skips real time it fell behind once, and paces the frames after it", async () => {
+    const { clock, log, frames } = setup({
+      pin: () => ({ said: [], video: true }) as never,
+      captureMs: (shot) => (shot === 3 ? 200 : 0),
+    });
+    await clock.hold(START);
+    await clock.sleep(300);
+    // Premise: a slow capture, with frames after it.
+    expect(frames.length).toBeGreaterThan(6);
+    const waits = log
+      .filter((l) => l.startsWith("wait"))
+      .map((l) => Number(l.slice(5)));
+    // From the first frame on, every grant waits but the one after the
+    // 200 ms capture, and each waits one frame.
+    expect(waits.length).toBe(frames.length - 2);
+    for (const w of waits) expect(w).toBeCloseTo(HELD_FRAME_MS, 6);
+  });
+
   it("refuses to move a clock it has not held", async () => {
     const { clock, policies } = setup();
     await expect(clock.sleep(100)).rejects.toThrow(/before hold/);
@@ -1469,6 +1490,8 @@ describe("PIN_ANIMATIONS", () => {
       autoplay: true,
       played: { length: 0 },
       readyState: 3,
+      networkState: 2, // NETWORK_LOADING
+      error: null as object | null,
       currentTime: 0,
     };
     const pin = videoPin(waiting);
@@ -1477,13 +1500,50 @@ describe("PIN_ANIMATIONS", () => {
     expect(answers.flatMap((a, k) => a.said.map((w) => `${k}: ${w}`))).toEqual([
       "89: a video waited 3 s for its data and had not started playing",
     ]);
-    // Paused by the page, or never asked to play: no pace, nothing said.
+    // Paused by the page, never asked to play, or not fetching (a broken
+    // source, one Chrome stopped loading): no pace, nothing said.
     for (const paused of [
       { ...waiting, played: { length: 1 } },
       { ...waiting, autoplay: false },
       { ...waiting, readyState: 4 },
+      { ...waiting, error: { code: 4 } },
+      { ...waiting, networkState: 1 },
     ])
       expect(videoPin(paused)(0)).toEqual({ said: [], video: false });
+  });
+
+  // Review of 2026-11-19: a video that played kept the playing entry, with
+  // no wait count, so its wait for a new source was never said.
+  it("says a video that played and then waits on a new source", () => {
+    const clip = {
+      paused: false,
+      ended: false,
+      autoplay: true,
+      played: { length: 1 },
+      readyState: 4,
+      networkState: 1,
+      error: null,
+      currentTime: 0,
+    };
+    const pin = videoPin(clip);
+    // Premise: it was seen playing first.
+    expect(pin(0)).toEqual({
+      said: ["a playing video runs on its own clock: it was not held"],
+      video: true,
+    });
+    // The page sets a new src: nothing played of it, and it loads.
+    Object.assign(clip, {
+      paused: true,
+      played: { length: 0 },
+      readyState: 1,
+      networkState: 2,
+    });
+    const said = Array.from({ length: 95 }, (_, k) =>
+      pin((k + 1) * 33),
+    ).flatMap((a) => a.said);
+    expect(said).toEqual([
+      "a video waited 3 s for its data and had not started playing",
+    ]);
   });
 
   // DEM-210: a page that replaced querySelectorAll stopped every held run

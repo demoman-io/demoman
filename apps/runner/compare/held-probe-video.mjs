@@ -85,12 +85,21 @@ const STATE = `(() => { const v = document.getElementById("v"); if (!v) return {
     buffered: b.length ? +b.end(b.length - 1).toFixed(2) : 0, events: seen.splice(0) }; })()`;
 
 async function run() {
+  const args = on("FLAGS")
+    ? HELD_FLAGS
+    : HELD_FLAGS.filter((f) => f === process.env.FLAGS);
+  // A name that matches no switch would launch with none, unsaid.
+  if (process.env.FLAGS && args.length === 0) {
+    console.log(
+      `FLAGS=${process.env.FLAGS} is none of ${HELD_FLAGS.join(" ")}`,
+    );
+    process.exit(2);
+  }
+  console.log(`launched with: ${args.join(" ") || "no switches"}`);
   const browser = await chromium.launch({
     headless: true,
     executablePath: chromium.executablePath(),
-    args: on("FLAGS")
-      ? HELD_FLAGS
-      : HELD_FLAGS.filter((f) => f === process.env.FLAGS),
+    args,
   });
   const page = await browser.newPage();
   const s = await page.context().newCDPSession(page);
