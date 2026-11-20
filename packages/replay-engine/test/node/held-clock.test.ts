@@ -751,6 +751,32 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
   });
 
+  // DEM-186 review: only the first unpaced time is kept, so one in the
+  // opening, which the video leaves out, hid a later one it shows. Red if
+  // the take's start keeps the opening's, or forgets one after it.
+  it("says unpaced data from the take's start, not the opening's", async () => {
+    let dataAt: number | null = null;
+    const { clock, advance } = setup({
+      waits: false,
+      waiting: () => true,
+      followedDataAt: () => dataAt,
+    });
+    await clock.hold(START);
+    await clock.sleep(3 * HELD_FRAME_MS);
+    advance(50);
+    dataAt = 40;
+    await clock.sleep(HELD_FRAME_MS);
+    // Premise: the opening had unpaced data.
+    expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
+    clock.startTake();
+    expect(clock.unpaced()).toBeNull();
+    await clock.sleep(HELD_FRAME_MS);
+    advance(50);
+    dataAt = 140;
+    await clock.sleep(HELD_FRAME_MS);
+    expect(clock.unpaced()).toBe(5 * HELD_FRAME_MS);
+  });
+
   // Review, Session C: a stream's last chunk and its end inside one designed
   // frame went unsaid. Red if the note needs the connection still open.
   it("says an answer that finished in designed time, the connection already closed", async () => {
@@ -1397,7 +1423,7 @@ describe("createHeldClock", () => {
     });
     await clock.hold(START);
     await expect(clock.sleep(100)).rejects.toThrow(
-      /could not pin the page's animations at 33\.3\d* ms.*Execution context was destroyed/,
+      /could not pin the page's animations during the opening, 33 ms into its load.*Execution context was destroyed/,
     );
     expect(frames).toHaveLength(0);
   });

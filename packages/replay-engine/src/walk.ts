@@ -877,8 +877,8 @@ export async function runWalk(
   /** Held: moved to the opening still once there is one (DEM-186). */
   let started = clock.now();
   /** Held: the page time the opening played before it, the bundle's
-   *  `openingMs`. */
-  let openingMs = 0;
+   *  `openingMs`; none when the take never started (signed out). */
+  let openingMs: number | undefined;
   const at = (): number => clock.now() - started;
   const continuous = deps.recording === "continuous";
   /** Continuous only: whether the opening still has been taken, and so
@@ -4186,7 +4186,7 @@ export async function runWalk(
     }
     const unpacedAt = held.unpaced();
     if (unpacedAt !== null) {
-      const atMs = Math.max(0, unpacedAt - started);
+      const atMs = unpacedAt - started;
       degradations.push(
         degradation(
           "answerUnpaced",
@@ -4259,7 +4259,7 @@ export async function runWalk(
           ? {}
           : {
               clock: "held" as const,
-              openingMs,
+              ...(openingMs === undefined ? {} : { openingMs }),
               // The opening load's requests began before the take did.
               networkSpans: held
                 .networkSpans()

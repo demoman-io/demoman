@@ -238,6 +238,8 @@ async function run(
     /** The opening's paint settle answers only once this much page time has
      *  passed: a page that loads slowly. */
     openingPaintAnswersAfterMs?: number;
+    /** Instead, it fails that late: the page navigated out from under it. */
+    openingPaintFails?: boolean;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -375,10 +377,14 @@ async function run(
       paintProbes++ === 0
     ) {
       const due = held.clock.now() + opts.openingPaintAnswersAfterMs;
-      return new Promise((resolve) =>
+      const fails = opts.openingPaintFails === true;
+      return new Promise((resolve, reject) =>
         settleWaiters.push({
           due,
-          answer: () => resolve(send(method, params)),
+          answer: () =>
+            fails
+              ? reject(new Error("Execution context was destroyed"))
+              : resolve(send(method, params)),
         }),
       );
     }
@@ -1193,6 +1199,27 @@ describe("in-page waits on a held clock", () => {
       expect(k.sourceTimeMs, evidence).toBeGreaterThanOrEqual(opening);
     for (const s of result.bundle?.motionSpans ?? [])
       expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
+  });
+
+  // DEM-186 review: what the opening said before the take is moved with
+  // it. Red if the opening's degradations keep the walk's start: the failed
+  // settle says 600 ms into a take that has not started.
+  it("says what the opening said at the take's start", async () => {
+    const { result, sleeps, progress } = await run([click("a")], {
+      openingPaintAnswersAfterMs: 600,
+      openingPaintFails: true,
+    });
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(result.bundle?.degradations)}`;
+    // Premise: the opening's settle failed 600 ms in, before the take.
+    expect(leadOf(sleeps), evidence).toBeGreaterThanOrEqual(600);
+    const said = result.bundle?.degradations.filter(
+      (d) => d.kind === "pageNeverSettled",
+    );
+    expect(said?.length, evidence).toBe(1);
+    expect(
+      said?.map((d) => [d.startMs, d.endMs]),
+      evidence,
+    ).toEqual([[0, 0]]);
   });
 
   // DEM-186: the renderer plays source time from 0, so a take timed from

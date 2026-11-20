@@ -571,7 +571,7 @@ export function createHeldClock(deps: {
         settle(
           new Error(
             waits === null
-              ? `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant at ${held} ms within ${GRANT_EXPIRY_TIMEOUT_MS} ms`
+              ? `the page's clock did not move: Chrome sent no Emulation.virtualTimeBudgetExpired for a ${budget} ms grant ${whenSaid()} within ${GRANT_EXPIRY_TIMEOUT_MS} ms`
               : `the page's clock did not move: the page was waiting on its server (${waits.labels.join(", ")}), which had not answered ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s on`,
           ),
         );
@@ -684,13 +684,13 @@ export function createHeldClock(deps: {
       );
     } catch (e) {
       throw new Error(
-        `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
+        `could not pin the page's animations ${whenSaid()} (${(e as Error).message})`,
       );
     }
     const pinned = failed as { said?: unknown; video?: unknown } | null;
     if (!Array.isArray(pinned?.said))
       throw new Error(
-        `the animation pin at ${held} ms answered ${JSON.stringify(failed)}, not the animations it could not pin`,
+        `the animation pin ${whenSaid()} answered ${JSON.stringify(failed)}, not the animations it could not pin`,
       );
     for (const what of pinned.said)
       unpinned.push({ atMs: held, what: String(what) });
@@ -927,6 +927,9 @@ export function createHeldClock(deps: {
     },
     startTake() {
       takeFrom = held;
+      // Data before it is not in the video, and only the first time is
+      // kept: one there would hide a later one the video shows.
+      unpacedAt = null;
     },
     pageOf(wallMs) {
       if (startEpochMs === null) throw new Error("pageOf before hold");

@@ -371,9 +371,12 @@ describe("a held recording that waits on its server", () => {
       expect(s.states[0], said).toBe(0);
       expect(s.states.at(-1), said).toBe(CHUNKS);
       expect(s.states.length, said).toBeGreaterThanOrEqual(6);
-      // Within a frame, or the held frame after, at either end: the first
-      // chunk showed 44 ms after it was sent here, a frame being 33 ms
-      // (2026-11-19).
+      // Within a frame, or the held frame after: the page can run a chunk's
+      // script in the grant after it arrived, at the first chunk as at the
+      // last (the check below allows it from the wait's start). Measured
+      // against the server's own times, the first chunk showed 44 ms after
+      // it was sent, a frame being 33 ms (2026-11-19); against the 1800 ms
+      // it was told, that held frame had been hidden in the send's lag.
       expect(
         Math.abs(s.last - s.first - (lastSent - firstSent)),
         said,
