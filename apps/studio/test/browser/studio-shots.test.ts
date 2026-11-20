@@ -5448,11 +5448,13 @@ describe("the Studio's screenshot set", () => {
         await shoot("library-grid");
         await openPage(page, studio, "editor", editorTake, new Set());
         // A step's tick is drawn on the clip's piece, a button over a
-        // button, at every width (the split case shoots it at 1280).
+        // button, at every width (the split case shoots it at 1280); and a
+        // tick at the clip's tail sits under its trim handle, which is on
+        // top so the whole handle grabs (DEM-232).
         await shoot(
           "editor",
           true,
-          /^button\[data-piece=\d+\] .* and button\[data-tick=/s,
+          /^button\[data-piece=\d+\] .* and button\[data-tick=|^button\[data-tick=[^\]]+\].* under div\[data-trim=/s,
         );
         await openPage(page, studio, "kits", editorTake, new Set());
         // A kit's default star sits in its tile's corner, a button on the
@@ -5477,12 +5479,11 @@ describe("the Studio's screenshot set", () => {
   // Escape and a list row's ⋯ menu (DEM-215; "Escape closing only one
   // panel"): the menu, opened by a tap on a phone, is the innermost thing
   // open, so one Escape should take it off the painted page.
-  // Known: Escape with a row's ⋯ menu open moves focus to the row and leaves the menu open (list-keys.ts preventDefaults Escape in a cell, which cancels the popover's light dismiss) — DEM-231
-  // Pinned by the bug's own message: a premise that fails says something
-  // else and is red, and once DEM-231 is fixed this is red too; then it
-  // becomes the check that one Escape closes the menu.
+  // It once moved focus to the row and left the menu open: list-keys.ts
+  // preventDefaults Escape in a cell, which cancelled the popover's light
+  // dismiss (DEM-231).
   it.runIf(process.platform === "darwin")(
-    "still leaves a list row's ⋯ menu open after one Escape on a phone (DEM-231), asserted on its paint",
+    "closes a list row's ⋯ menu with one Escape on a phone (DEM-231), asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-menu-esc-"));
       homes.push(home);
@@ -5534,8 +5535,7 @@ describe("the Studio's screenshot set", () => {
         await page.keyboard.press("Escape");
         const file = join(SHOTS, "phone-library-list-menu-escape.png");
         try {
-          // 3 s, not PAINT_MS: the bug waits all of it each run, and a
-          // popover's light dismiss lands in the press's own task.
+          // 3 s, not PAINT_MS: the close lands in the press's own task.
           await vi.waitFor(
             async () => {
               const m = await menu();
@@ -5551,9 +5551,7 @@ describe("the Studio's screenshot set", () => {
         }
       };
       try {
-        await expect(run(), "DEM-231, and nothing else").rejects.toThrow(
-          /^one Escape left the row's menu painted/,
-        );
+        await run();
       } finally {
         await browser.close();
         running = null;
@@ -5646,11 +5644,9 @@ describe("the Studio's screenshot set", () => {
         );
       type Pieces = Awaited<ReturnType<typeof pieces>>;
 
-      // The drag first, before any edit: an edit's save comes back through
-      // the folder watch a moment later and rebuilds `#timeline`, and one
-      // landing mid-drag leaves the handle being dragged detached (seen in
-      // 3 of 5 runs when this drag followed the splits; see the report).
-      // The take's one piece has an end handle where its tail was removed.
+      // The drag on the take's one piece, before any edit (a drag through
+      // an edit's refresh is DEM-234's case, after the next one). The
+      // piece has an end handle where its tail was removed.
       // Waited for: the preview paints before the timeline draws its piece.
       const only = await vi.waitFor(
         async () => {
@@ -5666,9 +5662,8 @@ describe("the Studio's screenshot set", () => {
       await page.mouse.move((only.left + only.right) / 2, only.top + 4);
       const edge = '.piece-wrap:only-child > [data-edge="end"]';
       // Waited for whole: the handle shown, its 120 ms fade in run to the
-      // end, and a point of it the pointer lands on. The one nearest its
-      // middle: the middle itself is under a removed step's tick (DEM-232,
-      // the case after this one).
+      // end, and a point of it the pointer lands on: the one nearest its
+      // middle (DEM-232's case, after this one, asserts the middle).
       const found = await vi
         .waitFor(
           async () => {
@@ -6024,12 +6019,12 @@ describe("the Studio's screenshot set", () => {
   // not be grabbed"): on the take with a cut at its end, the one piece's
   // end handle, shown under the pointer, should be the thing at its own
   // middle.
-  // Known: a removed step's tick (data-cut) is drawn over the piece's end handle, covering its middle 24px; only its top and bottom few px grab — DEM-232
-  // Pinned by the bug's own message: a premise that fails says something
-  // else and is red, and once DEM-232 is fixed this is red too; then it
-  // becomes the check that the handle is grabbed at its middle.
+  // A removed step's tick (data-cut) was drawn over it, covering its
+  // middle 24px, so only its top and bottom few px grabbed (DEM-232). Ruled
+  // 2026-11-19: the handle is on top, and the tick is still reached
+  // outside it.
   it.runIf(process.platform === "darwin")(
-    "still finds a removed step's tick over the middle of the last piece's end handle (DEM-232), asserted on its paint",
+    "grabs the last piece's end handle at its middle over a removed step's tick, which is still reached beside it (DEM-232), asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-handle-"));
       homes.push(home);
@@ -6106,15 +6101,13 @@ describe("the Studio's screenshot set", () => {
         );
         const file = join(SHOTS, "editor-handle-covered-1280x720-dark.png");
         try {
-          // 3 s, not PAINT_MS: the bug waits all of it each run.
-          // What a pass saw, said in the failure it then is.
-          return await vi.waitFor(
+          // 3 s, not PAINT_MS: the stacking is there from the first paint.
+          await vi.waitFor(
             async () => {
               const read = await edgeGrab(page, edge);
               const tick = await cutTick();
               if (read?.onTop !== true)
                 throw new Error(JSON.stringify({ read, tick }));
-              return { read, tick };
             },
             { timeout: 3_000, interval: 50 },
           );
@@ -6124,11 +6117,167 @@ describe("the Studio's screenshot set", () => {
             `the handle's middle is under something else: ${String(error)}; shot ${file}`,
           );
         }
+        // And the tick under it is still something a pointer reaches: some
+        // point of its box, outside the handle, hits it.
+        const reached = await page.evaluate(() => {
+          const t = document.querySelector<HTMLElement>(
+            "[data-tick][data-cut]",
+          );
+          if (t === null) return null;
+          const r = t.getBoundingClientRect();
+          for (let y = Math.ceil(r.top); y < r.bottom; y += 1)
+            for (let x = Math.ceil(r.left); x < r.right; x += 1)
+              if (t.contains(document.elementFromPoint(x, y))) return { x, y };
+          return null;
+        });
+        if (reached === null) {
+          await page.screenshot({ path: file });
+          throw new Error(
+            `the removed step's tick is nowhere under a pointer: ${JSON.stringify(await cutTick())}; shot ${file}`,
+          );
+        }
       };
       try {
-        await expect(run(), "DEM-232, and nothing else").rejects.toThrow(
-          /^the handle's middle is under something else: .*data-cut/,
+        await run();
+      } finally {
+        running = null;
+        await studio.stop();
+      }
+    },
+    LANE_MS,
+  );
+
+  // A drag right after an edit (DEM-234): the edit's save comes back
+  // through the folder watch and rebuilds `#timeline`, and one landing
+  // mid-drag replaced the handle in the hand, so the one drawn stopped
+  // following the pointer (3 runs of 5). The refresh is made to land
+  // mid-drag here, by a file the watch hears, so a run cannot pass by its
+  // timing.
+  it.runIf(process.platform === "darwin")(
+    "keeps dragging a piece's end handle through a folder refresh right after two splits (DEM-234), by a real pointer, asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-drag-refresh-"));
+      homes.push(home);
+      await seedHome(home);
+      await mkdir(SHOTS, { recursive: true });
+      const cutTake = PLAIN.find((t) => (t.cuts ?? []).length > 0);
+      if (cutTake === undefined)
+        throw new Error("PLAIN has no take with a cut");
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      try {
+        const opened = await api(studio, "/api/window", {
+          method: "POST",
+          body: {},
+        });
+        expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+          200,
         );
+        const context = studio.context();
+        const page = context.pages()[0] as Page;
+        await sizeWindow(context, page, 1280, 720);
+        await openPage(page, studio, "editor", cutTake.id, new Set());
+        await page.locator(".piece-wrap > .piece").first().waitFor();
+        // The edit: two splits, three pieces.
+        for (const want of [2, 3]) {
+          for (let i = 0; i < 2; i += 1)
+            await page.keyboard.press("Shift+ArrowRight");
+          await page.keyboard.press("Meta+b");
+          await vi.waitFor(
+            async () => {
+              const n = await page.locator(".piece-wrap").count();
+              if (n !== want) throw new Error(`${n} pieces, not ${want}`);
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+        }
+        const edge = '.piece-wrap:last-child > [data-edge="end"]';
+        const last = await page
+          .locator(".piece-wrap:last-child > .piece")
+          .boundingBox();
+        if (last === null) throw new Error("the last piece has no box");
+        await page.mouse.move(last.x + last.width / 2, last.y + 4);
+        const grab = await vi.waitFor(
+          async () => {
+            const read = await edgeGrab(page, edge);
+            if (read?.onTop !== true) throw new Error(JSON.stringify(read));
+            return read;
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        // Evidence: the handle pressed, and how often `#timeline` is rebuilt.
+        await page.evaluate((sel) => {
+          const w = window as unknown as {
+            __grabbed: Element | null;
+            __rebuilds: number;
+          };
+          w.__grabbed = document.querySelector(sel);
+          w.__rebuilds = 0;
+          new MutationObserver(() => {
+            w.__rebuilds += 1;
+          }).observe(document.querySelector("#timeline") as Element, {
+            childList: true,
+          });
+        }, edge);
+        const held = () =>
+          page.evaluate((sel) => {
+            const w = window as unknown as {
+              __grabbed: Element | null;
+              __rebuilds: number;
+            };
+            const e = document.querySelector<HTMLElement>(sel);
+            return {
+              sameHandle: e === w.__grabbed,
+              dragging: w.__grabbed?.hasAttribute("data-dragging") ?? false,
+              right: w.__grabbed?.getBoundingClientRect().right ?? Number.NaN,
+              rebuilds: w.__rebuilds,
+            };
+          }, edge);
+        await page.mouse.move(grab.x, grab.y);
+        await page.mouse.down();
+        await page.mouse.move(grab.x - 30, grab.y, { steps: 4 });
+        // The refresh, mid-drag: a `scene.json…` file in the take's folder
+        // is what the watch hears, and the editor reads the folder again.
+        const read = page.waitForResponse(
+          (r) => new URL(r.url()).pathname === "/api/takes",
+          { timeout: PAINT_MS },
+        );
+        await writeFile(
+          join(home, "takes", cutTake.id, "scene.json.dem-234"),
+          "",
+        );
+        await read;
+        // Two frames for the render that read leads to.
+        await page.evaluate(
+          () =>
+            new Promise((done) =>
+              requestAnimationFrame(() => requestAnimationFrame(done)),
+            ),
+        );
+        await page.mouse.move(grab.x - 80, grab.y, { steps: 6 });
+        const midDrag = await held();
+        await page.mouse.up();
+        const said = `the drag: ${JSON.stringify({ grab, midDrag })}`;
+        expect(midDrag.sameHandle, `${said}: the same handle`).toBe(true);
+        expect(midDrag.dragging, `${said}: held`).toBe(true);
+        expect(
+          Math.abs(midDrag.right - (grab.right - 80)),
+          `${said}: the handle follows the pointer`,
+        ).toBeLessThanOrEqual(3);
+        // And the render that waited lands on release: the timeline is
+        // rebuilt, still in three pieces.
+        await vi.waitFor(
+          async () => {
+            const after = await held();
+            const n = await page.locator(".piece-wrap").count();
+            if (after.rebuilds === 0 || n !== 3)
+              throw new Error(`${JSON.stringify(after)}, ${n} pieces`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        await page.screenshot({
+          path: join(SHOTS, "editor-drag-through-refresh-1280x720-dark.png"),
+        });
       } finally {
         running = null;
         await studio.stop();
@@ -6198,12 +6347,11 @@ describe("the Studio's screenshot set", () => {
   // A list row ticked by the mouse at the foot of a scrolled page should
   // stay where it was in the window (DEM-215, "the page jumping when a row
   // is selected"; the cards' form is studio-bulk-scroll.test.ts).
-  // Known: in the list, the first tick at a scrolled page's foot moves the ticked row 64px down the window (the selection bar opens above it and the scroll does not follow) — DEM-233
-  // Pinned by the bug's own message: a premise that fails says something
-  // else and is red, and once DEM-233 is fixed this is red too; then it
-  // becomes the check that the ticked row stays put.
+  // It once moved 64px down the window: the selection bar opened above it
+  // and the scroll anchored on the list's stuck head, which did not move
+  // (DEM-233).
   it.runIf(process.platform === "darwin")(
-    "still moves a list row ticked at the foot of a scrolled page (DEM-233), by a real pointer, asserted on its paint",
+    "keeps a list row ticked at the foot of a scrolled page where it was (DEM-233), by a real pointer, asserted on its paint",
     async () => {
       const { studio, page, foot } = await listAtFoot("studio-shots-tick-");
       const run = async () => {
@@ -6243,15 +6391,21 @@ describe("the Studio's screenshot set", () => {
         );
         /** The ticked row's own top in the window, and the page's scroll. */
         const where = () =>
-          page.evaluate(
-            (sel) => ({
-              top:
-                document.querySelector(sel)?.getBoundingClientRect().top ??
-                null,
+          page.evaluate((sel) => {
+            const w = window as unknown as { __row?: Element | null };
+            const e = document.querySelector(sel);
+            w.__row ??= e;
+            return {
+              top: e?.getBoundingClientRect().top ?? null,
               scrollY: window.scrollY,
-            }),
-            row,
-          );
+              // Evidence for a red run: the scroll's room, and whether the
+              // ticked row is still the node pressed (a redraw loses the
+              // scroll anchor).
+              scrollable:
+                document.documentElement.scrollHeight - window.innerHeight,
+              sameRow: e === w.__row,
+            };
+          }, row);
         const pressed = await where();
         await page.mouse.click(box.x, box.y);
         await vi.waitFor(
@@ -6287,9 +6441,7 @@ describe("the Studio's screenshot set", () => {
         }
       };
       try {
-        await expect(run(), "DEM-233, and nothing else").rejects.toThrow(
-          /^the ticked row moved [1-9]\d*px in the window/,
-        );
+        await run();
       } finally {
         running = null;
         await studio.stop();

@@ -3919,7 +3919,7 @@ describe("each track has a header the height of its track", () => {
       ).toEqual([true, true]);
     });
 
-    it(`centres the beats on the Clip track, over the trim handles, in ${scheme}`, () => {
+    it(`centres the beats on the Clip track, under the trim handles, in ${scheme}`, () => {
       const { node } = mount(scheme);
       const track = node('[data-track="clip"]').getBoundingClientRect();
       const ticks = [
@@ -3936,8 +3936,10 @@ describe("each track has a header the height of its track", () => {
         ).toBeLessThanOrEqual(1);
       }
       // A beat on the trim's edge — where a take's last action usually sits
-      // — stays visible over the handle, and the handle is still what a
-      // press above or below the beat lands on. Placed onto the handle here
+      // — is under the handle, so the whole handle starts a trim, and the
+      // beat is still reached beside it (the author, 2026-11-19, DEM-232;
+      // over it until then, which left the handle's middle ungrabbable).
+      // Placed onto the handle here
       // rather than found in the fixture, which has no beat on an edge.
       const handle = node('[data-track="clip"] [data-trim="tail"]');
       const beat = ticks[ticks.length - 1] as HTMLElement;
@@ -3954,16 +3956,28 @@ describe("each track has a header the height of its track", () => {
       // Probed just inside the track: an uncut tail sits on the track's own
       // right edge, and the track clips the half of the handle past it.
       const x = Math.min(h.left + h.width / 2, track.right - 2);
-      expect(
-        document.elementFromPoint(x, b.top + b.height / 2),
-        `the trim handle covers a beat on its edge in ${scheme}`,
-      ).toBe(beat);
-      for (const y of [h.top + 4, h.bottom - 4]) {
+      for (const y of [h.top + 4, b.top + b.height / 2, h.bottom - 4]) {
         expect(
           document.elementFromPoint(x, y),
-          `a press at ${y} beside the beat misses the trim handle in ${scheme}`,
+          `a press at ${y} on the handle misses it in ${scheme}`,
         ).toBe(handle);
       }
+      // Beside the handle's press area (its 4px and 3px either side): the
+      // beat's columns outside it, each one probed.
+      const columns: number[] = [];
+      for (let cx = Math.ceil(b.left); cx < b.right; cx += 1)
+        if (cx < h.left - 3 || cx >= h.right + 3) columns.push(cx);
+      expect(
+        columns.length,
+        `premise: the beat (${b.left}-${b.right}) reaches past the handle's press area (${h.left - 3}-${h.right + 3})`,
+      ).toBeGreaterThan(0);
+      const hits = columns.map((cx) =>
+        document.elementFromPoint(cx, b.top + b.height / 2),
+      );
+      expect(
+        hits.some((hit) => hit !== null && beat.contains(hit)),
+        `the beat is not reached beside the handle in ${scheme}: ${JSON.stringify(columns)} hit ${hits.map((hit) => hit?.outerHTML.slice(0, 40)).join(" | ")}`,
+      ).toBe(true);
     });
   }
 });

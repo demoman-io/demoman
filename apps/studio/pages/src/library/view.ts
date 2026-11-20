@@ -288,6 +288,9 @@ export function applySelection(
 ): void {
   const selected: ReadonlySet<string> =
     actions.select === undefined ? new Set() : (selection?.ids ?? new Set());
+  // The first tick, not a render's redraw of a bar already open (a render
+  // leaves the mark on the root and takes the bar out).
+  const opening = selected.size > 0 && !root.hasAttribute("data-selecting");
   root.toggleAttribute("data-selecting", selected.size > 0);
   // Shut while a bulk delete runs: a box unticked then would look spared
   // while the run, which took its list at the start, deletes it. The
@@ -321,7 +324,16 @@ export function applySelection(
     const notices = headers.get(root)?.notices;
     if (notices === undefined) return;
     bar = selectionBar(actions);
+    const below = notices.nextElementSibling;
+    const was = below?.getBoundingClientRect().top;
     notices.after(bar);
+    // The bar opens above what is ticked: on a scrolled page what is below
+    // it stays where it was in the window. The list's scroll anchoring did
+    // not hold, and the ticked row moved 64px down, off a page's foot
+    // (DEM-233). Where anchoring holds (the cards), it has already moved
+    // the scroll by the measure here, and this moves it by nothing.
+    if (opening && below != null && was !== undefined && window.scrollY > 0)
+      window.scrollBy(0, below.getBoundingClientRect().top - was);
   }
   fillBar(bar, selected.size, bulk);
   // The list's sticky head stands under the bar, so it needs the bar's
