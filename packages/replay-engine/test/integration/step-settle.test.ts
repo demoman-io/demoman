@@ -422,8 +422,7 @@ describe("the step-settle probe in a real page", () => {
   // report reads as if the whole page were on the video's clock.
   it("the held clock's pin says a playing video once, and not a paused one", async () => {
     await withPage(async (page) => {
-      const pin = (v: number) =>
-        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      const pin = (v: number) => page.evaluate(`(${PIN_ANIMATIONS})(${v})`);
       await page.evaluate(() => {
         const canvas = document.createElement("canvas");
         canvas.getContext("2d")?.fillRect(0, 0, 10, 10);
@@ -433,14 +432,19 @@ describe("the step-settle probe in a real page", () => {
         video.srcObject = canvas.captureStream();
         document.body.append(video);
       });
-      expect(await pin(0), "premise: not yet playing").toEqual([]);
+      // Not autoplay: a paused one is neither said nor paced (DEM-207).
+      expect(await pin(0), "premise: not yet playing").toEqual({
+        said: [],
+        video: false,
+      });
       await page.evaluate(() =>
         (document.getElementById("clip") as HTMLVideoElement).play(),
       );
-      expect(await pin(33)).toEqual([
-        "a playing video runs on its own clock: it was not held",
-      ]);
-      expect(await pin(66)).toEqual([]);
+      expect(await pin(33)).toEqual({
+        said: ["a playing video runs on its own clock: it was not held"],
+        video: true,
+      });
+      expect(await pin(66)).toEqual({ said: [], video: true });
     });
   });
 
@@ -449,8 +453,12 @@ describe("the step-settle probe in a real page", () => {
   // Red if such an animation moves, or the screen's hold resets it.
   it("the held clock's pin leaves an animation the page paused where it is, and plays it on from there", async () => {
     await withPage(async (page) => {
-      const pin = (v: number) =>
-        page.evaluate(`(${PIN_ANIMATIONS})(${v})`) as Promise<string[]>;
+      const pin = async (v: number) =>
+        (
+          (await page.evaluate(`(${PIN_ANIMATIONS})(${v})`)) as {
+            said: string[];
+          }
+        ).said;
       await page.evaluate(() => {
         const style = document.createElement("style");
         style.textContent =
@@ -508,13 +516,16 @@ describe("the step-settle probe in a real page", () => {
         const a = document.getElementById("spin")?.getAnimations()[0];
         if (a) a.playbackRate = -1;
       });
-      const said = (await page.evaluate(
-        `(${PIN_ANIMATIONS})(1000)`,
-      )) as string[];
-      expect(said).toEqual([
+      const said = async (v: number) =>
+        (
+          (await page.evaluate(`(${PIN_ANIMATIONS})(${v})`)) as {
+            said: string[];
+          }
+        ).said;
+      expect(await said(1000)).toEqual([
         "spin on div: plays at rate -1, which the held clock does not play",
       ]);
-      expect(await page.evaluate(`(${PIN_ANIMATIONS})(1033)`)).toEqual([]);
+      expect(await said(1033)).toEqual([]);
     });
   });
 
