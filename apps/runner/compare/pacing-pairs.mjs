@@ -104,7 +104,10 @@ for (const scriptPath of positionals) {
     // held take records at its scale (without it, at 1x, and no zoom fits).
     standInDisplay: true,
     outDir: join(home, "out"),
-    log: () => {},
+    // The run's own timing lines (walk, mux, still...), on stderr.
+    log: (line) => {
+      if (String(line).includes("timing ")) console.error(line);
+    },
   });
   try {
     const text = readFileSync(resolve(scriptPath), "utf8");

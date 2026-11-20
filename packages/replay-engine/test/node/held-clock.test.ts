@@ -135,7 +135,11 @@ function setup(
     evaluate: async (source, arg, server) => {
       log.push(`pin ${arg}`);
       pins.push({ source, arg, server });
-      return o.pin ? o.pin(arg, source) : [];
+      const r = o.pin ? o.pin(arg, source) : [];
+      // The pin answers { said, video }: a test's list is what it said.
+      return source === PIN_ANIMATIONS && Array.isArray(r)
+        ? { said: r, video: false }
+        : r;
     },
   });
   // A wait that never ends: every sleep of the test is inside it.
@@ -1133,7 +1137,7 @@ describe("createHeldClock", () => {
     let asked = false;
     const { clock, frames } = setup({
       pin: (_, source) => {
-        if (!source.includes("readyState")) return [];
+        if (source === PIN_ANIMATIONS) return [];
         asked = true;
         return ["http://localhost:4402/board/web?key=SECRET", "interactive"];
       },
@@ -1195,7 +1199,7 @@ describe("createHeldClock", () => {
     let asked = false;
     const { clock, sent } = setup({
       pin: (_, source) => {
-        if (!source.includes("readyState")) return [];
+        if (source === PIN_ANIMATIONS) return [];
         asked = true;
         return second();
       },
@@ -1246,7 +1250,7 @@ describe("createHeldClock", () => {
     let asked = false;
     const { clock, frames, sent } = setup({
       pin: (_, source) => {
-        if (!source.includes("readyState")) return [];
+        if (source === PIN_ANIMATIONS) return [];
         asked = true;
         return new Promise(() => undefined);
       },
@@ -1362,7 +1366,55 @@ describe("createHeldClock", () => {
   it("says so when the pin answers no list", async () => {
     const { clock } = setup({ pin: () => undefined });
     await clock.hold(START);
-    await expect(clock.sleep(100)).rejects.toThrow(/not a list/);
+    await expect(clock.sleep(100)).rejects.toThrow(
+      /answered undefined, not the animations it could not pin/,
+    );
+  });
+
+  // DEM-207: ahead of real time, an autoplaying video never had the data
+  // to start, and stood on its first frame (compare/held-probe-video.mjs).
+  it("lets no frame run ahead of real time while a video plays or waits to", async () => {
+    const video = (from: number) =>
+      setup({
+        pin: (heldMs) => ({ said: [], video: heldMs >= from }) as never,
+      });
+    const quiet = video(Number.POSITIVE_INFINITY);
+    await quiet.clock.hold(START);
+    await quiet.clock.sleep(200);
+    // Premise: with no video the clock waits no real time of its own.
+    expect(quiet.log.filter((l) => l.startsWith("wait"))).toEqual([]);
+
+    const { clock, log, frames } = video(2 * HELD_FRAME_MS - 1e-6);
+    await clock.hold(START);
+    await clock.sleep(200);
+    expect(times(frames).length).toBeGreaterThan(4); // premise: frames after it
+    // Seen at frame 2: every grant after it waits its frame out in real time.
+    const waits = log
+      .filter((l) => l.startsWith("wait"))
+      .map((l) => Number(l.slice(5)));
+    expect(waits.length).toBe(frames.length - 2);
+    for (const w of waits) expect(w).toBeCloseTo(HELD_FRAME_MS, 6);
+  });
+
+  // Review of 2026-11-19: real time the clock fell behind was caught up by
+  // grants with no wait, which play the video in slow motion. Red if more
+  // than the one grant after a slow capture goes unwaited.
+  it("skips real time it fell behind once, and paces the frames after it", async () => {
+    const { clock, log, frames } = setup({
+      pin: () => ({ said: [], video: true }) as never,
+      captureMs: (shot) => (shot === 3 ? 200 : 0),
+    });
+    await clock.hold(START);
+    await clock.sleep(300);
+    // Premise: a slow capture, with frames after it.
+    expect(frames.length).toBeGreaterThan(6);
+    const waits = log
+      .filter((l) => l.startsWith("wait"))
+      .map((l) => Number(l.slice(5)));
+    // From the first frame on, every grant waits but the one after the
+    // 200 ms capture, and each waits one frame.
+    expect(waits.length).toBe(frames.length - 2);
+    for (const w of waits) expect(w).toBeCloseTo(HELD_FRAME_MS, 6);
   });
 
   it("refuses to move a clock it has not held", async () => {
@@ -1397,8 +1449,8 @@ describe("PIN_ANIMATIONS", () => {
     },
     ...extra,
   });
-  const pinner = (list: unknown[], window: object = {}) =>
-    new Function(
+  const pinner = (list: unknown[], window: object = {}) => {
+    const pin = new Function(
       "document",
       "DocumentTimeline",
       "window",
@@ -1409,7 +1461,90 @@ describe("PIN_ANIMATIONS", () => {
       DocumentTimeline,
       window,
       () => ({ animationName: "", animationPlayState: "running" }),
-    ) as (heldMs: number) => string[];
+    ) as (heldMs: number) => { said: string[] };
+    return (heldMs: number) => pin(heldMs).said;
+  };
+
+  /** The pin over one <video>, with what it answers whole. */
+  const videoPin = (video: object) =>
+    new Function(
+      "document",
+      "DocumentTimeline",
+      "window",
+      `return (${PIN_ANIMATIONS})`,
+    )(
+      {
+        getAnimations: () => [],
+        querySelectorAll: (s: string) => (s === "video" ? [video] : []),
+      },
+      DocumentTimeline,
+      {},
+    ) as (heldMs: number) => { said: string[]; video: boolean };
+
+  // DEM-207: an autoplaying video short of the data to play through waits
+  // to start; the clock paces it, and one that never starts is said.
+  it("answers a video waiting to start, and says one that waited 3 s", () => {
+    const waiting = {
+      paused: true,
+      ended: false,
+      autoplay: true,
+      played: { length: 0 },
+      readyState: 3,
+      networkState: 2, // NETWORK_LOADING
+      error: null as object | null,
+      currentTime: 0,
+    };
+    const pin = videoPin(waiting);
+    const answers = Array.from({ length: 100 }, (_, k) => pin(k * 33));
+    expect(answers.every((a) => a.video)).toBe(true);
+    expect(answers.flatMap((a, k) => a.said.map((w) => `${k}: ${w}`))).toEqual([
+      "89: a video waited 3 s for its data and had not started playing",
+    ]);
+    // Paused by the page, never asked to play, or not fetching (a broken
+    // source, one Chrome stopped loading): no pace, nothing said.
+    for (const paused of [
+      { ...waiting, played: { length: 1 } },
+      { ...waiting, autoplay: false },
+      { ...waiting, readyState: 4 },
+      { ...waiting, error: { code: 4 } },
+      { ...waiting, networkState: 1 },
+    ])
+      expect(videoPin(paused)(0)).toEqual({ said: [], video: false });
+  });
+
+  // Review of 2026-11-19: a video that played kept the playing entry, with
+  // no wait count, so its wait for a new source was never said.
+  it("says a video that played and then waits on a new source", () => {
+    const clip = {
+      paused: false,
+      ended: false,
+      autoplay: true,
+      played: { length: 1 },
+      readyState: 4,
+      networkState: 1,
+      error: null,
+      currentTime: 0,
+    };
+    const pin = videoPin(clip);
+    // Premise: it was seen playing first.
+    expect(pin(0)).toEqual({
+      said: ["a playing video runs on its own clock: it was not held"],
+      video: true,
+    });
+    // The page sets a new src: nothing played of it, and it loads.
+    Object.assign(clip, {
+      paused: true,
+      played: { length: 0 },
+      readyState: 1,
+      networkState: 2,
+    });
+    const said = Array.from({ length: 95 }, (_, k) =>
+      pin((k + 1) * 33),
+    ).flatMap((a) => a.said);
+    expect(said).toEqual([
+      "a video waited 3 s for its data and had not started playing",
+    ]);
+  });
 
   // DEM-210: a page that replaced querySelectorAll stopped every held run
   // ("could not pin the page's animations ... hostile page").
@@ -1434,10 +1569,11 @@ describe("PIN_ANIMATIONS", () => {
       "DocumentTimeline",
       "window",
       `return (${PIN_ANIMATIONS})`,
-    )(document, DocumentTimeline, window) as (heldMs: number) => string[];
-    expect(pin(40)).toEqual([
-      "a playing video runs on its own clock: it was not held",
-    ]);
+    )(document, DocumentTimeline, window) as (heldMs: number) => unknown;
+    expect(pin(40)).toEqual({
+      said: ["a playing video runs on its own clock: it was not held"],
+      video: true,
+    });
   });
 
   // R4: one page call a frame, the page's animation frames before the pin.

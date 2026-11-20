@@ -10,9 +10,10 @@
 # long-poll (a fetch answered after 5 s, asked again at once), stream (a
 # fetch whose body sends a chunk every 2 s and never ends), video (the first
 # click adds a muted autoplaying video whose 10 s file arrives over about
-# 10 s: a media request, which the clock follows and a step's request wait
-# does not; DEM-204). Every page shows what arrives; every flow is three
-# clicks a second apart. Served on 127.0.0.1:${PORT:-4391}. Needs ffmpeg.
+# 10 s: a media request, not the server's time (DEM-202); the clock paces
+# the video to real time instead, DEM-207). Every page shows what arrives;
+# every flow is three clicks a second apart. Served on
+# 127.0.0.1:${PORT:-4391}. Needs ffmpeg.
 set -eu
 [ $# -ge 1 ] || { echo "usage: held-push.sh <out dir> [flow…]" >&2; exit 2; }
 out=$1; shift

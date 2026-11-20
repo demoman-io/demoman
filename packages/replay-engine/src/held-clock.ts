@@ -50,6 +50,11 @@ const EPS = HELD_EPS_MS;
  *  frozen on one picture reads as a still in the recording (DEM-207). */
 const VIDEO_STALL_PINS = 15;
 
+/** Captured frames a video may wait to start playing before it is said
+ *  (3 s): `compare/held-push.sh`'s clip, at about 80 KB/s, started 1.7 s
+ *  in, paced (measured 2026-11-19, DEM-207). */
+const VIDEO_WAIT_PINS = 90;
+
 /** Page script: pins every animation in the document to the held time (ms),
  *  and answers the ones it could not pin, each named once.
  *  An animation's own currentTime runs on Chrome's real clock, so it starts at
@@ -75,10 +80,17 @@ const VIDEO_STALL_PINS = 15;
  *  shadow root or a frame); holding one means seeking it every frame.
  *  One whose `currentTime` stands still while playing (its data stalled)
  *  is said too, once per video (`VIDEO_STALL_PINS`).
- *  shortcut: a picture that stands still while `currentTime` moves (what
- *  DEM-207 saw on a held recording) is not seen; upgrade by counting the
- *  frames it presents (`requestVideoFrameCallback`) once that is measured.
- *  Upgrade if recordings of pages with video matter. */
+ *  One waiting to start (autoplay, nothing played yet, still fetching short
+ *  of the data to play through) is said once it has waited
+ *  `VIDEO_WAIT_PINS` frames.
+ *  Answers `{ said, video }`: what it could not pin, and whether a video
+ *  plays or waits to, which the clock paces to real time (DEM-207).
+ *  shortcut: a video in a frame (an embedded player) or a shadow root is
+ *  neither paced nor said here (a frame of another origin is said as one on
+ *  its own clock, play.ts); upgrade if an app's embed shows frozen.
+ *  shortcut: a picture that stands still while `currentTime` moves is not
+ *  seen; upgrade by counting the frames it presents
+ *  (`requestVideoFrameCallback`) if an app shows it. */
 export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v, server) : [];
@@ -136,8 +148,27 @@ export const PIN_ANIMATIONS = `(v, server) => {
   }
   const stalls = (window.__demomanVideoStalls ??= new WeakMap());
   const query = window.__demomanQuery ?? ((s) => document.querySelectorAll(s));
+  let video = false;
   for (const m of query("video")) {
-    if (m.paused || m.ended) continue;
+    if (m.ended) continue;
+    if (m.paused) {
+      // Autoplay starts once Chrome has the data to play through: on a
+      // clock ahead of real time, never (DEM-207). Only one still fetching
+      // waits for it (networkState 2, NETWORK_LOADING): a broken source, or
+      // one Chrome stopped loading, is not paced or said as waiting.
+      if (!m.autoplay || m.played.length > 0 || m.readyState >= 4) continue;
+      if (m.error || m.networkState !== 2) continue;
+      video = true;
+      // A video that played and loads a new source waits again: its entry
+      // may be the playing one's, with no count yet.
+      const w = stalls.get(m) ?? { t: m.currentTime, n: 0, said: false };
+      stalls.set(m, w);
+      w.waited = (w.waited ?? 0) + 1;
+      if (w.waited === ${VIDEO_WAIT_PINS})
+        unpinned.push("a video waited ${Math.round((VIDEO_WAIT_PINS * HELD_FRAME_MS) / 1000)} s for its data and had not started playing");
+      continue;
+    }
+    video = true;
     if (!window.__demomanVideoSaid) {
       window.__demomanVideoSaid = true;
       unpinned.push("a playing video runs on its own clock: it was not held");
@@ -152,7 +183,7 @@ export const PIN_ANIMATIONS = `(v, server) => {
       unpinned.push("a video stopped on one frame while playing");
     }
   }
-  return unpinned;
+  return { said: unpinned, video };
 }`;
 
 /** Page script for every document of a held recording: Chrome runs
@@ -457,6 +488,9 @@ export function createHeldClock(deps: {
   /** Real ms the last wait on the page ended at: data after it is unpaced. */
   let leftWaitAt = Number.NEGATIVE_INFINITY;
   let unpacedAt: number | null = null;
+  /** Where the pin first saw a video playing or waiting to, in real and
+   *  held time; null while none is (`grant`). */
+  let videoFrom: { real: number; held: number } | null = null;
 
   const pause = async (initialVirtualTime: number) => {
     try {
@@ -477,6 +511,19 @@ export function createHeldClock(deps: {
    *  (measured 2026-11-15, apps/runner/compare/held-probe-navigation.mjs). */
   const grant = async (to: number) => {
     if (startEpochMs === null) throw new Error("grant before hold");
+    // A video plays on Chrome's real clock, and autoplay starts only once
+    // its download keeps up with page time: ahead of real time, one stood
+    // on its first frame (DEM-207). While the pin sees one playing or
+    // waiting to, no grant ends ahead of real time, as Chrome paces a page
+    // without the held switches.
+    // Real time the clock fell behind (a slow capture, the walk's own work)
+    // is skipped once, not caught up: grants with no wait would play the
+    // video in slow motion until held time caught up.
+    if (videoFrom !== null) {
+      const ahead = to - videoFrom.held - (realNow() - videoFrom.real);
+      if (ahead > 0) await wait(ahead);
+      else videoFrom = { real: realNow(), held: to };
+    }
     grantAt = realNow();
     const epochMs = startEpochMs;
     await advance(to);
@@ -629,12 +676,16 @@ export function createHeldClock(deps: {
         `could not pin the page's animations at ${held} ms (${(e as Error).message})`,
       );
     }
-    if (!Array.isArray(failed))
+    const pinned = failed as { said?: unknown; video?: unknown } | null;
+    if (!Array.isArray(pinned?.said))
       throw new Error(
-        `the animation pin at ${held} ms answered ${String(failed)}, not a list of the animations it could not pin`,
+        `the animation pin at ${held} ms answered ${JSON.stringify(failed)}, not the animations it could not pin`,
       );
-    for (const what of failed)
+    for (const what of pinned.said)
       unpinned.push({ atMs: held, what: String(what) });
+    // From where it was first seen: the pace is counted from there.
+    if (pinned.video !== true) videoFrom = null;
+    else videoFrom ??= { real: realNow(), held };
     const shot = await answered(deps.capture(), "its screenshot");
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
