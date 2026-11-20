@@ -1,0 +1,12 @@
+{
+  "name": "Pick a plan with the keyboard",
+  "target": "http://127.0.0.1:8130/native-select-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "plan" } },
+    { "do": "press", "key": "ArrowDown" },
+    { "do": "press", "key": "Enter" },
+    { "do": "click", "on": { "stableId": "continue" } }
+  ]
+}

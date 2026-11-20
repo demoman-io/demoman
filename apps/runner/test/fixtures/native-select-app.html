@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Plan picker</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 40px; }
+      select, button { font: inherit; margin: 8px 0; padding: 6px 10px; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- DEM-158: can a script pick from a native <select>? #continue
+         exists only once the value is really Team, so a pick that did
+         nothing stops the run at the last step instead of completing. -->
+    <label>Plan
+      <select id="plan">
+        <option>Free</option>
+        <option>Team</option>
+        <option>Enterprise</option>
+      </select>
+    </label>
+    <p id="chosen">Plan: Free</p>
+    <button type="button" id="continue" hidden>Continue with Team</button>
+    <script>
+      const plan = document.getElementById("plan");
+      plan.addEventListener("change", () => {
+        document.getElementById("chosen").textContent = `Plan: ${plan.value}`;
+        document.getElementById("continue").hidden = plan.value !== "Team";
+      });
+    </script>
+  </body>
+</html>

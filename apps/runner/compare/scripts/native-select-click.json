@@ -1,0 +1,11 @@
+{
+  "name": "Pick a plan by clicking its option",
+  "target": "http://127.0.0.1:8130/native-select-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "plan" } },
+    { "do": "click", "on": { "text": "Team" } },
+    { "do": "click", "on": { "stableId": "continue" } }
+  ]
+}

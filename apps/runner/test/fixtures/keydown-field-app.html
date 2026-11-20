@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Key events</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 40px; }
+      input, button { font: inherit; margin: 8px 0; padding: 6px 10px; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- DEM-156: does `type` fire key events? The field counts `input` and
+         `keydown` apart. #typed appears on the first `input` (the control:
+         the text landed); #suggestion appears only on a printable
+         `keydown`, as an autocomplete that opens on keys does. A modifier
+         key does not count: `type` sends Ctrl+A to select the field first
+         (walk.ts), which would reveal it with no character typed. -->
+    <label>Company <input id="company" autocomplete="off" /></label>
+    <p id="input-log">input events: 0</p>
+    <p id="key-log">keydown events: 0</p>
+    <p id="keys-seen">keys seen:</p>
+    <button type="button" id="typed" hidden>Input saw text</button>
+    <button type="button" id="suggestion" hidden>Northwind Traders</button>
+    <script>
+      const field = document.getElementById("company");
+      let inputs = 0;
+      let keys = 0;
+      field.addEventListener("input", () => {
+        inputs += 1;
+        document.getElementById("input-log").textContent = `input events: ${inputs}`;
+        document.getElementById("typed").hidden = false;
+      });
+      const seen = [];
+      field.addEventListener("keydown", (e) => {
+        keys += 1;
+        const mods = (e.ctrlKey ? "Ctrl+" : "") + (e.metaKey ? "Meta+" : "");
+        seen.push(mods + (e.key || "?"));
+        document.getElementById("key-log").textContent = `keydown events: ${keys}`;
+        document.getElementById("keys-seen").textContent = `keys seen: ${seen.join(" ")}`;
+        // A key sent as text with no `key` (CDP allows that) still counts as typed.
+        const named = e.key.length === 1 || e.key === "" || e.key === "Unidentified";
+        const printable = named && !e.ctrlKey && !e.metaKey;
+        if (printable) document.getElementById("suggestion").hidden = false;
+      });
+    </script>
+  </body>
+</html>

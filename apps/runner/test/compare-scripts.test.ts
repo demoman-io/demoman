@@ -1,14 +1,15 @@
 // apps/runner/test/compare-scripts.test.ts
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadScript } from "../src/compare/scripts.js";
 
 const DIR = join(import.meta.dirname, "..", "compare", "scripts");
+const FIXTURES = join(import.meta.dirname, "fixtures");
 const places = { sample: "http://127.0.0.1:5000" };
 
 describe("film:compare's scripts", () => {
-  it("are the ten, and each is a valid DemoScript once its places are filled", () => {
+  it("are the fifteen, and each is a valid DemoScript once its places are filled", () => {
     const files = readdirSync(DIR)
       .filter((f) => f.endsWith(".json"))
       .sort();
@@ -18,12 +19,19 @@ describe("film:compare's scripts", () => {
     // (2026-10-27); `button-run.json` the camera's follow through a run
     // (2026-10-22); `video-as-code.json` the script's trim and per-click
     // zoom (2026-11-02); `same-document.json` an address change inside one
-    // document (DEM-61, 2026-11-07).
+    // document (DEM-61, 2026-11-07). Five are input-coverage go/no-gos
+    // (DEM-156, 158, 160, 161), against four fixture pages (the two
+    // native-select scripts share one).
     expect(files).toEqual([
       "actual.json",
       "button-run.json",
       "chatbot.json",
+      "confirm-dialog.json",
       "excalidraw.json",
+      "keydown-field.json",
+      "native-select-click.json",
+      "native-select-keys.json",
+      "new-tab.json",
       "same-document.json",
       "sample-app.json",
       "tremor-filter.json",
@@ -31,10 +39,20 @@ describe("film:compare's scripts", () => {
       "video-as-code.json",
       "wikipedia.json",
     ]);
+    let served = 0;
     for (const f of files) {
       const got = loadScript(join(DIR, f), places);
       expect(got, f).toMatchObject({ ok: true });
+      // A script served from the fixtures folder must name a page that is there.
+      const page =
+        got.ok &&
+        /^http:\/\/127\.0\.0\.1:8130\/(.+)$/.exec(got.script.target)?.[1];
+      if (!page) continue;
+      served += 1;
+      expect(existsSync(join(FIXTURES, page)), `${f}: ${page}`).toBe(true);
     }
+    // same-document.json and the five input go/no-gos: the check above ran.
+    expect(served).toBe(6);
   });
 
   it("fills {sample}", () => {
