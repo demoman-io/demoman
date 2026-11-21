@@ -412,4 +412,41 @@ describe("editor main — the inspector, wired", () => {
     expect(puts()).toHaveLength(0);
     expect(document.querySelector('[data-tick="act-1"]')).not.toBeNull();
   });
+
+  // DEM-242: "Zoom on this step" starts at the level the take recorded
+  // (`zoomDefault`), as the zooms Demoman generated did; a take without the
+  // record starts at 1.8x.
+  it.each([
+    [
+      "a held take, at its recorded level",
+      { scale: 1.35, stillScale: 2 },
+      1.35,
+    ],
+    ["a take with no record, at the camera's default", undefined, 1.8],
+  ] as const)(
+    "adds a zoom on this step on %s",
+    async (_, zoomDefault, scale) => {
+      memory.serveScene(() => ({
+        ...zoomedScene(),
+        ...(zoomDefault === undefined ? {} : { zoomDefault }),
+      }));
+      await boot();
+      select("act-2");
+      (
+        document.querySelector(
+          '[data-zoom-on-step="act-2"]',
+        ) as HTMLButtonElement
+      ).click();
+      const put = await vi.waitFor(() => {
+        const found = puts()[0];
+        if (!found) throw new Error("no scene:put yet");
+        return found;
+      });
+      const added = (put.scene as SceneDocument).camera.filter(
+        (c) => c.id !== "cam-1",
+      );
+      expect(added).toHaveLength(1);
+      expect(added[0]?.scale).toBe(scale);
+    },
+  );
 });

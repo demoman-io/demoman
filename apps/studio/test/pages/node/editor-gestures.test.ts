@@ -22,6 +22,7 @@ import {
   type EditCommand,
 } from "../../../pages/src/editor/commands";
 import {
+  addedZoomScale,
   type Gesture,
   type GestureContext,
   isRefusal,
@@ -53,7 +54,12 @@ function setup(scene = readonlyScene(), bundle = proceduralBundle()) {
     resolved,
     hoverReport: null,
   });
-  const ctx: GestureContext = { resolved, bundle, viewport: VIEWPORT };
+  const ctx: GestureContext = {
+    resolved,
+    bundle,
+    viewport: VIEWPORT,
+    zoomScale: addedZoomScale(scene),
+  };
   return { scene, model, view, ctx };
 }
 

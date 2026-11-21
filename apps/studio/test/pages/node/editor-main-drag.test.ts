@@ -523,4 +523,45 @@ describe("editor main — what a drag's three outcomes each do", () => {
     // The distinction this test exists for: no edit AND no complaint.
     expect(refusalText()).toBe("");
   });
+
+  // DEM-242: a zoom added on the Zoom lane starts at the level the take
+  // recorded (`zoomDefault`, what a held take's 2x frames back), as the
+  // zooms Demoman generated did; a take without the record starts at 1.8x.
+  it.each([
+    [
+      "a held take, at its recorded level",
+      { scale: 1.35, stillScale: 2 },
+      1.35,
+    ],
+    ["a take with no record, at the camera's default", undefined, 1.8],
+  ] as const)(
+    "adds a zoom on the Zoom lane on %s",
+    async (_, zoomDefault, scale) => {
+      memory.serveScene(() => ({
+        ...zoomedScene(),
+        ...(zoomDefault === undefined ? {} : { zoomDefault }),
+      }));
+      await boot();
+      const track = document.querySelector(
+        '[data-track="zoom"]',
+      ) as HTMLElement;
+      track.getBoundingClientRect = () =>
+        ({ left: 0, width: TRACK_WIDTH, right: TRACK_WIDTH }) as DOMRect;
+      // Well clear of cam-1, which sits on act-3 at the take's end.
+      track.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, clientX: TRACK_WIDTH * 0.2 }),
+      );
+      const put = await vi.waitFor(() => {
+        const found = puts()[0];
+        if (!found)
+          throw new Error(`no scene:put yet; refusal: ${refusalText()}`);
+        return found;
+      });
+      const added = (put.scene as SceneDocument).camera.filter(
+        (c) => c.id !== "cam-1",
+      );
+      expect(added).toHaveLength(1);
+      expect(added[0]?.scale).toBe(scale);
+    },
+  );
 });
