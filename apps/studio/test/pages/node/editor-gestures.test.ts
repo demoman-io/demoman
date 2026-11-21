@@ -22,6 +22,7 @@ import {
   type EditCommand,
 } from "../../../pages/src/editor/commands";
 import {
+  addedZoomScale,
   type Gesture,
   type GestureContext,
   isRefusal,
@@ -53,7 +54,12 @@ function setup(scene = readonlyScene(), bundle = proceduralBundle()) {
     resolved,
     hoverReport: null,
   });
-  const ctx: GestureContext = { resolved, bundle, viewport: VIEWPORT };
+  const ctx: GestureContext = {
+    resolved,
+    bundle,
+    viewport: VIEWPORT,
+    zoomScale: addedZoomScale(scene),
+  };
   return { scene, model, view, ctx };
 }
 
@@ -201,6 +207,34 @@ describe("addZoom", () => {
     if (cmd.kind !== "addZoom") throw new Error("kind");
     expect(cmd.target.kind).toBe("point");
     expect(cmd).not.toHaveProperty("note");
+  });
+
+  it("starts at the level the context carries, not the camera's default (DEM-242)", () => {
+    const s = setup();
+    const t2 = s.model.clip.ticks[1];
+    if (!t2) throw new Error("fixture");
+    // Premise: the level under test is not the one the setup reads.
+    expect(s.ctx.zoomScale).toBe(CAMERA_DEFAULTS.defaultZoomScale);
+    const cmd = command(
+      resolveGesture(
+        s.model,
+        s.view,
+        { kind: "addZoom", atMs: t2.atMs + 1500, snapMs: 0 },
+        { ...s.ctx, zoomScale: 1.35 },
+      ),
+    );
+    expect(cmd).toMatchObject({ kind: "addZoom", scale: 1.35 });
+  });
+
+  it("reads a take's recorded level, and the camera's default without one or below 1x", () => {
+    expect(
+      addedZoomScale({ zoomDefault: { scale: 1.35, stillScale: 2 } }),
+    ).toBe(1.35);
+    expect(addedZoomScale({})).toBe(CAMERA_DEFAULTS.defaultZoomScale);
+    // `addZoom` refuses 1x, so a record that low would make every add fail.
+    expect(addedZoomScale({ zoomDefault: { scale: 1, stillScale: 1 } })).toBe(
+      CAMERA_DEFAULTS.defaultZoomScale,
+    );
   });
 
   it("aims at the recorded cursor position between ticks", () => {

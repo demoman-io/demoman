@@ -133,8 +133,8 @@ function dragBox(
  * auto-zoom removed on 2026-08-30, which was a rule applied at render time
  * that refilled whatever the author deleted, so the lane could only be
  * argued with (v8 §6). On a held take whose stills back less, the default
- * scale is the take's `zoomDefault`; the editor still writes 1.8x until
- * DEM-242.
+ * scale is the take's `zoomDefault`, and a zoom the editor adds starts there
+ * too (`addedZoomScale`, DEM-242).
  *
  * Close clicks. Every click gets its zoom however close it follows the one
  * before: where there is no room to return to full frame between two

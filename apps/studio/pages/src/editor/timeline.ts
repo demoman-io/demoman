@@ -1,5 +1,4 @@
 import {
-  CAMERA_DEFAULTS,
   type FrameBundle,
   gapPacedLive,
   isRealTime,
@@ -221,7 +220,8 @@ export function buildTimelineView(args: {
           event.marker.actionId,
           {
             id: event.id,
-            scale: event.scale ?? CAMERA_DEFAULTS.defaultZoomScale,
+            // No scale is no zoom, as the renderer and the lanes read it.
+            scale: event.scale ?? 1,
             offsetMs: event.marker.offsetMs,
           },
         ]),

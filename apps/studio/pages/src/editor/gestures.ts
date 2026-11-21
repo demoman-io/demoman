@@ -6,7 +6,11 @@ import {
   toSourceMs,
 } from "@demoman/compositor";
 import { MIN_ZOOM_GAP_MS } from "@demoman/run-core";
-import type { SceneMarker, SourcePoint } from "@demoman/scene-schema";
+import type {
+  SceneDocument,
+  SceneMarker,
+  SourcePoint,
+} from "@demoman/scene-schema";
 import type { EditCommand, ZoomTarget } from "./commands";
 import { type LaneModel, type MaskSeg, markerAt, type ZoomSeg } from "./lanes";
 import { defaultMaskRect } from "./masks";
@@ -79,6 +83,26 @@ export interface GestureContext {
   resolved: ResolvedPlan | null;
   bundle: FrameBundle | null;
   viewport: { width: number; height: number };
+  /** The level a new zoom starts at: `addedZoomScale(scene)`. */
+  zoomScale: number;
+}
+
+/**
+ * The level a zoom the author adds starts at: the take's recorded
+ * `zoomDefault` (what its stills back, DEM-164), else the camera's default.
+ * The take decided it when it was saved; both ways of adding a zoom read
+ * that record rather than deciding again (DEM-242).
+ */
+export function addedZoomScale(
+  scene: Pick<SceneDocument, "zoomDefault">,
+): number {
+  const recorded = scene.zoomDefault?.scale;
+  // The schema allows any positive scale, but `addZoom` refuses 1x and
+  // below; a record that low (never written: the floor is 1.2x) would make
+  // every add fail, so it gets the camera's default and the export's cut.
+  return recorded !== undefined && recorded > 1
+    ? recorded
+    : CAMERA_DEFAULTS.defaultZoomScale;
 }
 
 /**
@@ -558,7 +582,7 @@ export function resolveGesture(
       const placementNote = movedPast
         ? `Placed ${movedPast.side} the zoom at ${clock(movedPast.zoom.startMs)}: there was no room at ${clock(gesture.atMs)}.`
         : null;
-      const scale = CAMERA_DEFAULTS.defaultZoomScale;
+      const scale = ctx.zoomScale;
       // The cursor, by default, and at the instant the zoom actually lands.
       // Until 2026-09-14 a click within the snap band of a tick that could
       // zoom aimed at that step's element instead; the inspector's "Zoom on

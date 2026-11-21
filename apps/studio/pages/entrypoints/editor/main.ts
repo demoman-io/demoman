@@ -1,5 +1,4 @@
 import {
-  CAMERA_DEFAULTS,
   composeForTarget,
   createImageFrameSource,
   createVideoFrameSource,
@@ -83,6 +82,7 @@ import {
   targetFor,
 } from "../../src/editor/formats";
 import {
+  addedZoomScale,
   type Gesture,
   type GestureContext,
   type GestureResult,
@@ -2370,6 +2370,7 @@ function render(snapshot: SessionSnapshot): void {
     resolved,
     bundle: snapshot.bundle,
     viewport: snapshot.scene.meta.capture.viewport,
+    zoomScale: addedZoomScale(snapshot.scene),
   };
   // Named so `renderTimelineTools` can share them: `Snap` and
   // `Fit` moved off the timeline's own bar onto `#transport`, but the
@@ -2576,7 +2577,7 @@ function render(snapshot: SessionSnapshot): void {
           kind: "addZoom",
           marker: { actionId, offsetMs: 0 },
           target: { kind: "element", anchorId: beat.anchorId },
-          scale: CAMERA_DEFAULTS.defaultZoomScale,
+          scale: addedZoomScale(session.snapshot().scene),
         }).then(() => {
           const added = session
             .snapshot()
@@ -3968,6 +3969,7 @@ function runShortcut(
             resolved,
             bundle: snapshot.bundle,
             viewport: snapshot.scene.meta.capture.viewport,
+            zoomScale: addedZoomScale(snapshot.scene),
           },
         ),
       );
