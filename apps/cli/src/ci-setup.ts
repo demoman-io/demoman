@@ -86,9 +86,11 @@ const labelOf = (t: CiOptions["trigger"], branch: string): string =>
         release: "when a release is published",
         daily: "once a day",
         push: `on each merge to ${branch}`,
+        manual: "only when run by hand",
       }[t];
 
-/** The spec's order: deployment (one per environment), release, daily, push. */
+/** The spec's order: deployment (one per environment), release, daily, push,
+ *  then manual (DEM-248). */
 export function triggerOffers(f: GithubFacts): TriggerOffer[] {
   const offer = (
     trigger: CiOptions["trigger"],
@@ -152,6 +154,11 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
       "records only when something changed since the last run",
     ),
     offer("push", true, "records on every merge, the most runner time"),
+    offer(
+      "manual",
+      true,
+      "records only when someone runs it from the Actions tab",
+    ),
   ];
 }
 
@@ -172,14 +179,20 @@ export function triggerNote(f: GithubFacts): string | null {
   ];
   return parts.length === 0
     ? null
-    : `Not listed: ${parts.join("; ")}. To trigger on one, run setup with --trigger <environment>, which looks it up.`;
+    : `Not listed: ${parts.join("; ")}. To trigger on one, run setup with --trigger <environment>, which looks it up (--trigger deployment:<environment> for one named release, daily, push or manual).`;
 }
 
-/** Decision 3: the first offered of deployment, release, daily; never push. */
+/** Decision 3: the first offered of deployment, release, daily; never push,
+ *  nor manual, which records nothing until someone runs it. */
 export function defaultTrigger(offers: TriggerOffer[]): CiOptions["trigger"] {
   return (
-    offers.find((o) => o.offered && o.trigger !== "push" && !o.transient)
-      ?.trigger ?? "daily"
+    offers.find(
+      (o) =>
+        o.offered &&
+        o.trigger !== "push" &&
+        o.trigger !== "manual" &&
+        !o.transient,
+    )?.trigger ?? "daily"
   );
 }
 

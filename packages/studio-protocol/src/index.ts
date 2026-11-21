@@ -612,6 +612,7 @@ export type CiTriggerWire =
   | "push"
   | "release"
   | "daily"
+  | "manual"
   | { deployment: string };
 export interface CiChoicesWire {
   trigger?: CiTriggerWire;

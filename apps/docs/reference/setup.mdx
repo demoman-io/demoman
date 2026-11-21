@@ -27,7 +27,7 @@ asked.
 ## setup --ci
 
 ```bash
-npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
+npx demoman setup --ci [--trigger release|daily|push|manual|<environment>] [--route pr|main] [--artifact]
   [--yes] [--env-file <path>] [--replace-secret <NAME>]...
 ```
 
@@ -43,10 +43,11 @@ you can fix it and run setup again.
 
 | Flag | |
 | --- | --- |
-| `--trigger <environment>` | After each successful deployment to that environment; records the deployed app (`deployment:<name>` for an environment named `release`, `daily` or `push`) |
+| `--trigger <environment>` | After each successful deployment to that environment; records the deployed app (`deployment:<name>` for an environment named `release`, `daily`, `push` or `manual`) |
 | `--trigger release` | When a release is published, at its tag |
 | `--trigger daily` | Once a day, or by hand from the Actions tab (Demoman → Run workflow). A day with nothing new stops before Chromium and the app |
 | `--trigger push` | On each push to the default branch, or by hand; records every repo flow each time |
+| `--trigger manual` | Only by hand from the Actions tab (Demoman → Run workflow); records every repo flow each time. A run started on another branch fails and names the branch to use |
 | `--route pr\|main` | Open a pull request with the changed files (the default), or commit them to the branch. Deployment and release cannot use `main` |
 | `--artifact` | Keep every `files` flow's video and receipt in the `demoman-videos` artifact, compared against the last run's. On without the flag when a repo flow delivers `files`: CI writes those videos only there, and the plan says so |
 | `--yes` | Confirm the plan with its defaults. With no terminal and no `--yes`, nothing is written and the missing flags are named |
@@ -55,8 +56,8 @@ you can fix it and run setup again.
 
 The default trigger is a deployment if the repo has a successful one that
 names a URL (a production environment first, never a preview), else release
-if it publishes releases, else daily. Push is never the default; the plan
-shows its measured cost per merge.
+if it publishes releases, else daily. Push and manual are never the default;
+the plan shows push's measured cost per merge.
 
 The plan's files: `.github/workflows/demoman.yml`, `.demoman/app.json`,
 `.demoman/accounts.json` unless committed as is, a `.demoman/secrets.env` line

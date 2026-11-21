@@ -35,7 +35,7 @@ export const SETUP_BUN = "0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0";
 
 export interface CiOptions {
   version: string;
-  trigger: "push" | "release" | "daily" | { deployment: string };
+  trigger: "push" | "release" | "daily" | "manual" | { deployment: string };
   route: "pr" | "main";
   /** The branch a push trigger watches; `main` when not given. */
   branch?: string;
@@ -79,7 +79,7 @@ elif [ "$code" -ne 0 ]; then
 fi`;
 
 export const RELEASE_MAIN =
-  "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.";
+  "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily, push or manual trigger.";
 
 export const FORK_REFUSAL =
   "Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.";
@@ -100,11 +100,11 @@ function secretNames(o: CiOptions): string[] {
   ];
 }
 
-/** Whether the workflow also runs by hand (`workflow_dispatch`, DEM-62): a
+/** Whether the workflow runs by hand (`workflow_dispatch`, DEM-62): a
  *  release or deployment trigger records that release or deployment, which
- *  a manual run lacks. */
+ *  a manual run lacks. Manual runs only by hand (DEM-248). */
 export const runsByHand = (trigger: CiOptions["trigger"]): boolean =>
-  trigger === "push" || trigger === "daily";
+  trigger === "push" || trigger === "daily" || trigger === "manual";
 
 function shapeOf(o: CiOptions) {
   const deployment =
@@ -176,25 +176,26 @@ export function ciWorkflow(o: CiOptions): string {
     throw new Error(DEPLOYMENT_MAIN);
   }
   if (kind === "release" && o.route === "main") throw new Error(RELEASE_MAIN);
-  const on = `${
+  const on = [
     {
       push: `  push:\n    branches: [${branch}]`,
       release: "  release:\n    types: [published]",
       daily: '  schedule:\n    - cron: "17 6 * * *"',
       deployment: "  deployment_status:",
-    }[kind]
-  }${runsByHand(o.trigger) ? "\n  workflow_dispatch:" : ""}`;
-  // A manual run picks its branch: refresh only the branch this watches,
-  // never record a feature branch and deliver it.
-  const byHand = `(github.event_name != 'workflow_dispatch' || github.ref_name == '${branch}')`;
+      manual: null,
+    }[kind],
+    runsByHand(o.trigger) ? "  workflow_dispatch:" : null,
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+  // A manual run off the watched branch is refused by the job's first
+  // step (offBranchStep), so the run fails and says why, never skipped.
   const guard =
     kind === "push"
-      ? `!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]' && ${byHand}`
+      ? `!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]'`
       : kind === "deployment"
         ? `github.event.deployment_status.state == 'success' && github.event.deployment.environment == '${deployment}'`
-        : kind === "daily"
-          ? byHand
-          : null;
+        : null;
   const refreshIf = expr(
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );
@@ -318,8 +319,8 @@ ${DEPLOYED_SCRIPT.split("\n")
       ? `      - name: Fetch the last run's videos${ifEarly}
         env:
           GH_TOKEN: ${expr("github.token")}
-          EVENT: ${{ push: "push", release: "release", daily: "schedule", deployment: "deployment_status" }[kind]}
-          BRANCH: "${kind === "push" || kind === "daily" ? branch : ""}"
+          EVENT: ${{ push: "push", release: "release", daily: "schedule", deployment: "deployment_status", manual: "workflow_dispatch" }[kind]}
+          BRANCH: "${kind === "push" || kind === "daily" || kind === "manual" ? branch : ""}"
           ENVIRONMENT: "${deployment ?? ""}"
         run: |
           wf=\${GITHUB_WORKFLOW_REF%%@*}
@@ -425,8 +426,21 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
           echo "::error::${FORK_REFUSAL}"
           exit 1
 `;
-  // First: a fork's pull request fails in seconds, before any install.
-  return `${deliver ? "" : forkStep}      - uses: actions/checkout@v4
+  // A manual run picks its branch: record only the branch this watches,
+  // never a feature branch delivered, and say so rather than skip (DEM-248).
+  // The branch is checked against [\w./-]+, so it is safe in the echo.
+  const offBranchStep =
+    deliver && runsByHand(o.trigger)
+      ? `      - name: A run by hand records ${branch} only
+        if: ${expr(`github.event_name == 'workflow_dispatch' && github.ref_name != '${branch}'`)}
+        run: |
+          echo "::error::This workflow records ${branch} only, and this run was started on $GITHUB_REF_NAME, so nothing was recorded. Run it again from ${branch}: Actions → Demoman → Run workflow, Use workflow from ${branch}."
+          exit 1
+`
+      : "";
+  // First: a fork's pull request, or a manual run on the wrong branch,
+  // fails in seconds, before any install.
+  return `${deliver ? offBranchStep : forkStep}      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           # A committed video in LFS is compared, not replaced as a pointer.
@@ -504,7 +518,7 @@ echo "This check records the newest successful $ENVIRONMENT deployment: $url"
 echo "url=$url" >> "$GITHUB_OUTPUT"`;
 
 export const DEPLOYMENT_MAIN =
-  "--route main cannot go with a deployment trigger: the deployed commit is not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a push trigger.";
+  "--route main cannot go with a deployment trigger: the deployed commit is not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a push, daily or manual trigger.";
 
 /** The terminal's questions; null (or false from confirm) is a cancel. */
 export type CiAsk = {
@@ -597,7 +611,9 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const given = flags.trigger === undefined ? null : triggerOf(flags.trigger);
   if (ask === null && flags.yes !== true) {
     const missing = [
-      ...(given === null ? ["--trigger release|daily|push|<environment>"] : []),
+      ...(given === null
+        ? ["--trigger release|daily|push|manual|<environment>"]
+        : []),
       // Release and deployment triggers deliver by pull request only.
       ...(route === undefined && (given === null || mainCan(given))
         ? ["--route pr|main"]
@@ -825,13 +841,18 @@ async function fillHoles(
 
 /** Whether `--route main` can go with the trigger. */
 const mainCan = (t: CiOptions["trigger"]): boolean =>
-  t === "push" || t === "daily";
+  t === "push" || t === "daily" || t === "manual";
 
-/** A `--trigger` value: the three words are triggers,
+/** A `--trigger` value: the four words are triggers,
  *  `deployment:<name>` an environment of any name, and any other word an
  *  environment as before. */
 function triggerOf(given: string): CiOptions["trigger"] {
-  if (given === "push" || given === "release" || given === "daily")
+  if (
+    given === "push" ||
+    given === "release" ||
+    given === "daily" ||
+    given === "manual"
+  )
     return given;
   return {
     deployment: given.startsWith("deployment:") ? given.slice(11) : given,
