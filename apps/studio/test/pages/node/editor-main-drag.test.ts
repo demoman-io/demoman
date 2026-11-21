@@ -561,6 +561,13 @@ describe("editor main — what a drag's three outcomes each do", () => {
         (c) => c.id !== "cam-1",
       );
       expect(added).toHaveLength(1);
+      // Premise of "well clear of cam-1": the click landed where it was
+      // aimed, not moved past cam-1 by `placeZoom`.
+      expect(added[0]?.marker.actionId).not.toBe("act-3");
+      expect(added[0]?.note ?? "").not.toMatch(
+        /Placed (before|after) the zoom/,
+      );
+      expect(refusalText()).toBe("");
       expect(added[0]?.scale).toBe(scale);
     },
   );

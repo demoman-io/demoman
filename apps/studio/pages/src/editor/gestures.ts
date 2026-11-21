@@ -93,9 +93,17 @@ export interface GestureContext {
  * The take decided it when it was saved; both ways of adding a zoom read
  * that record rather than deciding again (DEM-242).
  */
-export const addedZoomScale = (
+export function addedZoomScale(
   scene: Pick<SceneDocument, "zoomDefault">,
-): number => scene.zoomDefault?.scale ?? CAMERA_DEFAULTS.defaultZoomScale;
+): number {
+  const recorded = scene.zoomDefault?.scale;
+  // The schema allows any positive scale, but `addZoom` refuses 1x and
+  // below; a record that low (never written: the floor is 1.2x) would make
+  // every add fail, so it gets the camera's default and the export's cut.
+  return recorded !== undefined && recorded > 1
+    ? recorded
+    : CAMERA_DEFAULTS.defaultZoomScale;
+}
 
 /**
  * A gesture that cannot be applied, and why.
