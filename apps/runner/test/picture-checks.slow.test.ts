@@ -28,6 +28,10 @@ const RUN_MS = 120_000;
 const EXPORT_MS = 240_000;
 const TYPED = "48004800";
 const VIEWPORT = { width: 1280, height: 800 };
+/** How far the found cursor's centre wanders while it stands still: 1-3 px
+ *  on ubuntu-latest (its darkest pixels shift with the encode), under 1 on
+ *  the Mac. */
+const REST_JITTER_PX = 4;
 /** The longest this script's video may run (measured 7417 ms). */
 const LENGTH_MAX_MS = 9_000;
 /** The grating's least edge energy per pixel at the whole page (measured
@@ -301,7 +305,7 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
         Math.hypot(
           (cursor[arrived - 1]?.x ?? 0) - restAt.x,
           (cursor[arrived - 1]?.y ?? 0) - restAt.y,
-        ) <= 2
+        ) <= REST_JITTER_PX
       ) {
         arrived--;
       }
