@@ -350,6 +350,30 @@ describe("a watch that fails", () => {
 const takesAfter = (text: string, from: number) =>
   text.slice(from).split("event: takes\n").length - 1;
 
+/**
+ * A smoke wait that names itself when it times out (DEM-245: "the stream
+ * never matched in 25000 ms", about half the runs on one day, and the
+ * message did not say which of three waits it was). Beside the stream's
+ * text it says how long it waited, what the hub was asked to send, whether
+ * the feed says it is down, and the server's log: none sent is a watch
+ * that heard nothing, sent but not streamed is the socket.
+ */
+async function waitNamed(
+  name: string,
+  harness: Harness,
+  events: Awaited<ReturnType<Harness["stream"]>>,
+  test: (text: string) => boolean,
+): Promise<void> {
+  const started = Date.now();
+  try {
+    await events.waitFor(test, SMOKE_MS);
+  } catch (error) {
+    throw new Error(
+      `${name}: no takes event after ${Date.now() - started} ms. Sent: ${JSON.stringify(harness.sent)}. Unwatched: ${JSON.stringify(harness.feeds.unwatched())}. Log: ${JSON.stringify(harness.logs)}. ${String(error)}`,
+    );
+  }
+}
+
 describe("the real fs.watch (smoke: facts that only grow)", () => {
   it(
     "a take that lands sends at least one takes event",
@@ -360,7 +384,12 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
         const from = events.text().length;
         const started = Date.now();
         await seedTake(home, { id: "t1" });
-        await events.waitFor((t) => takesAfter(t, from) >= 1, SMOKE_MS);
+        await waitNamed(
+          "a landed take",
+          h,
+          events,
+          (t) => takesAfter(t, from) >= 1,
+        );
         console.info(
           `watch smoke: a landed take's event in ${Date.now() - started} ms`,
         );
@@ -381,12 +410,22 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
         const frames = join(home, "takes", "t1", "frames");
         await mkdir(frames, { recursive: true });
         await writeFile(join(frames, "k0.jpg"), "pixels");
-        await events.waitFor((t) => takesAfter(t, 0) >= 1, SMOKE_MS);
+        await waitNamed(
+          "the folder and its frames",
+          h,
+          events,
+          (t) => takesAfter(t, 0) >= 1,
+        );
 
         // Then the rest of the take, scene.json last.
         const landing = events.text().length;
         await seedTake(home, { id: "t1" });
-        await events.waitFor((t) => takesAfter(t, landing) >= 1, SMOKE_MS);
+        await waitNamed(
+          "scene.json landing",
+          h,
+          events,
+          (t) => takesAfter(t, landing) >= 1,
+        );
         const listed = (await h.call(pathFor("takes"))).json() as {
           scenes: { meta: { id: string } }[];
         };
@@ -397,7 +436,12 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
           method: "DELETE",
         });
         expect(r.status, r.text).toBe(200);
-        await events.waitFor((t) => takesAfter(t, deleting) >= 1, SMOKE_MS);
+        await waitNamed(
+          "the delete",
+          h,
+          events,
+          (t) => takesAfter(t, deleting) >= 1,
+        );
       } finally {
         events.close();
       }
