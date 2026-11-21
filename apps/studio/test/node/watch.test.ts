@@ -350,6 +350,62 @@ describe("a watch that fails", () => {
 const takesAfter = (text: string, from: number) =>
   text.slice(from).split("event: takes\n").length - 1;
 
+/** Where a smoke wait counts from: the stream's text and the hub's sends,
+ *  taken together before the change the wait is for. */
+type Mark = { text: number; sent: number };
+const markOf = (
+  harness: Harness,
+  events: Awaited<ReturnType<Harness["stream"]>>,
+): Mark => ({ text: events.text().length, sent: harness.sent.length });
+
+/**
+ * A smoke wait for a takes event after `at`, named when it times out
+ * (DEM-245: "the stream never matched in 25000 ms", about half the runs on
+ * one day, and the message did not say which of three waits it was). It
+ * says how long it waited, what the hub was asked to send and what the
+ * stream got since `at`, whether a feed says it is down, and the server's
+ * log: nothing sent is a watch that heard nothing; sent but not streamed
+ * is the socket. On Linux a null `unwatched` proves nothing (Node swallows
+ * a recursive watch's start errors there, watch.ts), so the platform is
+ * said too.
+ */
+async function waitNamed(
+  name: string,
+  harness: Harness,
+  events: Awaited<ReturnType<Harness["stream"]>>,
+  at: Mark,
+): Promise<void> {
+  const started = Date.now();
+  try {
+    await events.waitFor((t) => takesAfter(t, at.text) >= 1, SMOKE_MS);
+  } catch (error) {
+    throw new Error(
+      `${name}: no takes event after ${Date.now() - started} ms on ${process.platform}. Sent since: ${JSON.stringify(harness.sent.slice(at.sent))}. Streamed since: ${JSON.stringify(events.text().slice(at.text))}. Unwatched: ${JSON.stringify(harness.feeds.unwatched())}. Log: ${JSON.stringify(harness.logs)}.`,
+      { cause: error },
+    );
+  }
+}
+
+/** Resolves once the hub has sent nothing for `ms`: a late report of an
+ *  earlier change (FSEvents can deliver one twice, apart) is spent before
+ *  the next change is counted. */
+async function quiet(harness: Harness, ms = 1_000): Promise<void> {
+  const started = Date.now();
+  let count = harness.sent.length;
+  let since = Date.now();
+  while (Date.now() - since < ms) {
+    if (Date.now() - started > SMOKE_MS)
+      throw new Error(
+        `the hub never went quiet for ${ms} ms: ${JSON.stringify(harness.sent)}`,
+      );
+    await new Promise((done) => setTimeout(done, 50));
+    if (harness.sent.length !== count) {
+      count = harness.sent.length;
+      since = Date.now();
+    }
+  }
+}
+
 describe("the real fs.watch (smoke: facts that only grow)", () => {
   it(
     "a take that lands sends at least one takes event",
@@ -357,10 +413,10 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
       h = await startStudio(home, { settleMs: 250 });
       const events = await h.stream();
       try {
-        const from = events.text().length;
+        const from = markOf(h, events);
         const started = Date.now();
         await seedTake(home, { id: "t1" });
-        await events.waitFor((t) => takesAfter(t, from) >= 1, SMOKE_MS);
+        await waitNamed("a landed take", h, events, from);
         console.info(
           `watch smoke: a landed take's event in ${Date.now() - started} ms`,
         );
@@ -379,25 +435,29 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
       try {
         // The runner's order: the folder and its frames first.
         const frames = join(home, "takes", "t1", "frames");
+        const folder = markOf(h, events);
         await mkdir(frames, { recursive: true });
         await writeFile(join(frames, "k0.jpg"), "pixels");
-        await events.waitFor((t) => takesAfter(t, 0) >= 1, SMOKE_MS);
+        await waitNamed("the folder and its frames", h, events, folder);
 
-        // Then the rest of the take, scene.json last.
-        const landing = events.text().length;
+        // Then the rest of the take, scene.json last. Counted once the
+        // folder's own reports are spent, so only scene.json can answer.
+        await quiet(h);
+        const landing = markOf(h, events);
         await seedTake(home, { id: "t1" });
-        await events.waitFor((t) => takesAfter(t, landing) >= 1, SMOKE_MS);
+        await waitNamed("scene.json landing", h, events, landing);
         const listed = (await h.call(pathFor("takes"))).json() as {
           scenes: { meta: { id: string } }[];
         };
         expect(listed.scenes.map((s) => s.meta.id)).toEqual(["t1"]);
 
-        const deleting = events.text().length;
+        await quiet(h);
+        const deleting = markOf(h, events);
         const r = await h.call(pathFor("takeDelete", { id: "t1" }), {
           method: "DELETE",
         });
         expect(r.status, r.text).toBe(200);
-        await events.waitFor((t) => takesAfter(t, deleting) >= 1, SMOKE_MS);
+        await waitNamed("the delete", h, events, deleting);
       } finally {
         events.close();
       }
