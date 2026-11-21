@@ -233,7 +233,10 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
 
       // The phases, from the picture. The camera: a frame whose picture
       // moved more than a cursor's journey moves it (0.12 at most measured;
-      // the camera's own 0.2-0.84).
+      // the camera's own 0.2-0.84). Its eased first and last frames read
+      // under that (0.10 and 0.13 on ubuntu-latest), so a frame is read as
+      // standing only `margin` ms clear of every frame over it.
+      const margin = 250;
       const firstCamera = read.changes.findIndex((c) => c >= camera);
       const lastCamera = read.changes.reduce(
         (last, c, i) => (c >= camera ? i : last),
@@ -267,7 +270,15 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
       // first). Premise: the field holds it until the camera moves.
       const full = rises.at(-1)?.i ?? -1;
       expect(full, said({ rises })).toBeGreaterThan(firstInField);
-      const typed = before.at(-1) as number;
+      let standing = firstCamera;
+      while (
+        standing > 0 &&
+        (ms[standing] as number) >= (ms[firstCamera] as number) - margin
+      ) {
+        standing--;
+      }
+      // A camera off within `margin` of the last key is check 3's to say.
+      const typed = ink[Math.max(standing, full)] as number;
       expect(typed, said({ rises, typed })).toBeGreaterThanOrEqual(
         0.95 * (ink[full] as number),
       );
@@ -303,7 +314,7 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
       ).toBeGreaterThanOrEqual(SETTLE_MS - frameMs);
 
       // 3. The camera holds until the whole value is in and has settled.
-      // Measured: 500 ms after it. With neither the plan's room before the
+      // Measured: 500 ms after it on the Mac, 516 on ubuntu-latest. With neither the plan's room before the
       // click (`restBefore`) nor the renderer's act-end hold (`actEnds`),
       // 133; either one alone keeps the camera off the typing.
       const settledMs = (ms[firstCamera] as number) - (ms[full] as number);
@@ -312,7 +323,8 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
         said({ fullMs: ms[full], settledMs }),
       ).toBeGreaterThanOrEqual(SETTLE_MS - frameMs);
 
-      // 4. The cursor never jumps. Measured: 17 px a frame at most here, on
+      // 4. The cursor never jumps. Measured: 17 px a frame at most, on the
+      // Mac and ubuntu-latest alike, on
       // its journeys and through the push-in; the jumps 0.9.6 drew were 85
       // and 261 (pointer-lag.test.ts reads 640 wide with the same bound). The
       // cursor sampled every 200 ms (`sampleCursor`) drew 181.
@@ -335,11 +347,10 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
 
       // 5. Sharp when zoomed out: the grating's edges (Sobel energy per
       // pixel), on every frame the camera stands at the whole page, before
-      // its push-in and after its pull-back. Measured
-      // 167-175 on all of them; the camera's eased ends, under the camera
+      // its push-in and after its pull-back. Measured 167-175 on all of them
+      // (171-177 on ubuntu-latest); the camera's eased ends, under the camera
       // threshold, read 83-134 (its motion blur), hence the margin.
       // Premise: frames at the whole page after the pull-back.
-      const margin = 250;
       const cameraMs = ms.filter((_, i) => (read.changes[i] ?? 0) >= camera);
       const atRest = ms
         .map((t, i) => ({ t, i }))
