@@ -403,13 +403,19 @@ export function attachListKeys(
           }
           return true;
         }
-        case "Escape":
+        case "Escape": {
           if (!inCell) return false;
-          focusOn(row);
-          // Back to the row is all this Escape does: the page's own clears
-          // the selection, and must not hear it.
+          // An open ⋯ menu is the innermost thing open: this Escape closes
+          // it, as its light dismiss would had the preventDefault below
+          // not cancelled that (DEM-231).
+          const menu = row.querySelector<HTMLElement>(":popover-open");
+          if (menu !== null) menu.hidePopover();
+          else focusOn(row);
+          // Back to the row (or the menu shut) is all this Escape does: the
+          // page's own clears the selection, and must not hear it.
           event.stopPropagation();
           return true;
+        }
         default:
           return false;
       }

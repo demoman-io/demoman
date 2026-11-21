@@ -515,16 +515,28 @@ function armDrag(
       if (Math.abs(move.clientX - startX) > DRAG_THRESHOLD_PX) moved = true;
       if (moved) preview?.move(dropAt(move.clientX));
     };
-    const onUp = (up: PointerEvent): void => {
+    const off = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       target.removeAttribute("data-dragging");
+    };
+    const onUp = (up: PointerEvent): void => {
+      off();
       if (!moved) return; // a press that never moved is a click
       preview?.end();
       handlers.onGesture(make(dropAt(up.clientX)));
     };
+    // A touch the browser took for a pan: no gesture, and the drag ends
+    // here, or a render held for its release waited for the next tap and
+    // that tap's pointerup dropped the drag where it landed (DEM-234).
+    const onCancel = (): void => {
+      off();
+      if (moved) preview?.end();
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   });
 }
 
@@ -848,8 +860,8 @@ function clipTrack(
   // 2026-09-22, moved out because a dot on the block covered the block's
   // name — and the block has had no name since that same day (see above),
   // so the strip was a row of the dock paying for a conflict that no
-  // longer existed. A beat is stacked above a trim handle, and the handle
-  // stays grabbable above and below it (see the stylesheet).
+  // longer existed. A trim handle is stacked above a beat, so the whole
+  // handle grabs, and the beat is reached outside it (see the stylesheet).
   for (const tick of clip.ticks) {
     const fraction = toFraction(state.viewport, tick.atMs);
     if (fraction < 0 || fraction > 1) continue;
@@ -1160,12 +1172,39 @@ export const STEP_GLYPH: Readonly<Record<string, GlyphName>> = {
   press: "type",
 };
 
+/** Per timeline root, the newest render that arrived while a drag was
+ *  held, run when the pointer is released (DEM-234). */
+const heldRenders = new WeakMap<HTMLElement, () => void>();
+
 export function renderTimeline(
   root: HTMLElement,
   model: LaneModel,
   state: TimelineState,
   handlers: TimelineHandlers,
 ): void {
+  // A rebuild mid-drag (the folder watch's refresh after an edit) replaced
+  // the handle in the hand, and the one drawn stopped following the
+  // pointer: the newest render waits for the release instead. The drag's
+  // own gesture renders on release first, which drops what waited.
+  if (root.querySelector("[data-dragging]") !== null) {
+    if (!heldRenders.has(root)) {
+      const release = (): void => {
+        window.removeEventListener("pointerup", release);
+        window.removeEventListener("pointercancel", release);
+        const held = heldRenders.get(root);
+        heldRenders.delete(root);
+        held?.();
+      };
+      window.addEventListener("pointerup", release);
+      window.addEventListener("pointercancel", release);
+    }
+    heldRenders.set(root, () => renderTimeline(root, model, state, handlers));
+    // Said on the root while it waits, for a test to see the hold happen.
+    root.setAttribute("data-render-held", "");
+    return;
+  }
+  heldRenders.delete(root);
+  root.removeAttribute("data-render-held");
   const box = el("div", "timeline");
 
   // Clicking past everything drops the selection.

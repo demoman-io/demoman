@@ -52,29 +52,32 @@ function mount(scene = readonlyScene(), snapping = true) {
   root.style.marginLeft = "120px";
   document.body.append(root);
   const gestures: Gesture[] = []; // recorded, never spied on console
-  renderTimeline(
-    root,
-    model,
-    {
-      viewport: fitAll(model.durationMs),
-      selection: null,
-      positionMs: 0,
-      refusal: null,
-      snapping,
-    },
-    {
-      onSelect: vi.fn(),
-      onSeek: vi.fn(),
-      onSeekStart: vi.fn(),
-      onGesture: (g) => gestures.push(g),
-      onViewport: vi.fn(),
-      onSnapping: vi.fn(),
-      onSplit: vi.fn(),
-      onRestorePiece: vi.fn(),
-      onOpenJoin: vi.fn(),
-    },
-  );
-  return { root, model, gestures };
+  const draw = () =>
+    renderTimeline(
+      root,
+      model,
+      {
+        viewport: fitAll(model.durationMs),
+        selection: null,
+        positionMs: 0,
+        refusal: null,
+        snapping,
+      },
+      {
+        onSelect: vi.fn(),
+        onSeek: vi.fn(),
+        onSeekStart: vi.fn(),
+        onGesture: (g) => gestures.push(g),
+        onViewport: vi.fn(),
+        onSnapping: vi.fn(),
+        onSplit: vi.fn(),
+        onRestorePiece: vi.fn(),
+        onOpenJoin: vi.fn(),
+      },
+    );
+  draw();
+  /** The same render again, as the folder watch's refresh asks for one. */
+  return { root, model, gestures, again: draw };
 }
 
 const at = (node: Element, fraction: number): number => {
@@ -360,5 +363,121 @@ describe("timeline drags", () => {
       model.durationMs * 0.25 - (ZOOM_DEFAULT_MS - model.zoomInMs) / 2,
       -2,
     );
+  });
+});
+
+// A render that lands mid-drag (the folder watch's refresh after an edit)
+// replaced the handle in the hand, and the one drawn stopped following
+// the pointer (DEM-234): it waits for the release instead.
+describe("a render while a drag is held", () => {
+  const press = (handle: HTMLElement, track: HTMLElement) => {
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: at(handle, 0.5),
+        pointerId: 1,
+      }),
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: at(track, 0.6),
+      }),
+    );
+  };
+
+  it("keeps the handle in the hand and lands on the release", () => {
+    const { root, gestures, again } = mount();
+    const handle = root.querySelector<HTMLElement>(
+      '[data-trim="tail"]',
+    ) as HTMLElement;
+    const track = root.querySelector<HTMLElement>(
+      '[data-track="clip"]',
+    ) as HTMLElement;
+    press(handle, track);
+    expect(handle.hasAttribute("data-dragging"), "premise: held").toBe(true);
+    again();
+    expect(
+      root.querySelector('[data-trim="tail"]'),
+      "the handle in the hand",
+    ).toBe(handle);
+    expect(root.hasAttribute("data-render-held"), "the render waits").toBe(
+      true,
+    );
+    window.dispatchEvent(
+      new PointerEvent("pointerup", { bubbles: true, clientX: at(track, 0.6) }),
+    );
+    expect(gestures.map((g) => g.kind)).toEqual(["trim"]);
+    expect(
+      root.querySelector('[data-trim="tail"]'),
+      "redrawn on release",
+    ).not.toBe(handle);
+    expect(root.hasAttribute("data-render-held")).toBe(false);
+  });
+
+  // A touch the browser takes for a pan ends in pointercancel. The drag
+  // ended only on pointerup, so the render it held waited, and the next
+  // tap's pointerup dropped the drag where it landed.
+  it("ends on a pointercancel with no gesture, and the render lands", () => {
+    const { root, gestures, again } = mount();
+    const handle = root.querySelector<HTMLElement>(
+      '[data-trim="tail"]',
+    ) as HTMLElement;
+    const track = root.querySelector<HTMLElement>(
+      '[data-track="clip"]',
+    ) as HTMLElement;
+    press(handle, track);
+    again();
+    expect(root.hasAttribute("data-render-held"), "premise: held").toBe(true);
+    window.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+    expect(handle.hasAttribute("data-dragging"), "the drag ended").toBe(false);
+    expect(root.querySelector('[data-trim="tail"]'), "redrawn").not.toBe(
+      handle,
+    );
+    expect(root.hasAttribute("data-render-held")).toBe(false);
+    window.dispatchEvent(
+      new PointerEvent("pointerup", { bubbles: true, clientX: at(track, 0.3) }),
+    );
+    expect(gestures, "a later tap drops nothing").toEqual([]);
+  });
+});
+
+// The edges between two pieces sit under the beats: their two grabs cover
+// the seam, and a beat on it (a split made at a step) is clicked there.
+// The clip's own ends are its trim and go over them (DEM-232).
+describe("a beat on a seam between two pieces", () => {
+  it("is what a press at its middle lands on", () => {
+    const scene = applyCommand(
+      readonlyScene(),
+      { kind: "split", at: { actionId: "act-2", sourceOffsetMs: 0 } },
+      ids(),
+    );
+    const { root } = mount(scene);
+    const wraps = root.querySelectorAll(".piece-wrap");
+    expect(wraps.length, "premise: two pieces").toBe(2);
+    const beat = root.querySelector<HTMLElement>(
+      '[data-track="clip"] [data-tick="act-2"]',
+    ) as HTMLElement;
+    // Each mount is another root down the page: this one, into the window.
+    beat.scrollIntoView({ block: "center", inline: "center" });
+    const b = beat.getBoundingClientRect();
+    const x = b.left + b.width / 2;
+    const y = b.top + b.height / 2;
+    // Premise: an interior edge's grab reaches the beat's middle, so this
+    // asks which is on top.
+    const edges = [
+      ...root.querySelectorAll<HTMLElement>(
+        '.piece-wrap:first-child > [data-edge="end"], .piece-wrap:last-child > [data-edge="start"]',
+      ),
+    ].map((e) => e.getBoundingClientRect());
+    expect(
+      edges.some((r) => r.left - 6 <= x && x <= r.right + 6),
+      `premise: an edge's grab at the beat's middle ${x}: ${JSON.stringify(edges)}`,
+    ).toBe(true);
+    const hit = document.elementFromPoint(x, y);
+    expect(
+      hit !== null && beat.contains(hit),
+      `the beat on the seam is under ${hit?.outerHTML.slice(0, 80)}`,
+    ).toBe(true);
   });
 });
