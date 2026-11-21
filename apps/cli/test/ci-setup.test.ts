@@ -320,7 +320,7 @@ async function okPlan(
 }
 
 describe("triggerOffers and defaultTrigger", () => {
-  it("lists deployment per environment, release, daily, push, in that order", () => {
+  it("lists deployment per environment, release, daily, push, manual, in that order", () => {
     const offers = triggerOffers(
       facts({
         deployments: [
@@ -334,6 +334,7 @@ describe("triggerOffers and defaultTrigger", () => {
       ["release", true],
       ["daily", true],
       ["push", true],
+      ["manual", true],
     ]);
     // The real branch, not "main".
     expect(offers[3]?.label).toContain("trunk");
@@ -355,11 +356,16 @@ describe("triggerOffers and defaultTrigger", () => {
       '"release"',
       '"daily"',
       '"push"',
+      '"manual"',
     ]);
     const note = triggerNote(f) ?? "";
     expect(note).toContain("staging, qa");
     expect(note).toContain("newest 150 deployments, which were not read");
     expect(note).toContain("--trigger <environment>");
+    // Review of DEM-248, finding 2: an environment named like a trigger.
+    expect(note).toContain(
+      "--trigger deployment:<environment> for one named release, daily, push or manual",
+    );
     expect(triggerNote(facts())).toBeNull();
   });
 
@@ -375,7 +381,7 @@ describe("triggerOffers and defaultTrigger", () => {
   });
 
   // Decision 3: deployment, else release, else daily; never push.
-  it("defaults to deployment, else release, else daily, never push", () => {
+  it("defaults to deployment, else release, else daily, never push or manual", () => {
     const dep = facts({
       deployments: [
         { environment: "production", url: "https://x.example", sha: "a" },
@@ -393,6 +399,13 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(
       defaultTrigger([
         { trigger: "push", label: "", offered: true, why: "" },
+        { trigger: "daily", label: "", offered: true, why: "" },
+      ]),
+    ).toBe("daily");
+    // DEM-248: nor is manual, which records nothing until someone runs it.
+    expect(
+      defaultTrigger([
+        { trigger: "manual", label: "", offered: true, why: "" },
         { trigger: "daily", label: "", offered: true, why: "" },
       ]),
     ).toBe("daily");
@@ -446,6 +459,7 @@ describe("which deployment is offered and the default", () => {
       "release",
       "daily",
       "push",
+      "manual",
     ]);
     expect(defaultTrigger(offers)).toEqual({ deployment: "live" });
   });

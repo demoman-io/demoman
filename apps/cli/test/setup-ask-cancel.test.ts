@@ -97,6 +97,7 @@ describe("setup --ci's questions", () => {
       "when a release is published",
       "once a day",
       "on each merge to trunk",
+      "only when run by hand",
     ]);
     expect(menu.options[menu.initialValue]?.label).toBe(
       "when a release is published",

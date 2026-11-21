@@ -117,7 +117,7 @@ const USAGE = `demoman ${VERSION}
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach] [--no-ask attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
-  npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
+  npx demoman setup --ci [--trigger release|daily|push|manual|<environment>] [--route pr|main] [--artifact]
     [--yes] [--env-file <path>] [--replace-secret <NAME>]…
                              check CI's refresh of the repo's flows from a clean checkout, then set its
                              secrets and open the setup pull request, and watch its first run

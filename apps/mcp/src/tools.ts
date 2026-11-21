@@ -414,7 +414,12 @@ export type RepoDoors = {
   ): Promise<Record<string, unknown>>;
   ci(
     a: {
-      trigger?: "release" | "daily" | "push" | { deployment: string };
+      trigger?:
+        | "release"
+        | "daily"
+        | "push"
+        | "manual"
+        | { deployment: string };
       route?: "pr" | "main";
       artifact?: boolean;
       app?: Record<string, unknown>;
@@ -962,11 +967,11 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.ci,
         description:
-          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): plans it, then stops before the check whenever the check would start the app: it answers checkNeedsPerson with commands, what the check would run, and command, for the person to run in their terminal, which shows them the commands, asks, checks and opens the pull request (then call watch); you never run them. A deployment trigger starts no app: its check against the deployed app runs (minutes) and answers {outcome: "plan", plan, lines, next}, doing nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
+          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): plans it, then stops before the check whenever the check would start the app: it answers checkNeedsPerson with commands, what the check would run, and command, for the person to run in their terminal, which shows them the commands, asks, checks and opens the pull request (then call watch); you never run them. A deployment trigger starts no app: its check against the deployed app runs (minutes) and answers {outcome: "plan", plan, lines, next}, doing nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push, manual (runs only when started from the Actions tab) or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
         inputSchema: {
           trigger: z
             .union([
-              z.enum(["release", "daily", "push"]),
+              z.enum(["release", "daily", "push", "manual"]),
               z.object({ deployment: z.string().min(1) }).strict(),
             ])
             .optional(),

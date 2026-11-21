@@ -48,6 +48,7 @@ const triggers = [
   "push",
   "release",
   "daily",
+  "manual",
   { deployment: "Production" },
 ] as const;
 const app: AppSpec = {
@@ -331,6 +332,27 @@ exit 0
     expect(r.from, r.log).toBe("950");
   });
 
+  // DEM-248. Red when the manual trigger's step names no event or no
+  // branch: the feature branch's manual run 900 is then the newest.
+  it("a manual trigger takes this workflow's own newest manual run on its branch", () => {
+    const man = ciWorkflow({
+      version: "0.2.0",
+      trigger: "manual",
+      route: "pr",
+      artifact: true,
+    });
+    expect(lines(man)).toContain("          EVENT: workflow_dispatch");
+    expect(lines(man)).toContain('          BRANCH: "main"');
+    const runs = [
+      run(900, 9, { event: "workflow_dispatch", head_branch: "feature" }),
+      run(800, 8, { event: "workflow_dispatch", head_repository: { id: 2 } }),
+      run(500, 4, { event: "workflow_dispatch" }),
+    ];
+    const r = shell(man, runs, { 900: "ok", 800: "ok", 500: "ok" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.from, r.log).toBe("500");
+  });
+
   it("a deployment trigger takes this workflow's own newest deployment run with an artifact, on any branch", () => {
     const dep = ciWorkflow({
       version: "0.2.0",
@@ -498,11 +520,20 @@ describe("ciWorkflow", () => {
       expect(lines(y)).toContain("  workflow_dispatch:");
     for (const y of [releaseY, deploy])
       expect(lines(y)).not.toContain("  workflow_dispatch:");
-    // A manual run refreshes only the watched branch, never a feature branch.
-    for (const y of [push, dailyY])
-      expect(parse(y).jobs.refresh.if).toContain(
-        "(github.event_name != 'workflow_dispatch' || github.ref_name == 'main')",
-      );
+    // A manual run records only the watched branch, never a feature branch:
+    // the refresh job's first step refuses any other (DEM-248), and only
+    // in the job a manual run starts.
+    for (const y of [push, dailyY]) {
+      expect(parse(y).jobs.refresh.steps[0]).toMatchObject({
+        name: "A run by hand records main only",
+        if: expr(
+          "github.event_name == 'workflow_dispatch' && github.ref_name != 'main'",
+        ),
+      });
+      expect(y.match(/A run by hand records/g)).toHaveLength(1);
+    }
+    for (const y of [releaseY, deploy])
+      expect(y).not.toContain("A run by hand records");
   });
 
   // Review of #35, finding 4. Red when a manual run can skip itself: the
@@ -633,7 +664,12 @@ describe("the loop guard", () => {
     ["deployment", deploy, "github.event.deployment.sha"],
   ] as const) {
     it(`${name}: a guard step follows the checkout and every later step is conditioned on it`, () => {
-      const all = steps(y);
+      // A push run by hand is refused off its branch before the checkout
+      // (DEM-248); it comes before the guard, so the guard cannot skip it.
+      const byHand = steps(y).filter((b) => b.includes("A run by hand"));
+      expect(byHand).toHaveLength(name === "push" ? 1 : 0);
+      if (name === "push") expect(steps(y)[0]).toBe(byHand[0]);
+      const all = steps(y).filter((b) => !b.includes("A run by hand"));
       expect(all.length).toBeGreaterThan(4);
       expect(all[0]).toContain("actions/checkout@v4");
       expect(all[1]).toContain("id: guard");
@@ -653,7 +689,7 @@ describe("the loop guard", () => {
   }
 
   it("outputs skip for the refresh PR's merge commit and a marked commit, not an ordinary one", () => {
-    const script = (push.split("run: |\n")[1] ?? "")
+    const script = (push.split("id: guard")[1]?.split("run: |\n")[1] ?? "")
       .split("\n      - ")[0]
       ?.split("\n")
       .map((l) => l.slice(10))
@@ -890,16 +926,12 @@ describe("release and daily triggers", () => {
     // The release's only guard is the default-branch one (DEM-123).
     expect(daily).not.toContain("steps.guard");
     expect(release).toContain("Skip commits off the default branch\n");
-    // Only the pull_request exclusion conditions the release job; daily
-    // adds the manual run's branch check.
-    expect(parse(release).jobs.refresh.if).toBe(
-      expr("github.event_name != 'pull_request'"),
-    );
-    expect(parse(daily).jobs.refresh.if).toBe(
-      expr(
-        "github.event_name != 'pull_request' && ((github.event_name != 'workflow_dispatch' || github.ref_name == 'main'))",
-      ),
-    );
+    // Only the pull_request exclusion conditions either job: a manual run
+    // off the branch is refused by a step, not skipped (DEM-248).
+    for (const y of [release, daily])
+      expect(parse(y).jobs.refresh.if).toBe(
+        expr("github.event_name != 'pull_request'"),
+      );
     // Premise: the push workflow still has it.
     expect(push).toContain("Skip Demoman's own commits");
   });
@@ -908,11 +940,95 @@ describe("release and daily triggers", () => {
     expect(() =>
       ciWorkflow({ version: "0.2.0", trigger: "release", route: "main" }),
     ).toThrow(
-      "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.",
+      "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily, push or manual trigger.",
     );
     expect(() =>
       ciWorkflow({ version: "0.2.0", trigger: "daily", route: "main" }),
     ).not.toThrow();
+  });
+});
+
+// DEM-248: a workflow that never runs on its own.
+describe("the manual trigger", () => {
+  const manual = ciWorkflow({
+    version: "0.2.0",
+    trigger: "manual",
+    route: "pr",
+  });
+
+  // Red when manual also runs on a schedule, a push or a release.
+  it("runs only by hand, and on the setup pull request's self-check", () => {
+    expect(manual).toContain(
+      'on:\n  workflow_dispatch:\n  pull_request:\n    paths: [".github/workflows/demoman.yml", ".demoman/**"]\njobs:\n',
+    );
+    expect(Object.keys(parse(manual).on)).toEqual([
+      "workflow_dispatch",
+      "pull_request",
+    ]);
+    expect(parse(manual).jobs.check).toBeDefined();
+  });
+
+  // Review of DEM-248, finding 1. Red when a run started on another branch
+  // records it (the step is dropped), or is skipped in silence (the job's
+  // `if` refuses it, so GitHub shows a run that did nothing and says nothing).
+  it("fails a run started off the branch it watches, and says why", () => {
+    const m = ciWorkflow({
+      version: "0.2.0",
+      trigger: "manual",
+      route: "pr",
+      branch: "trunk",
+    });
+    // The job starts on any branch; its first step, before the checkout, refuses.
+    expect(parse(m).jobs.refresh.if).toBe(
+      expr("github.event_name != 'pull_request'"),
+    );
+    const [first, second] = parse(m).jobs.refresh.steps;
+    expect(first.if).toBe(
+      expr(
+        "github.event_name == 'workflow_dispatch' && github.ref_name != 'trunk'",
+      ),
+    );
+    expect(second.uses).toBe("actions/checkout@v4");
+    const r = spawnSync("bash", ["-e", "-c", first.run], {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_REF_NAME: "feature-x" },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(
+      "::error::This workflow records trunk only, and this run was started on feature-x, so nothing was recorded. Run it again from trunk",
+    );
+    // The self-check runs on pull requests only and never carries it.
+    expect(JSON.stringify(parse(m).jobs.check)).not.toContain("run by hand");
+    expect(parse(manual).jobs.refresh.steps[0].name).toBe(
+      "A run by hand records main only",
+    );
+  });
+
+  // Red when daily's "nothing new" check or a guard is emitted for manual:
+  // someone asked for this run, so it always records.
+  it("always refreshes: no freshness check and no guard", () => {
+    // Premise: daily has the check this asserts is absent.
+    expect(dailyY).toContain("id: fresh");
+    for (const y of [
+      manual,
+      ciWorkflow({
+        version: "0.2.0",
+        trigger: "manual",
+        route: "pr",
+        artifact: true,
+      }),
+    ]) {
+      expect(y).not.toContain("id: fresh");
+      expect(y).not.toContain("refresh --check");
+      expect(y).not.toContain("id: guard");
+      expect(y).not.toContain("steps.");
+    }
+  });
+
+  it("can commit on main", () => {
+    expect(
+      ciWorkflow({ version: "0.2.0", trigger: "manual", route: "main" }),
+    ).toContain("refresh --deliver main");
   });
 });
 
@@ -1233,6 +1349,25 @@ describe("ciSetup", () => {
     expect(c.said.join("\n")).toMatch(/--yes/);
     expect(c.said.join("\n")).not.toMatch(/--trigger|--route/);
     expect([...a.calls, ...b.calls, ...c.calls]).toEqual([]);
+  });
+
+  // DEM-248. Red while "manual" is read as a deployment environment of
+  // that name (no such deployment, so setup refuses), or the plan does not
+  // say the workflow never runs on its own.
+  it("--trigger manual writes a workflow that runs only by hand, and says so", async () => {
+    const m = door({ ask: asker({}).ask });
+    expect(await ciSetup([...yes, "--trigger", "manual"], m.io)).toBe(0);
+    const body = m.seen.pr?.body ?? "";
+    expect(body).toContain("Records the repo flows only when run by hand.");
+    expect(body).toContain("Demoman → Run workflow");
+    expect(m.said).toContain("Records the repo flows only when run by hand.");
+    // Premise for the line above: the PR carries the workflow it describes.
+    const wf = m.seen.pr?.files.find(
+      (f) => f.path === ".github/workflows/demoman.yml",
+    );
+    expect(String(wf?.text)).toContain(
+      "on:\n  workflow_dispatch:\n  pull_request:",
+    );
   });
 
   it("--yes takes the default trigger and a pull request, asking nothing, and says the plan", async () => {
@@ -1743,6 +1878,7 @@ describe("ciSetup", () => {
     expect(offers.filter((o) => o.offered).map((o) => o.trigger)).toEqual([
       "daily",
       "push",
+      "manual",
     ]);
   });
 
