@@ -252,6 +252,8 @@ const FORGIVEN = new Set<string>([
   "animationUnpinned",
   // An answer arrived in a pause, unpaced by the server, and is said.
   "answerUnpaced",
+  // The video is right; one frame was taken a frame later, and said.
+  "frameRetaken",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 

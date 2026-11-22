@@ -4181,6 +4181,10 @@ export async function runWalk(
       const atMs = Math.max(0, u.atMs - started);
       degradations.push(degradation("animationUnpinned", atMs, atMs, u.what));
     }
+    for (const r of held.retaken()) {
+      const atMs = Math.max(0, r.atMs - started);
+      degradations.push(degradation("frameRetaken", atMs, atMs, r.what));
+    }
     for (const label of held.ignoredConnections()) {
       degradations.push(degradation("connectionIgnored", 0, at(), label));
     }

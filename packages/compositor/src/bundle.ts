@@ -307,6 +307,11 @@ const DegradationSchema = z.object({
     // landed where the machine put it. Once a take, at the held time first
     // seen. The page's own, so refresh forgives it.
     "answerUnpaced",
+    // A held take only: a frame's read went unanswered on a page that
+    // answered a second read, so the frame was taken again a frame of page
+    // time later (DEM-237). The note is the first read's sentence. This
+    // machine's, not the page's; the video is right, so refresh forgives it.
+    "frameRetaken",
   ]),
   note: z.string(),
 });

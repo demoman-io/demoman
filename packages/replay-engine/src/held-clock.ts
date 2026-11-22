@@ -20,6 +20,11 @@ const PAGE_FACTS = `() => [location.href, document.readyState]`;
 
 const SILENT = Symbol("silent");
 
+/** A frame's read that went unanswered on a page that answered a second
+ *  read: no script holds it, so the frame is taken again a frame of page
+ *  time later (`shoot`, DEM-237). */
+class Retake extends Error {}
+
 /** `p`'s answer or its error, or SILENT after SECOND_READ_MS. */
 const bounded = (p: Promise<unknown>): Promise<unknown> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -332,6 +337,9 @@ export interface HeldClock extends Clock {
   networkSpans(): { startMs: number; endMs: number; label: string }[];
   /** Page animations the pin could not hold, at the held time first seen. */
   unpinned(): { atMs: number; what: string }[];
+  /** Frames taken again a frame of page time later, at the held time of the
+   *  one that went unanswered, each with why (DEM-237). */
+  retaken(): { atMs: number; what: string }[];
   /** Connections that stopped counting as waiting on the server (`NetworkWatch.ignored`). */
   ignoredConnections(): string[];
   /** Whether a document's request is open (`NetworkWatch.loading`). */
@@ -492,6 +500,9 @@ export function createHeldClock(deps: {
   const waitsSinceLook = (looked: { real: number; held: number }) =>
     network.waitsSince(looked.real, looked.held - pageSlack());
   const unpinned: { atMs: number; what: string }[] = [];
+  /** `HeldClock.retaken`; `retaking` while the retake's reads run. */
+  const retaken: { atMs: number; what: string }[] = [];
+  let retaking = false;
   /** The windows of the waits on the page running (`waiting`). */
   const windows: number[] = [];
   const narrow = () => {
@@ -595,8 +606,14 @@ export function createHeldClock(deps: {
   /** A frame's read of the page, bounded: page time stands still while a
    *  script runs, so a loop that waits on `performance.now()` or
    *  `Date.now()` never ends and its page never answers. `what`: the read,
-   *  as the sentence names it. */
-  const answered = <T>(read: Promise<T>, what: string): Promise<T> => {
+   *  as the sentence names it. `retake`: a page that answers a second read
+   *  rejects with a `Retake`, the page left open, for `shoot` to take the
+   *  frame again. */
+  const answered = <T>(
+    read: Promise<T>,
+    what: string,
+    retake = false,
+  ): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Set by the read itself, not the race: a race's settling reaches its
     // handlers a few microtasks after the read's.
@@ -612,16 +629,17 @@ export function createHeldClock(deps: {
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         void unanswered(what)
-          .catch(
-            (e: unknown) =>
-              new Error(
-                `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${whenSaid()}: ${what} went unanswered, and saying why failed (${e instanceof Error ? e.message : String(e)})`,
-              ),
-          )
-          .then((error) => {
+          .catch((e: unknown) => ({
+            error: new Error(
+              `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${whenSaid()}: ${what} went unanswered, and saying why failed (${e instanceof Error ? e.message : String(e)})`,
+            ),
+            answers: false,
+          }))
+          .then(({ error, answers }) => {
             // Answered while the page was asked again: the run goes on, and
             // its held time never moved, so the picture is the same.
             if (over) return;
+            if (retake && answers) return reject(new Retake(error.message));
             fatal ??= error;
             void deps.abandon?.().catch(() => undefined); // its calls answer, closed
             reject(fatal);
@@ -635,7 +653,9 @@ export function createHeldClock(deps: {
    *  say a moment later. A page that answers a second read runs no script
    *  now, so a loop is not what holds it (DEM-237: two CI refreshes blamed
    *  one on pages that have none, during the opening load). */
-  const unanswered = async (what: string): Promise<Error> => {
+  const unanswered = async (
+    what: string,
+  ): Promise<{ error: Error; answers: boolean }> => {
     const at = whenSaid();
     // As the read went unanswered, not a second later.
     const labels = network.labels();
@@ -661,30 +681,65 @@ export function createHeldClock(deps: {
       Array.isArray(a) && typeof a[0] === "string"
         ? `at ${where(a[0])}, document ${String(a[1])}`
         : "with no address";
-    const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered`;
+    const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered${retaking ? " when the frame was taken again a frame of page time later" : ""}`;
     if (page instanceof Error)
-      return new Error(
-        `${head}, and a second read failed (${page.message}); ${facts}`,
-      );
+      return {
+        error: new Error(
+          `${head}, and a second read failed (${page.message}); ${facts}`,
+        ),
+        answers: false,
+      };
     if (page !== SILENT)
-      return new Error(
-        `${head}, though the page answered a second read within ${SECOND_READ_MS} ms (${answer(page)}), so no script of it is running now; ${facts}`,
-      );
-    return new Error(
-      `${head}, and a second read too: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; ${facts}; record this page in real time with DEMOMAN_HELD_CLOCK=0`,
-    );
+      return {
+        error: new Error(
+          `${head}, though the page answered a second read within ${SECOND_READ_MS} ms (${answer(page)}), so no script of it is running now; ${facts}`,
+        ),
+        answers: true,
+      };
+    return {
+      error: new Error(
+        `${head}, and a second read too: a script on it is still running, as one that waits in a loop on performance.now() or Date.now() does, and on a held clock that loop never ends; ${facts}; record this page in real time with DEMOMAN_HELD_CLOCK=0`,
+      ),
+      answers: false,
+    };
   };
 
-  /** `server`: the frame was shot following the server (a stretch's). */
+  /** `server`: the frame was shot following the server (a stretch's).
+   *  A read that went unanswered on a page that answers a second one is
+   *  taken again, once, a frame of page time later: a CI runner's screenshot
+   *  33 ms into a redirect's sign-in page went unanswered on a page whose
+   *  document was complete with nothing open (DEM-237), and a held page draws
+   *  only as its clock moves. The frame at the first time is not in the video,
+   *  and the report says so (`retaken`). */
   const shoot = async (server = false) => {
+    try {
+      await shootOnce(server, true);
+    } catch (e) {
+      if (!(e instanceof Retake)) throw e;
+      retaken.push({ atMs: held, what: e.message });
+      const from = held;
+      await grant(frameTo(held) + HELD_FRAME_MS);
+      // A stretch this frame ended goes on to the retake's.
+      if (span?.endMs === from) span.endMs = held;
+      retaking = true;
+      try {
+        await shootOnce(server, false);
+      } finally {
+        retaking = false;
+      }
+    }
+  };
+  const shootOnce = async (server: boolean, retake: boolean) => {
     if (fatal !== null) throw fatal;
     let failed: unknown;
     try {
       failed = await answered(
         deps.evaluate(PIN_ANIMATIONS, held, server),
         "the animation pin",
+        retake,
       );
     } catch (e) {
+      if (e instanceof Retake) throw e;
       throw new Error(
         `could not pin the page's animations ${whenSaid()} (${(e as Error).message})`,
       );
@@ -699,7 +754,7 @@ export function createHeldClock(deps: {
     // From where it was first seen: the pace is counted from there.
     if (pinned.video !== true) videoFrom = null;
     else videoFrom ??= { real: realNow(), held };
-    const shot = await answered(deps.capture(), "its screenshot");
+    const shot = await answered(deps.capture(), "its screenshot", retake);
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
     if (listeners.length === 0)
@@ -827,6 +882,7 @@ export function createHeldClock(deps: {
         label: [...s.labels].join(", "),
       })),
     unpinned: () => [...unpinned],
+    retaken: () => [...retaken],
     ignoredConnections: () => network.ignored(),
     async sleep(ms) {
       if (startEpochMs === null) throw new Error("sleep before hold");
