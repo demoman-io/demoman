@@ -91,9 +91,9 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
   clickNotDelivered:
     "the browser put a click somewhere other than where it was sent, so the page never saw that click and the step did not happen — nothing is wrong with the steps; run it again, and say so if it repeats",
   dialogNotOpened:
-    "The step says how to answer a dialog, but its click opened none. Check the step clicks the button that asks, or drop `dialog`.",
+    "the step says how to answer a dialog, but its click opened none. Check the step clicks the button that asks, or drop `dialog`",
   dialogAnswerUnfit:
-    "The step's `dialog` answer does not fit the dialog that opened (an alert has only OK; only a prompt takes text). The run answered OK so the page could go on.",
+    "the step's `dialog` answer does not fit the dialog that opened (an alert has only OK; only a prompt takes text). The run answered OK so the page could go on",
   dragEndOutOfView:
     "a drag's start or end was off the page once its start was in view, and a drag cannot scroll while it moves, so it was not begun; drag to a target on the same screen, or scroll first",
   dragNoDistance:

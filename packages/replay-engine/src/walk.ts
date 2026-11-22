@@ -240,8 +240,14 @@ export interface WalkStep {
    * with `dialogNotOpened` (DEM-161).
    */
   dialog?: DialogIntent;
-  /** Every dialog a click, type or press opened, as answered. Not called
-   *  when it opened none. */
+  /**
+   * A re-record's answer: the one the take recorded for this action, so it
+   * answers the same way. Armed like `dialog`, but a click that opens none
+   * does not stop: an app that stopped asking is not a broken take.
+   */
+  recordedDialog?: DialogIntent;
+  /** After a click, type or press: every dialog it opened, as answered, and
+   *  `[]` when it opened none. */
   onDialog?(records: DialogRecord[]): void;
   /**
    * A re-shoot's recorded interval from the previous step's marker to this
@@ -3264,7 +3270,7 @@ export async function runWalk(
     step: WalkStep,
     seen: ReturnType<typeof dialogs.disarm>,
   ): boolean => {
-    if (seen.records.length > 0) step.onDialog?.(seen.records);
+    step.onDialog?.(seen.records);
     if (seen.failed !== undefined) {
       reason = "portFailure";
       failureNote = seen.failed;
@@ -3570,7 +3576,7 @@ export async function runWalk(
         if (!heldPlan) planUnplaced(step);
         await stepStill(keyAction.id);
         if (!continuous) recorder?.open();
-        dialogs.arm(keyAction.id, step.dialog);
+        dialogs.arm(keyAction.id, step.dialog ?? step.recordedDialog);
         await gate.section(() => pressKey(cdp, keyAction.key));
         const keyDialogs = dialogs.disarm();
         if (!continuous) {
@@ -3972,7 +3978,7 @@ export async function runWalk(
       await stepStill(step.action.id);
       // A click or a type's click keeps what it opens; a press is armed above.
       if (step.action.kind === "click" || step.action.kind === "type")
-        dialogs.arm(step.action.id, step.dialog);
+        dialogs.arm(step.action.id, step.dialog ?? step.recordedDialog);
 
       if (continuous) {
         // No span to open and no still to take after the verb: the recorder

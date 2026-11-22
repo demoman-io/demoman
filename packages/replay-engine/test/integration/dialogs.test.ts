@@ -1,14 +1,21 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { BRANDING_DEFAULTS, type DemoScript } from "@demoman/scene-schema";
+import { madeFromOf } from "@demoman/compositor";
+import {
+  BRANDING_DEFAULTS,
+  type DemoScript,
+  type DialogRecord,
+  type SceneDocument,
+} from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
-import { type CdpSession, runAuthored } from "../../src/index.js";
+import { type CdpSession, runAuthored, runReplay } from "../../src/index.js";
 import {
   selectorPageAgent,
   withReplayBrowser,
 } from "../helpers/cdp-playwright";
 import { createNodeFrameEncoder } from "../helpers/frame-encoder-node";
 import { createMemoryFrameStore } from "../helpers/frame-store";
+import { scene } from "../helpers/replay-scene";
 
 /**
  * DEM-161: a click that opens `confirm()`, against real Chromium, because
@@ -238,5 +245,110 @@ describe("a click that opens confirm(), against a real page", () => {
         expect(result.reason, said).toBe("dialogNotOpened");
       },
     );
+  });
+});
+
+/** What the take recorded: the click's confirm, dismissed by its script.
+ *  Another host and message from the fixture's, so a fresh record differs. */
+const RECORDED: DialogRecord = {
+  kind: "confirm",
+  host: "localhost:8130",
+  message: "Delete the old Northwind?",
+  answer: "dismiss",
+  by: "script",
+  beatMs: 1500,
+};
+
+/** A take whose first click recorded `RECORDED`, against the fixture. */
+function recordedTake(anchorIds: string[]): SceneDocument {
+  const base = scene({ anchorIds });
+  return {
+    ...base,
+    meta: {
+      ...base.meta,
+      capture: { ...base.meta.capture, originUrl: DIALOG_URL },
+    },
+    actions: base.actions.map((a, i) =>
+      i === 0 && a.kind === "click" ? { ...a, dialogs: [RECORDED] } : a,
+    ),
+  } as SceneDocument;
+}
+
+/** Re-records `doc` against the fixture page. */
+async function rerecord(
+  doc: SceneDocument,
+  selectors: Record<string, string>,
+  then: (
+    result: Awaited<ReturnType<typeof runReplay>>,
+    said: string,
+  ) => Promise<void>,
+): Promise<void> {
+  await withReplayBrowser(
+    async ({ cdp, page }) => {
+      page.on("dialog", () => undefined);
+      // The premise: the answer's buttons are hidden before the run.
+      expect(await page.isHidden("#kept")).toBe(true);
+      expect(await page.isHidden("#undo")).toBe(true);
+      const store = createMemoryFrameStore();
+      const result = await runReplay(doc, {
+        cdp,
+        page: selectorPageAgent(page, selectors),
+        encoder: createNodeFrameEncoder(store, doc.meta.id),
+        store,
+        clock: clock(),
+        mayReplay: true,
+        madeFrom: madeFromOf(doc),
+      });
+      const said = JSON.stringify({
+        reason: result.reason,
+        dialogs: result.dialogs,
+        page: await page.innerText("body"),
+      });
+      await then(result, said);
+    },
+    { url: DIALOG_URL, readySelector: "#delete" },
+  );
+}
+
+describe("a recorded take re-recorded", () => {
+  it("answers the way the take did, and keeps this run's answer", async () => {
+    const doc = recordedTake(["delete", "kept"]);
+    // The premise: the take's click carries the recorded dismiss.
+    expect(doc.actions[0]).toMatchObject({
+      kind: "click",
+      dialogs: [RECORDED],
+    });
+    await rerecord(
+      doc,
+      { delete: "#delete", kept: "#kept" },
+      async (result, said) => {
+        expect(result.reason, said).toBeNull();
+        expect(said).toContain("confirm() answered false");
+        const fresh = {
+          kind: "confirm",
+          host: "",
+          message: "Delete Northwind?",
+          answer: "dismiss",
+          by: "script",
+          beatMs: 1500,
+        };
+        expect(result.dialogs, said).toEqual([{ ...fresh, actionId: "act-1" }]);
+        const action = doc.actions[0];
+        expect(action && "dialogs" in action ? action.dialogs : null).toEqual([
+          fresh,
+        ]);
+      },
+    );
+  });
+
+  it("does not stop when the app no longer asks, and drops the old record", async () => {
+    const doc = recordedTake(["heading"]);
+    await rerecord(doc, { heading: "h1" }, async (result, said) => {
+      // The premise: the click went in and the page asked nothing.
+      expect(result.completed, said).toBe(1);
+      expect(result.dialogs, said).toEqual([]);
+      expect(result.reason, said).toBeNull();
+      expect(doc.actions[0] && "dialogs" in doc.actions[0], said).toBe(false);
+    });
   });
 });

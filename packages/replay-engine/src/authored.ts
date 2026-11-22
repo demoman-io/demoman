@@ -821,6 +821,7 @@ export function createAuthoredRun(
             text: null,
             pauseMs: pauseMs(),
             onDialog: (records: DialogRecord[]) => {
+              if (records.length === 0) return;
               record.dialogs = records;
               if (action.kind === "press") action.dialogs = records;
             },
@@ -1150,6 +1151,7 @@ export function createAuthoredRun(
             ? { dialog: step.dialog }
             : {}),
           onDialog: (records: DialogRecord[]) => {
+            if (records.length === 0) return;
             record.dialogs = records;
             if (action.kind === "click" || action.kind === "type")
               action.dialogs = records;
