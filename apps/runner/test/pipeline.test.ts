@@ -391,6 +391,40 @@ describe("runPipeline", () => {
     expect(existsSync(capturedRunRoot())).toBe(false);
   });
 
+  it("renders a run that finished every step and still stopped, and says the reason (DEM-161)", async () => {
+    const { runPipeline } = await import("../src/pipeline.js");
+    // A dialog answer the browser refused at teardown: every step ran, the
+    // walk's reason is set and its outcome is complete.
+    replayPhaseMock.mockResolvedValue({
+      result: bareReplayResult({
+        outcome: "complete",
+        reason: "portFailure",
+        completed: 2,
+        total: 2,
+        bundle: bundleWith([]),
+        storageRefused: false,
+      }),
+      spans: [],
+      navigationError: null,
+    });
+    muxSpansMock.mockResolvedValue({ muxed: [], shortfall: 0 });
+    renderPhaseMock.mockResolvedValue(RENDERED);
+
+    const result = await runPipeline({
+      scene: SCENE,
+      targetUrl: TARGET_URL,
+      outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
+    });
+
+    expect(result.kind).toBe("rendered");
+    expect(result.notes ?? []).toContainEqual(
+      expect.stringContaining(
+        "every step ran, but the run did not end cleanly",
+      ),
+    );
+  });
+
   it("reports renderFailed — not an exit-70 internal error — when render itself throws", async () => {
     const { runPipeline } = await import("../src/pipeline.js");
     const bundle = bundleWith();
