@@ -41,7 +41,7 @@ snapshot of the page and never makes one up.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` | no | The format's number. Demoman sets it; leave it out |
+| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` \| `9` | no | The format's number. Demoman sets it; leave it out |
 | `name` | string | yes | The video's name |
 | `target` | string | yes | The page the run opens first, http or https |
 | `viewport` | object | no | The window size in CSS px, `{ width, height }`. Absent: Demoman's own window |
@@ -65,6 +65,7 @@ Click an element.
 | `on` | [target](#targets) | yes | The element to click |
 | `at` | object | no | Where in the element to click, as fractions of its width and height; its centre if absent |
 | `zoom` | `false` or object | no | The camera's zoom at this click: `false` for none, or `{ scale }` over 1 and at most 2.5. Absent leaves it to the camera |
+| `dialog` | `"accept"` or `"dismiss"` or object | no | How to answer a dialog this click opens: "accept" (the default), "dismiss", or { text } for a prompt |
 | `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
 
 ### `type`

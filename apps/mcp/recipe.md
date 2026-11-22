@@ -529,7 +529,7 @@ Studio exports go to `~/Downloads`.
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
 | `dragEndOutOfView`, `dragNoDistance` | `run`² | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
-| `dialogNotOpened`, `dialogAnswerUnfit` | `run`² | The click's `dialog` opened none, or its answer did not fit (an alert takes only OK, only a prompt takes text; for that one the run answered OK). Click what asks, or drop `dialog`. |
+| `dialogNotOpened`, `dialogAnswerUnfit` | `run`² | The click's `dialog` opened none, or its answer did not fit (an alert has only OK, only a prompt gets text; for that one the run answered OK). Click what asks, or drop `dialog`. |
 | `clickNotDelivered` | `run`² | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
 | `signedOut` | `run`² | The app sent this browser to sign-in. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
 | `windowClosed` | `run`² | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
