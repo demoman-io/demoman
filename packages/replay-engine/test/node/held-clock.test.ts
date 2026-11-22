@@ -1158,13 +1158,13 @@ describe("createHeldClock", () => {
   // hung, where the browser had the page, or what the network watch saw.
   it("says a page that answers a second read runs no script, with which read hung and where the page was", async () => {
     vi.useFakeTimers();
-    // The document's request closes as the page is asked again: the
-    // sentence says the network as the read went unanswered.
-    let asked = false;
+    // The document's request closes as the page is asked again after the
+    // retake: the sentence says the network as the read went unanswered.
+    let asks = 0;
     const { clock, frames } = setup({
       pin: (_, source) => {
         if (source === PIN_ANIMATIONS) return [];
-        asked = true;
+        asks++;
         return ["http://localhost:4402/board/web?key=SECRET", "interactive"];
       },
       shot: () => new Promise(() => undefined),
@@ -1172,21 +1172,24 @@ describe("createHeldClock", () => {
         targetInfo: { url: "http://auth.example/sign-in/SECRET" },
       }),
       scrubUrl: (url) => url.replaceAll("SECRET", "[redacted]"),
-      loading: () => !asked,
+      loading: () => asks < 2,
     });
     await clock.hold(START);
     let failed: unknown = null;
     const slept = clock.sleep(100).catch((e: unknown) => {
       failed = e;
     });
-    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
     await slept;
     const said = String(failed);
+    // A frame after the first, which was taken again (DEM-237).
     expect(said).toMatch(
-      /did not answer within 15 s during the opening, 33 ms into its load: its screenshot went unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
+      /did not answer within 15 s during the opening, 67 ms into its load: its screenshot went unanswered when the frame was taken again a frame of page time later, the first read still unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
     );
     expect(said).not.toMatch(/SECRET|loop|DEMOMAN_HELD_CLOCK/);
-    expect(asked, "the page was asked again").toBe(true);
+    expect(asks, "the page was asked again, after each read").toBe(2);
     expect(clock.failed()?.message).toBe((failed as Error).message);
     expect(frames).toHaveLength(0);
   });
@@ -1220,13 +1223,15 @@ describe("createHeldClock", () => {
     const slept = clock.sleep(100).catch((e: unknown) => {
       failed = e;
     });
-    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
     await slept;
-    // Premise: the clock is 333 ms in, a frame into the hung sleep, and
-    // the take started at 200 of them.
-    expect(clock.now()).toBeCloseTo(1000 / 3, 6);
+    // Premise: the clock is 367 ms in, two frames into the hung sleep (the
+    // second its retake's), and the take started at 200 of them.
+    expect(clock.now()).toBeCloseTo(1100 / 3, 6);
     expect(String(failed)).toMatch(
-      /did not answer within 15 s at 133 ms of the recording: its screenshot/,
+      /did not answer within 15 s at 167 ms of the recording: its screenshot/,
     );
   });
 
@@ -1277,7 +1282,10 @@ describe("createHeldClock", () => {
     const slept = clock.sleep(100).catch((e: unknown) => {
       failed = e;
     });
-    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    // A page that answers is taken again first (DEM-237).
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
     await slept;
     expect(asked, "the page was asked again").toBe(true);
     expect(sent).toContain("Target.getTargetInfo");
@@ -1339,6 +1347,184 @@ describe("createHeldClock", () => {
     expect(failed).toBeNull();
     expect(clock.failed()).toBeNull();
     expect(frames, "the frame the late screenshot answered").toHaveLength(1);
+  });
+
+  // DEM-237: CI's screenshot 33 ms into a redirect's sign-in page went
+  // unanswered on a page that answered a second read, and the run stopped.
+  // Red if such a frame stops the run, is filed at the time it was due
+  // (its picture is a frame later), is filed twice when the first answers
+  // late, or goes unsaid.
+  it("takes a frame again a frame later when its screenshot goes unanswered on a page that answers", async () => {
+    vi.useFakeTimers();
+    let shots = 0;
+    const { clock, frames, budgets } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS ? [] : ["http://x.test/login", "complete"],
+      // The first never answers until long after its retake was filed.
+      shot: () =>
+        ++shots === 1
+          ? new Promise((r) =>
+              setTimeout(
+                () => r({ bytes: new Uint8Array([9]), width: 2, height: 1 }),
+                3 * GRANT_EXPIRY_TIMEOUT_MS,
+              ),
+            )
+          : Promise.resolve({
+              bytes: new Uint8Array([shots]),
+              width: 2,
+              height: 1,
+            }),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(failed).toBeNull();
+    expect(clock.failed()).toBeNull();
+    // The retake is the frame after; the sleep's last frame follows it.
+    expect(inFrames(times(frames))).toEqual([2, 3]);
+    expect(frames.map((f) => f.bytes[0])).toEqual([2, 3]);
+    // Premise: the retake moved the page a frame on before it was taken.
+    expect(budgets().map((b) => Number(b.toFixed(6)))).toEqual(
+      [1, 1, 1].map((n) => Number((n * HELD_FRAME_MS).toFixed(6))),
+    );
+    expect(clock.retaken()).toHaveLength(1);
+    expect(clock.retaken()[0]?.atMs).toBeCloseTo(HELD_FRAME_MS, 6);
+    expect(clock.retaken()[0]?.what).toMatch(
+      /its screenshot went unanswered, though the page answered a second read .*at http:\/\/x\.test\/login, document complete/,
+    );
+    // The first screenshot's late answer files nothing.
+    await vi.advanceTimersByTimeAsync(3 * GRANT_EXPIRY_TIMEOUT_MS);
+    expect(frames).toHaveLength(2);
+  });
+
+  /** A screenshot that never answers on the `hang`-th call, every other at
+   *  once; and a page that answers a second read. */
+  const hangsOnce = (hang: number) => {
+    let shots = 0;
+    return {
+      pin: (_: number, source: string) =>
+        source === PIN_ANIMATIONS ? [] : ["http://x.test/login", "complete"],
+      shot: () =>
+        ++shots === hang
+          ? new Promise<never>(() => undefined)
+          : Promise.resolve({
+              bytes: new Uint8Array([shots]),
+              width: 2,
+              height: 1,
+            }),
+    };
+  };
+
+  // Review of DEM-237: a retake on a sleep's last frame ran the clock a
+  // frame past the sleep, and every later step a frame late. Red if the
+  // next sleep does not owe that frame back.
+  it("owes a retake's frame past a sleep's end back to the next sleep", async () => {
+    vi.useFakeTimers();
+    const { clock, frames } = setup(hangsOnce(3));
+    await clock.hold(START);
+    const slept = clock.sleep(100);
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    // Premise: the third frame, at the sleep's end, was taken a frame on.
+    expect(inFrames(times(frames))).toEqual([1, 2, 4]);
+    expect(inFrames([clock.now()])).toEqual([4]);
+    await clock.sleep(100);
+    expect(inFrames(times(frames))).toEqual([1, 2, 4, 5, 6]);
+    expect(inFrames([clock.now()])).toEqual([6]);
+    await clock.sleep(100);
+    expect(inFrames([clock.now()])).toEqual([9]);
+  });
+
+  // Red if the pin's own unanswered read stops the run rather than being
+  // taken again: the catch around the pin rethrows the retake as it is.
+  it("takes a frame again when its animation pin goes unanswered on a page that answers", async () => {
+    vi.useFakeTimers();
+    let pins = 0;
+    const { clock, frames } = setup({
+      pin: (_, source) =>
+        source !== PIN_ANIMATIONS
+          ? ["http://x.test/login", "complete"]
+          : ++pins === 1
+            ? (new Promise(() => undefined) as never)
+            : [],
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(failed).toBeNull();
+    expect(inFrames(times(frames))).toEqual([2, 3]);
+    expect(clock.retaken().map((r) => r.what)).toEqual([
+      expect.stringMatching(/the animation pin went unanswered, though/),
+    ]);
+  });
+
+  // Red if a retake inside a server stretch ends the stretch at the frame it
+  // missed: the retake's frame, a frame on, would start a stretch of its own.
+  it("keeps a server stretch going through a retake", async () => {
+    vi.useFakeTimers();
+    const { clock, frames } = setup({ waiting: () => true, ...hangsOnce(2) });
+    await clock.hold(START);
+    const slept = clock.sleep(400);
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    // Premise: a frame of the stretch was taken again.
+    expect(clock.retaken()).toHaveLength(1);
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    expect(clock.networkSpans()).toEqual([
+      { startMs: 0, endMs: clock.now(), label: "POST /api/chat" },
+    ]);
+  });
+
+  // Review of DEM-237: a first screenshot still pending can hold the
+  // retake's behind it. Red if the stop does not say the first was pending.
+  it("says the first read was still unanswered when its retake goes unanswered too", async () => {
+    vi.useFakeTimers();
+    const { clock } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS ? [] : ["http://x.test/login", "complete"],
+      shot: () => new Promise(() => undefined),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
+    await slept;
+    expect(String(failed)).toMatch(
+      /its screenshot went unanswered when the frame was taken again a frame of page time later, the first read still unanswered, though the page answered/,
+    );
+  });
+
+  // Red if a page that does not answer a second read is taken again: that
+  // one runs a script, and a frame of page time more cannot end it.
+  it("takes no frame again on a page that does not answer a second read", async () => {
+    vi.useFakeTimers();
+    const { clock, budgets } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS ? [] : new Promise(() => undefined),
+      shot: () => new Promise(() => undefined),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS);
+    await slept;
+    expect(String(failed)).toMatch(/and a second read too/);
+    expect(budgets()).toHaveLength(1);
+    expect(clock.retaken()).toEqual([]);
   });
 
   // Review of 2026-11-16: a grant does not expire while a navigation waits

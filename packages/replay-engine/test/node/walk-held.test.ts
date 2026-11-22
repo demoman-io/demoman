@@ -63,6 +63,7 @@ const NETWORK = [
 const SCALE = 2;
 const UNPINNED = [{ atMs: START + 40, what: "spin on div: refused" }];
 const IGNORED = ["GET /poll"];
+const RETAKEN = [{ atMs: START + 60, what: "its screenshot went unanswered" }];
 
 const restBefore = vi.fn<BeatRules["restBefore"]>(
   ({ first, pauseMs }) => (first ? OPENING : BASE) + pauseMs,
@@ -134,6 +135,7 @@ function fakeHeld(o: {
     },
     networkSpans: () => o.network.map((s) => ({ ...s })),
     unpinned: () => UNPINNED.map((u) => ({ ...u })),
+    retaken: () => RETAKEN.map((r) => ({ ...r })),
     ignoredConnections: () => [...IGNORED],
     loading: () => o.loading?.() ?? false,
     owing: () => o.loading?.() ?? false,
@@ -997,6 +999,8 @@ describe("the walk on a held clock", () => {
         .map((d) => [d.startMs, d.note]);
     expect(said("animationUnpinned")).toEqual([[40 - lead, UNPINNED[0]?.what]]);
     expect(said("connectionIgnored")).toEqual([[0, IGNORED[0]]]);
+    // DEM-237: a frame taken again is said, at the held time it was due.
+    expect(said("frameRetaken")).toEqual([[60 - lead, RETAKEN[0]?.what]]);
     // The tail is played: the take runs its planned tail past the last act.
     expect(TAIL).not.toBe(TAKE_TAIL_MS);
     expect(
