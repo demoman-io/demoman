@@ -1668,7 +1668,13 @@ const scrubber = createScrubber({
     // A dialog card is drawn in Geist only (DEM-161); one that will not
     // load fails the draw with the reason, as any draw failure does.
     if (drawing.resolved.dialogCards.length > 0) {
-      dialogFont ??= loadDialogFont('url("/fonts/geist-variable.woff2")');
+      // A load that failed is tried again on the next draw, not kept.
+      dialogFont ??= loadDialogFont('url("/fonts/geist-variable.woff2")').catch(
+        (error: unknown) => {
+          dialogFont = undefined;
+          throw error;
+        },
+      );
       await dialogFont;
     }
     await renderFrame({
