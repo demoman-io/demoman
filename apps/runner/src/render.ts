@@ -64,7 +64,7 @@ import {
   RENDER_ENTRY_GLOBAL,
   RENDER_PROGRESS_BINDING,
 } from "./entry-globals.js";
-import { readWallpaper } from "./executor/wallpaper-read.js";
+import { readDialogFont, readWallpaper } from "./executor/wallpaper-read.js";
 import type { RunnerStore } from "./frame-store.js";
 import { listenOnLoopback } from "./loopback.js";
 import type {
@@ -235,6 +235,11 @@ export type WallpaperInput =
   | { ok: true; bytes: Uint8Array; contentType: string; name: string }
   | { ok: false; error: string };
 
+/** The dialog card's font as node read it (`readDialogFont`), or why not. */
+export type FontInput =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; error: string };
+
 export interface Rendered {
   /** One file, `name: null`, for mp4 and gif; a named file per still. */
   files: { name: string | null; bytes: Buffer }[];
@@ -283,6 +288,9 @@ export async function renderToFiles(input: {
   /** The scene's wallpaper or image; null for a solid or gradient. Never a
    *  reason to throw: one that cannot be had is `wallpaperWarning`. */
   wallpaper: WallpaperInput | null;
+  /** Geist for a dialog card (`readDialogFont`). A take with a card and no
+   *  font fails the render, saying why; one without a card never loads it. */
+  font?: FontInput;
   /** See `renderOutput`'s `onFrame`: a budgeted GIF and a capped MP4 add
    *  their width, and a capped MP4 which render it is. */
   onFrame?: (
@@ -376,6 +384,12 @@ export async function renderToFiles(input: {
                 name: wallpaper.name,
               }
             : { error: wallpaper.error },
+      font:
+        input.font === undefined
+          ? { error: "this render was given no font" }
+          : input.font.ok
+            ? { base64: Buffer.from(input.font.bytes).toString("base64") }
+            : { error: input.font.error },
       ...(gifBudget === undefined ? {} : { gifBudget }),
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
@@ -518,6 +532,7 @@ export async function renderPhase(input: {
       scene.branding.background,
       wallpaperShape(target),
     ),
+    font: await readDialogFont(input.wallpapersDir),
   });
   // Every byte is already back in node: a render that threw above never
   // touched the filesystem, so `outPath` is written whole or not at all.

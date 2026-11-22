@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import type { Degradation, RenderTarget } from "@demoman/compositor";
-import type { ReplayStopReason } from "@demoman/replay-engine";
+import { type ReplayStopReason, reasonSentence } from "@demoman/replay-engine";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { createFileFrameStore } from "./frame-store.js";
 import { chromiumInstallCommand } from "./install-advice.js";
@@ -333,6 +333,14 @@ export const runPipeline: RunPipeline = async (input) => {
         total: result.total,
       };
       return stopped;
+    }
+    // Every step ran, and the run still stopped on something after them (a
+    // dialog answer the browser refused at teardown, held frames that would
+    // not close): the video goes on, and the reason is said beside it.
+    if (result.reason !== null) {
+      report(
+        `every step ran, but the run did not end cleanly: ${reasonSentence(result.reason)}`,
+      );
     }
 
     // `outcome === "complete"` and `bundle === null` is the degenerate case

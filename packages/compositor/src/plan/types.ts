@@ -1,6 +1,7 @@
 import type { SourcePoint } from "@demoman/scene-schema";
 import type { EasingName } from "../easing.js";
 import type { Rect, Vec } from "../geometry.js";
+import type { PlannedDialogHold } from "./dialogs.js";
 
 /**
  * One cursor transition, expressed as geometry rather than timings.
@@ -258,6 +259,9 @@ export interface RenderPlan {
   cameraIntents: CameraIntent[];
   cosmetics: CosmeticBinding[];
   holds: PlannedHold[];
+  /** Each dialog's hold at its step (`planDialogs`), placed by `holdInstants`
+   *  beside `holds`. Absent on a hand-built plan from before the field. */
+  dialogs?: PlannedDialogHold[];
   /**
    * Pacing between adjacent steps, or `null` when it was never computed.
    *

@@ -16,6 +16,7 @@ import {
   type CursorSegment,
   coversViewport,
   type Degradation,
+  DIALOG_BEAT_MS,
   easings,
   type FrameBundle,
   heldThroughEndMs,
@@ -28,6 +29,8 @@ import {
 } from "@demoman/compositor";
 import type { AnchorIntent } from "@demoman/resolver";
 import {
+  type DialogIntent,
+  type DialogRecord,
   type DragSpot,
   dragEndPoint,
   type SceneAction,
@@ -81,6 +84,7 @@ import {
   desktopMetrics,
   deviceMetrics,
 } from "./device.js";
+import { createDialogAnswerer, type DialogsSeen } from "./dialogs.js";
 import {
   DRAG_PICTURE_INSTALL,
   DRAG_PICTURE_MOVE,
@@ -230,6 +234,24 @@ export interface WalkStep {
    * paint, and the camera may leave before the value shows (DEM-173).
    */
   onLastKeyUnpainted?(why: string): void;
+  /**
+   * How to answer a dialog this step's click opens (a script click's
+   * `dialog`). Absent: OK. Armed from the click until the next click, type
+   * or press arms, or the walk ends, so a confirm the page opens late (a
+   * timer, a fetch) still gets it. Set, and none opened by then, the run
+   * stops as of this step with `dialogNotOpened` (DEM-161).
+   */
+  dialog?: DialogIntent;
+  /**
+   * A re-record's answer: the one the take recorded for this action, so it
+   * answers the same way. Armed like `dialog`, but a click that opens none
+   * does not stop: an app that stopped asking is not a broken take.
+   */
+  recordedDialog?: DialogIntent;
+  /** After a click, type or press: every dialog it opened, as answered, and
+   *  `[]` when it opened none. Called again, with all of them, when the step
+   *  is disarmed: a dialog can open after the verb. */
+  onDialog?(records: DialogRecord[]): void;
   /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
@@ -1216,6 +1238,9 @@ export async function runWalk(
   const offStopped = cdp.on("Page.frameStoppedLoading", (params) => {
     if (isTop(params)) topLoading = false;
   });
+  // Every JavaScript dialog is answered, as the step asks or OK, and said
+  // (DEM-161): left open, it blocks the page and the step that opened it.
+  const dialogs = createDialogAnswerer(cdp, DIALOG_BEAT_MS);
 
   /**
    * The emulated viewport, asserted onto the page.
@@ -3238,6 +3263,78 @@ export async function runWalk(
     unmarkInFlight();
     return true;
   };
+  /**
+   * Hands a step's dialogs to it, and stops the run when an answer could not
+   * be sent, the script's answer did not fit the dialog, or (once the step
+   * is `over`, see `dialogsSettled`) it asked to answer one and none opened.
+   * Like `clickStopped`, true means the step did not happen. Asked before
+   * `clickStopped`: a dialog left unanswered is why a click's own check
+   * fails, and the run says the cause.
+   */
+  const dialogStopped = (
+    step: WalkStep,
+    seen: DialogsSeen,
+    over: boolean,
+  ): boolean => {
+    step.onDialog?.(seen.records);
+    if (seen.failed !== undefined) {
+      reason = "portFailure";
+      failureNote = seen.failed;
+    } else if (seen.unfit !== undefined) {
+      reason = "dialogAnswerUnfit";
+      failureNote = `the step answers ${JSON.stringify(seen.unfit.intent)}, which a ${seen.unfit.kind} cannot take; it was answered OK`;
+    } else if (over && step.dialog !== undefined && seen.records.length === 0) {
+      reason = "dialogNotOpened";
+      failureNote = `the step answers a dialog with ${JSON.stringify(step.dialog)}, and none opened by the next step or the end of the run`;
+    } else return false;
+    unmarkInFlight();
+    return true;
+  };
+  /** The step whose dialog answer is armed, from its verb until the next
+   *  click, type or press arms or the walk ends, with the count before it. */
+  let dialogStep: {
+    step: WalkStep;
+    completed: number;
+    lastCompletedActionId: string | null;
+  } | null = null;
+  /**
+   * Ends the armed step's answer (DEM-161 final review, finding 1): hands it
+   * every dialog it opened, late ones included, and stops when one was
+   * refused or did not fit, or it asked for one and none opened. Such a
+   * stop is that step's, so the count goes back to before it and the run
+   * reports it as the step it stopped on; what happened after it stays in
+   * the take, as it happened. True when the run stops.
+   */
+  const dialogsSettled = (): boolean => {
+    const armed = dialogStep;
+    dialogStep = null;
+    const seen = dialogs.disarm();
+    if (armed === null) {
+      // Nothing armed: a refusal is still one, said as the step's that
+      // follows.
+      if (seen.failed === undefined) return false;
+      reason = "portFailure";
+      failureNote = seen.failed;
+      unmarkInFlight();
+      return true;
+    }
+    if (!dialogStopped(armed.step, seen, true)) return false;
+    completed = armed.completed;
+    lastCompletedActionId = armed.lastCompletedActionId;
+    return true;
+  };
+  /** Before a click, type or press: ends the step armed before it, and arms
+   *  this one. True when what the earlier step opened stops the run. */
+  const armDialogs = (step: WalkStep, actionId: string): boolean => {
+    if (dialogsSettled()) return true;
+    dialogs.arm(actionId, step.dialog ?? step.recordedDialog);
+    dialogStep = { step, completed, lastCompletedActionId };
+    return false;
+  };
+  /** After a verb: its dialogs so far, or null for a step that armed none
+   *  (a hover or a drag reads none the step before it still holds). */
+  const dialogsOf = (step: WalkStep): DialogsSeen | null =>
+    dialogStep?.step === step ? dialogs.seen() : null;
   try {
     // --- setup -----------------------------------------------------------
     await cdp.send("Page.enable");
@@ -3529,12 +3626,15 @@ export async function runWalk(
         markers.push(marker);
         if (!heldPlan) planUnplaced(step);
         await stepStill(keyAction.id);
+        if (armDialogs(step, keyAction.id)) break;
         if (!continuous) recorder?.open();
         await gate.section(() => pressKey(cdp, keyAction.key));
+        const keyDialogs = dialogs.seen();
         if (!continuous) {
           await recorder?.close();
           await shot(null);
         }
+        if (dialogStopped(step, keyDialogs, false)) break;
         stillOwed = true;
         verbs++;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
@@ -3927,6 +4027,12 @@ export async function runWalk(
       }
       if (zoomedClick) lastHeldUntil = lastZoom?.arrivalMs ?? null;
       await stepStill(step.action.id);
+      // A click or a type's click keeps what it opens; a press is armed above.
+      if (
+        (step.action.kind === "click" || step.action.kind === "type") &&
+        armDialogs(step, step.action.id)
+      )
+        break;
 
       if (continuous) {
         // No span to open and no still to take after the verb: the recorder
@@ -3953,10 +4059,12 @@ export async function runWalk(
                 step.onLastKeyUnpainted,
               ),
         );
+        const seen = dialogsOf(step);
         // The page may now look different however little it painted: the
         // next quiet earns a still, blip or not.
         stillOwed = true;
         verbs++;
+        if (seen !== null && dialogStopped(step, seen, false)) break;
         if (clickStopped(step.action.kind, clicked)) break;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
         if (heldPlan) heldActEnd = at();
@@ -3999,8 +4107,10 @@ export async function runWalk(
                 step.onLastKeyUnpainted,
               ),
         );
+        const seen = dialogsOf(step);
         const spansBefore = motionSpans.length;
         await recorder?.close();
+        if (seen !== null && dialogStopped(step, seen, false)) break;
         if (clickStopped(step.action.kind, clicked)) break;
         // v9: "did any DOM mutation follow a pure moveTo span?" A hover that
         // changed the page repaints, and a repaint is exactly what the
@@ -4102,6 +4212,9 @@ export async function runWalk(
         await settledStill(at());
       }
     }
+    // The walk's end, before teardown: the last armed step's answer ends
+    // here, and a dialog it asked for and never got stops the run as of it.
+    if (reason === null) dialogsSettled();
   } catch (error) {
     // The message can carry page content — a URL, a form value echoed back in
     // an error — so it goes to the live progress channel and not into the
@@ -4145,6 +4258,17 @@ export async function runWalk(
     await sightings.stop();
     screening.stop();
     answering.stop();
+    // Last: a dialog the page opens while the walk tears down is still
+    // answered (left open, it blocks the page, and the runner's listener
+    // only stops Playwright answering it). An answer refused between steps
+    // is said here: a page that was not answered as the run claims is not a
+    // finished take.
+    const unanswered = await dialogs.stop();
+    if (unanswered !== null) {
+      reason ??= "portFailure";
+      failureNote =
+        failureNote === null ? unanswered : `${failureNote}; ${unanswered}`;
+    }
   }
 
   // Every span has closed now (teardown waited), so the hover check the
@@ -4347,6 +4471,7 @@ export async function runWalk(
     degradations,
     unconfirmedClicks,
     ignoredDrags,
+    dialogs: dialogs.answered(),
     storageRefused,
     hoverSensitive,
     counters,

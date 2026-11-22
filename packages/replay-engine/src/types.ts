@@ -5,6 +5,7 @@ import type {
   SceneDocument,
   StrategyName,
 } from "@demoman/scene-schema";
+import type { AnsweredDialog } from "./dialogs.js";
 
 export interface Rect {
   x: number;
@@ -370,6 +371,17 @@ export type ReplayStopReason =
    */
   | "clickNotDelivered"
   /**
+   * A click step said how to answer a dialog (`dialog`) and its click opened
+   * none (DEM-161): the take does not match the script.
+   */
+  | "dialogNotOpened"
+  /**
+   * The step's `dialog` answer does not fit the dialog that opened: dismiss
+   * on an alert, or text on anything but a prompt. The run answered OK so the
+   * page could go on, then stopped (DEM-161).
+   */
+  | "dialogAnswerUnfit"
+  /**
    * A drag whose start or end is off the page once the start is in view.
    * A drag cannot scroll mid-move, so it was not begun: a drag cut short at
    * the viewport's edge would drop wherever that happened to be.
@@ -520,6 +532,12 @@ export interface ReplayResult {
    * `unconfirmedClicks` is.
    */
   ignoredDrags?: { actionId: string; note: string }[];
+  /**
+   * Every JavaScript dialog the run answered, in order, with the action it
+   * opened during (null between steps), DEM-161. Optional as
+   * `unconfirmedClicks` is; the walk always sets it.
+   */
+  dialogs?: AnsweredDialog[];
   /**
    * True **iff** a bundle was built and the store refused to hold it.
    *

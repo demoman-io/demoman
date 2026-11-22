@@ -141,16 +141,26 @@ export async function replayPhase(input: {
     targetUrl,
   }).mayReplay;
 
-  const result = await runReplay(scene, {
-    cdp,
-    page: createHeadlessPageAgent(page, report),
-    encoder,
-    store,
-    clock,
-    mayReplay,
-    occlusion,
-    madeFrom: madeFromOf(scene),
-  });
+  // A Playwright `dialog` listener stops its own auto-dismiss, so the engine
+  // alone answers each dialog, over CDP, as the take answered it (DEM-161):
+  // the same as `play.ts`, only while it walks.
+  const leaveToEngine = () => {};
+  page.on("dialog", leaveToEngine);
+  let result: Awaited<ReturnType<typeof runReplay>>;
+  try {
+    result = await runReplay(scene, {
+      cdp,
+      page: createHeadlessPageAgent(page, report),
+      encoder,
+      store,
+      clock,
+      mayReplay,
+      occlusion,
+      madeFrom: madeFromOf(scene),
+    });
+  } finally {
+    page.off("dialog", leaveToEngine);
+  }
 
   if (!occlusion.navigated() && result.bundle !== null) {
     // The engine stores its bundle before returning, so a blank-frame

@@ -77,7 +77,7 @@ function clickAction(i: number): SceneDocument["actions"][number] {
  *  the same length would produce. */
 function sceneOf(steps: number): SceneDocument {
   return {
-    schemaVersion: 15,
+    schemaVersion: 16,
     meta: {
       id: "scene-run-report-fixture",
       name: "run report fixture",
@@ -1326,6 +1326,27 @@ describe("prVerdict", () => {
           degradations: [
             { kind: "stepUnsettled", startMs: 0, endMs: 1, note: "x" },
             { kind: "requestNotWaited", startMs: 0, endMs: 1, note: "y" },
+          ],
+        },
+      }),
+      "matches all 3 steps",
+    ],
+    [
+      // A confirm the run accepted by default is said under the video
+      // (DEM-161): the video's clause stays clean.
+      "a dialog answered by default",
+      buildRunReport({
+        ...complete(),
+        walk: {
+          ...completeWalk(3),
+          dialogs: [
+            {
+              actionId: null,
+              kind: "confirm",
+              message: "Delete?",
+              answer: "accept",
+              by: "default",
+            },
           ],
         },
       }),

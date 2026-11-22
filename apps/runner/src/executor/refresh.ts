@@ -206,6 +206,8 @@ const SCRIPT_STOPS: Record<ReplayStopReason, boolean> = {
   unperformableStep: true,
   dragEndOutOfView: true,
   dragNoDistance: true,
+  dialogNotOpened: true,
+  dialogAnswerUnfit: true,
   noActions: true,
   waitTimeout: false,
   mutating: false,

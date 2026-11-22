@@ -354,6 +354,16 @@ interface HoldInstant {
  * duration would walk the output cursor backwards, breaking monotonicity of
  * both `toSourceMs` and `toOutputMs`.
  */
+/** Where a hold stands in source time: its marker plus its offset, inside
+ *  the source. One rule for the hold and for what is drawn on it
+ *  (`resolvePlan`'s dialog cards), so a marker past the source's end still
+ *  finds its hold. */
+export const holdSourceMs = (
+  markerMs: number,
+  offsetMs: number,
+  sourceDurationMs: number,
+): number => clamp(markerMs + offsetMs, 0, sourceDurationMs);
+
 function holdInstants(
   plan: RenderPlan,
   bundle: FrameBundle,
@@ -363,11 +373,23 @@ function holdInstants(
   const markerAt = new Map(
     bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
   );
-  return plan.holds
+  // Dialog holds first: the sort below is stable, so at an instant shared
+  // with an authored hold the dialog's is the first hold segment there,
+  // which is where `resolvePlan` looks for its card.
+  const dialogHolds = (plan.dialogs ?? []).map((d) => ({
+    actionId: d.actionId,
+    offsetMs: 0,
+    durationMs: d.durationMs,
+  }));
+  return [...dialogHolds, ...plan.holds]
     .flatMap((hold) => {
       const marker = markerAt.get(hold.actionId);
       if (marker === undefined) return [];
-      const sourceTimeMs = clamp(marker + hold.offsetMs, 0, sourceDurationMs);
+      const sourceTimeMs = holdSourceMs(
+        marker,
+        hold.offsetMs,
+        sourceDurationMs,
+      );
       // A pause inside a stretch the author cut is gone with the stretch
       // (spec §1, "Gaps, holds and paces inside a removed range are dropped
       // with it"). Stated as a RULE rather than left to the segmentation:

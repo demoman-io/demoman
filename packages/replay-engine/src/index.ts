@@ -128,6 +128,13 @@ export {
   desktopMetrics,
   deviceMetrics,
 } from "./device.js";
+// `createDialogAnswerer` is test-only, see header; `AnsweredDialog` is the
+// type of `ReplayResult.dialogs`.
+export {
+  type AnsweredDialog,
+  createDialogAnswerer,
+  type DialogAnswerer,
+} from "./dialogs.js";
 export {
   type EngineDeps, // test-only, see header
   replayOutcome,

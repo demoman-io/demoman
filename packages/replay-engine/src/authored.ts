@@ -47,6 +47,7 @@ import {
   CURSOR_DEFAULTS,
   captureDeviceOf,
   type DemoScript,
+  type DialogRecord,
   type DragSpot,
   deviceFor,
   type FailureReasonName,
@@ -246,6 +247,9 @@ export interface AuthoredStep {
    *  step's end is the bound, so the camera may leave before the value
    *  shows (DEM-173). */
   lastKeyPaint?: { unconfirmed: string };
+  /** On a click, type or press that opened JavaScript dialogs: each, as the
+   *  run answered it (DEM-161). The action keeps the same list. */
+  dialogs?: DialogRecord[];
   /** On a `waitForLoad` that was met: whether a load started since the
    *  previous step began. False is a wait that passed without a navigation. */
   loadSeen?: boolean;
@@ -816,6 +820,11 @@ export function createAuthoredRun(
             segment: undefined,
             text: null,
             pauseMs: pauseMs(),
+            onDialog: (records: DialogRecord[]) => {
+              if (records.length === 0) return;
+              record.dialogs = records;
+              if (action.kind === "press") action.dialogs = records;
+            },
           };
           commit(action, null, record, null);
           continue;
@@ -1138,6 +1147,15 @@ export function createAuthoredRun(
               )
             : undefined,
           text: step.do === "type" ? step.text : null,
+          ...(step.do === "click" && step.dialog !== undefined
+            ? { dialog: step.dialog }
+            : {}),
+          onDialog: (records: DialogRecord[]) => {
+            if (records.length === 0) return;
+            record.dialogs = records;
+            if (action.kind === "click" || action.kind === "type")
+              action.dialogs = records;
+          },
           ...(step.do === "type"
             ? {
                 onLastKeyUnpainted: (why: string) => {

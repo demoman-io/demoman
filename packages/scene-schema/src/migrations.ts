@@ -320,6 +320,10 @@ const steps: Record<number, MigrationStep> = {
   // guessed source; the bump makes an older build refuse a take it would
   // write back wrongly.
   14: (doc) => ({ ...doc, schemaVersion: 15 }),
+  // v15 -> v16 (2026-11-21): a click, type or press may carry `dialogs`.
+  // Nothing in a v15 document changes; the bump makes an older build refuse a
+  // take whose dialogs it would drop.
+  15: (doc) => ({ ...doc, schemaVersion: 16 }),
 };
 
 /**

@@ -306,6 +306,8 @@ it("ships the Studio's pages where studio --serve looks for them, and packs them
     paths.some((p) => /^dist\/studio\/assets\/editor-.*\.js$/.test(p)),
   ).toBe(true);
   expect(paths.some((p) => p.startsWith("dist/studio/fonts/"))).toBe(true);
+  // The dialog card's font: every export reads it (`readDialogFont`).
+  expect(paths).toContain("dist/studio/fonts/geist-variable.woff2");
 });
 
 // The npm package page: npm packs a README whatever `files` lists.
@@ -380,6 +382,8 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     writeFileSync(join(pagesDir, "library.html"), "<p>library</p>");
     writeFileSync(join(pagesDir, "editor.html"), "<p>editor</p>");
     writeFileSync(join(pagesDir, "settings.html"), "<p>settings</p>");
+    mkdirSync(join(pagesDir, "fonts"));
+    writeFileSync(join(pagesDir, "fonts", "geist-variable.woff2"), "x");
     mkdirSync(join(pagesDir, "wallpapers"));
     for (const w of WALLPAPERS) {
       for (const shape of ["landscape", "portrait", "thumb"] as const) {
@@ -473,6 +477,20 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     expect(verdict.ok ? "" : verdict.reason).toContain(
       "the Studio's pages are not built (no ",
     );
+  });
+
+  it("refuses a folder missing the dialog card's font, and names it", () => {
+    const dirs = fixture({
+      stamp: { sha: "abc", version: "1.2.3" },
+      builtAt: 2_000_000,
+      editedAt: 1_000_000,
+    });
+    const file = join(dirs.pagesDir, "fonts", "geist-variable.woff2");
+    expect(existsSync(file)).toBe(true);
+    rmSync(file);
+    const verdict = checkStudioPages({ ...dirs, version: "1.2.3" });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.ok ? "" : verdict.reason).toContain("geist-variable.woff2");
   });
 
   it("refuses a folder missing a wallpaper file, and names it", () => {

@@ -3,7 +3,7 @@ import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
 import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 const Rect = z.object({
   x: z.number(),
@@ -147,8 +147,40 @@ const Spot = z.object({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
 });
+/** The kinds of JavaScript dialog a page can open. */
+export const DIALOG_KINDS = [
+  "alert",
+  "confirm",
+  "prompt",
+  "beforeunload",
+] as const;
+export type DialogKind = (typeof DIALOG_KINDS)[number];
+
+/**
+ * A dialog the action opened and how the run answered it (v16). The answer is
+ * decided once, in the walk, and recorded here; the report and the video read
+ * this rather than deciding again. `by` says whether the script asked for the
+ * answer or the default (accept) was used. `beatMs` is the beat the walk
+ * allotted the dialog card, so the render needs no measurement.
+ */
+export const DialogRecordSchema = z.object({
+  kind: z.enum(DIALOG_KINDS),
+  host: z.string(),
+  message: z.string(),
+  answer: z.enum(["accept", "dismiss"]),
+  /** What a prompt was answered with; absent for every other answer. */
+  text: z.string().optional(),
+  by: z.enum(["script", "default"]),
+  beatMs: z.number().positive(),
+});
+export type DialogRecord = z.infer<typeof DialogRecordSchema>;
+
+/** Dialogs an action opened: a click, a type's focusing click, or a key press can. */
+const dialogs = { dialogs: z.array(DialogRecordSchema).optional() };
+
 const Click = z.object({
   ...actionBase,
+  ...dialogs,
   kind: z.literal("click"),
   /** Where in the target's box the click lands, as fractions of it (v14); absent: its centre. */
   at: Spot.optional(),
@@ -174,6 +206,7 @@ const Click = z.object({
 const TypeAction = z
   .object({
     ...actionBase,
+    ...dialogs,
     kind: z.literal("type"),
     text: z.string().nullable(),
     /**
@@ -232,6 +265,7 @@ const WaitFor = z.object({
 /** A key press (v14). Names no element: it goes to whatever has focus. */
 const Press = z.object({
   ...actionBase,
+  ...dialogs,
   anchorId: z.null(),
   kind: z.literal("press"),
   key: z.enum(PRESS_KEYS),

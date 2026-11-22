@@ -1,12 +1,32 @@
 import { readFile } from "node:fs/promises";
-import { extname, isAbsolute, join } from "node:path";
+import { dirname, extname, isAbsolute, join } from "node:path";
 import {
   type SceneBackground,
   wallpaperFile,
   wallpaperInfo,
 } from "@demoman/scene-schema";
-import type { WallpaperInput } from "../render.js";
+import type { FontInput, WallpaperInput } from "../render.js";
 import { messageOf } from "../report.js";
+
+/**
+ * Geist, the dialog card's one font (DEM-161): the Studio pages' own copy,
+ * which sits beside the wallpapers in every install (`fonts/` next to
+ * `wallpapers/`). Never throws; a font that cannot be read is a reason, and
+ * the render fails on it only when the take has a card to draw.
+ */
+export async function readDialogFont(
+  wallpapersDir: string,
+): Promise<FontInput> {
+  const path = join(dirname(wallpapersDir), "fonts", "geist-variable.woff2");
+  try {
+    return { ok: true, bytes: new Uint8Array(await readFile(path)) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `${path} could not be read (${messageOf(error)})`,
+    };
+  }
+}
 
 /** Rasters only: an SVG is rasterised where it enters (upload or run), so
  *  none reaches the render as a vector. */

@@ -19,7 +19,7 @@ import { renderToFiles } from "../render.js";
 import type { BrowserSession } from "./browser.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
-import { readWallpaper } from "./wallpaper-read.js";
+import { readDialogFont, readWallpaper } from "./wallpaper-read.js";
 
 /**
  * The widest still a run or probe answer carries (ruling F, 2026-10-30): an
@@ -94,6 +94,7 @@ export async function renderFinalStill(args: {
         scene.branding.background,
         wallpaperShape(target),
       ),
+      font: await readDialogFont(wallpapersDir),
       // The last instant the film shows: its duration is the end, not in it.
       outputTimesMs: [Math.max(0, outputDurationMs - 1)],
     });

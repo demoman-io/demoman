@@ -4,6 +4,7 @@ import { COMPOSITOR_VERSION } from "../version.js";
 import { planCameraIntents } from "./camera.js";
 import { planCosmetics } from "./cosmetics.js";
 import { planCursorSegments } from "./cursor.js";
+import { planDialogs } from "./dialogs.js";
 import type {
   AttachedEdit,
   PlannedPace,
@@ -44,6 +45,8 @@ export function planScene(
   const removed = scene.edits.removed ?? [];
   const cutSteps = stepsInsideRemoved(scene);
   const attachedToCuts: AttachedEdit[] = [];
+  // A removed step's frames are not in the video, so neither is its card.
+  const dialogs = planDialogs(scene).filter((d) => !cutSteps.has(d.actionId));
 
   // `?? []` for the reason `migrateHoldsToGaps` writes it: a document cast
   // rather than parsed (the studio pages take the server's JSON as typed)
@@ -148,6 +151,9 @@ export function planScene(
         },
       ];
     }),
+    // Absent rather than empty: a take without dialogs plans as it always
+    // did, to the key (`timeline-planned.test.ts` pins the whole plan).
+    ...(dialogs.length === 0 ? {} : { dialogs }),
     paces,
     tailMs: scene.pacing?.tailMs ?? null,
     removed,

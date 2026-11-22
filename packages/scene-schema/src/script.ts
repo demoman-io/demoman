@@ -106,6 +106,14 @@ export const SCRIPT_VERSION_PRESS = 7;
 export const SCRIPT_VERSION_EDITS = 8;
 
 /**
+ * The first version with a click's `dialog` (2026-11-21): how to answer a
+ * JavaScript dialog the click opens. Step members are strict, so a build from
+ * before refuses `dialog` by name; the bump gives it the version sentence
+ * instead, by `SCRIPT_VERSION_KIT`'s reasoning.
+ */
+export const SCRIPT_VERSION_INPUTS = 9;
+
+/**
  * The largest zoom a script may ask a click for. The camera clamps to
  * `CAMERA_DEFAULTS.maxScale` (2.5, in `@demoman/compositor`, which depends on
  * this package and so cannot be imported here); a higher ask would be clamped
@@ -240,6 +248,14 @@ export const ZoomIntentSchema = z.union([
 ]);
 export type ZoomIntent = z.infer<typeof ZoomIntentSchema>;
 
+/** How a script answers a dialog: accept (the default), dismiss, or a prompt's text. */
+export const DialogIntentSchema = z.union([
+  z.literal("accept"),
+  z.literal("dismiss"),
+  z.object({ text: z.string() }).strict(),
+]);
+export type DialogIntent = z.infer<typeof DialogIntentSchema>;
+
 /** The zoom a script asked for at an action, if it named one. */
 export type ZoomIntentOf = (actionId: string) => ZoomIntent | undefined;
 
@@ -254,6 +270,9 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       ),
       zoom: ZoomIntentSchema.optional().describe(
         "The camera's zoom at this click: `false` for none, or `{ scale }` over 1 and at most 2.5. Absent leaves it to the camera",
+      ),
+      dialog: DialogIntentSchema.optional().describe(
+        'How to answer a dialog this click opens: "accept" (the default), "dismiss", or { text } for a prompt',
       ),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
@@ -472,6 +491,7 @@ const ScriptVersionSchema = z.literal([
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_PRESS,
   SCRIPT_VERSION_EDITS,
+  SCRIPT_VERSION_INPUTS,
 ]);
 export type ScriptVersion = z.infer<typeof ScriptVersionSchema>;
 
@@ -728,6 +748,10 @@ export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
         (step) => step.do === "press" || (step.do === "click" && step.at),
       ),
       SCRIPT_VERSION_PRESS,
+    ],
+    [
+      script.steps.some((step) => step.do === "click" && step.dialog),
+      SCRIPT_VERSION_INPUTS,
     ],
   ];
   return rules

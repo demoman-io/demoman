@@ -11,7 +11,12 @@ import {
   type MadeFromStep,
   planScene,
 } from "@demoman/compositor";
-import type { SceneAction, SceneDocument } from "@demoman/scene-schema";
+import type {
+  DialogIntent,
+  DialogRecord,
+  SceneAction,
+  SceneDocument,
+} from "@demoman/scene-schema";
 import type { ReplayResult } from "./types.js";
 import {
   type EngineDeps,
@@ -58,6 +63,21 @@ export async function runReplay(
                 : (scene.anchors.find((a) => a.id === action.anchorId) ?? null),
             segment: segments.get(action.id),
             text: textFor(action),
+            // A dialog is answered as the take answered it, and the action
+            // then keeps what this run answered: the scene is rendered from
+            // these actions after the run (`runPipeline`), so it is updated
+            // in place, and an action whose dialog no longer opens drops it.
+            ...(action.kind === "click" ||
+            action.kind === "type" ||
+            action.kind === "press"
+              ? {
+                  recordedDialog: recordedIntent(action.dialogs?.[0]),
+                  onDialog: (records: DialogRecord[]) => {
+                    if (records.length > 0) action.dialogs = records;
+                    else delete action.dialogs;
+                  },
+                }
+              : {}),
             // A drag rebuilds from the spots and end the take kept.
             ...(action.kind === "drag"
               ? {
@@ -96,6 +116,19 @@ export async function runReplay(
       firstCursor: plan?.cursorSegments[0]?.from ?? { x: 0, y: 0 },
     },
   );
+}
+
+/** The answer a recorded dialog asks a re-record for: dismiss, or the text
+ *  the script gave a prompt; undefined is the default, OK. Read from the
+ *  action's first dialog, as `scriptFromTake` reads it. */
+function recordedIntent(
+  recorded: DialogRecord | undefined,
+): DialogIntent | undefined {
+  if (recorded === undefined) return undefined;
+  if (recorded.answer === "dismiss") return "dismiss";
+  return recorded.by === "script" && recorded.text !== undefined
+    ? { text: recorded.text }
+    : undefined;
 }
 
 /**

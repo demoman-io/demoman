@@ -8,6 +8,7 @@ import {
   type FrameSource,
   hoverVerdicts,
   LANDSCAPE_1080P,
+  loadDialogFont,
   logoRasterHeight,
   type Presentation,
   planScene,
@@ -581,6 +582,8 @@ const historyWarningsOpen = new Set<string>();
 let target: RenderTarget = previewTarget(LANDSCAPE_1080P);
 let presentation: Presentation | null = null;
 let resolved: ResolvedPlan | null = null;
+/** Geist for the dialog card, loaded on the first draw that has one. */
+let dialogFont: Promise<void> | undefined;
 
 const canvas = $("preview") as HTMLCanvasElement;
 let offscreen = new OffscreenCanvas(target.width, target.height);
@@ -1662,6 +1665,18 @@ const scrubber = createScrubber({
       );
     }
     let decodeMs = 0;
+    // A dialog card is drawn in Geist only (DEM-161); one that will not
+    // load fails the draw with the reason, as any draw failure does.
+    if (drawing.resolved.dialogCards.length > 0) {
+      // A load that failed is tried again on the next draw, not kept.
+      dialogFont ??= loadDialogFont('url("/fonts/geist-variable.woff2")').catch(
+        (error: unknown) => {
+          dialogFont = undefined;
+          throw error;
+        },
+      );
+      await dialogFont;
+    }
     await renderFrame({
       resolved: drawing.resolved,
       target: drawing.target,
