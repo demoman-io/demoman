@@ -363,7 +363,15 @@ function holdInstants(
   const markerAt = new Map(
     bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]),
   );
-  return plan.holds
+  // Dialog holds first: the sort below is stable, so at an instant shared
+  // with an authored hold the dialog's is the first hold segment there,
+  // which is where `resolvePlan` looks for its card.
+  const dialogHolds = (plan.dialogs ?? []).map((d) => ({
+    actionId: d.actionId,
+    offsetMs: 0,
+    durationMs: d.durationMs,
+  }));
+  return [...dialogHolds, ...plan.holds]
     .flatMap((hold) => {
       const marker = markerAt.get(hold.actionId);
       if (marker === undefined) return [];

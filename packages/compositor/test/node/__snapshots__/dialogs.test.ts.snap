@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dialog holds > a take with no dialogs plans exactly as before 1`] = `
+[
+  {
+    "kind": "idle",
+    "outEndMs": 400,
+    "outStartMs": 0,
+    "srcEndMs": 400,
+    "srcStartMs": 0,
+  },
+  {
+    "kind": "idle",
+    "outEndMs": 3200,
+    "outStartMs": 400,
+    "srcEndMs": 3200,
+    "srcStartMs": 400,
+  },
+  {
+    "kind": "motion",
+    "outEndMs": 4000,
+    "outStartMs": 3200,
+    "srcEndMs": 4000,
+    "srcStartMs": 3200,
+  },
+  {
+    "kind": "idle",
+    "outEndMs": 9000,
+    "outStartMs": 4000,
+    "srcEndMs": 9000,
+    "srcStartMs": 4000,
+  },
+]
+`;

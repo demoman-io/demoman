@@ -17,6 +17,7 @@ import {
   PRESS_DURATION_MS,
   PULSE_DURATION_MS,
 } from "./draw-cursor.js";
+import { drawDialogCard } from "./draw-dialog.js";
 import {
   clipToFrame,
   contentScale,
@@ -256,6 +257,31 @@ export async function renderFrame(args: {
       (rect) => cssRectToOutput(rect, camera, frameRect, viewport),
     ),
   );
+
+  // A dialog card over the page, in page space: the camera carries it.
+  // Drawn whether or not the cursor is: it shows the page, not the pointer.
+  const cards = resolved.dialogCards.filter(
+    (c) => outputTimeMs >= c.range.startMs && outputTimeMs < c.range.endMs,
+  );
+  if (cards.length > 0) {
+    const pageRect = cssRectToOutput(
+      { x: 0, y: 0, ...viewport },
+      camera,
+      frameRect,
+      viewport,
+    );
+    stage("dialogs", () => {
+      for (const c of cards) {
+        drawDialogCard(
+          ctx,
+          c.card,
+          pageRect,
+          k,
+          outputTimeMs >= c.pressedFromMs,
+        );
+      }
+    });
+  }
 
   ctx.restore();
 

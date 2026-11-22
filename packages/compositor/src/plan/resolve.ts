@@ -1,4 +1,5 @@
 import type {
+  DialogRecord,
   SceneCursor,
   SceneDocument,
   SceneMotion,
@@ -23,6 +24,7 @@ import {
   springSettleMs,
 } from "./cursor-spring.js";
 import { retimeAlongRoute } from "./cursor-timing.js";
+import { DIALOG_PRESS_MS } from "./dialogs.js";
 import { leaveThroughEdges } from "./off-page.js";
 import { planScene } from "./plan.js";
 import {
@@ -59,6 +61,14 @@ export interface ResolvedCosmetic {
    * with no range: a whole-take mask has no side that could go missing.
    */
   unplaced: ("start" | "end")[];
+}
+
+/** One dialog card over its hold: shown across `range`, its answer's
+ *  button drawn pressed from `pressedFromMs`. Output ms, as `range`. */
+export interface ResolvedDialogCard {
+  range: OutputRange;
+  card: DialogRecord;
+  pressedFromMs: number;
 }
 
 export interface ResolvedPlan {
@@ -124,6 +134,8 @@ export interface ResolvedPlan {
   /** Output-axis stretches where the pointer is still. See `cursorRestSpans`. */
   cursorRestOutputMs: TimeSpan[];
   cosmetics: ResolvedCosmetic[];
+  /** The dialog cards, in output order; empty for a take without dialogs. */
+  dialogCards: ResolvedDialogCard[];
   /** The trim, on the untrimmed output axis. The whole output when none. */
   range: OutputRange;
   /** Trim sides whose step the bundle has no marker for; that side is uncut. */
@@ -900,6 +912,7 @@ export function resolvePlan(
       cameraIntents: kept.cameraIntents,
       cosmetics: kept.cosmetics,
       holds: kept.holds,
+      dialogs: kept.dialogs,
       removedSteps: kept.removedSteps,
       attachedToCuts: kept.attachedToCuts,
     };
@@ -1067,6 +1080,28 @@ export function resolvePlan(
     };
   });
 
+  // Each card over its own hold segment: the first hold standing at its
+  // marker, since `holdInstants` places dialog holds before any other.
+  // None when the bundle has no marker for the step or a cut took the
+  // instant out, as `holdInstants` drops the hold itself then.
+  const dialogCards: ResolvedDialogCard[] = (plan.dialogs ?? []).flatMap(
+    (hold) => {
+      const sourceMs = markerSourceMs.get(hold.actionId);
+      if (sourceMs === undefined) return [];
+      // Within a microsecond, as `buildTimeline` matches a hold to its seam.
+      const segment = timeline.segments.find(
+        (s) => s.kind === "hold" && Math.abs(s.srcStartMs - sourceMs) <= 1e-6,
+      );
+      if (segment === undefined) return [];
+      let startMs = segment.outStartMs;
+      return hold.cards.map((card) => {
+        const range = { startMs, endMs: startMs + card.beatMs };
+        startMs = range.endMs;
+        return { range, card, pressedFromMs: range.endMs - DIALOG_PRESS_MS };
+      });
+    },
+  );
+
   return {
     plan,
     timeline,
@@ -1082,6 +1117,7 @@ export function resolvePlan(
     motion,
     cursorRestOutputMs: cursorRestSpans(bridged, timeline, clickOutputMs),
     cosmetics,
+    dialogCards,
     range: trim.range,
     trimUnplaced: trim.unplaced.map((side) =>
       side === "start" ? "head" : "tail",

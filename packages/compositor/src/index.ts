@@ -57,7 +57,12 @@ export {
   sampleSegment,
   segmentDurationMs,
 } from "./plan/cursor.js";
-export { DIALOG_BEAT_MS, DIALOG_PRESS_MS } from "./plan/dialogs.js";
+export {
+  DIALOG_BEAT_MS,
+  DIALOG_PRESS_MS,
+  type PlannedDialogHold,
+  planDialogs,
+} from "./plan/dialogs.js";
 export {
   MIN_SCREEN_MS,
   type ScreenMoment,
@@ -89,6 +94,7 @@ export {
   cursorRestSpans,
   type LoweredZoom,
   type ResolvedCosmetic,
+  type ResolvedDialogCard,
   type ResolvedPlan,
   resolvePlan,
   sampleCursor,
@@ -181,6 +187,12 @@ export {
   drawCursor,
   drawCursorTrail,
 } from "./render/draw-cursor.js";
+export {
+  DIALOG_FONT,
+  dialogFontLoaded,
+  drawDialogCard,
+  loadDialogFont,
+} from "./render/draw-dialog.js";
 export {
   greyscaleProbe,
   meanAbsDiff,
