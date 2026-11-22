@@ -138,6 +138,50 @@ describe("mergeSkeleton", () => {
     expect(typed).toMatchObject({ text: "Maple", recorded: t.id });
   });
 
+  it("carries a click's dialog answer from the scene into the merged step (DEM-161)", () => {
+    // Red if the merge rebuilt steps without the derived step's `dialog`.
+    const doc = scene();
+    const sk = skeletonFor(doc);
+    const click = doc.actions.find((a) => a.kind === "click");
+    if (click === undefined) throw new Error("fixture has no click");
+    const answered = {
+      ...doc,
+      actions: doc.actions.map((a) =>
+        a.id === click.id
+          ? {
+              ...a,
+              dialogs: [
+                {
+                  kind: "confirm",
+                  host: "app.example.com",
+                  message: "Delete?",
+                  answer: "dismiss",
+                  by: "script",
+                  beatMs: 1200,
+                },
+              ],
+            }
+          : a,
+      ),
+    } as SceneDocument;
+    // Premise: the derivation itself wrote the dialog onto that click.
+    const derived = derivedOf(answered);
+    expect(
+      derived.draft.steps.find((s) => s.recorded === click.id),
+    ).toMatchObject({ dialog: "dismiss" });
+    const out = mergeSkeleton(
+      derived,
+      { kind: "ok", skeleton: sk },
+      refuse(answered),
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(
+      out.draft.steps.find((s) => "recorded" in s && s.recorded === click.id),
+    ).toMatchObject({
+      dialog: "dismiss",
+    });
+  });
+
   it("takes the look from the scene, not the skeleton", () => {
     const doc = scene();
     const sk = {

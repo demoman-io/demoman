@@ -22,6 +22,7 @@ import {
 } from "@demoman/replay-engine";
 import {
   type DemoScript,
+  type DialogKind,
   type SceneDocument,
   SHOWN_STEP,
   type StrategyName,
@@ -339,6 +340,21 @@ export interface RunReport {
      */
     unplacedBeats?: { step: string; note: string }[];
   };
+  /**
+   * Every JavaScript dialog the run answered, in order (DEM-161). `step` is
+   * the script step it opened during (1-based), null for one that opened with
+   * no click, type or press armed (a load, a drag), which the video does not
+   * draw (`drawn` false). Absent when no dialog opened.
+   */
+  dialogs?: {
+    step: number | null;
+    kind: DialogKind;
+    message: string;
+    answer: "accept" | "dismiss";
+    text?: string;
+    by: "script" | "default";
+    drawn: boolean;
+  }[];
   /** What the video looks like (film-check spec §2). Always present: a run
    *  with nothing to check says why, never omits the field. */
   video: FilmReport;
@@ -411,6 +427,13 @@ export interface WalkResultLike {
   storageRefused: boolean;
   counters: Pick<ReplayCounters, "encodeShrunkSpans">;
   unconfirmedClicks?: { actionId: string; note: string }[];
+  /** `ReplayResult.dialogs`: optional there, so read as `?? []`. */
+  dialogs?: (Omit<
+    NonNullable<RunReport["dialogs"]>[number],
+    "step" | "drawn"
+  > & {
+    actionId: string | null;
+  })[];
   ignoredDrags?: { actionId: string; note: string }[];
   /** `AuthoredResult`'s own, carried for `trimNotes`. */
   trimClamped?: { side: "start"; askedMs: number; keptMs: number };
@@ -659,6 +682,41 @@ function unconfirmedClicksOf(
       };
     }),
   };
+}
+
+/** The walk's dialogs with the script step each opened during. An action this
+ *  run has no step for is undrawn like an unowned one, never dropped. */
+function dialogsOf(
+  walk: WalkResultLike,
+  steps: readonly AuthoredStep[],
+): Pick<RunReport, "dialogs"> {
+  const all = walk.dialogs ?? [];
+  if (all.length === 0) return {};
+  return {
+    dialogs: all.map(({ actionId, kind, message, answer, text, by }) => {
+      const record =
+        actionId === null
+          ? undefined
+          : steps.find((s) => s.actionId === actionId);
+      return {
+        step: record === undefined ? null : record.index + 1,
+        kind,
+        message,
+        answer,
+        ...(text === undefined ? {} : { text }),
+        by,
+        drawn: record !== undefined,
+      };
+    }),
+  };
+}
+
+/** What the run answered, in a line; nothing when no dialog opened. */
+function dialogsClause(report: RunReport): string {
+  const all = report.dialogs ?? [];
+  if (all.length === 0) return "";
+  const answers = all.map((d) => (d.answer === "accept" ? "OK" : "Cancel"));
+  return ` The run answered ${all.length} dialog${all.length === 1 ? "" : "s"} (${answers.join(", ")}).`;
 }
 
 /** A planned beat that could not be placed is a degradation of the video
@@ -987,6 +1045,7 @@ export function buildRunReport(args: BuildArgs): RunReport {
       ...unconfirmedClicksOf(args.walk, args.steps),
       ...unplacedBeatsOf(args.film, args.steps),
     },
+    ...dialogsOf(args.walk, args.steps),
     video: args.film,
     recording: args.recording,
     look: args.look,
@@ -1051,9 +1110,9 @@ export function verdictLine(report: RunReport): string {
       unstored.every((w) => w.what === "session") &&
       framesClause(report) === "" &&
       ownClockClause(report) === "";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${lookClause(report)}${otherRepoClause(report)}`;
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${lookClause(report)}${otherRepoClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**

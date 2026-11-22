@@ -529,6 +529,11 @@ export async function playOnStage(
     return null;
   };
   let authored: AuthoredResult;
+  // A Playwright `dialog` listener stops its own auto-dismiss, so the engine
+  // alone answers each dialog, over CDP (DEM-161). Only on the walk's page,
+  // only while it walks.
+  const leaveToEngine = () => {};
+  page.on("dialog", leaveToEngine);
   try {
     authored = await runAuthored(script, {
       cdp,
@@ -579,6 +584,7 @@ export async function playOnStage(
     });
   } finally {
     // Whatever the walk did, the watch's listeners leave with it.
+    page.off("dialog", leaveToEngine);
     prepared.held?.network.stop();
   }
   options.mark?.("walk");
