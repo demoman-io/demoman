@@ -142,4 +142,20 @@ describe("scriptFromTake writes dialog only when not the default", () => {
       expect(draft.scriptVersion).toBe(plain.draft.scriptVersion);
     }
   });
+
+  // The walk records the text a default-answered prompt got (its
+  // `defaultPrompt`); writing it back would make the next run ask for a
+  // dialog the app may stop showing.
+  it("writes nothing for a prompt answered by default, text and all", () => {
+    const plain = takeWith([]);
+    const { draft, step } = takeWith([
+      record({ kind: "prompt", answer: "accept", text: "x", by: "default" }),
+    ]);
+    // Premise: the step exists and the plain take's version is below 9, so
+    // a version 9 here would be the dialog leaking into the draft.
+    expect(step).toBeDefined();
+    expect(plain.draft.scriptVersion).toBeLessThan(9);
+    expect(step).not.toHaveProperty("dialog");
+    expect(draft.scriptVersion).toBe(plain.draft.scriptVersion);
+  });
 });

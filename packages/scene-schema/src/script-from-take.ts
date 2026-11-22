@@ -193,7 +193,8 @@ export type Derivation =
 function dialogIntent(action: SceneAction): DialogIntent | undefined {
   if (action.kind !== "click") return undefined;
   const d = action.dialogs?.[0];
-  if (d === undefined) return undefined;
+  // A default answer is not the script's, even when a prompt kept its text.
+  if (d === undefined || d.by === "default") return undefined;
   if (d.answer === "dismiss") return "dismiss";
   return d.text === undefined ? undefined : { text: d.text };
 }
