@@ -105,6 +105,24 @@ describe("dialog holds", () => {
     }
   });
 
+  it("a marker outside the source holds at its edge, and the card is on that hold", () => {
+    // The source's end is the latest marker (`sourceDurationOf`), so only
+    // its start can be crossed: a marker before 0, from a hand-built bundle.
+    const base = proceduralBundle();
+    const bundle = proceduralBundle({
+      markers: base.markers.map((m) =>
+        m.actionId === "act-1" ? { ...m, sourceTimeMs: -500 } : m,
+      ),
+    });
+    const scene = withDialogs([confirm]);
+    const resolved = resolvePlan(planScene(scene), bundle, scene);
+    // Premise: the hold was placed at the clamped instant, not the marker.
+    const hold = resolved.timeline.segments.find((s) => s.kind === "hold");
+    expect(hold?.srcStartMs).toBe(0);
+    expect(resolved.dialogCards).toHaveLength(1);
+    expect(resolved.dialogCards[0]?.range.startMs).toBe(hold?.outStartMs);
+  });
+
   it("a dialog hold survives migrateToCurrent", () => {
     // Not an `edits.holds` entry: `migrateHoldsToGaps` turns an offset-0
     // hold into a gap, and a dialog's hold must not become one.

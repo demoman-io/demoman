@@ -39,6 +39,7 @@ import {
   buildTimeline,
   CURSOR_MOTION_EPSILON_PX,
   cursorMotionSpans,
+  holdSourceMs,
   type Timeline,
   type TimeSpan,
   toOutputMs,
@@ -1086,8 +1087,11 @@ export function resolvePlan(
   // instant out, as `holdInstants` drops the hold itself then.
   const dialogCards: ResolvedDialogCard[] = (plan.dialogs ?? []).flatMap(
     (hold) => {
-      const sourceMs = markerSourceMs.get(hold.actionId);
-      if (sourceMs === undefined) return [];
+      const markerMs = markerSourceMs.get(hold.actionId);
+      if (markerMs === undefined) return [];
+      // Where `holdInstants` put the hold: a marker past the source's end
+      // holds at its end.
+      const sourceMs = holdSourceMs(markerMs, 0, timeline.sourceDurationMs);
       // Within a microsecond, as `buildTimeline` matches a hold to its seam.
       const segment = timeline.segments.find(
         (s) => s.kind === "hold" && Math.abs(s.srcStartMs - sourceMs) <= 1e-6,
