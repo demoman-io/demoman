@@ -52,8 +52,8 @@ describe("v14 -> v15: where a zoom came from", () => {
     expect(old.camera.length).toBeGreaterThan(0);
     const migrated = migrateToCurrent(old);
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(CURRENT_SCHEMA_VERSION).toBe(15);
-    expect(migrated).toEqual({ ...old, schemaVersion: 15 });
+    expect(CURRENT_SCHEMA_VERSION).toBe(16);
+    expect(migrated).toEqual({ ...old, schemaVersion: 16 });
     for (const c of migrated.camera) expect(c).not.toHaveProperty("source");
   });
 

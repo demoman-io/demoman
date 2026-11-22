@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "number",
-      "const": 15
+      "const": 16
     },
     "meta": {
       "type": "object",
@@ -565,6 +565,59 @@
                 ],
                 "additionalProperties": false
               },
+              "dialogs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "alert",
+                        "confirm",
+                        "prompt",
+                        "beforeunload"
+                      ]
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string",
+                      "enum": [
+                        "accept",
+                        "dismiss"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "default"
+                      ]
+                    },
+                    "beatMs": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "host",
+                    "message",
+                    "answer",
+                    "by",
+                    "beatMs"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "kind": {
                 "type": "string",
                 "const": "click"
@@ -681,6 +734,59 @@
                   "height"
                 ],
                 "additionalProperties": false
+              },
+              "dialogs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "alert",
+                        "confirm",
+                        "prompt",
+                        "beforeunload"
+                      ]
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string",
+                      "enum": [
+                        "accept",
+                        "dismiss"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "default"
+                      ]
+                    },
+                    "beatMs": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "host",
+                    "message",
+                    "answer",
+                    "by",
+                    "beatMs"
+                  ],
+                  "additionalProperties": false
+                }
               },
               "kind": {
                 "type": "string",
@@ -1084,6 +1190,59 @@
                   "height"
                 ],
                 "additionalProperties": false
+              },
+              "dialogs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "alert",
+                        "confirm",
+                        "prompt",
+                        "beforeunload"
+                      ]
+                    },
+                    "host": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string",
+                      "enum": [
+                        "accept",
+                        "dismiss"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "default"
+                      ]
+                    },
+                    "beatMs": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "host",
+                    "message",
+                    "answer",
+                    "by",
+                    "beatMs"
+                  ],
+                  "additionalProperties": false
+                }
               },
               "kind": {
                 "type": "string",

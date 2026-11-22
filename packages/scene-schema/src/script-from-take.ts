@@ -13,12 +13,14 @@ import {
 import { stepsInsideRemoved } from "./removed.js";
 import {
   cursorPolishNamed,
+  type DialogIntent,
   type DragFrom,
   type DragSpot,
   type DragTo,
   SCRIPT_VERSION,
   SCRIPT_VERSION_DEVICE,
   SCRIPT_VERSION_DRAG,
+  SCRIPT_VERSION_INPUTS,
   SCRIPT_VERSION_MOTION,
   SCRIPT_VERSION_PRESS,
   type ScriptTarget,
@@ -93,7 +95,8 @@ export interface ScriptDraft {
     | typeof SCRIPT_VERSION_MOTION
     | typeof SCRIPT_VERSION_DEVICE
     | typeof SCRIPT_VERSION_DRAG
-    | typeof SCRIPT_VERSION_PRESS;
+    | typeof SCRIPT_VERSION_PRESS
+    | typeof SCRIPT_VERSION_INPUTS;
   name: string;
   /** Absent when capture scrubbed the origin — a `scrubbedTarget` hole. */
   target?: string;
@@ -180,6 +183,20 @@ export type Derivation =
       notes: DerivationNote[];
     }
   | { outcome: "nothingToDerive"; takeId: string; reason: "noActions" };
+
+/**
+ * The `dialog` a script needs to repeat what a click's dialog was answered
+ * with: only what differs from the default, which is to accept. A click that
+ * opened several is read by its first. shortcut: a second dialog's answer is
+ * not written back, when one click is seen to open two.
+ */
+function dialogIntent(action: SceneAction): DialogIntent | undefined {
+  if (action.kind !== "click") return undefined;
+  const d = action.dialogs?.[0];
+  if (d === undefined) return undefined;
+  if (d.answer === "dismiss") return "dismiss";
+  return d.text === undefined ? undefined : { text: d.text };
+}
 
 /** A non-empty string or nothing — `accessibleName` and `textContent` may be
  *  `""` by the document schema, and a script target needs `min(1)`. */
@@ -424,6 +441,9 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
             do: "click",
             ...on,
             ...(action.at === undefined ? {} : { at: action.at }),
+            ...(dialogIntent(action) === undefined
+              ? {}
+              : { dialog: dialogIntent(action) }),
             recorded: action.id,
           });
         }
@@ -571,16 +591,20 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
       // A phone take declares the device version, which is past motion's,
       // so it may carry the take's motion too.
       scriptVersion: doc.actions.some(
-        (a) => a.kind === "press" || (a.kind === "click" && a.at),
+        (a) => a.kind === "click" && dialogIntent(a) !== undefined,
       )
-        ? SCRIPT_VERSION_PRESS
-        : doc.actions.some((a) => a.kind === "drag")
-          ? SCRIPT_VERSION_DRAG
-          : doc.meta.capture.device !== undefined
-            ? SCRIPT_VERSION_DEVICE
-            : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
-              ? SCRIPT_VERSION
-              : SCRIPT_VERSION_MOTION,
+        ? SCRIPT_VERSION_INPUTS
+        : doc.actions.some(
+              (a) => a.kind === "press" || (a.kind === "click" && a.at),
+            )
+          ? SCRIPT_VERSION_PRESS
+          : doc.actions.some((a) => a.kind === "drag")
+            ? SCRIPT_VERSION_DRAG
+            : doc.meta.capture.device !== undefined
+              ? SCRIPT_VERSION_DEVICE
+              : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
+                ? SCRIPT_VERSION
+                : SCRIPT_VERSION_MOTION,
       name,
       ...(scrubbed ? {} : { target: origin }),
       ...(doc.meta.capture.device === undefined
