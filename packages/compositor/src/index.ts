@@ -57,6 +57,7 @@ export {
   sampleSegment,
   segmentDurationMs,
 } from "./plan/cursor.js";
+export { DIALOG_BEAT_MS, DIALOG_PRESS_MS } from "./plan/dialogs.js";
 export {
   MIN_SCREEN_MS,
   type ScreenMoment,

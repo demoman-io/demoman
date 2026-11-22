@@ -131,6 +131,9 @@ const RECOVERABLE: Record<ReplayStopReason, boolean> = {
   mutating: false,
   // The script's to fix: the same drag fails the same way again.
   dragEndOutOfView: false,
+  // The script's to fix: the same click opens the same dialog, or none.
+  dialogNotOpened: false,
+  dialogAnswerUnfit: false,
   dragNoDistance: false,
   redactedWithoutReplacement: false,
   unresolvedAnchor: false,
