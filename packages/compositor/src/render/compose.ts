@@ -319,12 +319,6 @@ export async function renderFrame(args: {
 
   // The cursor, after the blur, so it stays crisp — it has its own smear,
   // the trail, which follows the pointer's path rather than the camera's.
-  // Inside the frame clip as before: the same cut, made the same way.
-  ctx.save();
-  toScene();
-  clipToFrame(ctx, presentation);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-
   const cursorStartedAt = args.onStage ? performance.now() : 0;
   const look = resolved.cursorLook;
   // A touch take has no pointer between taps (spec 2026-10-10 §5): its
@@ -333,6 +327,25 @@ export async function renderFrame(args: {
     look.hidden || resolved.touch
       ? null
       : sampleCursor(resolved.cursor, sourceMs);
+
+  // With its hotspot on the page, the pointer is not clipped to the window:
+  // an arrow, trail or pulse at the page's edge hangs over the background,
+  // as a real pointer does over a window's edge. With its hotspot off the
+  // page (the glides and waits of `off-page.ts`) it is cut at the window, so
+  // a pointer that has left is seen leaving and then not at all.
+  const onPage =
+    cursorCss !== null &&
+    cursorCss.x >= 0 &&
+    cursorCss.y >= 0 &&
+    cursorCss.x <= viewport.width &&
+    cursorCss.y <= viewport.height;
+  ctx.save();
+  if (!onPage) {
+    toScene();
+    clipToFrame(ctx, presentation);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
   if (cursorCss) {
     const at = cssToOutput(cursorCss, camera, frameRect, viewport);
     // Cursor and pulse are part of the scene the camera zooms: they scale
