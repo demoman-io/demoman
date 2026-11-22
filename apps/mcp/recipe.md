@@ -265,7 +265,7 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
      `endPage`: the end page's `url`, `text` and `fields`.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
-     not say): its text is kept nowhere. Re-filming or deriving it
+     not say): its text is kept nowhere. Re-filming or deriving that video
      asks for a demo value. `landing.startedElsewhere`: where the start URL went; `landing.unchecked`: no sign-in check. `notStored` with `what: "session"` means the saved
      session could not be refreshed: name it to the user.
    - `threw` - a fault in the run; report `error`.
@@ -333,8 +333,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `maxMB: 9.5` fits GitHub's 10 MB drag-in, or says
    it could not.
-   A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
-   which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
+   A GIF is as wide as fits 10 MB (`warnings.gifSize`: how wide, which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
    default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
@@ -342,7 +341,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    is `stills` and the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
    with no still. `summary` is one
-   sentence: what was saved and anything asked for that the file lacks (a logo, motion, a still, an edit). `warnings` holds more:
+   sentence: what was saved and what was asked for but is missing (a logo, motion, a still, an edit). `warnings` holds more:
    Demoman's calls (`zooms`, `detailViolations`, a size cap's `steps`,
    a GIF's widths, `targetCheck`): not the user's to act on: do not pass them on. None is the script's.
    Except `wallpaperWarning.sentence` (wallpaper left out: plain
@@ -387,7 +386,7 @@ post again; tell the user to check the PR. Other reasons: section 7. An unsaved 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only
 those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)` (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
-`look.wallpaperError`, `size.error`, `linksError`, or something you could not fix. Any other
+`look.wallpaperError`, `size.error`, `linksError`, or what you could not fix. Any other
 outcome: quote its `error` or `detail`.
 
 When the `studio` tool is listed and there is no `links.studio`, **offer**
@@ -449,7 +448,7 @@ Studio exports go to `~/Downloads`.
   or a tablet (820x1180). Name a device or a
   `viewport`, not both. A device has no hover: a `hover` under one is
   refused. `look` takes `branding` or `kit`, plus `cursor`, `canvas` and
-  `motion`; absent is the default brand kit. `kit` names one of
+  `motion`; absent is the user's default brand kit. `kit` names one of
   `snapshot`'s `kits`; not both. An unknown key in `look` is refused and named. A
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
@@ -512,7 +511,7 @@ Studio exports go to `~/Downloads`.
 | `noTag`, `unknownFlow`, `fileNotFound` | `flows` | The file has no Demoman tag; its flow is not in this library; no file there. Use `query` instead. |
 | `invalidArgs` | any | `file` with `query`, not absolute; an old name (`video`, `takeId`): `detail` gives the new. |
 | `videoExpired` | `export`¹ | The video's frames expired: `run({ flow: { id } })`, then export. |
-| `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup; say nothing unless `{ failed }` or `{ unreadable }`. |
+| `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup; say nothing unless `{ failed }` or `{ unreadable }`: quote it. |
 | `nothingToRerecord` | `run`¹ | The video has no step left that acts; tell the user. |
 | `unknownKit` | `run`¹ | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
 | `kitsUnreadable` | `run`¹ | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
