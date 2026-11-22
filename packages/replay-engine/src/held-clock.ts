@@ -23,7 +23,15 @@ const SILENT = Symbol("silent");
 /** A frame's read that went unanswered on a page that answered a second
  *  read: no script holds it, so the frame is taken again a frame of page
  *  time later (`shoot`, DEM-237). */
-class Retake extends Error {}
+class Retake extends Error {
+  constructor(
+    message: string,
+    /** Whether the first read has answered since. */
+    readonly firstAnswered: () => boolean,
+  ) {
+    super(message);
+  }
+}
 
 /** `p`'s answer or its error, or SILENT after SECOND_READ_MS. */
 const bounded = (p: Promise<unknown>): Promise<unknown> => {
@@ -500,9 +508,12 @@ export function createHeldClock(deps: {
   const waitsSinceLook = (looked: { real: number; held: number }) =>
     network.waitsSince(looked.real, looked.held - pageSlack());
   const unpinned: { atMs: number; what: string }[] = [];
-  /** `HeldClock.retaken`; `retaking` while the retake's reads run. */
+  /** `HeldClock.retaken`; `retaking` while the retake's reads run: whether
+   *  the first read has answered since. */
   const retaken: { atMs: number; what: string }[] = [];
-  let retaking = false;
+  let retaking: (() => boolean) | null = null;
+  /** Page time retakes took past a designed sleep's end, owed back. */
+  let behind = 0;
   /** The windows of the waits on the page running (`waiting`). */
   const windows: number[] = [];
   const narrow = () => {
@@ -639,7 +650,8 @@ export function createHeldClock(deps: {
             // Answered while the page was asked again: the run goes on, and
             // its held time never moved, so the picture is the same.
             if (over) return;
-            if (retake && answers) return reject(new Retake(error.message));
+            if (retake && answers)
+              return reject(new Retake(error.message, () => over));
             fatal ??= error;
             void deps.abandon?.().catch(() => undefined); // its calls answer, closed
             reject(fatal);
@@ -681,7 +693,7 @@ export function createHeldClock(deps: {
       Array.isArray(a) && typeof a[0] === "string"
         ? `at ${where(a[0])}, document ${String(a[1])}`
         : "with no address";
-    const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered${retaking ? " when the frame was taken again a frame of page time later" : ""}`;
+    const head = `the page did not answer within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s ${at}: ${what} went unanswered${retaking === null ? "" : ` when the frame was taken again a frame of page time later${retaking() ? "" : ", the first read still unanswered"}`}`;
     if (page instanceof Error)
       return {
         error: new Error(
@@ -712,22 +724,38 @@ export function createHeldClock(deps: {
    *  only as its clock moves. The frame at the first time is not in the video,
    *  and the report says so (`retaken`). */
   const shoot = async (server = false) => {
+    const hungFrom = realNow();
     try {
       await shootOnce(server, true);
     } catch (e) {
       if (!(e instanceof Retake)) throw e;
       retaken.push({ atMs: held, what: e.message });
       const from = held;
+      if (span?.endMs === from) {
+        // A stretch this frame ended goes on to the retake's, and follows
+        // none of the real time the read hung: that was not the server's.
+        stretchFrom = {
+          real: stretchFrom.real + (realNow() - hungFrom),
+          held: stretchFrom.held,
+        };
+      }
       await grant(frameTo(held) + HELD_FRAME_MS);
-      // A stretch this frame ended goes on to the retake's.
       if (span?.endMs === from) span.endMs = held;
-      retaking = true;
+      retaking = e.firstAnswered;
       try {
         await shootOnce(server, false);
       } finally {
-        retaking = false;
+        retaking = null;
       }
     }
+  };
+  /** `shoot`, for a frame of designed time: page time a retake took past
+   *  `end` is owed back by the next sleep (`behind`), so the take after it
+   *  keeps its plan. */
+  const shootDesigned = async (end: number) => {
+    const before = held;
+    await shoot();
+    behind += Math.max(0, held - Math.max(before, end));
   };
   const shootOnce = async (server: boolean, retake: boolean) => {
     if (fatal !== null) throw fatal;
@@ -815,6 +843,7 @@ export function createHeldClock(deps: {
       startEpochMs = epochMs;
       held = 0;
       takeFrom = null;
+      behind = 0;
       lookedAt = { real: realNow(), held };
       // A request already open at the hold: its real time before it is not
       // the page's.
@@ -887,7 +916,10 @@ export function createHeldClock(deps: {
     async sleep(ms) {
       if (startEpochMs === null) throw new Error("sleep before hold");
       if (!(ms >= 0)) throw new Error(`cannot sleep ${ms} ms of page time`);
-      const end = held + ms;
+      // A retake's frame past an earlier sleep's end is paid back here.
+      const owed = Math.min(ms, behind);
+      behind -= owed;
+      const end = held + ms - owed;
       // Not past a frame skipped at the sleep's last grant: the walk would
       // change the page before it was taken (review of Task 9 round 3).
       while (end - held > EPS || unshot) {
@@ -962,7 +994,7 @@ export function createHeldClock(deps: {
         // (review of Task 9 round 2, finding 3).
         if (unshot) {
           unshot = false;
-          await shoot();
+          await shootDesigned(end);
           continue;
         }
         const next =
@@ -980,7 +1012,7 @@ export function createHeldClock(deps: {
           unshot = true;
           continue;
         }
-        await shoot();
+        await shootDesigned(end);
       }
     },
     startTake() {
@@ -1014,7 +1046,7 @@ export function createHeldClock(deps: {
       // sleep inside a wait plays them, as part of its own time.
       if (windows.length === 0 && startEpochMs !== null && unshot) {
         unshot = false;
-        await shoot();
+        await shootDesigned(held);
       }
       return out;
     },
