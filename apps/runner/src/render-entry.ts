@@ -19,8 +19,11 @@
  * with the take's logo.
  */
 import {
+  DIALOG_FONT,
   type FrameBundle,
   type FrameImage,
+  loadDialogFont,
+  planDialogs,
   type RenderTarget,
   SINK_TIMES_GLOBAL,
   type SinkTimes,
@@ -65,6 +68,10 @@ export interface RenderManifest {
     | { base64: string; contentType: string; name: string }
     | { error: string }
     | null;
+  /** Geist for a dialog card (DEM-161), as node read it, or why not. Loaded
+   *  before the first frame of a take with a card; such a take fails the
+   *  render with the reason when it cannot be. */
+  font: { base64: string } | { error: string };
   /** GIF only: how many bytes the GIF may grow to before a narrower width
    *  is tried (`renderOutput`'s `gifBudget`). Absent: the target's width. */
   gifBudget?: { maxBytes: number };
@@ -217,6 +224,17 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
     } catch (error) {
       wallpaper = { ok: false, error: `${sent.name}: ${messageOf(error)}` };
     }
+  }
+  // Not decoration: a card is never drawn in another face, so a take with
+  // one fails here, saying why, rather than draw it in a fallback.
+  if (planDialogs(scene).length > 0) {
+    const font = manifest.font;
+    if ("error" in font) {
+      throw new Error(
+        `the dialog card's font, ${DIALOG_FONT}, could not be had: ${font.error}`,
+      );
+    }
+    await loadDialogFont(bytesOf(font.base64).slice());
   }
   const report = (globalThis as unknown as Record<string, unknown>)[
     RENDER_PROGRESS_BINDING

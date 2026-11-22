@@ -36,7 +36,7 @@ import type { SceneDocument } from "@demoman/scene-schema";
 import { createBrowserSession } from "../executor/browser.js";
 import { createLibrary } from "../executor/library.js";
 import { readLogo } from "../executor/logo-ref.js";
-import { readWallpaper } from "../executor/wallpaper-read.js";
+import { readDialogFont, readWallpaper } from "../executor/wallpaper-read.js";
 import { type LogoInput, renderToFiles } from "../render.js";
 import {
   type Candidate,
@@ -695,15 +695,17 @@ async function main(): Promise<void> {
         scene.branding.logo === null
           ? null
           : await readLogo(home, scene.branding.logo.ref);
-      // ...and its wallpaper, from the repo's studio pages.
+      // ...and its wallpaper and card font, from the repo's studio pages.
+      const wallpapersDir = fileURLToPath(
+        new URL("../../../studio/pages/public/wallpapers", import.meta.url),
+      );
       const wallpaper = await readWallpaper(
         home,
-        fileURLToPath(
-          new URL("../../../studio/pages/public/wallpapers", import.meta.url),
-        ),
+        wallpapersDir,
         scene.branding.background,
         wallpaperShape(today),
       );
+      const font = await readDialogFont(wallpapersDir);
       const renderNotes: string[] = [
         logo === null
           ? "no logo"
@@ -754,6 +756,7 @@ async function main(): Promise<void> {
             fileType: "mp4",
             logo,
             wallpaper,
+            font,
           });
           // The options the sink was really built with, read back from the
           // render page before it closes.

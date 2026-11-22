@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readWallpaper } from "../src/executor/wallpaper-read.js";
+import {
+  readDialogFont,
+  readWallpaper,
+} from "../src/executor/wallpaper-read.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
 
 const homes: string[] = [];
@@ -120,5 +123,24 @@ describe("readWallpaper", () => {
         "portrait",
       ),
     ).toBeNull();
+  });
+});
+
+describe("readDialogFont", () => {
+  // Red if the font is looked for anywhere but beside the wallpapers.
+  it("reads Geist from the fonts beside the wallpapers", async () => {
+    const read = await readDialogFont(WALLPAPERS_DIR);
+    if (!read.ok) throw new Error(read.error);
+    const file = join(WALLPAPERS_DIR, "..", "fonts", "geist-variable.woff2");
+    expect(Buffer.from(read.bytes).equals(readFileSync(file)), file).toBe(true);
+  });
+
+  it("says a font it cannot read, naming the path", async () => {
+    const h = await home();
+    const read = await readDialogFont(join(h, "wallpapers"));
+    expect(read.ok).toBe(false);
+    expect(read.ok ? "" : read.error).toContain(
+      `${join(h, "fonts", "geist-variable.woff2")} could not be read`,
+    );
   });
 });

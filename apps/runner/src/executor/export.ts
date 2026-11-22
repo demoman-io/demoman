@@ -54,7 +54,7 @@ import { readLogo } from "./logo-ref.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
 import { readUserSettings } from "./user-settings.js";
 import type { VideoStore } from "./videos.js";
-import { readWallpaper } from "./wallpaper-read.js";
+import { readDialogFont, readWallpaper } from "./wallpaper-read.js";
 
 export interface ExportDeps {
   library: Library;
@@ -662,6 +662,7 @@ async function exportLeased(a: {
       fileType: asked,
       logo,
       wallpaper,
+      font: await readDialogFont(deps.wallpapersDir),
       ...(asked === "gif"
         ? // As wide as fits: sharp on a Retina screen when the take is
           // short, narrower (and said) when it is long.

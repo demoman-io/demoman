@@ -11,12 +11,14 @@ import { staleBuild } from "@demoman/studio";
 /** What the studio pages are built from, under `apps/studio/pages` — the
  *  same folders apps/studio/src/stale.ts checks. */
 export const STUDIO_SOURCE_DIRS = ["src", "entrypoints", "assets", "public"];
-/** The files a packed studio cannot serve without. */
+/** The files a packed studio cannot serve without. Geist too: every export
+ *  reads it from here to draw a dialog card (the runner's `readDialogFont`). */
 export const STUDIO_NEEDED = [
   "library.html",
   "editor.html",
   "settings.html",
   "studio-build.json",
+  "fonts/geist-variable.woff2",
 ];
 
 /** The built-in wallpaper ids. A copy of `WALLPAPERS` in scene-schema: this
