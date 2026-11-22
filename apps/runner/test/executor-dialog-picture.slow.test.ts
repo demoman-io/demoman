@@ -17,12 +17,16 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
-// Measured locally: run ~RUN s, export ~EXPORT s; x5 for CI (fff4505).
+// Measured locally (2026-11-21, Mac): the run about 5 s, the export about 5 s
+// (the whole file 10.7 s); the timeouts are x5 for CI (fff4505) with margin.
 const RUN_MS = 120_000;
 const EXPORT_MS = 300_000;
 const VIEWPORT = { width: 1280, height: 800 };
 const BLUE: [number, number, number] = [0x1a, 0x73, 0xe8];
 const GREEN: [number, number, number] = [0x16, 0xa3, 0x4a];
+/** A marker under Undo's box, always on the page: it is in the picture only
+ *  while Undo's region is in the camera's view, and Undo covers it. */
+const RED: [number, number, number] = [0xdc, 0x26, 0x26];
 /** The card's beat (`DIALOG_BEAT_MS`), and the 0.25 s spacing the probe reads at. */
 const BEAT_SEC = 1.5;
 const SPACING_SEC = 0.25;
@@ -30,6 +34,8 @@ const SPACING_SEC = 0.25;
  *  darker and reads 20), and fewest green that is Undo (7059 smallest). */
 const CARD_BLUE_MIN = 200;
 const UNDO_GREEN_MIN = 2000;
+/** Fewest red pixels that is the marker in view (the marker fills Undo's box, far above it). */
+const PROBE_RED_MIN = 2000;
 
 // The fixture's own page, with #undo given a fixed box and a fill the page
 // has nowhere else, so where it is does not depend on a machine's fonts.
@@ -40,10 +46,12 @@ const html = async () =>
       join(import.meta.dirname, "fixtures", "confirm-dialog-app.html"),
       "utf8",
     )
-  ).replace(
-    "</style>",
-    `#undo { position: absolute; left: ${UNDO_CSS.left}px; top: ${UNDO_CSS.top}px; width: ${UNDO_CSS.width}px; height: ${UNDO_CSS.height}px; background: #16a34a; border: 0; } </style>`,
-  );
+  )
+    .replace("<h1>", '<div id="probe"></div><h1>')
+    .replace(
+      "</style>",
+      `#undo { position: absolute; left: ${UNDO_CSS.left}px; top: ${UNDO_CSS.top}px; width: ${UNDO_CSS.width}px; height: ${UNDO_CSS.height}px; background: #16a34a; border: 0; z-index: 1; } #probe { position: absolute; left: ${UNDO_CSS.left}px; top: ${UNDO_CSS.top}px; width: ${UNDO_CSS.width}px; height: ${UNDO_CSS.height}px; background: #dc2626; } </style>`,
+    );
 
 let server: Server;
 let home: string;
@@ -133,11 +141,12 @@ describe("a confirm() answered in a held take", () => {
       expect(win, JSON.stringify(answer.screens)).toBeDefined();
       const w = win as { x: number; y: number; width: number; height: number };
       const bytes = new Uint8Array(await readFile(answer.file.path));
-      const read = await sampleMp4(bytes, { colors: [BLUE, GREEN] });
+      const read = await sampleMp4(bytes, { colors: [BLUE, GREEN, RED] });
       const rows = read.readings.map((r) => ({
         t: r.tSec,
         blue: r.colorCounts[0] as number,
         green: r.colorCounts[1] as number,
+        red: r.colorCounts[2] as number,
       }));
       const said = JSON.stringify({
         window: w,
@@ -179,7 +188,7 @@ describe("a confirm() answered in a held take", () => {
       expect(
         hEnd - hStart + SPACING_SEC,
         `hold length (s) ~ the 1.5 s beat less the pressed tail; ${said}`,
-      ).toBeGreaterThanOrEqual(BEAT_SEC - 2 * SPACING_SEC); // the last 300 ms are pressed, darker, unread as blue
+      ).toBeGreaterThanOrEqual(BEAT_SEC - 1.25 * SPACING_SEC); // ~1.25 s: the last 300 ms are pressed, darker, unread as blue
       expect(
         hEnd - hStart + SPACING_SEC,
         `hold length (s); ${said}`,
@@ -198,6 +207,31 @@ describe("a confirm() answered in a held take", () => {
           `Undo (green) must not show under the card at t=${r.t}; ${said}`,
         ).toBe(false);
       }
+      // Premise: Undo's box is in the camera's view during the hold (the
+      // marker under it is on screen), so no green there means Undo is
+      // absent, not out of frame. The marker is also there before the hold.
+      for (const r of held) {
+        expect(
+          r.red,
+          `Undo's box (red marker) is in view under the card at t=${r.t}; ${said}`,
+        ).toBeGreaterThan(PROBE_RED_MIN);
+      }
+      expect(
+        first.red,
+        `the marker is on the first frame; ${said}`,
+      ).toBeGreaterThan(PROBE_RED_MIN);
+      // Timing: the card is on the Delete click, and the Undo click follows
+      // it at once. A card drawn earlier or later leaves a long gap before
+      // Undo, or none of the page's idle frames before it.
+      expect(
+        hStart,
+        `the hold is not at the take's start; ${said}`,
+      ).toBeGreaterThan(SPACING_SEC);
+      const undoAt = rows.find((r) => r.t > hEnd && onUndo(r));
+      expect(
+        (undoAt?.t ?? Infinity) - hEnd,
+        `Undo's first frame (${undoAt?.t}) follows the hold's end (${hEnd}) within the pressed tail and a step; ${said}`,
+      ).toBeLessThanOrEqual(0.75);
       // And Undo appears after the hold.
       const after = rows.filter((r) => r.t > hEnd);
       expect(
