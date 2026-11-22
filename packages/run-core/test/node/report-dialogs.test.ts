@@ -48,7 +48,11 @@ const dialog = (actionId: string | null, answer: "accept" | "dismiss") => ({
   beatMs: 0,
 });
 
-const reportOf = (dialogs?: WalkResultLike["dialogs"]) =>
+/** `held`: the actions the take holds, every step's by default. */
+const reportOf = (
+  dialogs?: WalkResultLike["dialogs"],
+  held: string[] = ["a1", "a2", "a3"],
+) =>
   buildRunReport({
     ...NOT_CHECKED,
     run: {
@@ -61,7 +65,7 @@ const reportOf = (dialogs?: WalkResultLike["dialogs"]) =>
     walk: { ...walk, ...(dialogs === undefined ? {} : { dialogs }) },
     steps: [step(1), step(2), step(3)],
     scene: {
-      actions: [],
+      actions: held.map((id) => ({ id, kind: "click" })),
       edits: { trim: undefined },
       branding: BRANDING_DEFAULTS,
       cursor: CURSOR_DEFAULTS,
@@ -106,6 +110,17 @@ describe("dialogsOf", () => {
     expect(reportOf([dialog("gone", "accept")]).dialogs).toMatchObject([
       { step: null, drawn: false },
     ]);
+  });
+
+  it("a step the take does not hold is listed but undrawn", () => {
+    // A run stopped on step 2 (its answer did not fit): the take holds
+    // step 1 only, so the video has no card for step 2's dialog.
+    const report = reportOf([dialog("a2", "accept")], ["a1"]);
+    // Premise: the script still names the step.
+    expect(report.dialogs).toMatchObject([{ step: 2 }]);
+    expect(report.dialogs?.[0]?.drawn).toBe(false);
+    // Control: held, the same dialog is drawn.
+    expect(reportOf([dialog("a2", "accept")]).dialogs?.[0]?.drawn).toBe(true);
   });
 
   it("is absent when none opened", () => {

@@ -1332,6 +1332,27 @@ describe("prVerdict", () => {
       "matches all 3 steps",
     ],
     [
+      // A confirm the run accepted by default is said under the video
+      // (DEM-161): the video's clause stays clean.
+      "a dialog answered by default",
+      buildRunReport({
+        ...complete(),
+        walk: {
+          ...completeWalk(3),
+          dialogs: [
+            {
+              actionId: null,
+              kind: "confirm",
+              message: "Delete?",
+              answer: "accept",
+              by: "default",
+            },
+          ],
+        },
+      }),
+      "matches all 3 steps",
+    ],
+    [
       "an unreadable brand kit",
       buildRunReport({
         ...complete(),

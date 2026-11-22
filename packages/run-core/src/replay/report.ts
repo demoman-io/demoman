@@ -685,10 +685,13 @@ function unconfirmedClicksOf(
 }
 
 /** The walk's dialogs with the script step each opened during. An action this
- *  run has no step for is undrawn like an unowned one, never dropped. */
+ *  run has no step for is undrawn like an unowned one, never dropped, and so
+ *  is one the take does not hold: a step the run stopped on is not in it, and
+ *  the video draws no card for it. */
 function dialogsOf(
   walk: WalkResultLike,
   steps: readonly AuthoredStep[],
+  scene: SceneDocument | null,
 ): Pick<RunReport, "dialogs"> {
   const all = walk.dialogs ?? [];
   if (all.length === 0) return {};
@@ -705,7 +708,9 @@ function dialogsOf(
         answer,
         ...(text === undefined ? {} : { text }),
         by,
-        drawn: record !== undefined,
+        drawn:
+          record !== undefined &&
+          (scene?.actions.some((a) => a.id === actionId) ?? false),
       };
     }),
   };
@@ -1045,7 +1050,7 @@ export function buildRunReport(args: BuildArgs): RunReport {
       ...unconfirmedClicksOf(args.walk, args.steps),
       ...unplacedBeatsOf(args.film, args.steps),
     },
-    ...dialogsOf(args.walk, args.steps),
+    ...dialogsOf(args.walk, args.steps, args.scene),
     video: args.film,
     recording: args.recording,
     look: args.look,
@@ -1130,7 +1135,12 @@ export function prVerdict(report: RunReport): {
   const clause = prClause(report, clean);
   // A screen refresh cannot compare leaves the video's clause clean, and is
   // still said in the details.
-  const quiet = clause === clean && screensClause(report, true) === "";
+  // A dialog the run answered is said too, a default OK above all: the
+  // page went on as if someone had pressed it.
+  const quiet =
+    clause === clean &&
+    screensClause(report, true) === "" &&
+    dialogsClause(report) === "";
   return { clause, details: quiet ? null : verdictLine(report) };
 }
 
