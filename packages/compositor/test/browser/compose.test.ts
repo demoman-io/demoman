@@ -678,6 +678,81 @@ describe("renderFrame", () => {
     expect(ratio, `ink ${free} -> ${held}`).toBeLessThan(0.85);
   });
 
+  // The window does not cut the pointer: an arrow at the page's bottom-right
+  // corner hangs over the background, as a real one does at a window's edge,
+  // and so does the pulse of a click there.
+  it("draws a pointer and its pulse at the page's corner over the background, uncut", async () => {
+    const presentation = derivePresentation(scene.branding, target, VIEWPORT);
+    const frames = createProceduralFrameSource(bundle);
+    const corner = { x: VIEWPORT.width - 1, y: VIEWPORT.height - 1 };
+    const draw = async (cursor: boolean, clickOutputMs: number[]) => {
+      const canvas = new OffscreenCanvas(target.width, target.height);
+      const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+      await renderFrame({
+        resolved: {
+          ...resolved,
+          cursor: cursor ? [{ sourceTimeMs: 0, ...corner }] : [],
+          clickOutputMs,
+        },
+        target,
+        presentation,
+        frames,
+        ctx,
+        outputTimeMs: 0,
+      });
+      return ctx;
+    };
+    const camera = cameraAt(resolved.cameraKeys, 0, presentation, target);
+    const c = cssToOutput(corner, camera, presentation.frameRect, VIEWPORT);
+    const f = presentation.frameRect;
+    // The premise: the tip sits inside the window's bottom-right corner, at
+    // scale 1, with background margin below and to the right of it.
+    expect(camera.scale).toBe(1);
+    expect(c.x).toBeLessThan(f.x + f.width);
+    expect(c.y).toBeLessThan(f.y + f.height);
+    expect(f.x + f.width + 60).toBeLessThan(target.width);
+    expect(f.y + f.height + 60).toBeLessThan(target.height);
+    /** Pixels within `reach` of the tip, past the window, where `a` and `b`
+     *  differ. */
+    const pastWindow = (
+      a: OffscreenCanvasRenderingContext2D,
+      b: OffscreenCanvasRenderingContext2D,
+      reach: number,
+    ) => {
+      let n = 0;
+      for (let y = Math.round(c.y - reach); y < Math.round(c.y + reach); y++) {
+        for (
+          let x = Math.round(c.x - reach);
+          x < Math.round(c.x + reach);
+          x++
+        ) {
+          if (x < f.x + f.width + 2 && y < f.y + f.height + 2) continue;
+          const p = at(a, x, y);
+          const q = at(b, x, y);
+          if (
+            Math.abs(p.r - q.r) > 10 ||
+            Math.abs(p.g - q.g) > 10 ||
+            Math.abs(p.b - q.b) > 10
+          )
+            n++;
+        }
+      }
+      return n;
+    };
+    const arrow = await draw(true, []);
+    expect(
+      pastWindow(arrow, await draw(false, []), 40),
+      "pointer ink on the background past the window",
+    ).toBeGreaterThan(50);
+    // A quarter of the way through its pulse, the ring is about 36 px out
+    // from the tip (`drawClickPulse`), so most of it lies past the window.
+    const pulsed = await draw(true, [-PULSE_DURATION_MS / 4]);
+    expect(
+      pastWindow(pulsed, arrow, 60),
+      "pulse ink on the background past the window",
+    ).toBeGreaterThan(50);
+  });
+
   it("applies cosmetics", async () => {
     const scene = sceneWithCosmetics();
     const { ctx, presentation } = await compose(0, scene);
@@ -1380,7 +1455,7 @@ async function cursorInkCentroid(args: {
   scene: SceneDocument;
   target: RenderTarget;
   outputTimeMs: number;
-}): Promise<{ x: number; y: number; n: number }> {
+}): Promise<{ x: number; y: number; n: number; minX: number }> {
   const { plan, bundle, scene, target, outputTimeMs } = args;
   const presentation = derivePresentation(scene.branding, target, VIEWPORT);
   const render = async (cursor: ResolvedPlan["cursor"]) => {
@@ -1404,6 +1479,7 @@ async function cursorInkCentroid(args: {
   let sx = 0;
   let sy = 0;
   let n = 0;
+  let minX = Number.POSITIVE_INFINITY;
   for (let i = 0; i < a.length; i += 4) {
     if (
       Math.abs((a[i] as number) - (b[i] as number)) > 10 ||
@@ -1415,9 +1491,10 @@ async function cursorInkCentroid(args: {
       sx += px;
       sy += py;
       n++;
+      minX = Math.min(minX, px);
     }
   }
-  return { x: n === 0 ? -1 : sx / n, y: n === 0 ? -1 : sy / n, n };
+  return { x: n === 0 ? -1 : sx / n, y: n === 0 ? -1 : sy / n, n, minX };
 }
 
 describe("the drawn cursor through a pause in a capture take", () => {
@@ -1637,9 +1714,13 @@ describe("the drawn cursor leaving through the page's edge", () => {
       target,
       outputTimeMs: toOutputMs(resolved.timeline, hotspotGoneMs),
     });
-    // Some of the arrow is still in frame, all of it right of the edge.
+    // Some of the arrow is still in frame, and none of it left of the edge:
+    // with the hotspot off the page the window cuts it, where an arrow on
+    // the page would hang over the background.
     expect(ink.n).toBeGreaterThan(20);
-    expect(ink.x).toBeGreaterThan(frameRect.x);
+    expect(ink.minX, `ink from x ${ink.minX}`).toBeGreaterThanOrEqual(
+      Math.floor(frameRect.x),
+    );
   });
 
   it("draws no cursor at all while the pointer is off the page", async () => {

@@ -1,0 +1,11 @@
+{
+  "scriptVersion": 6,
+  "name": "Click a button in the page's corner",
+  "target": "{fixture}/corner-click-fixture.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "save" }, "zoom": false },
+    { "do": "pause", "ms": 800 }
+  ]
+}
