@@ -36,22 +36,21 @@ describe("the Studio's brand copies", () => {
   });
 });
 
-// The page bars draw the mark inline (`.logomark .figure`), by hand: its two
-// slashes and its D have to be brand/logomark.svg's.
+// The page bars draw the mark inline (`.logomark .figure`), by hand: its
+// pieces (the folded mascot's ▶, ●, two legs and body) have to be
+// brand/logomark.svg's.
 describe("the Studio's inline mark", () => {
   const shapes = readFileSync(
     join(REPO, "brand", "logomark.svg"),
     "utf8",
-  ).match(
-    /<g fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linejoin="round">([\s\S]*?)<\/g>/,
-  )?.[1];
+  ).match(/<g fill="currentColor">([\s\S]*)<\/g>\s*<\/svg>/)?.[1];
   it.each(["library", "settings"])(
     "%s's page bar draws brand/logomark.svg's mark",
     (page) => {
       expect(
-        shapes?.match(/<polygon |<path /g)?.length,
-        "premise: brand/logomark.svg's two slashes and D were read",
-      ).toBe(3);
+        shapes?.match(/<path |<circle |<rect /g)?.length,
+        "premise: brand/logomark.svg's ▶, ●, two legs and body were read",
+      ).toBe(5);
       const html = readFileSync(
         join(
           __dirname,
@@ -66,7 +65,7 @@ describe("the Studio's inline mark", () => {
         "utf8",
       );
       const inner = html.match(
-        /<span class="figure" hidden><svg viewBox="0 0 130 80"[^>]*>([\s\S]*?)<\/svg>/,
+        /<span class="figure" hidden><svg viewBox="0 0 199 199"[^>]*>([\s\S]*?)<\/svg>/,
       )?.[1];
       expect(inner, `${page}/index.html has no inline mark`).toBeDefined();
       expect(inner).toBe(shapes);

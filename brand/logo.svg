@@ -2,5 +2,5 @@
   <title>Demoman</title>
   <rect width="100" height="100" rx="22" fill="#0a0a0a"/>
   <rect x="0.25" y="0.25" width="99.5" height="99.5" rx="21.75" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="0.5"/>
-  <g transform="translate(10 25.385) scale(0.615)"><g fill="#f4f4f5" stroke="#f4f4f5" stroke-width="6" stroke-linejoin="round"><polygon points="28.18,3 39.87,3 15.82,77 4.13,77"/><polygon points="58.18,3 69.87,3 45.82,77 34.13,77"/><path transform="translate(88.18,3) skewX(-18)" d="M0 0 H8 A41 37 0 0 1 8 74 H0 Z"/></g></g>
+  <g transform="translate(18 18) scale(0.322)"><g fill="#f4f4f5"><g class="head"><g transform="translate(-266.237 -133.445) scale(1.01683 1.07)"><path transform="translate(5.54,56.31) scale(0.96895)" d="M 287.20,151.99 L 345.34,125.16 A 16,16 0 0 0 345.34,96.10 L 287.20,69.27 A 16,16 0 0 0 264.50,83.80 L 264.50,137.46 A 16,16 0 0 0 287.20,151.99 Z"/></g></g><circle class="dot" cx="157.5" cy="41.5" r="42.745"/><rect class="leg" x="0" y="116" width="33" height="83" rx="16.5"/><rect class="leg" x="50" y="116" width="33" height="83" rx="16.5"/><rect class="body" x="116" y="116" width="83" height="83" rx="16.5"/></g></g>
 </svg>

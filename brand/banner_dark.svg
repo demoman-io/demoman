@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="Demoman">
   <title>Demoman</title>
-  <svg x="510.0" y="100" width="260.0" height="160" viewBox="0 0 130.0 80.0" aria-hidden="true">
-    <g fill="#f4f4f5" stroke="#f4f4f5" stroke-width="6" stroke-linejoin="round"><polygon points="28.18,3 39.87,3 15.82,77 4.13,77"/><polygon points="58.18,3 69.87,3 45.82,77 34.13,77"/><path transform="translate(88.18,3) skewX(-18)" d="M0 0 H8 A41 37 0 0 1 8 74 H0 Z"/></g>
+  <svg x="560.0" y="100" width="160.0" height="160" viewBox="0 0 199.0 199.0" overflow="visible" aria-hidden="true">
+    <g fill="#f4f4f5"><g class="head"><g transform="translate(-266.237 -133.445) scale(1.01683 1.07)"><path transform="translate(5.54,56.31) scale(0.96895)" d="M 287.20,151.99 L 345.34,125.16 A 16,16 0 0 0 345.34,96.10 L 287.20,69.27 A 16,16 0 0 0 264.50,83.80 L 264.50,137.46 A 16,16 0 0 0 287.20,151.99 Z"/></g></g><circle class="dot" cx="157.5" cy="41.5" r="42.745"/><rect class="leg" x="0" y="116" width="33" height="83" rx="16.5"/><rect class="leg" x="50" y="116" width="33" height="83" rx="16.5"/><rect class="body" x="116" y="116" width="83" height="83" rx="16.5"/></g>
   </svg>
 </svg>
