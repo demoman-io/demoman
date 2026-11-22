@@ -93,8 +93,8 @@ export function createDialogAnswerer(
       host: hostOf(params.url),
       message,
       answer: intent === "dismiss" ? "dismiss" : "accept",
-      // Only text the script gave: a default prompt's value is the page's.
-      ...(typeof intent === "object" ? { text: intent.text } : {}),
+      // What the prompt was answered with, the script's text or its default.
+      ...(text === undefined ? {} : { text }),
       by: asked === undefined || unfit ? "default" : "script",
       beatMs,
       actionId: armed?.actionId ?? null,

@@ -105,7 +105,11 @@ describe("createDialogAnswerer", () => {
     s.open({ type: "prompt", message: "Name?", defaultPrompt: "x" });
     expect(s.answers()).toEqual([{ accept: true, promptText: "x" }]);
     const { records } = dialogs.disarm();
-    expect(records[0]).toMatchObject({ answer: "accept", by: "default" });
+    expect(records[0]).toMatchObject({
+      answer: "accept",
+      text: "x",
+      by: "default",
+    });
   });
 
   it("the script's answer covers the first dialog only", async () => {
