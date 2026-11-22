@@ -47,7 +47,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
   home = await mkdtemp(join(tmpdir(), "demoman-dialog-"));
-}, 30_000);
+}, 30_000); // a server and a temp dir, no browser: a few ms here; 5x is still ms.
 afterAll(async () => {
   await session.close();
   server.close();
@@ -102,7 +102,7 @@ describe("a click that opens confirm()", () => {
     ]);
     // The one-answer check: Playwright's dismiss would read `false`.
     expect(endText(report), said).toContain("confirm() answered true");
-  }, 120_000);
+  }, 120_000); // 3.9 s here (first run, launches the browser); 5x is 19 s.
 
   it("is answered Cancel when the step says so", async () => {
     const report = await run({
@@ -119,5 +119,17 @@ describe("a click that opens confirm()", () => {
       drawn: true,
     });
     expect(endText(report), said).toContain("confirm() answered false");
-  }, 120_000);
+  }, 120_000); // 3.6 s here; 5x is 18 s.
+});
+
+describe("an alert the page opens after its last click", () => {
+  it("is answered, and the run completes and lists it", async () => {
+    // `#save` alerts 300 ms after its click: late, near the walk's end.
+    const report = await run({ do: "click", on: { stableId: "save" } });
+    const said = JSON.stringify({ dialogs: report.dialogs, lines, report });
+    expect(report.outcome, said).toBe("complete");
+    expect(report.dialogs, said).toEqual([
+      expect.objectContaining({ kind: "alert", message: "Saved" }),
+    ]);
+  }, 120_000); // 3.4 s here; 5x is 17 s.
 });

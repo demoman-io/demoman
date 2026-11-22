@@ -110,7 +110,15 @@ async function runDialogs(
           const css = id === "heading" ? "h1" : `#${id}`;
           selectors[intent.id] = css;
           const box = await page.locator(css).boundingBox();
-          if (box === null) throw new Error(`${css} has no box`);
+          // Hidden (a `waitFor` before what it waits for shows): nothing to
+          // capture yet, which the run asks again after the wait.
+          if (box === null)
+            return {
+              anchor: null,
+              failureReason: "unresolved",
+              intentResolution: null,
+              pageUrl: DIALOG_URL,
+            };
           return {
             anchor: {
               id: intent.id,
@@ -227,6 +235,46 @@ describe("a click that opens confirm(), against a real page", () => {
         expect(await page.innerText("#answer"), said).toBe(
           "confirm() answered false",
         );
+      },
+    );
+  });
+
+  it("a confirm the page opens after the click is answered as the step asks", async () => {
+    // `#delete-later` asks from a timer, after its click has come back.
+    await runDialogs(
+      [
+        { do: "waitForLoad" },
+        { do: "click", on: { stableId: "delete-later" }, dialog: "dismiss" },
+        { do: "waitFor", on: { stableId: "kept" }, until: "visible" },
+      ],
+      async (result, page, log) => {
+        const said = await evidence(result, page, log);
+        // The premise: the click came back before the dialog was answered,
+        // which is what makes it late.
+        expect(log.indexOf("release acked"), said).toBeGreaterThanOrEqual(0);
+        expect(log.indexOf("release acked"), said).toBeLessThan(
+          log.indexOf("answer sent"),
+        );
+        expect(result.reason, said).toBeNull();
+        expect(result.dialogs, said).toEqual([
+          expect.objectContaining({
+            kind: "confirm",
+            message: "Delete account?",
+            answer: "dismiss",
+            by: "script",
+            actionId: result.steps[1]?.actionId,
+          }),
+        ]);
+        expect(await page.innerText("#answer"), said).toBe(
+          "confirm() answered false",
+        );
+        const action = result.document?.actions.find(
+          (a) => a.id === result.steps[1]?.actionId,
+        );
+        expect(
+          action && "dialogs" in action ? action.dialogs : null,
+          said,
+        ).toEqual([expect.objectContaining({ message: "Delete account?" })]);
       },
     );
   });

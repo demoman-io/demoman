@@ -19,25 +19,36 @@ import type { CdpSession } from "./types.js";
  *  one that opened with no step armed (a page load, between steps). */
 export type AnsweredDialog = DialogRecord & { actionId: string | null };
 
+/** What the armed step's dialogs came to: each as answered, the script's
+ *  answer that did not fit the dialog that opened (answered OK instead), and
+ *  every answer the browser has refused by now. */
+export interface DialogsSeen {
+  records: DialogRecord[];
+  unfit?: { kind: DialogKind; intent: DialogIntent };
+  failed?: string;
+}
+
 export interface DialogAnswerer {
-  /** Before a click, type or press: what it opens is its own. */
+  /**
+   * Before a click, type or press: what it opens is its own until the next
+   * `arm` or `disarm`, not only during the verb. A confirm the page opens
+   * after it (a timer, a fetch) is still the step's, and is answered as the
+   * step asks.
+   */
   arm(actionId: string, intent: DialogIntent | undefined): void;
   /**
-   * After the verb: the step's dialogs, the script's answer that did not fit
-   * the dialog that opened (answered OK instead), and an answer the browser
-   * has refused by now. Does not wait: a step that opened no dialog must not
-   * move the walk's clock (`walk-plan.test.ts`), and a refusal that arrives
-   * later is said by `stop`.
+   * After the verb: the armed step's dialogs so far; it stays armed. Does
+   * not wait: a step that opened no dialog must not move the walk's clock
+   * (`walk-plan.test.ts`), and a refusal that arrives later is said by
+   * `disarm` or `stop`.
    */
-  disarm(): {
-    records: DialogRecord[];
-    unfit?: { kind: DialogKind; intent: DialogIntent };
-    failed?: string;
-  };
+  seen(): DialogsSeen;
+  /** Ends the armed step: everything it opened, late ones included. */
+  disarm(): DialogsSeen;
   /** Every dialog answered, in order. */
   answered(): AnsweredDialog[];
   /** Stops listening, waits for the answers sent, and answers a refusal no
-   *  `disarm` has said yet. */
+   *  `seen` or `disarm` has said yet. */
   stop(): Promise<string | null>;
 }
 
@@ -108,7 +119,10 @@ export function createDialogAnswerer(
         .then(
           () => undefined,
           (error: unknown) => {
-            failed ??= `the ${kind} "${message}" could not be answered: ${error instanceof Error ? error.message : String(error)}`;
+            // Every refusal, not only the first: each is a dialog the page
+            // was not answered as the run says.
+            const note = `the ${kind} "${message}" could not be answered: ${error instanceof Error ? error.message : String(error)}`;
+            failed = failed === null ? note : `${failed}; ${note}`;
           },
         ),
     );
@@ -121,22 +135,28 @@ export function createDialogAnswerer(
     return note;
   };
 
+  /** What `step` opened so far, and the refusals not said yet. */
+  const seenBy = (step: typeof armed): DialogsSeen => {
+    const note = said();
+    const records = answered
+      .slice(step?.from ?? answered.length)
+      .map(({ actionId: _, ...record }) => record);
+    return {
+      records,
+      ...(step?.unfit === undefined ? {} : { unfit: step.unfit }),
+      ...(note === null ? {} : { failed: note }),
+    };
+  };
+
   return {
     arm(actionId, intent) {
       armed = { actionId, intent, from: answered.length };
     },
+    seen: () => seenBy(armed),
     disarm() {
       const step = armed;
       armed = null;
-      const note = said();
-      const records = answered
-        .slice(step?.from ?? answered.length)
-        .map(({ actionId: _, ...record }) => record);
-      return {
-        records,
-        ...(step?.unfit === undefined ? {} : { unfit: step.unfit }),
-        ...(note === null ? {} : { failed: note }),
-      };
+      return seenBy(step);
     },
     answered: () => [...answered],
     async stop() {

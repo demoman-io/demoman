@@ -413,4 +413,195 @@ describe("the walk answers dialogs", () => {
     expect(result.reason).toBe("portFailure");
     expect(notes.join(" ")).toContain("No dialog is showing");
   });
+
+  it("a refused answer is said even when the click's own check fails too", async () => {
+    const cdp = createCdpFake();
+    const page = opensConfirm(cdp, "mouseReleased");
+    // The click check reads a press and release that landed off the target.
+    const off = { x: 40, y: 26.67 };
+    const sent = cdp.click;
+    if (typeof sent === "string") throw new Error("premise: a read click");
+    cdp.click = { ...sent, down: off, up: off };
+    const send = cdp.send.bind(cdp);
+    cdp.send = async (method, params) => {
+      if (method === "Page.handleJavaScriptDialog")
+        throw new Error("No dialog is showing");
+      return send(method, params);
+    };
+    const notes: (string | null)[] = [];
+    const result = await runAuthored(
+      script([{ do: "click", on: { stableId: "delete" } }]),
+      { ...deps(cdp), onProgress: (p) => notes.push(p.note) },
+    );
+    expect(page.opened()).toBe(1);
+    const said = JSON.stringify({ reason: result.reason, notes });
+    // The refusal is the cause, said as such, and the step keeps its record.
+    expect(result.reason, said).toBe("portFailure");
+    expect(notes.join(" "), said).toContain(
+      'the confirm "Delete Northwind?" could not be answered',
+    );
+    expect(result.steps[0]?.dialogs, said).toEqual([
+      expect.objectContaining({ message: "Delete Northwind?" }),
+    ]);
+    // Control: the same miss with the answer accepted stops on the click.
+    const control = createCdpFake();
+    opensConfirm(control, "mouseReleased");
+    control.click = { ...sent, down: off, up: off };
+    const missed = await runAuthored(
+      script([{ do: "click", on: { stableId: "delete" } }]),
+      deps(control),
+    );
+    expect(missed.reason).toBe("clickNotDelivered");
+  });
+});
+
+/** The fake page opens a confirm after the click has come back: on the walk's
+ *  first screenshot after the release, as a page's timer or fetch would. */
+function opensConfirmLate(cdp: CdpFake): { opened: () => number } {
+  const send = cdp.send.bind(cdp);
+  let released = false;
+  let opened = 0;
+  cdp.send = async (method, params) => {
+    if (
+      method === "Input.dispatchMouseEvent" &&
+      params?.type === "mouseReleased"
+    )
+      released = true;
+    else if (released && opened === 0 && method === "Page.captureScreenshot") {
+      opened++;
+      cdp.emit(OPENING, {
+        url: PAGE,
+        type: "confirm",
+        message: "Delete account?",
+      });
+    }
+    return send(method, params);
+  };
+  return { opened: () => opened };
+}
+
+describe("a dialog the page opens after the step's verb", () => {
+  it("is answered as the step asks and recorded on its action", async () => {
+    const cdp = createCdpFake();
+    const page = opensConfirmLate(cdp);
+    const result = await runAuthored(
+      script([{ do: "click", on: { stableId: "delete" }, dialog: "dismiss" }]),
+      deps(cdp),
+    );
+    const said = JSON.stringify({
+      reason: result.reason,
+      dialogs: result.dialogs,
+    });
+    expect(page.opened(), said).toBe(1);
+    // The premise: it opened after the verb, past the click's last call.
+    const methods = cdp.calls.map((c) => c.method);
+    expect(
+      methods.indexOf("Page.handleJavaScriptDialog"),
+      said,
+    ).toBeGreaterThan(methods.lastIndexOf("Runtime.callFunctionOn"));
+    expect(answersSent(cdp), said).toEqual([{ accept: false }]);
+    expect(result.reason, said).toBeNull();
+    expect(result.dialogs, said).toEqual([
+      expect.objectContaining({
+        message: "Delete account?",
+        answer: "dismiss",
+        by: "script",
+        actionId: result.steps[0]?.actionId,
+      }),
+    ]);
+    const action = result.document?.actions[0];
+    expect(action && "dialogs" in action ? action.dialogs : null, said).toEqual(
+      [expect.objectContaining({ message: "Delete account?", by: "script" })],
+    );
+  });
+
+  it("a step that asked for one stops dialogNotOpened at the next step's arming, as itself", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(
+      script([
+        { do: "click", on: { stableId: "save" }, dialog: "accept" },
+        { do: "press", key: "Enter" },
+      ]),
+      deps(cdp),
+    );
+    // The premise: the page opened nothing.
+    expect(answersSent(cdp)).toEqual([]);
+    expect(result.reason).toBe("dialogNotOpened");
+    // Counted as the click's stop, not the press's: the report names the
+    // step at `completed`.
+    expect(result.completed).toBe(0);
+    expect(result.document?.actions.map((a) => a.kind)).toEqual(["click"]);
+    // The press was taken back before its key went out.
+    const enterSent = (c: CdpFake) =>
+      c.calls.some(
+        (call) =>
+          call.method === "Input.dispatchKeyEvent" &&
+          call.params?.key === "Enter",
+      );
+    expect(enterSent(cdp)).toBe(false);
+    // Control: the same script without `dialog` sends the key.
+    const control = createCdpFake();
+    const done = await runAuthored(
+      script([
+        { do: "click", on: { stableId: "save" } },
+        { do: "press", key: "Enter" },
+      ]),
+      deps(control),
+    );
+    expect(done.reason).toBeNull();
+    expect(enterSent(control)).toBe(true);
+  });
+
+  it("one that opens while the walk tears down is still answered", async () => {
+    const cdp = createCdpFake();
+    const send = cdp.send.bind(cdp);
+    let opened = 0;
+    cdp.send = async (method, params) => {
+      // Teardown's first call, after the last step and the walk's end.
+      if (method === "Page.stopScreencast" && opened++ === 0)
+        cdp.emit(OPENING, { url: PAGE, type: "alert", message: "Saved" });
+      return send(method, params);
+    };
+    const result = await runAuthored(
+      script([{ do: "click", on: { stableId: "save" } }]),
+      deps(cdp),
+    );
+    expect(opened).toBe(1);
+    expect(answersSent(cdp)).toEqual([{ accept: true }]);
+    expect(result.reason).toBeNull();
+    expect(result.dialogs).toEqual([
+      expect.objectContaining({
+        kind: "alert",
+        message: "Saved",
+        actionId: null,
+      }),
+    ]);
+  });
+
+  it("a refusal that arrives at teardown is said, as every refusal is", async () => {
+    const cdp = createCdpFake();
+    const send = cdp.send.bind(cdp);
+    let opened = 0;
+    cdp.send = async (method, params) => {
+      if (method === "Page.stopScreencast" && opened++ === 0) {
+        cdp.emit(OPENING, { url: PAGE, type: "alert", message: "Saved" });
+        cdp.emit(OPENING, { url: PAGE, type: "alert", message: "Synced" });
+      }
+      if (method === "Page.handleJavaScriptDialog")
+        throw new Error("No dialog is showing");
+      return send(method, params);
+    };
+    const notes: (string | null)[] = [];
+    const result = await runAuthored(
+      script([{ do: "click", on: { stableId: "save" } }]),
+      { ...deps(cdp), onProgress: (p) => notes.push(p.note) },
+    );
+    const said = notes.join(" ");
+    expect(opened, said).toBe(1);
+    // The premise: every step was performed; the stop is the teardown's.
+    expect(result.completed, said).toBe(1);
+    expect(result.reason, said).toBe("portFailure");
+    expect(said).toContain('the alert "Saved" could not be answered');
+    expect(said).toContain('the alert "Synced" could not be answered');
+  });
 });

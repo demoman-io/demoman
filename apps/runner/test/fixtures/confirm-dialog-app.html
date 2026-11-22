@@ -18,11 +18,24 @@
     <p id="answer"></p>
     <button type="button" id="undo" hidden>Undo delete</button>
     <button type="button" id="kept" hidden>Project kept</button>
+    <!-- Below the rest, so nothing above moves. #delete-later asks after
+         its click has returned (a timer, as after a fetch); #save's alert
+         comes 300 ms after its click. -->
+    <button type="button" id="delete-later">Delete account</button>
+    <button type="button" id="save">Save</button>
     <script>
-      document.getElementById("delete").addEventListener("click", () => {
-        const ok = confirm("Delete Northwind?");
+      const answered = (ok) => {
         document.getElementById("answer").textContent = `confirm() answered ${ok}`;
         document.getElementById(ok ? "undo" : "kept").hidden = false;
+      };
+      document.getElementById("delete").addEventListener("click", () => {
+        answered(confirm("Delete Northwind?"));
+      });
+      document.getElementById("delete-later").addEventListener("click", () => {
+        setTimeout(() => answered(confirm("Delete account?")), 0);
+      });
+      document.getElementById("save").addEventListener("click", () => {
+        setTimeout(() => alert("Saved"), 300);
       });
     </script>
   </body>
