@@ -1,11 +1,13 @@
 // What one recording costs with a checkout's runner: run time, take size.
-//   node apps/runner/compare/record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app checkout>]
+//   node apps/runner/compare/record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app checkout>] [--home <dir>]
 // Records the script headless with <root>'s built runner in a throwaway home
 // (signed in by the project's demo account, as the MCP does), exports the
 // take at high quality to --out, and prints:
 //   outcome: <the run report's summary>
 //   cost: run <s> s, take <MB> MB on disk, <spans> spans, <keyframes> keyframes
-// Any outcome but a complete run exits 1, saying what it was.
+// Any outcome but a complete run exits 1, saying what it was. --home records
+// into <dir> and keeps it, and prints `take: <id>`, for camera-motion's
+// `--plan` with DEMOMAN_HOME=<dir>.
 import {
   cpSync,
   mkdtempSync,
@@ -25,11 +27,12 @@ const { values } = parseArgs({
     script: { type: "string" },
     out: { type: "string" },
     project: { type: "string" },
+    home: { type: "string" },
   },
 });
 if (!values.repo || !values.script || !values.out) {
   say(
-    "usage: record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app checkout>]",
+    "usage: record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app checkout>] [--home <dir>]",
   );
   process.exit(2);
 }
@@ -45,7 +48,9 @@ const sizeOf = (dir) =>
     .filter((e) => e.isFile())
     .reduce((n, e) => n + statSync(join(e.parentPath, e.name)).size, 0);
 
-const home = mkdtempSync(join(tmpdir(), "record-cost-home-"));
+const home = values.home
+  ? resolve(values.home)
+  : mkdtempSync(join(tmpdir(), "record-cost-home-"));
 const executor = createLocalExecutor({
   home,
   wallpapersDir: join(repo, "apps", "studio", "pages", "public", "wallpapers"),
@@ -70,6 +75,7 @@ try {
     failed = true;
   } else {
     const take = join(home, "takes", takeId);
+    if (values.home) say(`take: ${takeId}`);
     say(
       `cost: run ${seconds.toFixed(1)} s, take ${(sizeOf(take) / 1e6).toFixed(1)} MB on disk, ${report.frames?.spans} spans, ${report.frames?.keyframes} keyframes`,
     );
@@ -94,6 +100,6 @@ try {
   say(`failed: ${error instanceof Error ? error.stack : String(error)}`);
 } finally {
   await executor.close().catch((e) => say(`close failed (${e})`));
-  rmSync(home, { recursive: true, force: true });
+  if (!values.home) rmSync(home, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

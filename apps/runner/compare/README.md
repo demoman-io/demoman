@@ -93,7 +93,9 @@ held clock's 30 fps page (DEM-265).
 
 `--plan --repo <root> --take <id>` reads the camera from the take's plan
 instead of its pixels, so nothing the page draws moves it (its centres are unclamped, as planned, not as drawn at a canvas edge): `plan reversals
-x:` and `y:` (at 0.5 CSS px a frame) and `plan fastest:`. Run it with two
+x:` and `y:` (at 0.5 CSS px a frame), `plan fastest:`, and `plan push-ins:`,
+each push-in's length and landing (a drag right after another step read
+517 ms of 1300 until 2026-11-23, when it was given the room a click gets). Run it with two
 checkouts' `--repo` to compare a camera change. On the 16 saved takes with a
 zoomed drag (2026-11-23), DEM-254's fix lowered reversals on 7 and raised
 them on none.
@@ -101,7 +103,9 @@ them on none.
 `record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app>]`
 records a script with `<root>`'s built runner in a throwaway home (signed in
 by the project's demo account), exports it, and prints `outcome:` and `cost:
-run <s> s, take <MB> MB on disk`. `sublime-drag.json` is the site's Sublime
+run <s> s, take <MB> MB on disk`. `--home <dir>` records into `<dir>`, keeps
+it and prints `take: <id>`, so `DEMOMAN_HOME=<dir> camera-motion.mjs --plan`
+can read the take. `sublime-drag.json` is the site's Sublime
 take (`demoman-io/sublime` on 4402, `pnpm reset` before each run, size
 pinned at 1710×1107, the site take's). On 2026-11-23, through the project's
 `.demoman/config.json` `recordingFrameRate` (DEM-265), it recorded in about

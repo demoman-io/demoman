@@ -3686,9 +3686,11 @@ export async function runWalk(
       let roomHere = 0;
       let heldHere = 0;
       const unhurriedScroll =
-        room !== undefined && step.action.kind === "click" && scrolls;
-      // The first wait: a click whose approach scrolls lets the last act's
-      // result settle before the page moves under it.
+        room !== undefined &&
+        (step.action.kind === "click" || step.action.kind === "drag") &&
+        scrolls;
+      // The first wait: a click or drag whose approach scrolls lets the last
+      // act's result settle before the page moves under it.
       if (unhurriedScroll) {
         // The scroll paints, so the act it follows is settled first.
         roomHere += await quietThenFinalize();
@@ -3777,10 +3779,11 @@ export async function runWalk(
       // act has settled. The cursor's journey and SETTLE_MS still to come
       // count toward it. Whether it zooms is asked on time with every room
       // added taken out, so a wait never makes a zoom the take would not
-      // have had. A drag is asked too, for the policy's record of the last
-      // zoom (`zoomsForClicks` zooms drags), framed by its two points as the
-      // take's zoom is; it waits for no room, because the camera holds
-      // through the drag instead (`solveCamera`'s holds).
+      // have had. A drag is asked too (`zoomsForClicks` zooms drags), framed
+      // by its two points as the take's zoom is, and gets the same room: the
+      // camera holds through the drag, but it pushes in before the press, and
+      // without room `solveCamera` shortens that push-in to whatever the gap
+      // left (a Sublime drag 1.27 s after an Enter got 0.5 s of 1.3).
       let zoomedClick = false;
       let zoomedDrag = false;
       // The journey the walk will make, not the source's plan: from where
@@ -3871,7 +3874,7 @@ export async function runWalk(
           unwaitedMs: beats === undefined ? unwaitedMs : askedMs,
           scale,
         });
-        if (zooms && dragPlan === null && beats !== undefined) {
+        if (zooms && beats !== undefined) {
           // The act before still finishes painting (a settle, which stays).
           // The room is planned, not waited: it goes into the designed rest
           // and the renderer plays it, the idle frames being the same. Asked
@@ -3904,8 +3907,8 @@ export async function runWalk(
             scale,
             arrives,
           });
-          zoomedClick = true;
-        } else if (zooms && dragPlan === null) {
+          zoomedClick = dragPlan === null;
+        } else if (zooms) {
           roomHere += await quietThenFinalize();
           if (latestActEnd !== null) {
             // Asked of the click where it will land: after the journey and
@@ -3924,33 +3927,9 @@ export async function runWalk(
               heldHere = Math.max(heldHere, short);
             }
           }
-          zoomedClick = true;
+          zoomedClick = dragPlan === null;
         } else {
           finalizeAct();
-          if (zooms && beats !== undefined) {
-            // A zoomed drag: the camera's arrival is decided here too, or
-            // the renderer would decide it from the rendered gap, which a
-            // machine's own motion moves. No push-in room is planned (the
-            // camera holds through the drag); a return gets its margin, so
-            // it is a whole one on any machine.
-            const arrives = room.arrives({
-              heldUntilMs: designedHeldUntil,
-              clickMs: designedAt(restMs),
-            });
-            const returnShortMs =
-              arrives === "return"
-                ? room.returnShortMs({
-                    heldUntilMs: designedHeldUntil,
-                    clickMs: designedAt(restMs),
-                  })
-                : 0;
-            if (returnShortMs > 0) planRoom(returnShortMs);
-            decided.set(step.action.id, {
-              designedMs: askedMs,
-              scale,
-              arrives,
-            });
-          }
         }
         zoomedDrag = zooms && dragPlan !== null;
       }
