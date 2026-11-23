@@ -125,8 +125,9 @@ export function pairScreens(
 /**
  * Whether two recordings' page screens (`screenImageName` PNGs, one folder
  * per side) show the same page once each step settled (spec 2026-11-10,
- * decision 4). In order: a different step count, then a different look,
- * is a change; only the screens settled in both are compared, and each one
+ * decision 4). In order: a different step count, then a different frame
+ * rate (two held takes only; absent is 30), then a different look, is a
+ * change; only the screens settled in both are compared, and each one
  * left out is named in `skipped` and on the detail line, never forgiven;
  * none left is `uncomparable`; an image missing or not a PNG is
  * `uncomparable`, naming the file; a different page size is a change; else
@@ -156,9 +157,12 @@ export async function sameScreens(
   }
   // Absent is 30: a committed video from before the key is no change from a
   // fresh 30, or the first refresh after the upgrade replaces every video.
+  // A real-time take has no rate, so the screens decide.
   const was = committed.screens.frameRate ?? 30;
   const now = fresh.screens.frameRate ?? 30;
-  if (was !== now) {
+  const bothHeld =
+    committed.screens.clock !== "real" && fresh.screens.clock !== "real";
+  if (bothHeld && was !== now) {
     return {
       same: false,
       detail: `recorded at ${now} fps, the committed video at ${was}`,

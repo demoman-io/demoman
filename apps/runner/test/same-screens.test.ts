@@ -399,6 +399,30 @@ describe("sameScreens", () => {
   );
 
   it(
+    "a real-time take on either side has no rate to compare: the screens decide",
+    async () => {
+      const run = (a: PageScreens, b: PageScreens) =>
+        sameScreens(
+          side(dirs.same as string, a),
+          side(dirs.same as string, b),
+          deps(),
+        );
+      const real: PageScreens = { ...screens, clock: "real" };
+      const held60: PageScreens = { ...screens, frameRate: 60 };
+      // Premise: the held side really carries a rate other than 30.
+      expect(held60.frameRate).toBe(60);
+      expect(await run(real, held60)).toMatchObject({ same: true });
+      expect(await run(held60, real)).toMatchObject({ same: true });
+      // Positive control: two held takes at different rates still differ.
+      expect(await run({ ...screens, frameRate: 30 }, held60)).toMatchObject({
+        same: false,
+        detail: "recorded at 60 fps, the committed video at 30",
+      });
+    },
+    CASE_MS,
+  );
+
+  it(
     "steps or a look that differ are a change, before anything is read",
     async () => {
       const none = {} as never;

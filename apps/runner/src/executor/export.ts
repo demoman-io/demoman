@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type FrameBundle,
+  isHeld,
   LANDSCAPE_1080P,
   type RenderTarget,
   wallpaperShape,
@@ -1047,6 +1048,8 @@ async function pageScreensOf(
       screens,
       look,
       ...(frameRate === undefined ? {} : { frameRate }),
+      // Marked, so a refresh never reads a real-time take as held at 30.
+      ...(isHeld(bundle) ? {} : { clock: "real" as const }),
     },
     files,
   };

@@ -162,6 +162,20 @@ describe("the receipt", () => {
     expect(back.receipt.screens).not.toHaveProperty("frameRate");
   });
 
+  it("keeps a real-time clock through a round trip", () => {
+    const real = { ...receipt, screens: { ...receipt.screens, clock: "real" } };
+    const text = serializeReceipt(real as never);
+    // Premise: the written text carries the marker.
+    expect(JSON.parse(text).screens.clock).toBe("real");
+    expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: real });
+  });
+
+  it("refuses a clock that is not real", () => {
+    expect(
+      refusal(withChange({ screens: { ...receipt.screens, clock: "held" } })),
+    ).toContain('screens.clock must be "real"');
+  });
+
   it("refuses a frame rate that is not 30 or 60", () => {
     expect(
       refusal(withChange({ screens: { ...receipt.screens, frameRate: 24 } })),

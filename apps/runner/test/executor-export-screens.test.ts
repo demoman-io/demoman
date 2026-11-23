@@ -298,13 +298,16 @@ describe("a screens-only export copies the take's page screens", () => {
 // The last case in the file: it rewrites the disk take's bundle.
 describe("the screens carry the rate the take was recorded at", () => {
   it(
-    "a held bundle says 60 or 30; one with no heldFrameMs says nothing",
+    "a held bundle says 60 or 30, an older held one nothing; a real-time one says real",
     async () => {
       const { original, bundle } = await makeDiskTake(home);
       const withScreens = await withPageScreens(home, diskTakeId, bundle);
-      const rateOf = async (heldFrameMs?: number) => {
+      // Premise: the disk take is a real-time recording until made held here.
+      expect(withScreens.clock).toBeUndefined();
+      const screensOf = async (held: boolean, heldFrameMs?: number) => {
         await putTake(home, diskTakeId, original, {
           ...withScreens,
+          ...(held ? { clock: "held" as const } : {}),
           ...(heldFrameMs === undefined ? {} : { heldFrameMs }),
         });
         const out = (await exportTake(
@@ -314,15 +317,22 @@ describe("the screens carry the rate the take was recorded at", () => {
             unlisted: true,
             screensOnly: true,
           },
-          exportDeps(join(home, `rate-${heldFrameMs}`)),
+          exportDeps(join(home, `rate-${held}-${heldFrameMs}`)),
           () => undefined,
         )) as ScreensAnswer;
         expect(out.outcome, JSON.stringify(out)).toBe("saved");
-        return out.screens.frameRate;
+        return out.screens;
       };
-      expect(await rateOf(1000 / 60)).toBe(60);
-      expect(await rateOf(1000 / 30)).toBe(30);
-      expect(await rateOf()).toBeUndefined();
+      const held60 = await screensOf(true, 1000 / 60);
+      expect(held60.frameRate).toBe(60);
+      expect(held60).not.toHaveProperty("clock");
+      expect((await screensOf(true, 1000 / 30)).frameRate).toBe(30);
+      const olderHeld = await screensOf(true);
+      expect(olderHeld).not.toHaveProperty("frameRate");
+      expect(olderHeld).not.toHaveProperty("clock");
+      const real = await screensOf(false);
+      expect(real.clock).toBe("real");
+      expect(real).not.toHaveProperty("frameRate");
     },
     SCREENS_ONLY_MS,
   );
@@ -334,6 +344,7 @@ describe("the screens carry the rate the take was recorded at", () => {
       const withScreens = await withPageScreens(home, diskTakeId, bundle);
       await putTake(home, diskTakeId, original, {
         ...withScreens,
+        clock: "held",
         heldFrameMs: 1000 / 24,
       });
       const out = await exportTake(

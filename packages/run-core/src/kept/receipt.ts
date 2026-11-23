@@ -90,6 +90,8 @@ export function parsePageScreens(
     return bad(`${at}.look must be a non-empty string`);
   if (sc.frameRate !== undefined && !isRecordingFrameRate(sc.frameRate))
     return bad(`${at}.frameRate must be 30 or 60`);
+  if (sc.clock !== undefined && sc.clock !== "real")
+    return bad(`${at}.clock must be "real"`);
   return {
     ok: true,
     screens: {
@@ -99,6 +101,7 @@ export function parsePageScreens(
       ...(isRecordingFrameRate(sc.frameRate)
         ? { frameRate: sc.frameRate }
         : {}),
+      ...(sc.clock === "real" ? { clock: "real" as const } : {}),
     },
   };
 }
@@ -214,6 +217,7 @@ export function serializeReceipt(r: KeptReceipt): string {
       ...(r.screens.frameRate === undefined
         ? {}
         : { frameRate: r.screens.frameRate }),
+      ...(r.screens.clock === undefined ? {} : { clock: r.screens.clock }),
     },
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;
