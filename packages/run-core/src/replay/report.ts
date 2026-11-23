@@ -30,6 +30,7 @@ import {
 } from "@demoman/scene-schema";
 import { zoomSkippedNote } from "../auto-zoom.js";
 import type { RunLook } from "../brand-kit.js";
+import type { RecordingFrameRate } from "../recording-frame-rate.js";
 import type { RefilmInfo } from "../refilm/merge.js";
 import type { EndPage } from "../snapshot-walk.js";
 import type { RecordingReport } from "./fidelity.js";
@@ -163,6 +164,22 @@ export function parseFilmedCode(raw: unknown): FilmedCode | null {
   return null;
 }
 
+/** Where a run's recording frame rate came from (`resolveRecordingFrameRate`). */
+export type RecordingFrameRateFrom = "repo" | "user" | "default";
+
+/** How a run recorded the page's clock (`RunReport.run.recording`). */
+export type RunRecording =
+  | {
+      clock: "held";
+      frameRate: RecordingFrameRate;
+      from: RecordingFrameRateFrom;
+    }
+  | {
+      clock: "real";
+      why: string;
+      frameRateNotApplied?: { asked: 60; from: "repo" | "user" };
+    };
+
 /** A run's or probe's last picture on disk, or why there is none. */
 export type FinalStill = { path: string } | { unavailable: string };
 
@@ -173,9 +190,11 @@ export interface RunReport {
     target: string;
     executor: Executor;
     script: ScriptRef;
-    /** Unless held-clock capture was turned off (`DEMOMAN_HELD_CLOCK=0`):
-     *  whether the page's clock was held, and why not when it was not. */
-    recording?: { clock: "held" } | { clock: "real"; why: string };
+    /** Whether the page's clock was held, at which frame rate and whose
+     *  setting that was, or why not when it was not; `frameRateNotApplied`
+     *  when 60 was set but the run recorded in real time. Absent when the
+     *  run stopped before its stage was prepared. */
+    recording?: RunRecording;
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";

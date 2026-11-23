@@ -71,7 +71,7 @@ import {
 import { refilmFromVideo } from "./refilm.js";
 import { execGit, readFilmedCode, readRepo } from "./repo.js";
 import { followHere } from "./repo-aliases.js";
-import { runScript } from "./run.js";
+import { type RunDeps, runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
   createSecretSweep,
@@ -245,6 +245,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const where = await projectFolder(project);
     if ("kind" in where) return where;
     return chooseAccount(await findAccounts(where.from), target, named);
+  }
+  /** The frame rate a run or probe records at, decided once at its door
+   *  (DEM-265): a setting that cannot be used refuses it, naming the file. */
+  async function frameRateFor(
+    from: string,
+  ): Promise<RunDeps["recordingFrameRate"] | Refused> {
+    const rate = await resolveRecordingFrameRate(from, home);
+    if ("unreadable" in rate) {
+      return {
+        kind: "refused",
+        reason: "settingUnreadable",
+        field: "recordingFrameRate",
+        detail: rate.unreadable,
+      };
+    }
+    return { value: rate.value, from: rate.from };
   }
   type Chosen = Extract<AccountChoice, { kind: "account" }>;
   /**
@@ -614,6 +630,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const where = await projectFolder(args.project);
     if ("kind" in where)
       return refusal(where.reason, where.detail, where.field);
+    const recordingFrameRate = await frameRateFor(where.from);
+    if ("kind" in recordingFrameRate) {
+      return refusal(
+        recordingFrameRate.reason,
+        recordingFrameRate.detail,
+        recordingFrameRate.field,
+      );
+    }
     const repoRead = await readRepo(where.from);
     const videoRepo: VideoRepo = repoRead.ok
       ? { key: repoRead.repo.key }
@@ -1093,6 +1117,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(flowScale.why === undefined
               ? {}
               : { flowScaleUnread: flowScale.why }),
+            recordingFrameRate,
             session,
             library,
             kits,
@@ -1338,6 +1363,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const named =
       typeof args.account === "string" ? args.account : script.account;
     const contains = typeof args.contains === "string" ? args.contains : null;
+    // As the run door decides it, so a probe looks at the page on the clock
+    // the run that follows records on.
+    const where = await projectFolder(args.project);
+    if ("kind" in where) return failure(where.reason, where.detail);
+    const recordingFrameRate = await frameRateFor(where.from);
+    if ("kind" in recordingFrameRate) {
+      return {
+        ok: true,
+        value: {
+          outcome: "refusedBeforeRun",
+          reason: recordingFrameRate.reason,
+          detail: recordingFrameRate.detail,
+          field: recordingFrameRate.field,
+        },
+      };
+    }
     return pageCallAs(args, script.target, named, async (choice, chosen) => {
       try {
         const browser = await session.ensure();
@@ -1357,6 +1398,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           home,
           kits,
+          recordingFrameRate,
         });
       } finally {
         sessions.forget();

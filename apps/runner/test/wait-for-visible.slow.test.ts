@@ -144,6 +144,7 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           // Not the staged context: the run reloads into it, harmlessly.
           sessionsContext: {} as BrowserContext,
@@ -190,6 +191,7 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           // Not the staged context: the run reloads into it, harmlessly.
           sessionsContext: {} as BrowserContext,
@@ -247,6 +249,7 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           sessionsContext: {} as BrowserContext,
         },
@@ -296,6 +299,7 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           sessionsContext: {} as BrowserContext,
         },

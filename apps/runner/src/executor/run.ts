@@ -20,6 +20,8 @@ import {
   messageOf,
   newId,
   pausedBeforeActions,
+  type RecordingFrameRate,
+  type RecordingFrameRateFrom,
   type RefilmInfo,
   type RunReport,
   recordingForRun,
@@ -116,6 +118,13 @@ export interface RunDeps {
   /** Why the flow's recorded scale could not be read (`flowScaleOf`'s
    *  `why`): the run recorded at the constant, and says so on `size.error`. */
   flowScaleUnread?: string;
+  /** The frame rate this run records at, decided once at the door
+   *  (`resolveRecordingFrameRate`): the held clock and the page's frames
+   *  both read it, and the report names it (DEM-265). */
+  recordingFrameRate: {
+    value: RecordingFrameRate;
+    from: RecordingFrameRateFrom;
+  };
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;
@@ -380,7 +389,7 @@ export async function runScript(
 
   const prepared = await prepareStage(script, deps);
   if (!prepared.ok) return noTake(prepared.reason, prepared.detail);
-  if (prepared.recording !== undefined) run.recording = prepared.recording;
+  run.recording = prepared.recording;
   const { stage: launched, sessions, size } = prepared;
   const { page } = launched;
 

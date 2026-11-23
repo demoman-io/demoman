@@ -238,7 +238,11 @@ describe("a held recording", () => {
         degradations: [first.bundle.degradations, second.bundle.degradations],
         recording: [first.report.run.recording, second.report.run.recording],
       });
-    expect(first.report.run.recording, said()).toEqual({ clock: "held" });
+    expect(first.report.run.recording, said()).toEqual({
+      clock: "held",
+      frameRate: 30,
+      from: "default",
+    });
     expect(first.bundle.clock, said()).toBe("held");
 
     // Premises, on the page's own frames: the rAF box moved on at least 20

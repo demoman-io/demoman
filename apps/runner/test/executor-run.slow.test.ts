@@ -181,6 +181,7 @@ describe("runScript's saved sessions", () => {
     sessions,
     sessionStore: createSessionStore(sessionsHome),
     signinCommand: "npx demoman signin",
+    recordingFrameRate: { value: 30, from: "default" } as const,
     loadSessions,
     sessionsContext,
   });
@@ -292,6 +293,7 @@ describe("runScript", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -337,6 +339,7 @@ describe("runScript", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -395,6 +398,7 @@ describe("runScript", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           sessionsContext: {} as BrowserContext,
         },
@@ -435,6 +439,7 @@ describe("runScript", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           sessionsContext: {} as BrowserContext,
         },
@@ -492,6 +497,7 @@ describe("runScript", () => {
           sessions: [],
           sessionStore: createSessionStore(home),
           signinCommand: "npx demoman signin",
+          recordingFrameRate: { value: 30, from: "default" } as const,
           loadSessions: async () => ({ ok: true as const, files: [] }),
           sessionsContext: {} as BrowserContext,
         },
@@ -545,6 +551,7 @@ describe("runScript", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -599,6 +606,7 @@ describe("runScript", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -798,6 +806,7 @@ describe("runScript when the encode throws", () => {
             sessions: [],
             sessionStore: createSessionStore(home),
             signinCommand: "npx demoman signin",
+            recordingFrameRate: { value: 30, from: "default" } as const,
             loadSessions: async () => ({ ok: true as const, files: [] }),
             // Not the staged context: the run reloads into it, harmlessly.
             sessionsContext: {} as BrowserContext,
@@ -889,6 +898,7 @@ describe("a click the check could not pass, in the report", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -921,6 +931,7 @@ describe("a click the check could not pass, in the report", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         // Not the staged context: the run reloads into it, harmlessly.
         sessionsContext: {} as BrowserContext,
@@ -959,6 +970,7 @@ describe("a run's end state", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         sessionsContext: {} as BrowserContext,
         finalStill: finalStillFor({
@@ -1040,6 +1052,7 @@ describe("a run's end state", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         sessionsContext: {} as BrowserContext,
         // The render's page is closed before it starts: renderToFiles throws.
@@ -1076,6 +1089,7 @@ describe("a run's end state", () => {
         sessions: [],
         sessionStore: createSessionStore(home),
         signinCommand: "npx demoman signin",
+        recordingFrameRate: { value: 30, from: "default" } as const,
         loadSessions: async () => ({ ok: true as const, files: [] }),
         sessionsContext: {} as BrowserContext,
         finalStill: async () => {

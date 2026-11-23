@@ -96,6 +96,7 @@ const run = (steps: unknown[], lib = library(), query = "") =>
       sessions: [],
       sessionStore: createSessionStore(home),
       signinCommand: "npx demoman signin",
+      recordingFrameRate: { value: 30, from: "default" } as const,
       loadSessions: async () => ({ ok: true as const, files: [] }),
       sessionsContext: {} as BrowserContext,
     },

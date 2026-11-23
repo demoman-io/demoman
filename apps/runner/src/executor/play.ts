@@ -10,8 +10,8 @@ import {
   decodeBase64,
   type EngineStore,
   type FrameEncoder,
-  HELD_FRAMES_SCRIPT,
   type HeldClock,
+  heldFramesScript,
   jpegSize,
   KEYFRAME_QUALITY,
   type NetworkWatch,
@@ -29,8 +29,10 @@ import {
   clickNotDeliveredDetail,
   createRoomPolicy,
   DEFAULT_RUN_SIZE,
+  frameMsOf,
   messageOf,
   newId,
+  type RunRecording,
   type RunReport,
   type RunSize,
   restBefore,
@@ -86,6 +88,7 @@ export type PlayDeps = Pick<
   | "flowSizeUnread"
   | "flowScale"
   | "flowScaleUnread"
+  | "recordingFrameRate"
 >;
 
 export type Prepared =
@@ -98,9 +101,9 @@ export type Prepared =
       /** The scale this run records at: headless's own, else the screen's
        *  as read; absent when a visible window's screen could not be read. */
       recordedAt?: number;
-      /** Unless `DEMOMAN_HELD_CLOCK=0`: whether the page's clock is held,
-       *  and why not when not. Absent, the run is in real time as asked. */
-      recording?: { clock: "held" } | { clock: "real"; why: string };
+      /** Whether the page's clock is held and at which frame rate, or why
+       *  not, and a 60 it could not apply (`RunReport.run.recording`). */
+      recording: RunRecording;
       /** The held clock, already holding the page, and what feeds it. */
       held?: { clock: HeldClock; network: NetworkWatch };
     }
@@ -142,18 +145,34 @@ export async function prepareStage(
   const launched = staged.stage;
   const { page } = launched;
 
-  const recording =
+  // One frame length for the page's frames and the held clock: the rate
+  // decided at the door (DEM-265), so the two can never disagree.
+  const rate = deps.recordingFrameRate;
+  const frameMs = frameMsOf(rate.value);
+  const realWhy =
     verdict === null
-      ? undefined
+      ? "held-clock capture is turned off (DEMOMAN_HELD_CLOCK=0)"
       : verdict.hold
-        ? ({ clock: "held" } as const)
-        : ({ clock: "real", why: verdict.why } as const);
+        ? null
+        : verdict.why;
+  // A real-clock run records at the screen's own pace: a 60 asked for is
+  // said as not applied, never dropped.
+  const recording: RunRecording =
+    realWhy === null
+      ? { clock: "held", frameRate: rate.value, from: rate.from }
+      : {
+          clock: "real",
+          why: realWhy,
+          ...(rate.value === 60 && rate.from !== "default"
+            ? { frameRateNotApplied: { asked: 60, from: rate.from } }
+            : {}),
+        };
   // Held: every document gets the held animation frames and a hidden caret
   // before its first script, and the held clock starts at the pinned instant
   // in place of the Date offset below. A script Chrome refuses stops the run.
-  if (recording?.clock === "held") {
+  if (recording.clock === "held") {
     try {
-      for (const source of [HELD_FRAMES_SCRIPT, HELD_CARET_SCRIPT]) {
+      for (const source of [heldFramesScript(frameMs), HELD_CARET_SCRIPT]) {
         await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
           source,
         });
@@ -171,7 +190,7 @@ export async function prepareStage(
   // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
   // be installed stops the run: a video at the real date would be compared
   // with pinned ones and read as changed.
-  if (deps.pinnedNow !== undefined && recording?.clock !== "held") {
+  if (deps.pinnedNow !== undefined && recording.clock !== "held") {
     try {
       await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
         source: pinnedClockSource(pinnedOffsetMs(deps.pinnedNow)),
@@ -273,7 +292,7 @@ export async function prepareStage(
   const viewport =
     size.from === "device" ? null : { width: size.width, height: size.height };
   let held: { clock: HeldClock; network: NetworkWatch } | undefined;
-  if (recording?.clock === "held") {
+  if (recording.clock === "held") {
     // Last, after every read above, and before the walk's first navigation.
     // A clock Chrome will not hold stops the run, as a pin that cannot be
     // installed does: recorded in real time it would read as another video.
@@ -283,6 +302,7 @@ export async function prepareStage(
         launched.cdp,
         deps.pinnedNow,
         recordedAt ?? 1,
+        frameMs,
         () => launched.page.close({ runBeforeUnload: false }),
       );
     } catch (error) {
@@ -300,7 +320,7 @@ export async function prepareStage(
     size,
     viewport,
     ...(recordedAt === undefined ? {} : { recordedAt }),
-    ...(recording === undefined ? {} : { recording }),
+    recording,
     ...(held === undefined ? {} : { held }),
   };
 }
@@ -321,6 +341,7 @@ async function holdClock(
   cdp: CdpSession,
   pinnedNow: string | undefined,
   scale: number,
+  frameMs: number,
   abandon: () => Promise<void>,
 ): Promise<{ clock: HeldClock; network: NetworkWatch }> {
   // The watch stamps requests on the page's clock (DEM-202): before the
@@ -335,6 +356,7 @@ async function holdClock(
     cdp,
     network,
     scale,
+    frameMs,
     abandon,
     scrubUrl,
     realNow: Date.now,

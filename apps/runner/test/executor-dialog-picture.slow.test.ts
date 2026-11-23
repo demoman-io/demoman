@@ -124,7 +124,11 @@ describe("a confirm() answered in a held take", () => {
   it(
     "draws the card on a hold, over the page as it was before the answer",
     async () => {
-      expect(recording, JSON.stringify(recording)).toEqual({ clock: "held" });
+      expect(recording, JSON.stringify(recording)).toEqual({
+        clock: "held",
+        frameRate: 30,
+        from: "default",
+      });
       expect(dialogs, JSON.stringify(dialogs)).toMatchObject([
         { kind: "confirm", answer: "accept", drawn: true },
       ]);
