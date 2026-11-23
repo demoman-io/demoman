@@ -193,8 +193,9 @@ describe("header and frame", () => {
         expect(g.disc?.display, said).toBe("none");
         expect(g.word?.display, said).toBe("none");
         // The mark is the folded mascot on a 199 grid (brand/logomark.svg):
-        // 79% across and down is the middle of the ■ body; the middle is
-        // where its two 33-unit gutters cross, so it shows the bar.
+        // 79% across and down is the middle of the ■ body; the middle is the
+        // open space between the ▶, the legs and the body (about 2px clear
+        // of each at 14px), so it shows the bar.
         const [ink, gutter] = await pixelsAt(page, [
           [
             figure.left + figure.width * 0.79,
