@@ -127,12 +127,13 @@ const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,
   v.style.cssText = "position:absolute;left:40px;top:120px;width:320px;height:180px";
   document.body.append(v);
 });</script>`;
-/** The same, and it asks for `/playing` once it plays: there the test
- *  slows the machine (`relagCdp`). Slowed from the start, Chrome never
- *  started the clip (DEM-244, said). */
+/** The same, and it asks for `/underway` once it has played half a
+ *  second: there the test slows the machine (`relagCdp`). Slowed from the
+ *  start, or at its `playing` event, Chrome never got the clip off 0.00
+ *  (DEM-244, said; CI's ubuntu and a loaded Mac, 2026-11-23). */
 const AHEAD = AUTOPLAY.replace(
   "document.body.append(v);",
-  'v.addEventListener("playing", () => fetch("/playing"), { once: true });\n  document.body.append(v);',
+  'v.addEventListener("timeupdate", function underway() {\n    if (v.currentTime < 0.5) return;\n    v.removeEventListener("timeupdate", underway);\n    fetch("/underway");\n  });\n  document.body.append(v);',
 );
 const CLIP = readFileSync(
   fileURLToPath(new URL("./fixtures/ramp-4s.webm", import.meta.url)),
@@ -164,12 +165,12 @@ const open: ServerResponse[] = [];
  *  follows what the server did, not the 200 ms it was told. */
 const streams: { askedAt: number; sentAt: number[] }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
-/** Real ms the `/ahead` page said its video played, or null. */
-let playingAt: number | null = null;
+/** Real ms the `/ahead` page said its video was under way, or null. */
+let underwayAt: number | null = null;
 /** Why the machine could not be slowed there, if it could not. */
-let playingRefused: string | null = null;
-/** Every CDP command held this long once `/ahead`'s video plays: each
- *  frame takes several real frames. */
+let underwayRefused: string | null = null;
+/** Every CDP command held this long once `/ahead`'s video is under way:
+ *  each frame takes several real frames. */
 const AHEAD_LAG_MS = 100;
 
 beforeAll(async () => {
@@ -239,13 +240,13 @@ beforeAll(async () => {
       req.on("close", () => clearTimeout(timer));
       return;
     }
-    if (path === "/playing") {
+    if (path === "/underway") {
       try {
         relagCdp(AHEAD_LAG_MS);
-        playingAt = Date.now();
+        underwayAt = Date.now();
         res.writeHead(204);
       } catch (e) {
-        playingRefused = (e as Error).message;
+        underwayRefused = (e as Error).message;
         res.writeHead(500);
       }
       res.end();
@@ -721,7 +722,10 @@ describe("a held recording that waits on its server", () => {
   // as a still, unsaid. Red if the pin does not count the frames Chrome
   // presents (held-clock.ts PIN_ANIMATIONS).
   it("says a video whose picture ran ahead and stopped", async () => {
-    // Unslowed until the video plays (`/playing`).
+    // A retry starts unslowed and unseen.
+    underwayAt = null;
+    underwayRefused = null;
+    // Unslowed until the video is under way (`/underway`).
     const r = await record(
       home,
       `${url}/ahead`,
@@ -748,17 +752,39 @@ describe("a held recording that waits on its server", () => {
           : [],
       ),
     );
+    // Real seconds the walk took per second of the take, as "own pace".
+    const realPerTake =
+      Number(
+        /timing run [^:]*:.*?\bwalk ([\d.]+)s/.exec(r.lines.join("\n"))?.[1],
+      ) /
+      (takeMs / 1000);
     const said = JSON.stringify({
       notes,
-      playingAt,
-      playingRefused,
+      realPerTake,
+      underwayAt,
+      underwayRefused,
       takeMs,
       lastMoving,
       spans: r.bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
     });
-    // Premise: it played, the machine slowed there, and its picture moved
-    // and then stood still for the last half second or more of the take.
-    expect(playingAt, said).not.toBeNull();
+    // DEM-244: on a machine far behind its frames, Chrome may never get the
+    // clip off 0.00, before any slowing (the Mac at utility QoS beside ten
+    // CPU burners, 3 of 3, 2026-11-23). Then this case cannot be recorded
+    // there, and the report must say why, as in "own pace".
+    if (underwayAt === null) {
+      expect(realPerTake, said).toBeGreaterThanOrEqual(STARVED_REAL_PER_TAKE);
+      expect(
+        notes.filter((n) =>
+          n.startsWith("a video stopped on one frame while playing (at 0.00 s"),
+        ),
+        said,
+      ).toHaveLength(1);
+      return;
+    }
+    // Premise: it played, half a second of its currentTime and not only
+    // its picture (a clip stuck at 0.00 flickers, which reads as motion:
+    // CI, 2026-11-23), the machine slowed there, and its picture moved and
+    // then stood still for the last half second or more of the take.
     expect(notes, said).toContain(
       "a playing video runs on its own clock: it was not held",
     );
