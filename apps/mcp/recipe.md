@@ -472,39 +472,40 @@ Studio exports go to `~/Downloads`.
 | --- | --- | --- |
 | `browserMissing` | `snapshot`, `run`¹, `studio` | Demoman's browser or libraries are missing; `detail` gives the command. Ask the user to run it, then retry. |
 | `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, other OSes); quote `detail`. |
-| `sessionUnreadable` | `snapshot`, `run`¹ | A saved session file or folder could not be read, or is readable by others; `detail` names the fix. Tell the user. |
+| `sessionUnreadable` | `snapshot`, `run`¹ | A saved session could not be read, or others can read it; `detail` names the fix. Tell the user. |
 | `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
-| `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; never rerun unchanged. |
+| `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed sign-in, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; never rerun unchanged. |
 | `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
 | `secretTooShort` | `snapshot`, `run`¹, `ci` | Secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
-| `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
-| `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site (a sign-in step's page is not the site's origin, or `_ORIGIN` names another); `detail` names both. Nothing typed. Check the account's site and `goto`; tell the user. |
-| `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
+| `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no valid `DEMOMAN_SECRET_NAME_ORIGIN` beside it; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
+| `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site (a sign-in page off the site's origin, or `_ORIGIN` naming another); `detail` names both. Nothing typed. Check the account's site and `goto`; tell the user. |
+| `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so it was not read. Add it to `.gitignore` (`detail` says the line), or untrack it. |
 | `secretsFileInvalid` | `snapshot`, `run`¹ | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
-| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix the file. |
+| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix it. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
-| `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute folder path. Fix it or leave it out. |
+| `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute folder path. Fix it or omit it. |
+| `settingUnreadable` | `run`¹, `probe` | `.demoman/config.json` holds a `recordingFrameRate` that is not 30 or 60; `detail` names the file. Fix it. |
 | `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
 | `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
-| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
+| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to check the PR. |
+| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export. |
 | `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | Retry once, unless `detail` says no display. |
 | `studioDidNotStart` | `studio` | `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. `report(id)` it; retry when it settles. |
 | `busy` | `export`¹ | A run, probe or snapshot is in progress. `report(id)` it first. |
-| `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call it again. |
+| `browserSilent` | `status`, `flows`, `derive`, `report` | No answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call it again. |
 | `libraryUnreadable` | `flows`, `studio` | Report it. |
-| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: `notStored` has `{ "what": "video", "error": … }` and `provenance.videoId` is null. Nothing saved; quote the `error`. |
-| `unknownRun` | `report` | This demoman-mcp never issued that id, or let it go (it keeps the last 50 finished; ids die with a restart). |
+| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: `notStored` has `{ "what": "video", "error": … }`; `provenance.videoId` is null. Nothing saved; quote the `error`. |
+| `unknownRun` | `report` | This server never issued that id, or let it go (it keeps the last 50 finished; ids die with a restart). |
 | `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not rerun. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run`¹ | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run`¹ | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it and the fix). |
+| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` (or the old folder) name one flow (delete one); a file there will not read (`detail` names it and the fix). |
 | `flowNotFound` | `run`¹ | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run`¹, `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
@@ -517,14 +518,14 @@ Studio exports go to `~/Downloads`.
 | `kitsUnreadable` | `run`¹ | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
 | `wallpaperUnreadable` | `run`¹ | The image would not open. Quote `detail`; fix or drop `look.branding`/`look.kit`. |
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
-| `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
+| `deviceFailed` | `snapshot`, `run` | The device could not be emulated; nothing listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export`¹ | Not answered: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export`¹ | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
-| `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
+| `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: its targets can't be reached; pick one outside. |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: pick a target outside it. |
 | `ambiguousAnchor` | `run`² | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |

@@ -60,7 +60,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
     return settingsWith(defaults, { exportQuality: said, pullRequests: said });
   }
   // Parsed once; both keys are read from `raw`.
-  const raw = parsed(path, text);
+  const raw = settingsObject(path, text);
   if ("unreadable" in raw) {
     // Not a JSON object at all: neither key is readable.
     return settingsWith(defaults, {
@@ -93,7 +93,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
 /** A settings file's text as the JSON object it must hold, or `unreadable`
  *  naming the file and why. Anything but a JSON object (null, an array, a
  *  number, a string) is unreadable: it is not "every key is absent". */
-function parsed(
+export function settingsObject(
   path: string,
   text: string,
 ): { object: Record<string, unknown> } | { unreadable: string } {
@@ -135,6 +135,6 @@ export function parsePullRequests(
   path: string,
   text: string,
 ): { value: PullRequestsValue | null } | { unreadable: string } {
-  const raw = parsed(path, text);
+  const raw = settingsObject(path, text);
   return "unreadable" in raw ? raw : pullRequestsIn(path, raw.object);
 }

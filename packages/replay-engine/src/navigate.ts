@@ -16,7 +16,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { withAnswerDeadline } from "./answer-deadline.js";
 import { NAVIGATE_TIMEOUT_MS } from "./constants.js";
-import { HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
+import type { HeldClock } from "./held-clock.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import type { CdpSession, ReplayResult } from "./types.js";
 
@@ -41,7 +41,7 @@ export interface NavigatingGuardDeps {
   sleep: (ms: number) => Promise<void>;
   /** A held recording's clock: the page loads only as page time moves, so
    *  the load is waited for a frame at a time, within `timeoutMs` of it. */
-  held?: Pick<HeldClock, "now" | "sleep">;
+  held?: Pick<HeldClock, "now" | "sleep" | "frameMs">;
 }
 
 /**
@@ -101,7 +101,7 @@ export function createNavigatingGuard(
         else {
           const from = held.now();
           while (!loadedYet && held.now() - from < timeoutMs)
-            await held.sleep(HELD_FRAME_MS);
+            await held.sleep(held.frameMs);
         }
       } finally {
         off();

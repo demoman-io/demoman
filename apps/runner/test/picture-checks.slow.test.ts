@@ -131,7 +131,11 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
     "types key by key after the cursor settles, holds the camera until the value is in, keeps the cursor smooth and the page sharp, and stays short",
     async () => {
       // Premise: held, as every headless take is unless the page refuses.
-      expect(recording, JSON.stringify(recording)).toEqual({ clock: "held" });
+      expect(recording, JSON.stringify(recording)).toEqual({
+        clock: "held",
+        frameRate: 30,
+        from: "default",
+      });
       const out = await executor.request("export", {
         takeId,
         callId: "picture-export",

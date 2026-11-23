@@ -6,6 +6,7 @@ import {
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
 } from "../export/target.js";
+import type { RecordingFrameRate } from "../recording-frame-rate.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptReceipt } from "./receipt.js";
@@ -41,6 +42,13 @@ export type PageScreens = {
   steps: number;
   screens: { step: number | null; unsettled?: string }[];
   look?: string;
+  /** The rate a held take was recorded at; absent is 30, as every receipt
+   *  from before the key says. */
+  frameRate?: RecordingFrameRate;
+  /** "real": the take was recorded in real time, at the screen's own pace,
+   *  so it has no frame rate to compare. Absent on a held take, and on any
+   *  take from before the key, which reads as held at 30. */
+  clock?: "real";
 };
 
 /** The output a refresh judges: the first non-9:16 MP4, else the first

@@ -181,6 +181,7 @@ function stagedOn(
     sessionsContext: context,
     loadSessions: async () => ({ ok: true as const, files: [] }),
     signinCommand: "npx demoman signin",
+    recordingFrameRate: { value: 30, from: "default" } as const,
     ...more,
   } as PlayDeps;
 }

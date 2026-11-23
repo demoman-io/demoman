@@ -30,6 +30,7 @@ import {
 } from "@demoman/scene-schema";
 import { zoomSkippedNote } from "../auto-zoom.js";
 import type { RunLook } from "../brand-kit.js";
+import type { RecordingFrameRate } from "../recording-frame-rate.js";
 import type { RefilmInfo } from "../refilm/merge.js";
 import type { EndPage } from "../snapshot-walk.js";
 import type { RecordingReport } from "./fidelity.js";
@@ -163,6 +164,27 @@ export function parseFilmedCode(raw: unknown): FilmedCode | null {
   return null;
 }
 
+/** Where a run's recording frame rate came from (`resolveRecordingFrameRate`). */
+export type RecordingFrameRateFrom = "repo" | "default";
+
+/** How a run recorded the page's clock (`RunReport.run.recording`).
+ *  `frameRateUnread`: the repo's `.demoman/config.json` could not be read
+ *  or parsed, so the run took the default; the sentence names the file and
+ *  why. */
+export type RunRecording =
+  | {
+      clock: "held";
+      frameRate: RecordingFrameRate;
+      from: RecordingFrameRateFrom;
+      frameRateUnread?: string;
+    }
+  | {
+      clock: "real";
+      why: string;
+      frameRateNotApplied?: { asked: 60; from: "repo" };
+      frameRateUnread?: string;
+    };
+
 /** A run's or probe's last picture on disk, or why there is none. */
 export type FinalStill = { path: string } | { unavailable: string };
 
@@ -173,9 +195,11 @@ export interface RunReport {
     target: string;
     executor: Executor;
     script: ScriptRef;
-    /** Unless held-clock capture was turned off (`DEMOMAN_HELD_CLOCK=0`):
-     *  whether the page's clock was held, and why not when it was not. */
-    recording?: { clock: "held" } | { clock: "real"; why: string };
+    /** Whether the page's clock was held, at which frame rate and whose
+     *  setting that was, or why not when it was not; `frameRateNotApplied`
+     *  when 60 was set but the run recorded in real time. Absent when the
+     *  run stopped before its stage was prepared. */
+    recording?: RunRecording;
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";
@@ -1115,9 +1139,9 @@ export function verdictLine(report: RunReport): string {
       unstored.every((w) => w.what === "session") &&
       framesClause(report) === "" &&
       ownClockClause(report) === "";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${dialogsClause(report)}${recordingClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${dialogsClause(report)}${recordingClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**
@@ -1248,6 +1272,20 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   animationUnpinned:
     "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
+
+/** A repo set 60 fps and the run recorded in real time, so it did not
+ *  apply; or the repo's file could not be read, so the default was used. */
+function recordingClause(report: RunReport): string {
+  const r = report.run.recording;
+  if (r === undefined) return "";
+  if (r.frameRateUnread !== undefined) {
+    return r.clock === "held"
+      ? ` Recorded at ${r.frameRate} fps: ${r.frameRateUnread}.`
+      : ` Frame rate not read: ${r.frameRateUnread}.`;
+  }
+  if (r.clock !== "real" || r.frameRateNotApplied === undefined) return "";
+  return " Recorded in real time: the repo's 60 fps applies only on a held clock.";
+}
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */
 function otherRepoClause(report: RunReport): string {

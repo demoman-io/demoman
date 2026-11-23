@@ -15,6 +15,7 @@ export * from "./kept/file.js";
 export * from "./kept/receipt.js";
 export * from "./logo-file.js";
 export * from "./pull-requests.js";
+export * from "./recording-frame-rate.js";
 export * from "./redaction.js";
 export * from "./refilm/edited.js";
 export * from "./refilm/merge.js";

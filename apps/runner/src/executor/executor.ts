@@ -46,6 +46,10 @@ import { expireOld, expiryStatus, skippedOf } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
+import {
+  type RecordingFrameRateSetting,
+  resolveRecordingFrameRate,
+} from "./frame-rate.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -67,7 +71,7 @@ import {
 import { refilmFromVideo } from "./refilm.js";
 import { execGit, readFilmedCode, readRepo } from "./repo.js";
 import { followHere } from "./repo-aliases.js";
-import { runScript } from "./run.js";
+import { type RunDeps, runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
   createSecretSweep,
@@ -241,6 +245,27 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const where = await projectFolder(project);
     if ("kind" in where) return where;
     return chooseAccount(await findAccounts(where.from), target, named);
+  }
+  /** The frame rate a run or probe records at, decided once at its door
+   *  (DEM-265): a value that is not 30 or 60 refuses it, naming the file; a
+   *  file that will not read records at the default, carrying why. */
+  async function frameRateFor(
+    from: string,
+  ): Promise<RunDeps["recordingFrameRate"] | Refused> {
+    const rate = await resolveRecordingFrameRate(from);
+    if ("unreadable" in rate) {
+      return {
+        kind: "refused",
+        reason: "settingUnreadable",
+        field: "recordingFrameRate",
+        detail: rate.unreadable,
+      };
+    }
+    return {
+      value: rate.value,
+      from: rate.from,
+      ...(rate.unread === undefined ? {} : { unread: rate.unread }),
+    };
   }
   type Chosen = Extract<AccountChoice, { kind: "account" }>;
   /**
@@ -610,6 +635,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const where = await projectFolder(args.project);
     if ("kind" in where)
       return refusal(where.reason, where.detail, where.field);
+    const recordingFrameRate = await frameRateFor(where.from);
+    if ("kind" in recordingFrameRate) {
+      return refusal(
+        recordingFrameRate.reason,
+        recordingFrameRate.detail,
+        recordingFrameRate.field,
+      );
+    }
     const repoRead = await readRepo(where.from);
     const videoRepo: VideoRepo = repoRead.ok
       ? { key: repoRead.repo.key }
@@ -1089,6 +1122,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(flowScale.why === undefined
               ? {}
               : { flowScaleUnread: flowScale.why }),
+            recordingFrameRate,
             session,
             library,
             kits,
@@ -1334,6 +1368,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const named =
       typeof args.account === "string" ? args.account : script.account;
     const contains = typeof args.contains === "string" ? args.contains : null;
+    // As the run door decides it, so a probe looks at the page on the clock
+    // the run that follows records on.
+    const where = await projectFolder(args.project);
+    if ("kind" in where) return failure(where.reason, where.detail);
+    const recordingFrameRate = await frameRateFor(where.from);
+    if ("kind" in recordingFrameRate) {
+      return {
+        ok: true,
+        value: {
+          outcome: "refusedBeforeRun",
+          reason: recordingFrameRate.reason,
+          detail: recordingFrameRate.detail,
+          field: recordingFrameRate.field,
+        },
+      };
+    }
     return pageCallAs(args, script.target, named, async (choice, chosen) => {
       try {
         const browser = await session.ensure();
@@ -1353,6 +1403,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           home,
           kits,
+          recordingFrameRate,
         });
       } finally {
         sessions.forget();
@@ -1375,6 +1426,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               "kind" in where
                 ? { unreadable: where.detail, file: null }
                 : await resolvePullRequests(where.from, home);
+            // A file a run would record past at the default still answers
+            // unreadable here, so an agent sees it.
+            const rate: RecordingFrameRateSetting =
+              "kind" in where
+                ? { unreadable: where.detail, file: null }
+                : await resolveRecordingFrameRate(where.from);
+            const recordingFrameRate =
+              "unread" in rate && rate.unread !== undefined
+                ? { unreadable: rate.unread, file: rate.file ?? null }
+                : rate;
             // Read without launching: tells "not started yet" from "not
             // installed", which browserRunning: false cannot. On Linux a
             // download whose libraries are missing cannot start either.
@@ -1415,6 +1476,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                   ? { display: await displayForStatus() }
                   : {}),
                 pullRequests,
+                recordingFrameRate,
                 expiry: await expiryStatus(library),
                 runPage:
                   lastRun === null

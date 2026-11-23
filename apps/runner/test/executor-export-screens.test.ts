@@ -15,7 +15,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { exportTake, type ScreensAnswer } from "../src/executor/export.js";
 import { createLibrary } from "../src/executor/library.js";
 import { createVideoStore } from "../src/executor/videos.js";
-import { makeDiskTake, putTake } from "./disk-take.js";
+import { makeDiskTake, putTake, withPageScreens } from "./disk-take.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27): the disk take about 2 s, each export 2-4 s.
@@ -293,4 +293,77 @@ describe("a screens-only export copies the take's page screens", () => {
       "it was recorded before page screens — record it again",
     );
   });
+});
+
+// The last case in the file: it rewrites the disk take's bundle.
+describe("the screens carry the rate the take was recorded at", () => {
+  it(
+    "a held bundle says 60 or 30, an older held one nothing; a real-time one says real",
+    async () => {
+      const { original, bundle } = await makeDiskTake(home);
+      const withScreens = await withPageScreens(home, diskTakeId, bundle);
+      // Premise: the disk take is a real-time recording until made held here.
+      expect(withScreens.clock).toBeUndefined();
+      const screensOf = async (held: boolean, heldFrameMs?: number) => {
+        await putTake(home, diskTakeId, original, {
+          ...withScreens,
+          ...(held ? { clock: "held" as const } : {}),
+          ...(heldFrameMs === undefined ? {} : { heldFrameMs }),
+        });
+        const out = (await exportTake(
+          {
+            takeId: diskTakeId,
+            fileType: "mp4",
+            unlisted: true,
+            screensOnly: true,
+          },
+          exportDeps(join(home, `rate-${held}-${heldFrameMs}`)),
+          () => undefined,
+        )) as ScreensAnswer;
+        expect(out.outcome, JSON.stringify(out)).toBe("saved");
+        return out.screens;
+      };
+      const held60 = await screensOf(true, 1000 / 60);
+      expect(held60.frameRate).toBe(60);
+      expect(held60).not.toHaveProperty("clock");
+      expect((await screensOf(true, 1000 / 30)).frameRate).toBe(30);
+      const olderHeld = await screensOf(true);
+      expect(olderHeld).not.toHaveProperty("frameRate");
+      expect(olderHeld).not.toHaveProperty("clock");
+      const real = await screensOf(false);
+      expect(real.clock).toBe("real");
+      expect(real).not.toHaveProperty("frameRate");
+    },
+    SCREENS_ONLY_MS,
+  );
+
+  it(
+    "a heldFrameMs that is not a 30 or 60 fps recording fails, naming the video and the value",
+    async () => {
+      const { original, bundle } = await makeDiskTake(home);
+      const withScreens = await withPageScreens(home, diskTakeId, bundle);
+      await putTake(home, diskTakeId, original, {
+        ...withScreens,
+        clock: "held",
+        heldFrameMs: 1000 / 24,
+      });
+      const out = await exportTake(
+        {
+          takeId: diskTakeId,
+          fileType: "mp4",
+          unlisted: true,
+          screensOnly: true,
+        },
+        exportDeps(join(home, "rate-24")),
+        () => undefined,
+      );
+      expect(out, JSON.stringify(out)).toMatchObject({
+        outcome: "renderFailed",
+        error: expect.stringContaining(`video ${diskTakeId}`),
+      });
+      expect((out as { error: string }).error).toContain(`${1000 / 24}`);
+      expect((out as { error: string }).error).toContain("30 or 60 fps");
+    },
+    SCREENS_ONLY_MS,
+  );
 });

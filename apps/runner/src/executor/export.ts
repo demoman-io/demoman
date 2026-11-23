@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type FrameBundle,
+  isHeld,
   LANDSCAPE_1080P,
   type RenderTarget,
   wallpaperShape,
@@ -21,11 +22,13 @@ import {
   frameOf,
   GIF_BUDGET_BYTES,
   isExportQuality,
+  isRecordingFrameRate,
   lookDigest,
   MAX_STILL_SIDE,
   messageOf,
   type PageScreens,
   parseFilmedCode,
+  type RecordingFrameRate,
   reportForSave,
   reportForStillsSave,
   type StillsOptions,
@@ -1029,5 +1032,25 @@ async function pageScreensOf(
       };
     files.push({ name, bytes });
   }
-  return { screens: { steps, screens, look }, files };
+  // Held bundles only; one from before the key means 30, kept as absent.
+  let frameRate: RecordingFrameRate | undefined;
+  if (bundle.heldFrameMs !== undefined) {
+    const rate = Math.round(1000 / bundle.heldFrameMs);
+    if (!isRecordingFrameRate(rate))
+      return {
+        error: `video ${takeId} has a heldFrameMs of ${bundle.heldFrameMs}, which is not 30 or 60 fps`,
+      };
+    frameRate = rate;
+  }
+  return {
+    screens: {
+      steps,
+      screens,
+      look,
+      ...(frameRate === undefined ? {} : { frameRate }),
+      // Marked, so a refresh never reads a real-time take as held at 30.
+      ...(isHeld(bundle) ? {} : { clock: "real" as const }),
+    },
+    files,
+  };
 }

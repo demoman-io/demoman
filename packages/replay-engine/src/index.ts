@@ -161,12 +161,14 @@ export {
   HELD_FRAMES_SCRIPT,
   type HeldClock,
   type HeldFrame,
+  heldFramesScript,
   PIN_ANIMATIONS,
+  pinAnimationsScript,
 } from "./held-clock.js";
 export {
   createHeldFrames,
   type HeldFrames,
-  HOLD_MIN_FRAMES,
+  HOLD_MIN_MS,
 } from "./held-frames.js";
 export { decodeBase64, jpegSize, pngSize } from "./image.js";
 // Test-only, see header: the runner lane drives it against real Chromium.

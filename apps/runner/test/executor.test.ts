@@ -519,19 +519,29 @@ describe("createLocalExecutor", () => {
 
     it("status reports pullRequests for project", async () => {
       const started = await repoWith(null);
-      const other = await repoWith(JSON.stringify({ pullRequests: "attach" }));
+      const other = await repoWith(
+        JSON.stringify({ pullRequests: "attach", recordingFrameRate: 60 }),
+      );
       const without = await statusIn(started, {});
       const withProject = await statusIn(started, { project: other });
       // Premise: the started-in repo has none, so the answer below came from
       // `project` and not from where the executor started.
       expect(without).toMatchObject({
-        value: { pullRequests: { value: "ask", from: "default" } },
+        value: {
+          pullRequests: { value: "ask", from: "default" },
+          recordingFrameRate: { value: 30, from: "default" },
+        },
       });
       expect(withProject).toMatchObject({
         ok: true,
         value: {
           pullRequests: {
             value: "attach",
+            from: "repo",
+            file: join(other, ".demoman", "config.json"),
+          },
+          recordingFrameRate: {
+            value: 60,
             from: "repo",
             file: join(other, ".demoman", "config.json"),
           },
@@ -556,6 +566,12 @@ describe("createLocalExecutor", () => {
           pullRequests: {
             unreadable: expect.stringMatching(
               /^project must be an absolute path .*"relative\/path"/,
+            ),
+            file: null,
+          },
+          recordingFrameRate: {
+            unreadable: expect.stringMatching(
+              /^project must be an absolute path/,
             ),
             file: null,
           },
@@ -744,4 +760,248 @@ describe("an export in progress", () => {
     },
     VERTICAL_EXPORT_MS,
   );
+});
+
+// DEM-265: the run (and the probe) decides the recording frame rate once,
+// from the project's `.demoman/config.json` alone (ruling B, 2026-11-23: no
+// user layer), records at it, and the report says which and from where.
+describe("the recording frame rate", () => {
+  let rateHome: string;
+  let rated: LocalExecutor;
+  beforeAll(async () => {
+    rateHome = await freshHome();
+    rated = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home: rateHome,
+      headless: true,
+      outDir,
+      log: () => undefined,
+    });
+  });
+  afterAll(async () => {
+    await rated.close();
+  }, 30_000);
+
+  const projectWith = async (config: string | null) => {
+    const repo = await mkdtemp(join(tmpdir(), "demoman-raterepo-"));
+    homes.push(repo);
+    if (config !== null) {
+      await mkdir(join(repo, ".demoman"));
+      await writeFile(join(repo, ".demoman", "config.json"), config);
+    }
+    return repo;
+  };
+  /** An executor on a fresh home whose browser launch is counted, and
+   *  refused, so a door that launched anything is caught. */
+  const countingLaunches = async () => {
+    let launches = 0;
+    const ex = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home: await freshHome(),
+      headless: true,
+      outDir,
+      log: () => undefined,
+      launchFn: () => {
+        launches++;
+        return Promise.reject(new Error("this case launches nothing"));
+      },
+    });
+    return { ex, launches: () => launches };
+  };
+  const refusedFor = (file: string) => ({
+    ok: true,
+    value: {
+      outcome: "refusedBeforeRun",
+      reason: "settingUnreadable",
+      field: "recordingFrameRate",
+      detail: expect.stringContaining(file),
+    },
+  });
+
+  it("refuses a run whose project's frame rate is not 30 or 60, launching nothing", async () => {
+    const repo = await projectWith(JSON.stringify({ recordingFrameRate: 7 }));
+    const file = join(repo, ".demoman", "config.json");
+    const { ex, launches } = await countingLaunches();
+    try {
+      const out = await ex.request("run", {
+        video: ownVideo(),
+        script: fixtureScript(),
+        project: repo,
+        callId: "rate-7",
+      });
+      expect(out, JSON.stringify(out)).toMatchObject(refusedFor(file));
+      expect((out as { value: { detail: string } }).value.detail).toContain(
+        "got 7",
+      );
+      expect(launches()).toBe(0);
+      expect(ex.browser()).toBeNull();
+    } finally {
+      await ex.close();
+    }
+  }, 30_000);
+
+  it("refuses a probe the same way, launching nothing", async () => {
+    const repo = await projectWith(JSON.stringify({ recordingFrameRate: 7 }));
+    const file = join(repo, ".demoman", "config.json");
+    const { ex, launches } = await countingLaunches();
+    try {
+      const out = await ex.request("probe", {
+        script: fixtureScript(),
+        project: repo,
+      });
+      expect(out, JSON.stringify(out)).toMatchObject(refusedFor(file));
+      expect(launches()).toBe(0);
+    } finally {
+      await ex.close();
+    }
+  }, 30_000);
+
+  const runIn = async (repo: string, callId: string) => {
+    const out = await rated.request("run", {
+      video: ownVideo(),
+      script: fixtureScript(),
+      project: repo,
+      callId,
+    });
+    const value = (out as { value: RunReport }).value;
+    expect(value.outcome, JSON.stringify(out)).toBe("complete");
+    return value;
+  };
+  const heldFrameMsOf = async (report: RunReport) => {
+    const takeId = report.provenance.takeId as string;
+    const bundle = await createLibrary(rateHome)
+      .frameStore(takeId)
+      .getBundle(takeId);
+    return (bundle as { heldFrameMs?: number } | null)?.heldFrameMs;
+  };
+
+  it(
+    "records a held run at the repo's 60, and says so",
+    async () => {
+      const repo = await projectWith(
+        JSON.stringify({ recordingFrameRate: 60 }),
+      );
+      const report = await runIn(repo, "rate-60");
+      expect(report.run.recording).toEqual({
+        clock: "held",
+        frameRate: 60,
+        from: "repo",
+      });
+      // The clock was handed the same number the report names.
+      expect(await heldFrameMsOf(report)).toBeCloseTo(1000 / 60, 6);
+    },
+    RUN_MS * 2,
+  );
+
+  it(
+    "records a held run at 30 when the repo sets nothing, whatever the user's settings.json says",
+    async () => {
+      // Ruling B: a user-level 60 never reaches a run.
+      await writeFile(
+        join(rateHome, "settings.json"),
+        JSON.stringify({ recordingFrameRate: 60 }),
+      );
+      const report = await runIn(await projectWith(null), "rate-none");
+      expect(report.run.recording).toEqual({
+        clock: "held",
+        frameRate: 30,
+        from: "default",
+      });
+      expect(await heldFrameMsOf(report)).toBeCloseTo(1000 / 30, 6);
+    },
+    RUN_MS,
+  );
+
+  // Ruling A (2026-11-23): only a bad value refuses. A config.json that
+  // will not parse records at 30 and says why, in the report and the
+  // verdict; status still names the file as unreadable.
+  it(
+    "records at 30 when the repo's config.json will not parse, and says why",
+    async () => {
+      const repo = await projectWith("not json");
+      const file = join(repo, ".demoman", "config.json");
+      const report = await runIn(repo, "rate-unparsed");
+      expect(report.run.recording).toEqual({
+        clock: "held",
+        frameRate: 30,
+        from: "default",
+        frameRateUnread: expect.stringContaining(file),
+      });
+      expect(await heldFrameMsOf(report)).toBeCloseTo(1000 / 30, 6);
+      expect(verdictLine(report)).toContain(
+        ` Recorded at 30 fps: ${file} is not valid JSON (`,
+      );
+      expect(await rated.request("status", { project: repo })).toMatchObject({
+        ok: true,
+        value: {
+          recordingFrameRate: {
+            unreadable: expect.stringContaining(file),
+            file,
+          },
+        },
+      });
+    },
+    RUN_MS,
+  );
+
+  // Code review nit 4: the probe's own target refusal comes before the
+  // project is read, as it did before the frame rate was.
+  it("a probe with a non-http target and a bad project refuses its target", async () => {
+    const { ex, launches } = await countingLaunches();
+    try {
+      const out = await ex.request("probe", {
+        script: { ...fixtureScript(), target: "ftp://example.com/" },
+        project: "relative/path",
+      });
+      expect(out, JSON.stringify(out)).toMatchObject({
+        ok: true,
+        value: { outcome: "refusedBeforeRun", reason: "nonHttpTarget" },
+      });
+      expect(launches()).toBe(0);
+    } finally {
+      await ex.close();
+    }
+  }, 30_000);
+
+  describe("with held-clock capture off", () => {
+    const was = process.env.DEMOMAN_HELD_CLOCK;
+    beforeAll(() => {
+      process.env.DEMOMAN_HELD_CLOCK = "0";
+    });
+    afterAll(() => {
+      if (was === undefined) delete process.env.DEMOMAN_HELD_CLOCK;
+      else process.env.DEMOMAN_HELD_CLOCK = was;
+    });
+
+    it(
+      "says a repo's 60 was not applied",
+      async () => {
+        const repo = await projectWith(
+          JSON.stringify({ recordingFrameRate: 60 }),
+        );
+        const report = await runIn(repo, "rate-60-real");
+        expect(report.run.recording).toEqual({
+          clock: "real",
+          why: expect.stringContaining("DEMOMAN_HELD_CLOCK=0"),
+          frameRateNotApplied: { asked: 60, from: "repo" },
+        });
+      },
+      RUN_MS,
+    );
+
+    it(
+      "says nothing was missed at the repo's 30",
+      async () => {
+        const repo = await projectWith(
+          JSON.stringify({ recordingFrameRate: 30 }),
+        );
+        const report = await runIn(repo, "rate-30-real");
+        expect(report.run.recording).toEqual({
+          clock: "real",
+          why: expect.stringContaining("DEMOMAN_HELD_CLOCK=0"),
+        });
+      },
+      RUN_MS,
+    );
+  });
 });

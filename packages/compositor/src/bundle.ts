@@ -358,6 +358,12 @@ export const FrameBundleSchema = z
      */
     clock: z.literal("held").optional(),
     /**
+     * A held replay only: the page time one captured frame moved (1000/30
+     * or 1000/60), written on every held take since DEM-265. Absent on a
+     * held take from before it, which was recorded at 1000/30.
+     */
+    heldFrameMs: z.number().positive().optional(),
+    /**
      * A held replay only: the page time its opening played before the first
      * frame (the load, its settle, the sign-in check), which the take leaves
      * out: its source time starts after it (DEM-186). Absent on a held take
