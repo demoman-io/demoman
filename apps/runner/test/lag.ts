@@ -9,6 +9,14 @@ type LaggedProto = {
   lagMs?: number;
 };
 
+let wrapped: LaggedProto | null = null;
+/** Changes the lag `lagCdp` set, mid-run: a machine that falls behind once
+ *  a page is under way. */
+export function relagCdp(ms: number): void {
+  if (wrapped === null) throw new Error("relagCdp before lagCdp");
+  wrapped.lagMs = ms;
+}
+
 /**
  * Holds every CDP command `ms` ms: a slow machine on this machine, whose
  * stills and lookups take longer. Page-CPU throttling does not reach them.
@@ -28,6 +36,7 @@ export async function lagCdp(
     ),
   ) as LaggedProto;
   proto.lagMs = ms;
+  wrapped = proto;
   if (proto.send.lagged === true) return;
   const send = proto.send;
   proto.send = async function (this: unknown, ...args: unknown[]) {

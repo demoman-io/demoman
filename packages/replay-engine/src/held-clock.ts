@@ -101,9 +101,15 @@ const VIDEO_WAIT_PINS = 90;
  *  shortcut: a video in a frame (an embedded player) or a shadow root is
  *  neither paced nor said here (a frame of another origin is said as one on
  *  its own clock, play.ts); upgrade if an app's embed shows frozen.
- *  shortcut: a picture that stands still while `currentTime` moves is not
- *  seen; upgrade by counting the frames it presents
- *  (`requestVideoFrameCallback`) if an app shows it. */
+ *  Its picture is Chrome's real-time playback, not `currentTime`, which
+ *  follows the page's clock: it starts ahead, and gains on every frame the
+ *  machine falls behind, until it stands on the clip's last frame while
+ *  `currentTime` plays on, and a loop restarts only once `currentTime`
+ *  reaches the end (DEM-259: 1.3 s ahead from the start, and a loaded Mac's
+ *  stood on 3.97 s of 4 while `currentTime` went 1.97 to 2.57). So the
+ *  frames it presents are counted too (`requestVideoFrameCallback`), and a
+ *  picture that stands still ahead of `currentTime` for `VIDEO_STALL_PINS`
+ *  frames is said, once per video. */
 export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v, server) : [];
@@ -188,6 +194,26 @@ export const PIN_ANIMATIONS = `(v, server) => {
     }
     const s = stalls.get(m) ?? { t: m.currentTime, n: 0, said: false };
     stalls.set(m, s);
+    if (s.shown === undefined && typeof m.requestVideoFrameCallback === "function") {
+      s.shown = { frames: 0, at: 0, seen: 0, n: 0, said: false };
+      const shown = s.shown;
+      const count = (_, meta) => {
+        shown.frames++;
+        shown.at = meta.mediaTime;
+        m.requestVideoFrameCallback(count);
+      };
+      m.requestVideoFrameCallback(count);
+    }
+    const shown = s.shown;
+    if (shown !== undefined && shown.frames > 0) {
+      if (shown.seen !== shown.frames || shown.at <= m.currentTime) {
+        shown.seen = shown.frames;
+        shown.n = 0;
+      } else if (++shown.n === ${VIDEO_STALL_PINS} && !shown.said) {
+        shown.said = true;
+        unpinned.push("a video's picture stopped on one frame while it played (its picture at " + shown.at.toFixed(2) + " s of " + m.duration.toFixed(2) + ", its currentTime at " + m.currentTime.toFixed(2) + " s): its picture plays in real time, ahead of the take");
+      }
+    }
     if (s.t !== m.currentTime) {
       s.t = m.currentTime;
       s.n = 0;
