@@ -101,9 +101,15 @@ const VIDEO_WAIT_PINS = 90;
  *  shortcut: a video in a frame (an embedded player) or a shadow root is
  *  neither paced nor said here (a frame of another origin is said as one on
  *  its own clock, play.ts); upgrade if an app's embed shows frozen.
- *  shortcut: a picture that stands still while `currentTime` moves is not
- *  seen; upgrade by counting the frames it presents
- *  (`requestVideoFrameCallback`) if an app shows it. */
+ *  Its picture is Chrome's real-time playback, not `currentTime`, which
+ *  follows the page's clock: it starts ahead, and gains on every frame the
+ *  machine falls behind, until it stands on the clip's last frame while
+ *  `currentTime` plays on, and a loop restarts only once `currentTime`
+ *  reaches the end (DEM-259: 1.3 s ahead from the start, and a loaded Mac's
+ *  stood on 3.97 s of 4 while `currentTime` went 1.97 to 2.57). So the
+ *  frames it presents are counted too (`requestVideoFrameCallback`), and a
+ *  picture that stands on the clip's last frame, ahead of `currentTime`,
+ *  for `VIDEO_STALL_PINS` frames is said, once per source. */
 export const PIN_ANIMATIONS = `(v, server) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v, server) : [];
@@ -165,6 +171,12 @@ export const PIN_ANIMATIONS = `(v, server) => {
   for (const m of query("video")) {
     if (m.ended) continue;
     if (m.paused) {
+      // The page's pause: a stall is counted from where it plays again.
+      const was = stalls.get(m);
+      if (was !== undefined) {
+        was.n = 0;
+        if (was.shown !== undefined) was.shown.n = 0;
+      }
       // Autoplay starts once Chrome has the data to play through: on a
       // clock ahead of real time, never (DEM-207). Only one still fetching
       // waits for it (networkState 2, NETWORK_LOADING): a broken source, or
@@ -188,6 +200,33 @@ export const PIN_ANIMATIONS = `(v, server) => {
     }
     const s = stalls.get(m) ?? { t: m.currentTime, n: 0, said: false };
     stalls.set(m, s);
+    if (s.shown === undefined && typeof m.requestVideoFrameCallback === "function") {
+      s.shown = { src: m.currentSrc, frames: 0, at: 0, seen: 0, n: 0, said: false };
+      const shown = s.shown;
+      const count = (_, meta) => {
+        shown.frames++;
+        shown.at = meta.mediaTime;
+        m.requestVideoFrameCallback(count);
+      };
+      m.requestVideoFrameCallback(count);
+    }
+    const shown = s.shown;
+    // A new source starts its count, and its say, afresh.
+    if (shown !== undefined && shown.src !== m.currentSrc)
+      Object.assign(shown, { src: m.currentSrc, frames: 0, at: 0, seen: 0, n: 0, said: false });
+    if (shown !== undefined && shown.frames > 0) {
+      // Only on its last frame (a quarter second: a frame at 4 fps and up)
+      // has a real-time picture nothing left to show: a held frame or a
+      // stall elsewhere is not this.
+      const ahead = shown.at > m.currentTime && m.duration - shown.at <= 0.25;
+      if (shown.seen !== shown.frames || !ahead) {
+        shown.seen = shown.frames;
+        shown.n = 0;
+      } else if (++shown.n === ${VIDEO_STALL_PINS} && !shown.said) {
+        shown.said = true;
+        unpinned.push("a video's picture stood on its last frame while it played (its picture at " + shown.at.toFixed(2) + " s of " + m.duration.toFixed(2) + ", its currentTime at " + m.currentTime.toFixed(2) + " s): its picture plays in real time, ahead of the take");
+      }
+    }
     if (s.t !== m.currentTime) {
       s.t = m.currentTime;
       s.n = 0;

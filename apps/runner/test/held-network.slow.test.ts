@@ -16,6 +16,7 @@ import {
   type Recorded,
   record,
 } from "./held-record.js";
+import { relagCdp } from "./lag.js";
 
 /**
  * The network half of held capture (spec tests 3, 4 and 6): while the page
@@ -126,6 +127,13 @@ const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,
   v.style.cssText = "position:absolute;left:40px;top:120px;width:320px;height:180px";
   document.body.append(v);
 });</script>`;
+/** The same, and it asks for `/playing` once it plays: there the test
+ *  slows the machine (`relagCdp`). Slowed from the start, Chrome never
+ *  started the clip (DEM-244, said). */
+const AHEAD = AUTOPLAY.replace(
+  "document.body.append(v);",
+  'v.addEventListener("playing", () => fetch("/playing"), { once: true });\n  document.body.append(v);',
+);
 const CLIP = readFileSync(
   fileURLToPath(new URL("./fixtures/ramp-4s.webm", import.meta.url)),
 );
@@ -138,6 +146,13 @@ const CLIP_PARTS = 16;
  *  one reader). */
 const STARVED_REAL_PER_TAKE = 2;
 const CLIP_GAP_MS = 125;
+/** What the pin says of a video whose picture stood on its last frame
+ *  ahead of its currentTime (DEM-259). */
+const PICTURE_AHEAD =
+  /^a video's picture stood on its last frame while it played \(its picture at \d+\.\d\d s of [\d.]+, its currentTime at \d+\.\d\d s\): its picture plays in real time, ahead of the take$/;
+/** Real seconds per take second above which a walk fell behind real time:
+ *  a machine that keeps up walks 1.01 to 1.02 (paced to real time). */
+const BEHIND_REAL_PER_TAKE = 1.1;
 
 let home: string;
 let server: Server;
@@ -149,6 +164,13 @@ const open: ServerResponse[] = [];
  *  follows what the server did, not the 200 ms it was told. */
 const streams: { askedAt: number; sentAt: number[] }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
+/** Real ms the `/ahead` page said its video played, or null. */
+let playingAt: number | null = null;
+/** Why the machine could not be slowed there, if it could not. */
+let playingRefused: string | null = null;
+/** Every CDP command held this long once `/ahead`'s video plays: each
+ *  frame takes several real frames. */
+const AHEAD_LAG_MS = 100;
 
 beforeAll(async () => {
   process.env.DEMOMAN_HELD_CLOCK = "1";
@@ -215,6 +237,23 @@ beforeAll(async () => {
       };
       let timer = setTimeout(send, 0);
       req.on("close", () => clearTimeout(timer));
+      return;
+    }
+    if (path === "/playing") {
+      try {
+        relagCdp(AHEAD_LAG_MS);
+        playingAt = Date.now();
+        res.writeHead(204);
+      } catch (e) {
+        playingRefused = (e as Error).message;
+        res.writeHead(500);
+      }
+      res.end();
+      return;
+    }
+    if (path === "/ahead") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(AHEAD);
       return;
     }
     if (path === "/autoplay") {
@@ -637,28 +676,98 @@ describe("a held recording that waits on its server", () => {
       notes.filter((n) => n.includes("waited")),
       said,
     ).toEqual([]);
-    // DEM-244: on a machine far behind its frames, Chrome may never start
-    // the clip, fully buffered, at readyState 1 or 2 (CI after #105, and the
-    // Mac on its efficiency cores beside CPU burners: 4.3 to 7.5 real s per
-    // take s, 2026-11-20). Not fixed yet, so there it must be said, with
-    // the video's state. A machine that keeps up walks 1.01 to 1.02 (paced
-    // to real time); one whose clock runs ahead of real time, under 1: the
-    // threshold sits well clear of both, and there the video must play.
-    const stopped = notes.filter((n) =>
-      n.startsWith("a video stopped on one frame while playing ("),
-    );
-    if (walkS / takeS >= STARVED_REAL_PER_TAKE && stopped.length > 0) {
-      expect(stopped[0], said).toMatch(
-        /\(at 0\.\d\d s of [\d.]+, readyState [012], buffered to [\d.]+ s, networkState \d\)$/,
-      );
-      return;
-    }
     // And it plays in the picture: a second or more of the page's frames
     // in motion, and the ramp, which changes on every one of its own
     // frames, moving on most of them. Its frames and the recording's are
     // not in step on a paced clock, so some repeat: 35 of 46 here
     // (2026-11-19). Frozen, it stood on its first frame (held-probe-video.mjs).
-    expect(frames.length, said).toBeGreaterThanOrEqual(30);
-    expect(moved, said).toBeGreaterThan(frames.length / 2);
+    if (frames.length >= 30 && moved > frames.length / 2) return;
+    // Unless the report says why its picture stood still, with the video's
+    // state. DEM-259: the picture is Chrome's real-time playback, which
+    // starts about 1.3 s ahead of currentTime and gains on every frame the
+    // machine falls behind, until it stands on the clip's last frame (CI's
+    // ubuntu at 2.35 and 2.54 real s per take s, 5 and 3 frames; its macOS
+    // at 1.82 and 1.92, 2026-11-22). The pin says it only while the picture
+    // is ahead of currentTime, on the clip's last frame: a clock that
+    // stopped pacing the video (the regression this test is for) leaves it
+    // behind, and is not excused, nor is a machine that kept up.
+    if (
+      walkS / takeS > BEHIND_REAL_PER_TAKE &&
+      notes.some((n) => PICTURE_AHEAD.test(n))
+    )
+      return;
+    // DEM-244: on a machine far behind its frames, Chrome may never start
+    // the clip, fully buffered, at readyState 1 or 2 (CI after #105, and the
+    // Mac on its efficiency cores beside CPU burners: 4.3 to 7.5 real s per
+    // take s, 2026-11-20). Not fixed yet, so there it must be said. A
+    // machine that keeps up walks 1.01 to 1.02 (paced to real time); one
+    // whose clock runs ahead of real time, under 1: the threshold sits well
+    // clear of both.
+    expect(walkS / takeS, said).toBeGreaterThanOrEqual(STARVED_REAL_PER_TAKE);
+    expect(
+      notes.filter((n) =>
+        /^a video stopped on one frame while playing \(at 0\.\d\d s of [\d.]+, readyState [012], buffered to [\d.]+ s, networkState \d\)$/.test(
+          n,
+        ),
+      ),
+      said,
+    ).not.toEqual([]);
+  }, 120_000);
+
+  // DEM-259: a playing video's picture is Chrome's real-time playback. On a
+  // machine behind its frames it runs ahead of the take to the clip's last
+  // frame, and stands there while currentTime, on the page's clock, plays
+  // on; the loop restarts only when currentTime reaches the end. That read
+  // as a still, unsaid. Red if the pin does not count the frames Chrome
+  // presents (held-clock.ts PIN_ANIMATIONS).
+  it("says a video whose picture ran ahead and stopped", async () => {
+    // Unslowed until the video plays (`/playing`).
+    const r = await record(
+      home,
+      `${url}/ahead`,
+      [
+        { do: "click", on: { stableId: "ask" }, zoom: false },
+        { do: "pause", ms: 3000 },
+      ],
+      {},
+      0,
+    );
+    const notes = r.bundle.degradations.map((d) => d.note);
+    const frames = await pageFrames(r, [
+      50 / 1280,
+      130 / 800,
+      350 / 1280,
+      290 / 800,
+    ]);
+    const takeMs = Math.max(...r.bundle.keyframes.map((k) => k.sourceTimeMs));
+    const lastMoving = Math.max(
+      0,
+      ...frames.flatMap((f, i) =>
+        i > 0 && greyDiff(f.grey, frames[i - 1]?.grey ?? "") > NOISE
+          ? [f.ms]
+          : [],
+      ),
+    );
+    const said = JSON.stringify({
+      notes,
+      playingAt,
+      playingRefused,
+      takeMs,
+      lastMoving,
+      spans: r.bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
+    });
+    // Premise: it played, the machine slowed there, and its picture moved
+    // and then stood still for the last half second or more of the take.
+    expect(playingAt, said).not.toBeNull();
+    expect(notes, said).toContain(
+      "a playing video runs on its own clock: it was not held",
+    );
+    expect(lastMoving, said).toBeGreaterThan(0);
+    expect(takeMs - lastMoving, said).toBeGreaterThan(500);
+    // Said, once, with where its picture stood and where its clock was.
+    expect(
+      notes.filter((n) => PICTURE_AHEAD.test(n)),
+      said,
+    ).toHaveLength(1);
   }, 120_000);
 });
