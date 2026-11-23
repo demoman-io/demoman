@@ -103,10 +103,12 @@ records a script with `<root>`'s built runner in a throwaway home (signed in
 by the project's demo account), exports it, and prints `outcome:` and `cost:
 run <s> s, take <MB> MB on disk`. `sublime-drag.json` is the site's Sublime
 take (`demoman-io/sublime` on 4402, `pnpm reset` before each run, size
-pinned at 1710×1107, the site take's). On 2026-11-23 it recorded in 14.9 s
-and 8.8–9.6 MB at the held clock's 30 fps page time, and in 29.6 s and
-14.1–15.1 MB at 60, where the export's repeated frames went from 11 to 1
-(DEM-265).
+pinned at 1710×1107, the site take's). On 2026-11-23, through the project's
+`.demoman/config.json` `recordingFrameRate` (DEM-265), it recorded in about
+15 s (14.9–21.8) and 9.0 MB at 30, and in about 24 s (23.5–31.4) and 8.4 MB
+at 60, where the export's repeated frames went from 11–16 to 1. (A first
+trial that edited the clock's constant by hand halved its holds and waits too,
+and read 29.6 s and 14–15 MB.)
 
 ## Export cost
 
