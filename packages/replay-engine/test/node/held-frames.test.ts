@@ -5,15 +5,15 @@ import {
   createHeldFrames,
   HELD_FRAME_MS,
   type HeldFrame,
-  HOLD_MIN_FRAMES,
+  HOLD_MIN_MS,
 } from "../../src/index.js";
 import type { EncodedSpan, FrameEncoder } from "../../src/types.js";
 
 const t = (n: number) => n * HELD_FRAME_MS;
 /** One frame per letter, one frame-time apart; equal letters are equal bytes. */
-const seq = (letters: string): HeldFrame[] =>
+const seq = (letters: string, frameMs = HELD_FRAME_MS): HeldFrame[] =>
   [...letters].map((c, i) => ({
-    sourceTimeMs: t(i),
+    sourceTimeMs: i * frameMs,
     bytes: new Uint8Array([c.charCodeAt(0), 7, 7]),
     width: 2,
     height: 2,
@@ -33,6 +33,7 @@ function setup(
     heap?: () => number;
     closeSpan?: () => Promise<EncodedSpan | null>;
     push?: () => Promise<void>;
+    frameMs?: number;
   } = {},
 ) {
   const calls: string[] = [];
@@ -58,6 +59,7 @@ function setup(
       void stills.push({ at, byte: bytes[0] as number }),
     onSpan: (e) => spans.push(e),
     degradations,
+    frameMs: opts.frameMs ?? HELD_FRAME_MS,
   });
   return { held, calls, stills, spans, degradations };
 }
@@ -123,8 +125,33 @@ describe("createHeldFrames", () => {
     expect(h.degradations[0]?.note).toMatch(/too short/);
   });
 
-  it("treats fewer than HOLD_MIN_FRAMES identical frames as motion", async () => {
-    expect(HOLD_MIN_FRAMES).toBe(3);
+  // DEM-265: a hold is a time. At 60 fps, 5 identical frames (83 ms) are
+  // motion and 6 (100 ms) a hold; red if the run is counted in 30 fps frames.
+  it("counts a hold in milliseconds at any frame length", async () => {
+    expect(HOLD_MIN_MS).toBe(100);
+    const stillsOf = async (letters: string, frameMs: number) => {
+      const h = setup({ closeSpan: async () => ENCODED, frameMs });
+      for (const f of seq(letters, frameMs)) await h.held.add(f);
+      await h.held.finish(letters.length * frameMs);
+      // The A run's still: B after a hold is a lone frame, filed as one too.
+      return h.stills.filter((s) => s.byte === 65).length;
+    };
+    const F60 = 1000 / 60;
+    expect(await stillsOf("AAAAAB", F60)).toBe(0);
+    expect(await stillsOf("AAAAAAB", F60)).toBe(1);
+    // Unchanged at 30: three frames are a hold, two are not.
+    expect(await stillsOf("AAB", HELD_FRAME_MS)).toBe(0);
+    expect(await stillsOf("AAAB", HELD_FRAME_MS)).toBe(1);
+  });
+
+  it("refuses a frame length that cannot tell a hold from motion", () => {
+    for (const frameMs of [Number.NaN, 0, -1, 80])
+      expect(() => setup({ frameMs }), String(frameMs)).toThrow(
+        /tell a hold from motion/,
+      );
+  });
+
+  it("treats fewer than a hold's identical frames as motion", async () => {
     const h = setup({ closeSpan: async () => ENCODED });
     for (const f of seq("AAB")) await h.held.add(f);
     await h.held.finish(t(3));

@@ -112,7 +112,10 @@ function fakeHeld(o: {
   unpacedAt?: number;
   /** `HeldClock.failed`. */
   failed?: Error;
+  /** `HeldClock.frameMs` (default 30 fps). */
+  frameMs?: number;
 }) {
+  const frameMs = o.frameMs ?? HELD_FRAME_MS;
   /** Every sleep the walk made, from when (the walk's ms, as markers), and
    *  whether inside a wait on the page. */
   const sleeps: { atMs: number; ms: number; waiting: boolean }[] = [];
@@ -127,6 +130,7 @@ function fakeHeld(o: {
   const frames: HeldFrame[] = [];
   const clock: HeldClock = {
     scale: SCALE,
+    frameMs,
     now: () => now,
     hold: async () => undefined,
     rehold: async () => undefined,
@@ -160,8 +164,7 @@ function fakeHeld(o: {
       sleeps.push({ atMs: now - START, ms, waiting: waitDepth > 0 });
       const end = now + ms;
       for (;;) {
-        const next =
-          (Math.floor(now / HELD_FRAME_MS + 1e-6) + 1) * HELD_FRAME_MS;
+        const next = (Math.floor(now / frameMs + 1e-6) + 1) * frameMs;
         if (next > end + 1e-6) break;
         now = next;
         await o.roundTrip?.();
@@ -242,6 +245,8 @@ async function run(
     openingPaintAnswersAfterMs?: number;
     /** Instead, it fails that late: the page navigated out from under it. */
     openingPaintFails?: boolean;
+    /** The held clock's frame length (default 30 fps). */
+    frameMs?: number;
   } = {},
 ) {
   const cdp = createCdpFake();
@@ -258,6 +263,7 @@ async function run(
   const held = fakeHeld({
     ...(opts.stillBetweenActs === true ? { look: () => clicks } : {}),
     ...(opts.heldFailed === undefined ? {} : { failed: opts.heldFailed }),
+    ...(opts.frameMs === undefined ? {} : { frameMs: opts.frameMs }),
     roundTrip: () => cdp.send("Runtime.evaluate", { expression: "0" }),
     loading: () => loadingUntil !== null,
     network,
@@ -634,6 +640,31 @@ describe("the walk on a held clock", () => {
       );
   });
 
+  // DEM-265: at 60 fps the walk steps the clock's frame, counts the quiet
+  // window's frames from its milliseconds, and the take says its frame.
+  it("steps the clock's frame at 60 and records it in the take", async () => {
+    const F60 = 1000 / 60;
+    const { result, cdp, progress, sleeps } = await run([click("a")], {
+      frameMs: F60,
+    });
+    const evidence = `${evidenceOf(result, progress)} ${JSON.stringify(sleeps)}`;
+    expect(result.outcome, evidence).toBe("complete");
+    expect(result.bundle?.heldFrameMs).toBe(F60);
+    const asked = cdp.calls
+      .filter((c) => c.method === "Runtime.evaluate")
+      .map((c) => String(c.params.expression))
+      .filter((e) => e.includes(STEP_SETTLE_MARKER));
+    expect(asked.length).toBeGreaterThan(0);
+    for (const e of asked)
+      expect(e).toContain(`still >= ${Math.round(HELD_STEP_QUIET_MS / F60)}`);
+    // A frame's sleep is the clock's frame, never 30's: premise, the walk
+    // slept a single frame at least once.
+    const single = (ms: number) =>
+      sleeps.filter((s) => Math.abs(s.ms - ms) < 1e-9);
+    expect(single(F60).length, evidence).toBeGreaterThan(0);
+    expect(single(HELD_FRAME_MS), evidence).toEqual([]);
+  });
+
   // Red if the walk sleeps SETTLE_MS instead of the arrive, sleeps no rest,
   // or plays the journey past its planned length.
   it("plays the planned rest and arrive as page time", async () => {
@@ -985,6 +1016,8 @@ describe("the walk on a held clock", () => {
     expect(result.pacing).toBeUndefined();
     expect(result.bundle?.clock).toBe("held");
     expect(result.bundle?.timing).toBe("real");
+    // Written on every held take, 30 fps too: absent means one from before.
+    expect(result.bundle?.heldFrameMs).toBe(1000 / 30);
     // On the take's time, from its opening still (DEM-186).
     const lead = leadOf(sleeps);
     // Premise: the take started after the clock did, and before the times.
@@ -1144,6 +1177,24 @@ describe("the walk's own scroll on a held clock", () => {
       (t) => t > scrollEnd - HELD_SCROLL_MS + 1e-6 && t <= scrollEnd + 1e-6,
     );
     expect(during, evidence).toHaveLength(n);
+  });
+});
+
+describe("the walk's own scroll on a held clock at 60 fps", () => {
+  // DEM-265: the scroll lasts HELD_SCROLL_MS whatever the frame, so it
+  // takes twice the steps at 60.
+  it("plays the corrective scroll over the same time, a step a frame", async () => {
+    const F60 = 1000 / 60;
+    const { result, progress, scrollSteps } = await run(
+      [click("a"), click("far")],
+      { frameMs: F60 },
+    );
+    const evidence = `${evidenceOf(result, progress)} ${scrollSteps.join(",")}`;
+    expect(result.outcome, evidence).toBe("complete");
+    expect(scrollSteps, evidence).toHaveLength(
+      Math.ceil(HELD_SCROLL_MS / F60 - 1e-6),
+    );
+    expect(scrollSteps.at(-1), evidence).toBe(1);
   });
 });
 

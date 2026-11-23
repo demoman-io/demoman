@@ -1,7 +1,8 @@
 import type { NetworkWatch } from "./network-watch.js";
 import type { CdpSession, Clock } from "./types.js";
 
-/** One video frame of page time. */
+/** One video frame of page time at 30 fps, the default: a clock takes its
+ *  own (`HeldClock.frameMs`), and a repo may record at 60 (DEM-265). */
 export const HELD_FRAME_MS = 1000 / 30;
 
 /** A grant expires once the page has run what falls due in it (milliseconds in
@@ -52,21 +53,23 @@ const bounded = (p: Promise<unknown>): Promise<unknown> => {
  *  walk's honest work between frames comes near it. */
 export const WALK_GAP_CREDIT_MS = 2000;
 
-/** 30 · (1000/30) is 1000.0000000000001: held times are compared this
- *  loosely, so a sleep of no more than this moves no page time, and a caller
- *  looping until a held time is reached must stop within it. */
+/** 30 · (1000/30) is 1000.0000000000001, as 60 · (1000/60) is: held times
+ *  are compared this loosely, so a sleep of no more than this moves no page
+ *  time, and a caller looping until a held time is reached must stop within
+ *  it. */
 export const HELD_EPS_MS = 1e-6;
 const EPS = HELD_EPS_MS;
 
-/** Captured frames a playing video's `currentTime` may stand still across
- *  before it is said to have stopped (half a second of frames): a video
- *  frozen on one picture reads as a still in the recording (DEM-207). */
-const VIDEO_STALL_PINS = 15;
+/** Page time a playing video's `currentTime` may stand still across before
+ *  it is said to have stopped: a video frozen on one picture reads as a
+ *  still in the recording (DEM-207). Counted in captured frames of the
+ *  clock's length. */
+const VIDEO_STALL_MS = 500;
 
-/** Captured frames a video may wait to start playing before it is said
- *  (3 s): `compare/held-push.sh`'s clip, at about 80 KB/s, started 1.7 s
- *  in, paced (measured 2026-11-19, DEM-207). */
-const VIDEO_WAIT_PINS = 90;
+/** Page time a video may wait to start playing before it is said:
+ *  `compare/held-push.sh`'s clip, at about 80 KB/s, started 1.7 s in, paced
+ *  (measured 2026-11-19, DEM-207). Counted in captured frames. */
+const VIDEO_WAIT_MS = 3000;
 
 /** Page script: pins every animation in the document to the held time (ms),
  *  and answers the ones it could not pin, each named once.
@@ -92,10 +95,10 @@ const VIDEO_WAIT_PINS = 90;
  *  shortcut: said, not held, and only a video of this document (none in a
  *  shadow root or a frame); holding one means seeking it every frame.
  *  One whose `currentTime` stands still while playing (its data stalled)
- *  is said too, once per video (`VIDEO_STALL_PINS`).
+ *  is said too, once per video (`VIDEO_STALL_MS`).
  *  One waiting to start (autoplay, nothing played yet, still fetching short
  *  of the data to play through) is said once it has waited
- *  `VIDEO_WAIT_PINS` frames.
+ *  `VIDEO_WAIT_MS` of frames.
  *  Answers `{ said, video }`: what it could not pin, and whether a video
  *  plays or waits to, which the clock paces to real time (DEM-207).
  *  shortcut: a video in a frame (an embedded player) or a shadow root is
@@ -109,8 +112,13 @@ const VIDEO_WAIT_PINS = 90;
  *  stood on 3.97 s of 4 while `currentTime` went 1.97 to 2.57). So the
  *  frames it presents are counted too (`requestVideoFrameCallback`), and a
  *  picture that stands on the clip's last frame, ahead of `currentTime`,
- *  for `VIDEO_STALL_PINS` frames is said, once per source. */
-export const PIN_ANIMATIONS = `(v, server) => {
+ *  for `VIDEO_STALL_MS` of frames is said, once per source.
+ *  Built for a frame length: its waits are times, so at 60 fps it counts
+ *  twice the frames (DEM-265). */
+export const pinAnimationsScript = (frameMs: number): string => {
+  const stallPins = Math.round(VIDEO_STALL_MS / frameMs);
+  const waitPins = Math.round(VIDEO_WAIT_MS / frameMs);
+  return `(v, server) => {
   const unpinned =
     typeof window.__demomanFlushFrames === "function" ? window.__demomanFlushFrames(v, server) : [];
   const cssPaused = (a) => {
@@ -189,8 +197,8 @@ export const PIN_ANIMATIONS = `(v, server) => {
       const w = stalls.get(m) ?? { t: m.currentTime, n: 0, said: false };
       stalls.set(m, w);
       w.waited = (w.waited ?? 0) + 1;
-      if (w.waited === ${VIDEO_WAIT_PINS})
-        unpinned.push("a video waited ${Math.round((VIDEO_WAIT_PINS * HELD_FRAME_MS) / 1000)} s for its data and had not started playing");
+      if (w.waited === ${waitPins})
+        unpinned.push("a video waited ${Math.round((waitPins * frameMs) / 1000)} s for its data and had not started playing");
       continue;
     }
     video = true;
@@ -222,7 +230,7 @@ export const PIN_ANIMATIONS = `(v, server) => {
       if (shown.seen !== shown.frames || !ahead) {
         shown.seen = shown.frames;
         shown.n = 0;
-      } else if (++shown.n === ${VIDEO_STALL_PINS} && !shown.said) {
+      } else if (++shown.n === ${stallPins} && !shown.said) {
         shown.said = true;
         unpinned.push("a video's picture stood on its last frame while it played (its picture at " + shown.at.toFixed(2) + " s of " + m.duration.toFixed(2) + ", its currentTime at " + m.currentTime.toFixed(2) + " s): its picture plays in real time, ahead of the take");
       }
@@ -230,7 +238,7 @@ export const PIN_ANIMATIONS = `(v, server) => {
     if (s.t !== m.currentTime) {
       s.t = m.currentTime;
       s.n = 0;
-    } else if (++s.n === ${VIDEO_STALL_PINS} && !s.said) {
+    } else if (++s.n === ${stallPins} && !s.said) {
       s.said = true;
       // Its state, so a stop on a machine nobody can watch says why.
       const b = m.buffered.length > 0 ? m.buffered.end(m.buffered.length - 1) : 0;
@@ -239,11 +247,15 @@ export const PIN_ANIMATIONS = `(v, server) => {
   }
   return { said: unpinned, video };
 }`;
+};
+
+/** `pinAnimationsScript` at 30 fps. */
+export const PIN_ANIMATIONS = pinAnimationsScript(HELD_FRAME_MS);
 
 /** Page script for every document of a held recording: Chrome runs
  *  animation frames on its real clock even while page time is held
  *  (measured 2026-11-15, apps/runner/compare/held-probe-matrix.mjs), so the
- *  page's `requestAnimationFrame` queues instead, and `PIN_ANIMATIONS` runs
+ *  page's `requestAnimationFrame` queues instead, and `pinAnimationsScript` runs
  *  the queue once per captured frame (`__demomanFlushFrames(heldMs, server)`),
  *  as a browser runs one frame's callbacks. A callback asked for inside a
  *  frame runs on the next. `server`: the frame was shot following the
@@ -270,8 +282,11 @@ export const PIN_ANIMATIONS = `(v, server) => {
  *  shortcut: only a scroll a script asks for (scrollTo, scrollBy,
  *  scrollIntoView), smooth by its own word or the root's `scroll-behavior`;
  *  a link to an anchor on a smooth-scrolling page is not seen. Upgrade if an
- *  app shows it. */
-export const HELD_FRAMES_SCRIPT = `(() => {
+ *  app shows it.
+ *
+ *  Built for the clock's frame length, so the page's grid is the clock's
+ *  (DEM-265). */
+export const heldFramesScript = (frameMs: number): string => `(() => {
   if (window.__demomanFlushFrames) return;
   if (window !== window.parent) {
     // Queued only for a parent that runs the queue (its script ran before
@@ -284,7 +299,7 @@ export const HELD_FRAMES_SCRIPT = `(() => {
   // hostile page) would otherwise stop the pin on every frame.
   const all = document.querySelectorAll;
   const query = (s) => all.call(document, s);
-  const FRAME = 1000 / 30;
+  const FRAME = ${frameMs};
   const queue = new Map();
   const said = new Set();
   let last = 0;
@@ -361,6 +376,9 @@ export const HELD_FRAMES_SCRIPT = `(() => {
   Object.defineProperty(window, "__demomanQuery", { value: query });
 })()`;
 
+/** `heldFramesScript` at 30 fps. */
+export const HELD_FRAMES_SCRIPT = heldFramesScript(HELD_FRAME_MS);
+
 export interface HeldFrame {
   sourceTimeMs: number;
   bytes: Uint8Array;
@@ -369,6 +387,8 @@ export interface HeldFrame {
 }
 
 export interface HeldClock extends Clock {
+  /** Page time one captured frame moves: the recording's frame length. */
+  readonly frameMs: number;
   /** The scale the page is rendered and every frame captured at: the
    *  recording's, not the stills' 3x. Every held frame is a screenshot, and
    *  one of a 3x page took 97 ms on a CI runner against 16 ms at 1x
@@ -445,10 +465,12 @@ export function createHeldClock(deps: {
   network: NetworkWatch;
   /** `HeldClock.scale`. */
   scale: number;
+  /** `HeldClock.frameMs` (default `HELD_FRAME_MS`, 30 fps). */
+  frameMs?: number;
   realNow: () => number;
   capture: () => Promise<{ bytes: Uint8Array; width: number; height: number }>;
   /** Runs `source`, a page function, with the held time and whether the
-   *  frame follows the server (`PIN_ANIMATIONS`). */
+   *  frame follows the server (`pinAnimationsScript`). */
   evaluate: (source: string, arg: number, server: boolean) => Promise<unknown>;
   /** Waits real time (default: a timer). */
   wait?: (ms: number) => Promise<void>;
@@ -460,6 +482,14 @@ export function createHeldClock(deps: {
   scrubUrl?: (url: string) => string;
 }): HeldClock {
   const { cdp, network, realNow } = deps;
+  const frameMs = deps.frameMs ?? HELD_FRAME_MS;
+  // Zero or less never moves the page, and every sleep would loop for good.
+  if (!(frameMs > 0 && Number.isFinite(frameMs)))
+    throw new Error(
+      `a held clock needs a frame of page time longer than 0 ms, not ${frameMs}`,
+    );
+  /** The pin, counting its waits in this clock's frames. */
+  const pinScript = pinAnimationsScript(frameMs);
   /** An address as the clock says it, scrubbed: its scheme, host and path,
    *  so Chrome's error page or another site's sign-in reads as itself. */
   const where = (url: string) => {
@@ -476,10 +506,8 @@ export function createHeldClock(deps: {
   const wait =
     deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   /** The frame of the grid at or after `ms`, or at or before it. */
-  const frameFrom = (ms: number) =>
-    Math.ceil(ms / HELD_FRAME_MS - EPS) * HELD_FRAME_MS;
-  const frameTo = (ms: number) =>
-    Math.floor(ms / HELD_FRAME_MS + EPS) * HELD_FRAME_MS;
+  const frameFrom = (ms: number) => Math.ceil(ms / frameMs - EPS) * frameMs;
+  const frameTo = (ms: number) => Math.floor(ms / frameMs + EPS) * frameMs;
   let startEpochMs: number | null = null;
   let held = 0;
   /** `HeldClock.startTake`'s held time; null before it. */
@@ -778,7 +806,7 @@ export function createHeldClock(deps: {
           held: stretchFrom.held,
         };
       }
-      await grant(frameTo(held) + HELD_FRAME_MS);
+      await grant(frameTo(held) + frameMs);
       if (span?.endMs === from) span.endMs = held;
       retaking = e.firstAnswered;
       try {
@@ -801,7 +829,7 @@ export function createHeldClock(deps: {
     let failed: unknown;
     try {
       failed = await answered(
-        deps.evaluate(PIN_ANIMATIONS, held, server),
+        deps.evaluate(pinScript, held, server),
         "the animation pin",
         retake,
       );
@@ -876,6 +904,7 @@ export function createHeldClock(deps: {
 
   return {
     scale: deps.scale,
+    frameMs,
     now: () => held,
     async hold(epochMs) {
       await pause(epochMs / 1000);
@@ -908,7 +937,7 @@ export function createHeldClock(deps: {
             `the page did not answer a read of it within ${GRANT_EXPIRY_TIMEOUT_MS / 1000} s of its clock running`,
           );
         try {
-          await grant(held + HELD_FRAME_MS);
+          await grant(held + frameMs);
         } catch (error) {
           // The page may be gone and the read still answer (its browser
           // holds the storage): given a moment before the grant's failure
@@ -917,7 +946,7 @@ export function createHeldClock(deps: {
           if (settled) break;
           throw error;
         }
-        if (!settled) await wait(HELD_FRAME_MS);
+        if (!settled) await wait(frameMs);
       }
       return done;
     },
@@ -1010,7 +1039,7 @@ export function createHeldClock(deps: {
           const due =
             stretchFrom.held + (realNow() + shotLatency - stretchFrom.real);
           const labels = [...(since?.labels ?? []), ...network.labels()];
-          const to = Math.max(frameTo(held) + HELD_FRAME_MS, frameTo(due));
+          const to = Math.max(frameTo(held) + frameMs, frameTo(due));
           if (to > due) await wait(to - due);
           await grant(to);
           unshot = false;
@@ -1036,8 +1065,7 @@ export function createHeldClock(deps: {
           await shootDesigned(end);
           continue;
         }
-        const next =
-          (Math.floor(held / HELD_FRAME_MS + EPS) + 1) * HELD_FRAME_MS;
+        const next = (Math.floor(held / frameMs + EPS) + 1) * frameMs;
         if (next > end + EPS) {
           await grant(end);
           break;

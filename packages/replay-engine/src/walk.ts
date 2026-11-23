@@ -857,6 +857,9 @@ export async function runWalk(
   /** The scale the page is rendered at: the stills' 3x, or a held
    *  recording's own (`HeldClock.scale`), whose every frame is a still. */
   const stillScale = held?.scale ?? REPLAY_DPR;
+  /** A frame of the held clock's page time (`HeldClock.frameMs`); read only
+   *  on a held clock. */
+  const frameMs = held?.frameMs ?? HELD_FRAME_MS;
   if (held !== undefined && deps.recording !== "continuous") {
     throw new Error(
       `runWalk: a held clock records only on continuous recording, not ${deps.recording ?? "sampled"}`,
@@ -1355,6 +1358,7 @@ export async function runWalk(
           fileStill: (bytes, atMs) => fileStill(bytes, null, atMs),
           onSpan: (entry) => motionSpans.push(entry),
           degradations,
+          frameMs: held.frameMs,
         });
   // Before the walk's first sleep, which captures the first frame.
   /** Held: frames are filed from the opening on. The load and settle
@@ -1657,7 +1661,7 @@ export async function runWalk(
             `the page had not answered after ${Math.round(boundMs)} ms of page time`,
           );
         }
-        await clock.sleep(HELD_FRAME_MS);
+        await clock.sleep(frameMs);
       }
     }, windowOf());
     return reply;
@@ -1737,7 +1741,7 @@ export async function runWalk(
           (held.owing() || (await documentLoading())) &&
           left() > HELD_EPS_MS
         )
-          await clock.sleep(HELD_FRAME_MS);
+          await clock.sleep(frameMs);
       const capMs = left();
       if (capMs <= HELD_EPS_MS) {
         return [...(loading() ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
@@ -1758,8 +1762,8 @@ export async function runWalk(
                     : stepSettleExpression(
                         HELD_STEP_QUIET_MS,
                         outer - at(),
-                        Math.round(HELD_STEP_QUIET_MS / HELD_FRAME_MS),
-                        Math.round(capMs / HELD_FRAME_MS),
+                        Math.round(HELD_STEP_QUIET_MS / frameMs),
+                        Math.round(capMs / frameMs),
                       ),
                 awaitPromise: true,
                 returnByValue: true,
@@ -2009,7 +2013,7 @@ export async function runWalk(
       if (held !== undefined) {
         const loadBy = at() + STEP_SETTLE_CAP_MS;
         while ((held.owing() || (await documentLoading())) && at() < loadBy)
-          await clock.sleep(HELD_FRAME_MS);
+          await clock.sleep(frameMs);
       }
       try {
         // A section waits for any still in flight, and one of a page that
@@ -2474,7 +2478,7 @@ export async function runWalk(
         ),
       );
     } else if (planned.movedPx > 0) {
-      const frames = Math.ceil(HELD_SCROLL_MS / HELD_FRAME_MS - HELD_EPS_MS);
+      const frames = Math.ceil(HELD_SCROLL_MS / frameMs - HELD_EPS_MS);
       for (let k = 1; k <= frames; k++) {
         const p = easings.minimumJerk(Math.min(1, k / frames));
         evaluatedValue(
@@ -2484,7 +2488,7 @@ export async function runWalk(
             arguments: [{ value: p }],
           }),
         );
-        await clock.sleep(HELD_FRAME_MS);
+        await clock.sleep(frameMs);
       }
     }
     const rect = await measure(handle.objectId);
@@ -2613,10 +2617,7 @@ export async function runWalk(
         const wait =
           held === undefined
             ? PATH_STEP_MS - (now - sentAt)
-            : Math.min(
-                HELD_FRAME_MS - (now - sentAt),
-                segment.durationMs - elapsed,
-              );
+            : Math.min(frameMs - (now - sentAt), segment.durationMs - elapsed);
         if (wait > 0) await clock.sleep(wait);
         sentAt = at();
       }
@@ -3427,7 +3428,7 @@ export async function runWalk(
           d.startMs = Math.max(0, d.startMs - leadMs);
           d.endMs = Math.max(0, d.endMs - leadMs);
         }
-        await clock.sleep(HELD_FRAME_MS);
+        await clock.sleep(frameMs);
       }
       await shot(null);
       if (heldPlan) heldActEnd = at();
@@ -4387,6 +4388,7 @@ export async function runWalk(
           ? {}
           : {
               clock: "held" as const,
+              heldFrameMs: held.frameMs,
               ...(openingMs === undefined ? {} : { openingMs }),
               // The opening load's requests began before the take did.
               networkSpans: held

@@ -28,6 +28,18 @@ describe("FrameBundle.clock", () => {
     expect(isHeld(b)).toBe(true);
   });
 
+  // DEM-265: the take's frame length, kept; absent on an older take.
+  it("keeps a held bundle's frame length, and refuses one of 0 ms or less", () => {
+    const at = (heldFrameMs: number) =>
+      validateBundle({ ...realBundle(), clock: "held", heldFrameMs });
+    expect(at(1000 / 60).heldFrameMs).toBe(1000 / 60);
+    expect(validateBundle({ ...realBundle(), clock: "held" }).heldFrameMs).toBe(
+      undefined,
+    );
+    expect(() => at(0)).toThrow(/heldFrameMs/);
+    expect(() => at(-1)).toThrow(/heldFrameMs/);
+  });
+
   it("refuses a held clock on a capture bundle", () => {
     expect(() => validateBundle({ ...captureBundle(), clock: "held" })).toThrow(
       /held/,

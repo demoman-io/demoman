@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GRANT_EXPIRY_TIMEOUT_MS,
+  HELD_EPS_MS,
   HELD_FRAMES_SCRIPT,
   SECOND_READ_MS,
   WALK_GAP_CREDIT_MS,
@@ -9,8 +10,10 @@ import {
   createHeldClock,
   HELD_FRAME_MS,
   type HeldFrame,
+  heldFramesScript,
   type NetworkWatch,
   PIN_ANIMATIONS,
+  pinAnimationsScript,
 } from "../../src/index.js";
 import type { CdpSession } from "../../src/types.js";
 
@@ -57,6 +60,8 @@ function setup(
     followedDataAt?: (real: number) => number | null;
     /** When data last arrived on a followed connection outside the window. */
     outsideDataAt?: (real: number) => number | null;
+    /** The clock's frame length (default: the clock's own, 30 fps). */
+    frameMs?: number;
   } = {},
 ) {
   const handlers = new Map<string, Set<(p: Record<string, unknown>) => void>>();
@@ -119,6 +124,7 @@ function setup(
     scale: 1,
     realNow: () => real,
     scrubUrl: o.scrubUrl,
+    ...(o.frameMs === undefined ? {} : { frameMs: o.frameMs }),
     capture: async () => {
       log.push("capture");
       if (o.shot) return o.shot();
@@ -137,7 +143,7 @@ function setup(
       pins.push({ source, arg, server });
       const r = o.pin ? o.pin(arg, source) : [];
       // The pin answers { said, video }: a test's list is what it said.
-      return source === PIN_ANIMATIONS && Array.isArray(r)
+      return source.startsWith("(v, server)") && Array.isArray(r)
         ? { said: r, video: false }
         : r;
     },
@@ -223,6 +229,59 @@ describe("createHeldClock", () => {
     expect(
       policies.filter((p) => p.budget !== undefined).map((p) => p.policy),
     ).toEqual(Array(30).fill("advance"));
+  });
+
+  // DEM-265: a repo that records at 60 fps. Red if any grant, or the
+  // clock's grid, still steps 1000/30.
+  it("advances page time by 1000/60 per frame at 60", async () => {
+    const F60 = 1000 / 60;
+    const { clock, frames, budgets } = setup({ frameMs: F60 });
+    expect(clock.frameMs).toBe(F60);
+    await clock.hold(START);
+    await clock.sleep(1000);
+    expect(budgets()).toHaveLength(60);
+    expect(Math.abs(clock.now() - 1000)).toBeLessThan(HELD_EPS_MS);
+    expect(frames).toHaveLength(60);
+    frames.forEach((f, k) => {
+      expect(f.sourceTimeMs).toBeCloseTo((k + 1) * F60, 6);
+    });
+    // Positive control: the default clock, 30 grants to the same second.
+    const thirty = setup();
+    expect(thirty.clock.frameMs).toBe(HELD_FRAME_MS);
+    await thirty.clock.hold(START);
+    await thirty.clock.sleep(1000);
+    expect(thirty.budgets()).toHaveLength(30);
+    expect(Math.abs(thirty.clock.now() - 1000)).toBeLessThan(HELD_EPS_MS);
+  });
+
+  // DEM-265: the stretch's grid, and the pin the clock runs, are the
+  // clock's frame.
+  it("follows the server on its own frame's grid, and pins with its frame's script", async () => {
+    const F60 = 1000 / 60;
+    const { clock, frames, pins } = setup({
+      frameMs: F60,
+      waiting: () => true,
+      captureMs: 200,
+    });
+    await clock.hold(START);
+    await clock.sleep(1000);
+    // Premise: it followed the server for several frames.
+    expect(frames.length).toBeGreaterThan(3);
+    expect(frames[0]?.sourceTimeMs).toBeCloseTo(F60, 6);
+    for (const f of frames)
+      expect(
+        Math.abs(f.sourceTimeMs / F60 - Math.round(f.sourceTimeMs / F60)),
+      ).toBeLessThan(1e-6);
+    expect(pinAnimationsScript(F60)).not.toBe(PIN_ANIMATIONS);
+    expect(pins.length).toBe(frames.length);
+    expect(pins.every((p) => p.source === pinAnimationsScript(F60))).toBe(true);
+  });
+
+  it("refuses a frame length that is not a positive number", () => {
+    for (const frameMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => setup({ frameMs }), String(frameMs)).toThrow(
+        /frame of page time/,
+      );
   });
 
   // A new renderer (a navigation to another site) takes Chrome's last
@@ -1763,6 +1822,65 @@ describe("PIN_ANIMATIONS", () => {
       expect(videoPin(paused)(0)).toEqual({ said: [], video: false });
   });
 
+  // DEM-265: the waits are times, so at 60 fps they count twice the pins.
+  // Red if the script built for a frame length counts 30 fps pins.
+  it("says a video that waited 3 s, and one stopped for half a second, at any frame length", () => {
+    const pinOf = (frameMs: number, video: object) =>
+      new Function(
+        "document",
+        "DocumentTimeline",
+        "window",
+        `return (${pinAnimationsScript(frameMs)})`,
+      )(
+        {
+          getAnimations: () => [],
+          querySelectorAll: (s: string) => (s === "video" ? [video] : []),
+        },
+        DocumentTimeline,
+        {},
+      ) as (heldMs: number) => { said: string[]; video: boolean };
+    const waiting = () => ({
+      paused: true,
+      ended: false,
+      autoplay: true,
+      played: { length: 0 },
+      readyState: 3,
+      networkState: 2,
+      error: null,
+      currentTime: 0,
+    });
+    const stopped = () => ({
+      paused: false,
+      ended: false,
+      currentTime: 1,
+      duration: 4,
+      readyState: 2,
+      networkState: 2,
+      buffered: { length: 0 },
+    });
+    /** The pin numbers (from 1) each sentence was said at. */
+    const saidAt = (frameMs: number, video: object, n: number) => {
+      const pin = pinOf(frameMs, video);
+      return Array.from({ length: n }, (_, k) =>
+        pin((k + 1) * frameMs).said.map((w) => `${k + 1}: ${w}`),
+      ).flat();
+    };
+    for (const [frameMs, pins] of [
+      [1000 / 30, 90],
+      [1000 / 60, 180],
+    ] as const) {
+      expect(saidAt(frameMs, waiting(), 200), String(frameMs)).toEqual([
+        `${pins}: a video waited 3 s for its data and had not started playing`,
+      ]);
+      expect(
+        saidAt(frameMs, stopped(), 200).filter((w) => w.includes("stopped")),
+        String(frameMs),
+      ).toEqual([
+        `${pins / 6}: a video stopped on one frame while playing (at 1.00 s of 4.00, readyState 2, buffered to 0.00 s, networkState 2)`,
+      ]);
+    }
+  });
+
   // Review of 2026-11-19: a video that played kept the playing entry, with
   // no wait count, so its wait for a new source was never said.
   it("says a video that played and then waits on a new source", () => {
@@ -1934,6 +2052,8 @@ describe("HELD_FRAMES_SCRIPT", () => {
       frames?: object[];
       elements?: object[];
       parent?: object;
+      /** The page script (default: the 30 fps one). */
+      script?: string;
     } = {},
   ) {
     let heldMs = 0;
@@ -1951,7 +2071,7 @@ describe("HELD_FRAMES_SCRIPT", () => {
       "reportError",
       "document",
       "location",
-      HELD_FRAMES_SCRIPT,
+      o.script ?? HELD_FRAMES_SCRIPT,
     )(
       window,
       { now: () => heldMs - (o.startMs ?? 0) + (o.jitter ?? 0) },
@@ -2004,6 +2124,25 @@ describe("HELD_FRAMES_SCRIPT", () => {
     p.flushAt(12 * F);
     expect(seen).toHaveLength(2);
     expect(p.native).toEqual([]); // premise: Chrome's own was never asked
+  });
+
+  // DEM-265: the page's frame is the clock's. A document started on a
+  // frame of 60 that is not one of 30 reads its start on 60's grid only if
+  // the script steps the frame it was built for.
+  it("puts the document's start on the grid of the frame it was built for", () => {
+    const F60 = 1000 / 60;
+    expect(HELD_FRAMES_SCRIPT).toBe(heldFramesScript(HELD_FRAME_MS));
+    expect(heldFramesScript(F60)).toContain(`const FRAME = ${F60};`);
+    const startAt = (script: string) => {
+      const p = page({ startMs: 3 * F60, jitter: 0.3, script });
+      const seen: number[] = [];
+      p.raf((t) => seen.push(t));
+      p.flushAt(6 * F60);
+      return seen[0];
+    };
+    expect(startAt(heldFramesScript(F60))).toBeCloseTo(3 * F60, 9);
+    // Positive control: the 30 fps script snaps the same start to 33.3 ms.
+    expect(startAt(HELD_FRAMES_SCRIPT)).toBeCloseTo(6 * F60 - F, 9);
   });
 
   // Fix round 1, finding 5: a callback's timestamp is the same number in

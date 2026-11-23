@@ -3,8 +3,9 @@ import type { HeldFrame } from "./held-clock.js";
 import { admitFrame, degradation } from "./span.js";
 import type { FrameEncoder } from "./types.js";
 
-/** A run of identical frames this long is a hold: a keyframe, no span. */
-export const HOLD_MIN_FRAMES = 3;
+/** A run of identical frames this long in page time is a hold: a keyframe,
+ *  no span. Three frames at 30 fps, six at 60 (DEM-265). */
+export const HOLD_MIN_MS = 100;
 
 export interface HeldFrames {
   add(frame: HeldFrame): Promise<void>;
@@ -26,8 +27,17 @@ export function createHeldFrames(deps: {
   onSpan: (entry: MotionSpanEntry) => void;
   /** Where a frame the encoder's budget skipped is said, as in the motion recorder. */
   degradations: Degradation[];
+  /** The held clock's frame length (`HeldClock.frameMs`). */
+  frameMs: number;
 }): HeldFrames {
   const { encoder, fileStill, onSpan, degradations } = deps;
+  const holdMinFrames = Math.round(HOLD_MIN_MS / deps.frameMs);
+  // Fewer than two (or NaN, no frame length given) makes every frame a
+  // hold; a frame of 0 ms, none.
+  if (!(Number.isFinite(holdMinFrames) && holdMinFrames >= 2))
+    throw new Error(
+      `held frames need a frame of under ${HOLD_MIN_MS / 2} ms to tell a hold from motion, not ${deps.frameMs}`,
+    );
   /** The identical frames seen last (up to the hold length), not yet in the span. */
   let run: HeldFrame[] = [];
   let held = false;
@@ -130,7 +140,7 @@ export function createHeldFrames(deps: {
       if (first !== undefined && same(first.bytes, frame.bytes)) {
         if (held) return;
         run.push(frame);
-        if (run.length < HOLD_MIN_FRAMES) return;
+        if (run.length < holdMinFrames) return;
         held = true;
         run = [first];
         // The span ends where the still page begins.
