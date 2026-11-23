@@ -268,62 +268,147 @@ describe("solveFollow and sampleTrack", () => {
       expect(dist(sampleTrack(t, 1990).center, middle)).toBeLessThan(3);
     });
 
-    // Excalidraw (2026-11-23): the drag's aim set off mid-stretch, 750 px
-    // from the toolbar, and the spring was handed its end at once, so the
-    // camera outran the keys' own eased pan toward it.
-    it("moves onto a drag's aim no faster than the keys' own pan to it", () => {
-      const toolbar = { x: 400, y: 60 };
-      const panKeys = [
+    // Review of fix/drag-camera (2026-11-23): the hand was already on its way
+    // to the grab when the drag's aim set off mid-stretch. Aimed at the keys'
+    // eased camera, the target stepped back to the previous key's centre at
+    // the set-off and the camera turned back before panning on.
+    describe("when the drag's aim sets off mid-stretch", () => {
+      const start = { x: 100, y: 400 };
+      const midKeys = (dragKeyMs: number, transitionMs: number) => [
         cameraKey({
           outputTimeMs: 0,
           center: { x: 640, y: 400 },
           scale: 1,
           transitionMs: 0,
         }),
-        cameraKey({ outputTimeMs: 1000, center: toolbar, scale: 1.8 }),
-        // Sets off at 2400 − 740 = 1660, lands at 2400; pressed at 2900.
+        cameraKey({ outputTimeMs: 1000, center: start, scale: 1.8 }),
         cameraKey({
-          outputTimeMs: 2400,
+          outputTimeMs: dragKeyMs,
           center: middle,
           scale: 1.8,
-          transitionMs: 740,
+          transitionMs,
         }),
         cameraKey({ outputTimeMs: 7000, center: middle, scale: 1 }),
       ];
-      const hand = pointerThrough([
-        [0, toolbar],
-        [1700, toolbar],
-        [2700, grab],
-        [2900, grab],
-        [3500, drop],
-        [7000, drop],
-      ]);
-      const t = track({
-        keys: panKeys,
-        cursorAt: hand,
-        holds: [{ startMs: 2900, endMs: 3500 }],
-      });
       const frame = 1000 / 60;
-      let keysFastest = 0;
-      let cameraFastest = 0;
-      for (let at = 1660; at <= 2900; at += frame) {
-        keysFastest = Math.max(
-          keysFastest,
+      /** The largest step back (−x), px per 60 fps frame, over [from, to]. */
+      const mostBack = (
+        t: ReturnType<typeof track>,
+        from: number,
+        to: number,
+      ) => {
+        let worst = 0;
+        let previous = sampleTrack(t, from).center;
+        for (let at = from + frame; at <= to; at += frame) {
+          const now = sampleTrack(t, at).center;
+          worst = Math.max(worst, previous.x - now.x);
+          previous = now;
+        }
+        return worst;
+      };
+
+      it("never turns back as it sets off while the hand is on its way to the grab", () => {
+        // The drag's key sets off at 2400 − 600 = 1800; pressed at 3000.
+        const keys = midKeys(2400, 600);
+        const hand = pointerThrough([
+          [0, start],
+          [1100, start],
+          [1500, grab],
+          [3000, grab],
+          [3600, drop],
+          [7000, drop],
+        ]);
+        const t = track({
+          keys,
+          cursorAt: hand,
+          holds: [{ startMs: 3000, endMs: 3600 }],
+        });
+        // Premise: the camera has followed the hand well toward the grab, and
+        // well short of the drag's aim, when the drag's aim sets off.
+        expect(sampleTrack(t, 1800).center.x).toBeGreaterThan(start.x + 100);
+        expect(sampleTrack(t, 1800).center.x).toBeLessThan(middle.x - 200);
+        expect(mostBack(t, 1000, 3000)).toBeLessThan(0.5);
+        expect(dist(sampleTrack(t, 2990).center, middle)).toBeLessThan(3);
+      });
+
+      it("does not change its aim when the button goes down mid-pan", () => {
+        // The drag's key sets off at 3100 − 740 = 2360 and lands at 3100;
+        // pressed at 2500, 140 ms into its pan.
+        const keys = midKeys(3100, 740);
+        const pressedAt = (press: number) =>
+          track({
+            keys,
+            cursorAt: pointerThrough([
+              [0, start],
+              [1100, start],
+              [1500, grab],
+              [press, grab],
+              [press + 600, drop],
+              [7000, drop],
+            ]),
+            holds: [{ startMs: press, endMs: press + 600 }],
+          });
+        // The same take pressed mid-pan, and pressed after the pan landed.
+        const early = pressedAt(2500);
+        const late = pressedAt(3300);
+        // Premise: the keys' pan is still moving at the early press.
+        expect(
           dist(
-            sampleCamera(panKeys, at).center,
-            sampleCamera(panKeys, at - frame).center,
+            sampleCamera(keys, 2500).center,
+            sampleCamera(keys, 2500 - frame).center,
           ),
-        );
-        cameraFastest = Math.max(
-          cameraFastest,
-          dist(sampleTrack(t, at).center, sampleTrack(t, at - frame).center),
-        );
-      }
-      // Premise: the keys do pan a long way, from the toolbar to the drag.
-      expect(dist(toolbar, middle)).toBeGreaterThan(300);
-      expect(keysFastest).toBeGreaterThan(5);
-      expect(cameraFastest).toBeLessThanOrEqual(keysFastest * 1.05);
-      expect(dist(sampleTrack(t, 2890).center, middle)).toBeLessThan(3);
+        ).toBeGreaterThan(1);
+        // The button going down changes nothing while the pan runs.
+        let apart = 0;
+        for (let at = 2360; at <= 3100; at += frame) {
+          apart = Math.max(
+            apart,
+            dist(sampleTrack(early, at).center, sampleTrack(late, at).center),
+          );
+        }
+        expect(apart).toBeLessThan(0.01);
+      });
+
+      // Excalidraw (2026-11-23): handed the key's end at once, the camera
+      // outran the keys' own eased pan toward the drag's aim.
+      it("moves onto the drag's aim no faster than the keys' own pan to it", () => {
+        // The camera rests on `start` when the drag's pan sets off at
+        // 2900 − 1100 = 1800: a slow pan, slower than the spring's own peak.
+        const keys = midKeys(2900, 1100);
+        const hand = pointerThrough([
+          [0, start],
+          [1900, start],
+          [2900, grab],
+          [3200, grab],
+          [3800, drop],
+          [7000, drop],
+        ]);
+        const t = track({
+          keys,
+          cursorAt: hand,
+          holds: [{ startMs: 3200, endMs: 3800 }],
+        });
+        let keysFastest = 0;
+        let cameraFastest = 0;
+        for (let at = 1800; at <= 3200; at += frame) {
+          keysFastest = Math.max(
+            keysFastest,
+            dist(
+              sampleCamera(keys, at).center,
+              sampleCamera(keys, at - frame).center,
+            ),
+          );
+          cameraFastest = Math.max(
+            cameraFastest,
+            dist(sampleTrack(t, at).center, sampleTrack(t, at - frame).center),
+          );
+        }
+        // Premise: the camera rests at `start`, and the pan is long.
+        expect(dist(sampleTrack(t, 1800).center, start)).toBeLessThan(3);
+        expect(keysFastest).toBeGreaterThan(5);
+        expect(cameraFastest).toBeLessThanOrEqual(keysFastest * 1.05);
+        expect(dist(sampleTrack(t, 3190).center, middle)).toBeLessThan(3);
+      });
     });
 
     it("still follows the hand before the drag's own aim has set off", () => {

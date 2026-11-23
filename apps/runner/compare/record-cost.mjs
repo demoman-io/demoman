@@ -56,19 +56,12 @@ const executor = createLocalExecutor({
 let failed = false;
 try {
   const started = Date.now();
-  let answer = await executor.request("run", {
+  const answer = await executor.request("run", {
     script,
     video: { new: `record-cost ${Date.now()}`, confirmedNew: true },
     ...(values.project ? { project: resolve(values.project) } : {}),
     callId: "record-cost-run",
   });
-  // A long run answers stillRunning; its report is asked for until it is not.
-  while (
-    answer.ok &&
-    ["stillRunning", "running", "queued"].includes(answer.value.outcome)
-  ) {
-    answer = await executor.request("report", { id: answer.value.id });
-  }
   const seconds = (Date.now() - started) / 1000;
   const report = answer.ok ? answer.value : answer;
   say(`outcome: ${report.summary ?? JSON.stringify(report).slice(0, 400)}`);

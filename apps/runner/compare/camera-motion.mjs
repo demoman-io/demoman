@@ -189,7 +189,10 @@ console.info(`repeats: ${repeats.length} [${repeats.join(", ")}]`);
 /** The camera as <root> plans it for the take, read from the plan rather
  *  than the picture, so nothing the page draws moves it: the centre's step
  *  each 60 fps frame (CSS px) while zoomed, its reversals on each axis at
- *  0.5 px a frame or more, and its fastest step. Read-only on the take. */
+ *  0.5 px a frame or more, and its fastest step. Read-only on the take.
+ *  The centres are the plan's, not clamped to the canvas as a frame is
+ *  drawn (`frameTrack`): near a canvas edge a count can differ from the
+ *  video's, so check a surprising one with --video. */
 async function planMotion(repo, takeId) {
   const at = (p) => import(join(repo, p));
   const { createLibrary } = await at("apps/runner/dist/executor/library.js");

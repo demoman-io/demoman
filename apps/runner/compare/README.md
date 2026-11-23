@@ -92,7 +92,7 @@ board's drag (DEM-254) read `reversals x: 3 [1.08, 3.23, 7.80]` on main and
 held clock's 30 fps page (DEM-265).
 
 `--plan --repo <root> --take <id>` reads the camera from the take's plan
-instead of its pixels, so nothing the page draws moves it: `plan reversals
+instead of its pixels, so nothing the page draws moves it (its centres are unclamped, as planned, not as drawn at a canvas edge): `plan reversals
 x:` and `y:` (at 0.5 CSS px a frame) and `plan fastest:`. Run it with two
 checkouts' `--repo` to compare a camera change. On the 16 saved takes with a
 zoomed drag (2026-11-23), DEM-254's fix lowered reversals on 7 and raised
