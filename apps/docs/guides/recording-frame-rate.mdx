@@ -1,0 +1,58 @@
+---
+title: "Recording frame rate"
+description: "Record your app's own motion at 60 frames a second."
+---
+
+Demoman records your app at 30 frames a second. Exports are 60, and the
+camera and pointer move at 60, but what your app animates (a card sliding
+into a column, a dialog opening, a toast) changes on every other frame. At
+60, it is smooth too.
+
+## Set it for a repository
+
+Commit a `.demoman/config.json`:
+
+```json
+{
+  "recordingFrameRate": 60
+}
+```
+
+It is `30` or `60`, and `30` when it is not set. Any other value, or a file
+that is not JSON, stops the run with a sentence naming the file; it is never
+read as 30.
+
+You can also set it for yourself in `~/.demoman/settings.json`, and the
+repository's file wins. CI reads only the repository's file, so set it there
+for videos CI keeps current.
+
+The run report says what each video was recorded at, and where that came
+from.
+
+## What it costs
+
+Measured on a 12-second flow:
+
+| Frame rate | Recording time | Disk |
+| --- | --- | --- |
+| 30 | about 15 s | about 9 MB |
+| 60 | about 30 s | about 15 MB |
+
+A recording at 60 takes about twice as long and about 60% more disk. You pay
+that on every refresh of every flow, so on CI it is twice the minutes.
+
+## Switching
+
+A refresh after you switch records at the new rate, and counts a different
+rate as a change. Every flow's video is replaced on its next refresh, each
+with the reason: `recorded at 60 fps, the committed video at 30`. Switching
+back replaces them again.
+
+## When a video is still 30
+
+- **Exports at 30.** Sharing quality, and an export kept under a size, are
+  30 frames a second. A video recorded at 60 exports correctly; the extra
+  frames go unused.
+- **A visible window, a phone or a tablet.** These record in real time, at
+  the screen's own pace, whatever the setting. The run report says that 60
+  was set and not applied.
