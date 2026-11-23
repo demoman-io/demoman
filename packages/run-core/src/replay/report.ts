@@ -1281,10 +1281,10 @@ function recordingClause(report: RunReport): string {
   if (r.frameRateUnread !== undefined) {
     return r.clock === "held"
       ? ` Recorded at ${r.frameRate} fps: ${r.frameRateUnread}.`
-      : ` Recording frame rate not read: ${r.frameRateUnread}.`;
+      : ` Frame rate not read: ${r.frameRateUnread}.`;
   }
   if (r.clock !== "real" || r.frameRateNotApplied === undefined) return "";
-  return " Recorded in real time: the repo's 60 fps applies only to a held recording.";
+  return " Recorded in real time: the repo's 60 fps applies only on a held clock.";
 }
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */

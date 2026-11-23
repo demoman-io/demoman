@@ -1788,7 +1788,7 @@ describe("verdictLine says what the recording did with the repo's frame rate", (
     // Premise: the report really carries the not-applied record.
     expect(report.run.recording).toHaveProperty("frameRateNotApplied");
     expect(verdictLine(report)).toContain(
-      "Recorded in real time: the repo's 60 fps applies only to a held recording",
+      "Recorded in real time: the repo's 60 fps applies only on a held clock",
     );
   });
 
@@ -1823,8 +1823,6 @@ describe("verdictLine says what the recording did with the repo's frame rate", (
       frameRateUnread: why,
     });
     expect(report.run.recording).toHaveProperty("frameRateUnread", why);
-    expect(verdictLine(report)).toContain(
-      ` Recording frame rate not read: ${why}.`,
-    );
+    expect(verdictLine(report)).toContain(` Frame rate not read: ${why}.`);
   });
 });

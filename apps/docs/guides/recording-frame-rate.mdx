@@ -1,5 +1,5 @@
 ---
-title: "Recording frame rate"
+title: "Frame rate"
 description: "Record your app's own motion at 60 frames a second."
 ---
 
@@ -27,7 +27,7 @@ read as 30. A file Demoman cannot read at all (not JSON, say) records at 30,
 and the run report says so, naming the file and why.
 
 CI has to run this release or later. A workflow written by an older Demoman
-pins that version and ignores the key, recording at 30 without a word. To
+pins an older release and ignores the key: it records at 30 without a word. To
 update it, delete `.github/workflows/demoman.yml` on your default branch, then
 run `npx demoman setup --ci` again (setup refuses to overwrite an existing
 workflow).
@@ -39,19 +39,19 @@ from.
 
 Measured on a 12-second flow:
 
-| Frame rate | Recording time | Disk |
+| Frame rate | Time to record | Disk |
 | --- | --- | --- |
 | 30 | about 15 s | about 9 MB |
 | 60 | about 24 s (up to 30) | about 9 MB |
 
-A recording at 60 takes 1.5 to 2 times as long and about the same disk. You
+At 60 a flow records in 1.5 to 2 times as long, on about the same disk. You
 pay that on every refresh of every flow, so on CI it is up to twice the
 minutes.
 
 ## Switching
 
 A refresh after you switch records at the new rate, and counts a different
-rate as a change. Every flow recorded in the background (a held recording) is
+rate as a change. Every flow recorded in the background (on a held clock) is
 replaced on its next refresh, each with the reason: `recorded at 60 fps, the committed video at 30`. Switching
 back replaces them again. Phone, tablet and visible-window flows record in
 real time, so they stay unchanged.

@@ -1038,7 +1038,7 @@ async function pageScreensOf(
     const rate = Math.round(1000 / bundle.heldFrameMs);
     if (!isRecordingFrameRate(rate))
       return {
-        error: `video ${takeId} has a heldFrameMs of ${bundle.heldFrameMs}, which is not a 30 or 60 fps recording`,
+        error: `video ${takeId} has a heldFrameMs of ${bundle.heldFrameMs}, which is not 30 or 60 fps`,
       };
     frameRate = rate;
   }
