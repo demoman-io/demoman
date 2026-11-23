@@ -6,7 +6,10 @@ import {
   type ExportQuality,
   isExportQuality,
   isPullRequestsValue,
+  isRecordingFrameRate,
   type PullRequestsValue,
+  RECORDING_FRAME_RATE_VALUES,
+  type RecordingFrameRate,
 } from "@demoman/run-core";
 import { messageOf } from "../report.js";
 
@@ -19,21 +22,32 @@ export interface UserSettings {
   exportQuality: ExportQuality;
   /** null: not set, or set to something unusable (then `problems` says why). */
   pullRequests: PullRequestsValue | null;
+  /** null: not set, or set to something unusable (then `problems` says why). */
+  recordingFrameRate: RecordingFrameRate | null;
   /** Why the file or a value could not be used, one sentence per key that
    *  could not. Absent when all is well. A file that will not read or parse
-   *  names both keys. */
-  problems?: { exportQuality?: string; pullRequests?: string };
+   *  names every key. */
+  problems?: {
+    exportQuality?: string;
+    pullRequests?: string;
+    recordingFrameRate?: string;
+  };
   /** Every sentence of `problems` in one, for a log. Absent when all is well. */
   unreadable?: string;
 }
 
 const settingsWith = (
-  settings: Pick<UserSettings, "exportQuality" | "pullRequests">,
+  settings: Pick<
+    UserSettings,
+    "exportQuality" | "pullRequests" | "recordingFrameRate"
+  >,
   problems: NonNullable<UserSettings["problems"]>,
 ): UserSettings => {
-  const said = [problems.exportQuality, problems.pullRequests].filter(
-    (p): p is string => p !== undefined,
-  );
+  const said = [
+    problems.exportQuality,
+    problems.pullRequests,
+    problems.recordingFrameRate,
+  ].filter((p): p is string => p !== undefined);
   if (said.length === 0) return settings;
   return { ...settings, problems, unreadable: [...new Set(said)].join("; ") };
 };
@@ -50,6 +64,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   const defaults = {
     exportQuality: DEFAULT_EXPORT_QUALITY,
     pullRequests: null,
+    recordingFrameRate: null,
   } as const;
   let text: string;
   try {
@@ -57,7 +72,11 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults;
     const said = `${path} could not be read (${messageOf(error)})`;
-    return settingsWith(defaults, { exportQuality: said, pullRequests: said });
+    return settingsWith(defaults, {
+      exportQuality: said,
+      pullRequests: said,
+      recordingFrameRate: said,
+    });
   }
   // Parsed once; both keys are read from `raw`.
   const raw = parsed(path, text);
@@ -66,10 +85,12 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
     return settingsWith(defaults, {
       exportQuality: raw.unreadable,
       pullRequests: raw.unreadable,
+      recordingFrameRate: raw.unreadable,
     });
   }
   // The file is a JSON object from here: each key stands on its own.
   const pr = pullRequestsIn(path, raw.object);
+  const fps = recordingFrameRateIn(path, raw.object);
   const quality = raw.object.exportQuality;
   const qualityBad = quality !== undefined && !isExportQuality(quality);
   return settingsWith(
@@ -78,6 +99,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
         ? quality
         : DEFAULT_EXPORT_QUALITY,
       pullRequests: "unreadable" in pr ? null : pr.value,
+      recordingFrameRate: "unreadable" in fps ? null : fps.value,
     },
     {
       ...(qualityBad
@@ -86,6 +108,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
           }
         : {}),
       ...("unreadable" in pr ? { pullRequests: pr.unreadable } : {}),
+      ...("unreadable" in fps ? { recordingFrameRate: fps.unreadable } : {}),
     },
   );
 }
@@ -137,4 +160,30 @@ export function parsePullRequests(
 ): { value: PullRequestsValue | null } | { unreadable: string } {
   const raw = parsed(path, text);
   return "unreadable" in raw ? raw : pullRequestsIn(path, raw.object);
+}
+
+/** The `recordingFrameRate` of a settings object: its value, null when the
+ *  key is absent, or `unreadable` when it is not one of the choices. */
+function recordingFrameRateIn(
+  path: string,
+  object: Record<string, unknown>,
+): { value: RecordingFrameRate | null } | { unreadable: string } {
+  const value = object.recordingFrameRate;
+  if (value === undefined) return { value: null };
+  if (!isRecordingFrameRate(value)) {
+    return {
+      unreadable: `${path}: recordingFrameRate must be ${RECORDING_FRAME_RATE_VALUES.join(" or ")}; got ${JSON.stringify(value)}`,
+    };
+  }
+  return { value };
+}
+
+/** The `recordingFrameRate` of one settings file's text, as `parsePullRequests`
+ *  reads `pullRequests`: a value, null when absent, or `unreadable`. */
+export function parseRecordingFrameRate(
+  path: string,
+  text: string,
+): { value: RecordingFrameRate | null } | { unreadable: string } {
+  const raw = parsed(path, text);
+  return "unreadable" in raw ? raw : recordingFrameRateIn(path, raw.object);
 }

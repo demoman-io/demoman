@@ -39,6 +39,7 @@ describe("readUserSettings: exportQuality", () => {
     expect(await readUserSettings(home)).toEqual({
       exportQuality: "full",
       pullRequests: "ask",
+      recordingFrameRate: null,
     });
   });
 
@@ -91,5 +92,31 @@ describe("readUserSettings: exportQuality", () => {
     await writeFile(file(home), '{"exportQuality":"nope"}');
     await readUserSettings(home);
     expect(await readFile(file(home), "utf8")).toBe('{"exportQuality":"nope"}');
+  });
+});
+
+describe("readUserSettings: recordingFrameRate", () => {
+  it("60 is read", async () => {
+    const home = await temp();
+    await writeFile(file(home), JSON.stringify({ recordingFrameRate: 60 }));
+    expect((await readUserSettings(home)).recordingFrameRate).toBe(60);
+  });
+
+  it("a bad value sets only its own problem", async () => {
+    const home = await temp();
+    await writeFile(
+      file(home),
+      JSON.stringify({
+        recordingFrameRate: 24,
+        exportQuality: "full",
+        pullRequests: "attach",
+      }),
+    );
+    const out = await readUserSettings(home);
+    expect(out.recordingFrameRate).toBeNull();
+    expect(out.exportQuality).toBe("full");
+    expect(out.pullRequests).toBe("attach");
+    expect(Object.keys(out.problems ?? {})).toEqual(["recordingFrameRate"]);
+    expect(out.problems?.recordingFrameRate).toContain("24");
   });
 });

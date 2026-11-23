@@ -46,6 +46,10 @@ import { expireOld, expiryStatus, skippedOf } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
+import {
+  type RecordingFrameRateSetting,
+  resolveRecordingFrameRate,
+} from "./frame-rate.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import {
@@ -1375,6 +1379,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               "kind" in where
                 ? { unreadable: where.detail, file: null }
                 : await resolvePullRequests(where.from, home);
+            const recordingFrameRate: RecordingFrameRateSetting =
+              "kind" in where
+                ? { unreadable: where.detail, file: null }
+                : await resolveRecordingFrameRate(where.from, home);
             // Read without launching: tells "not started yet" from "not
             // installed", which browserRunning: false cannot. On Linux a
             // download whose libraries are missing cannot start either.
@@ -1415,6 +1423,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                   ? { display: await displayForStatus() }
                   : {}),
                 pullRequests,
+                recordingFrameRate,
                 expiry: await expiryStatus(library),
                 runPage:
                   lastRun === null

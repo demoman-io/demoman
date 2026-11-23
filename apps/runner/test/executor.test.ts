@@ -519,19 +519,29 @@ describe("createLocalExecutor", () => {
 
     it("status reports pullRequests for project", async () => {
       const started = await repoWith(null);
-      const other = await repoWith(JSON.stringify({ pullRequests: "attach" }));
+      const other = await repoWith(
+        JSON.stringify({ pullRequests: "attach", recordingFrameRate: 60 }),
+      );
       const without = await statusIn(started, {});
       const withProject = await statusIn(started, { project: other });
       // Premise: the started-in repo has none, so the answer below came from
       // `project` and not from where the executor started.
       expect(without).toMatchObject({
-        value: { pullRequests: { value: "ask", from: "default" } },
+        value: {
+          pullRequests: { value: "ask", from: "default" },
+          recordingFrameRate: { value: 30, from: "default" },
+        },
       });
       expect(withProject).toMatchObject({
         ok: true,
         value: {
           pullRequests: {
             value: "attach",
+            from: "repo",
+            file: join(other, ".demoman", "config.json"),
+          },
+          recordingFrameRate: {
+            value: 60,
             from: "repo",
             file: join(other, ".demoman", "config.json"),
           },
@@ -556,6 +566,12 @@ describe("createLocalExecutor", () => {
           pullRequests: {
             unreadable: expect.stringMatching(
               /^project must be an absolute path .*"relative\/path"/,
+            ),
+            file: null,
+          },
+          recordingFrameRate: {
+            unreadable: expect.stringMatching(
+              /^project must be an absolute path/,
             ),
             file: null,
           },
