@@ -2,6 +2,7 @@
 // recipe (.demoman/flows/) under .demoman/receipts/.
 
 import { isInstant } from "../app/file.js";
+import { isRecordingFrameRate } from "../recording-frame-rate.js";
 import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
@@ -87,12 +88,17 @@ export function parsePageScreens(
   }
   if (sc.look !== undefined && (typeof sc.look !== "string" || sc.look === ""))
     return bad(`${at}.look must be a non-empty string`);
+  if (sc.frameRate !== undefined && !isRecordingFrameRate(sc.frameRate))
+    return bad(`${at}.frameRate must be 30 or 60`);
   return {
     ok: true,
     screens: {
       steps: steps as number,
       screens,
       ...(typeof sc.look === "string" ? { look: sc.look } : {}),
+      ...(isRecordingFrameRate(sc.frameRate)
+        ? { frameRate: sc.frameRate }
+        : {}),
     },
   };
 }
@@ -205,6 +211,9 @@ export function serializeReceipt(r: KeptReceipt): string {
         ...(s.unsettled === undefined ? {} : { unsettled: s.unsettled }),
       })),
       ...(r.screens.look === undefined ? {} : { look: r.screens.look }),
+      ...(r.screens.frameRate === undefined
+        ? {}
+        : { frameRate: r.screens.frameRate }),
     },
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;

@@ -143,6 +143,31 @@ describe("the receipt", () => {
     );
   });
 
+  it("keeps a frame rate through a round trip, and a receipt without one reads back without", () => {
+    const withRate = {
+      ...receipt,
+      screens: { ...receipt.screens, frameRate: 60 },
+    };
+    const text = serializeReceipt(withRate as never);
+    // Premise: the written text carries the rate.
+    expect(JSON.parse(text).screens.frameRate).toBe(60);
+    expect(parseReceipt(text, "r.json")).toEqual({
+      ok: true,
+      receipt: withRate,
+    });
+    const plain = serializeReceipt(receipt);
+    expect(JSON.parse(plain).screens).not.toHaveProperty("frameRate");
+    const back = parseReceipt(plain, "r.json");
+    if (!back.ok) throw new Error(back.detail);
+    expect(back.receipt.screens).not.toHaveProperty("frameRate");
+  });
+
+  it("refuses a frame rate that is not 30 or 60", () => {
+    expect(
+      refusal(withChange({ screens: { ...receipt.screens, frameRate: 24 } })),
+    ).toContain("screens.frameRate must be 30 or 60");
+  });
+
   it("refuses a look that is not a non-empty string", () => {
     expect(
       refusal(withChange({ screens: { ...receipt.screens, look: "" } })),

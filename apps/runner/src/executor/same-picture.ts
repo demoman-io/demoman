@@ -154,6 +154,17 @@ export async function sameScreens(
       skipped: [],
     };
   }
+  // Absent is 30: a committed video from before the key is no change from a
+  // fresh 30, or the first refresh after the upgrade replaces every video.
+  const was = committed.screens.frameRate ?? 30;
+  const now = fresh.screens.frameRate ?? 30;
+  if (was !== now) {
+    return {
+      same: false,
+      detail: `recorded at ${now} fps, the committed video at ${was}`,
+      skipped: [],
+    };
+  }
   if (
     committed.screens.look !== undefined &&
     fresh.screens.look !== undefined &&

@@ -26,6 +26,7 @@ import {
   messageOf,
   type PageScreens,
   parseFilmedCode,
+  type RecordingFrameRate,
   reportForSave,
   reportForStillsSave,
   type StillsOptions,
@@ -1029,5 +1030,18 @@ async function pageScreensOf(
       };
     files.push({ name, bytes });
   }
-  return { screens: { steps, screens, look }, files };
+  // Held bundles only; one from before the key means 30, kept as absent.
+  const frameRate =
+    bundle.heldFrameMs === undefined
+      ? undefined
+      : (Math.round(1000 / bundle.heldFrameMs) as RecordingFrameRate);
+  return {
+    screens: {
+      steps,
+      screens,
+      look,
+      ...(frameRate === undefined ? {} : { frameRate }),
+    },
+    files,
+  };
 }

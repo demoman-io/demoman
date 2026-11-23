@@ -360,6 +360,45 @@ describe("sameScreens", () => {
   );
 
   it(
+    "a frame rate that differs is a change, before anything is read; an absent one is 30",
+    async () => {
+      const none = {} as never;
+      const run = (a: PageScreens, b: PageScreens, real = false) =>
+        sameScreens(
+          side(real ? (dirs.same as string) : "/nowhere", a),
+          side(real ? (dirs.same as string) : "/nowhere", b),
+          real ? deps() : { session: none, log: () => undefined },
+        );
+      expect(
+        await run({ ...screens, frameRate: 30 }, { ...screens, frameRate: 60 }),
+      ).toEqual({
+        same: false,
+        detail: "recorded at 60 fps, the committed video at 30",
+        skipped: [],
+      });
+      // Review Focus 1: committed before the key existed, fresh says 30: the
+      // screens decide, and these are identical.
+      expect(
+        await run(screens, { ...screens, frameRate: 30 }, true),
+      ).toMatchObject({ same: true });
+      // Positive control: 60 on both sides is no rate change either.
+      expect(
+        await run(
+          { ...screens, frameRate: 60 },
+          { ...screens, frameRate: 60 },
+          true,
+        ),
+      ).toMatchObject({ same: true });
+      // An absent committed rate against 60 is a change from 30.
+      expect(await run(screens, { ...screens, frameRate: 60 })).toMatchObject({
+        same: false,
+        detail: "recorded at 60 fps, the committed video at 30",
+      });
+    },
+    CASE_MS,
+  );
+
+  it(
     "steps or a look that differ are a change, before anything is read",
     async () => {
       const none = {} as never;

@@ -15,7 +15,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { exportTake, type ScreensAnswer } from "../src/executor/export.js";
 import { createLibrary } from "../src/executor/library.js";
 import { createVideoStore } from "../src/executor/videos.js";
-import { makeDiskTake, putTake } from "./disk-take.js";
+import { makeDiskTake, putTake, withPageScreens } from "./disk-take.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27): the disk take about 2 s, each export 2-4 s.
@@ -293,4 +293,37 @@ describe("a screens-only export copies the take's page screens", () => {
       "it was recorded before page screens — record it again",
     );
   });
+});
+
+// The last case in the file: it rewrites the disk take's bundle.
+describe("the screens carry the rate the take was recorded at", () => {
+  it(
+    "a held bundle says 60 or 30; one with no heldFrameMs says nothing",
+    async () => {
+      const { original, bundle } = await makeDiskTake(home);
+      const withScreens = await withPageScreens(home, diskTakeId, bundle);
+      const rateOf = async (heldFrameMs?: number) => {
+        await putTake(home, diskTakeId, original, {
+          ...withScreens,
+          ...(heldFrameMs === undefined ? {} : { heldFrameMs }),
+        });
+        const out = (await exportTake(
+          {
+            takeId: diskTakeId,
+            fileType: "mp4",
+            unlisted: true,
+            screensOnly: true,
+          },
+          exportDeps(join(home, `rate-${heldFrameMs}`)),
+          () => undefined,
+        )) as ScreensAnswer;
+        expect(out.outcome, JSON.stringify(out)).toBe("saved");
+        return out.screens.frameRate;
+      };
+      expect(await rateOf(1000 / 60)).toBe(60);
+      expect(await rateOf(1000 / 30)).toBe(30);
+      expect(await rateOf()).toBeUndefined();
+    },
+    SCREENS_ONLY_MS,
+  );
 });
