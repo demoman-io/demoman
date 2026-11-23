@@ -566,10 +566,12 @@ export function createHeldClock(deps: {
                 ? held
                 : looked.held,
         };
-  /** How far the page's clock may read behind `held`: Chrome counts a
-   *  grant in whole µs, so it falls about 8e-6 ms behind per ms (measured
-   *  2026-11-17, 0.03 ms at 4 s on Nylon); 2.5 times that. */
-  const pageSlack = () => 0.05 + held * 2e-5;
+  /** How far the page's clock may read behind `held`: Chrome counts each
+   *  grant in whole µs, so it falls behind per grant, about 8e-6 ms per ms
+   *  at 30 fps (measured 2026-11-17, 0.03 ms at 4 s on Nylon); 2.5 times
+   *  that. The term scales with grants per ms, so 60 fps keeps the same
+   *  margin (DEM-265). */
+  const pageSlack = () => 0.05 + held * 2e-5 * (HELD_FRAME_MS / frameMs);
   /** The waits since a look: heard after it, or sent by the page since it
    *  stood there. */
   const waitsSinceLook = (looked: { real: number; held: number }) =>

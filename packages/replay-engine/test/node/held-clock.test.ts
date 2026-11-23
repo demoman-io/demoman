@@ -277,6 +277,40 @@ describe("createHeldClock", () => {
     expect(pins.every((p) => p.source === pinAnimationsScript(F60))).toBe(true);
   });
 
+  // DEM-265 review: Chrome's clock falls behind per grant (whole µs), and 60
+  // fps grants twice as often. Read through the page time a look asks the
+  // network watch for waits sent since (`waitsSince`'s `pageMs`): a wait the
+  // page sent 0.17 ms behind the look, 4 s in, counts at 60 and not at 30.
+  // Red at 60 while the slack is a 30 fps grant's.
+  it("allows the page's clock to fall behind per grant, at 60 as at 30", async () => {
+    const LAG = 0.17;
+    /** How far behind its look the last ask allowed. A look stands on the
+     *  frame grid, and the slack is well under a frame, so the look is the
+     *  grid's frame at or after the ask. */
+    const slackAt = async (frameMs: number) => {
+      const asked: number[] = [];
+      const s = setup({
+        frameMs,
+        waitsSince: (_since, _real, pageMs) => {
+          if (pageMs !== undefined) asked.push(pageMs);
+          return null;
+        },
+      });
+      await s.clock.hold(START);
+      await s.clock.sleep(4000);
+      const pageMs = asked.at(-1) ?? Number.NaN;
+      // Premise: a look asked by page time near the end of the 4 s.
+      expect(pageMs, String(frameMs)).toBeGreaterThan(3900);
+      const slack = Math.ceil(pageMs / frameMs) * frameMs - pageMs;
+      // Premise: under a frame, so the look is the one found above.
+      expect(slack, String(frameMs)).toBeLessThan(frameMs / 2);
+      return slack;
+    };
+    expect(await slackAt(1000 / 60)).toBeGreaterThan(LAG);
+    // Positive control: at 30 the same lag is past the slack, as measured.
+    expect(await slackAt(HELD_FRAME_MS)).toBeLessThan(LAG);
+  });
+
   it("refuses a frame length that is not a positive number", () => {
     for (const frameMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
       expect(() => setup({ frameMs }), String(frameMs)).toThrow(
