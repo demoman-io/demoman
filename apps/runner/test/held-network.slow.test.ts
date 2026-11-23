@@ -146,10 +146,13 @@ const CLIP_PARTS = 16;
  *  one reader). */
 const STARVED_REAL_PER_TAKE = 2;
 const CLIP_GAP_MS = 125;
-/** What the pin says of a video whose picture stood still ahead of its
- *  currentTime (DEM-259). */
+/** What the pin says of a video whose picture stood on its last frame
+ *  ahead of its currentTime (DEM-259). */
 const PICTURE_AHEAD =
-  /^a video's picture stopped on one frame while it played \(its picture at (\d+\.\d\d) s of [\d.]+, its currentTime at (\d+\.\d\d) s\): its picture plays in real time, ahead of the take$/;
+  /^a video's picture stood on its last frame while it played \(its picture at \d+\.\d\d s of [\d.]+, its currentTime at \d+\.\d\d s\): its picture plays in real time, ahead of the take$/;
+/** Real seconds per take second above which a walk fell behind real time:
+ *  a machine that keeps up walks 1.01 to 1.02 (paced to real time). */
+const BEHIND_REAL_PER_TAKE = 1.1;
 
 let home: string;
 let server: Server;
@@ -163,6 +166,8 @@ const streams: { askedAt: number; sentAt: number[] }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
 /** Real ms the `/ahead` page said its video played, or null. */
 let playingAt: number | null = null;
+/** Why the machine could not be slowed there, if it could not. */
+let playingRefused: string | null = null;
 /** Every CDP command held this long once `/ahead`'s video plays: each
  *  frame takes several real frames. */
 const AHEAD_LAG_MS = 100;
@@ -235,9 +240,14 @@ beforeAll(async () => {
       return;
     }
     if (path === "/playing") {
-      playingAt = Date.now();
-      relagCdp(AHEAD_LAG_MS);
-      res.writeHead(204);
+      try {
+        relagCdp(AHEAD_LAG_MS);
+        playingAt = Date.now();
+        res.writeHead(204);
+      } catch (e) {
+        playingRefused = (e as Error).message;
+        res.writeHead(500);
+      }
       res.end();
       return;
     }
@@ -678,9 +688,14 @@ describe("a held recording that waits on its server", () => {
     // machine falls behind, until it stands on the clip's last frame (CI's
     // ubuntu at 2.35 and 2.54 real s per take s, 5 and 3 frames; its macOS
     // at 1.82 and 1.92, 2026-11-22). The pin says it only while the picture
-    // is ahead of currentTime: a clock that stopped pacing the video (the
-    // regression this test is for) leaves it behind, and is not excused.
-    if (notes.some((n) => PICTURE_AHEAD.test(n))) return;
+    // is ahead of currentTime, on the clip's last frame: a clock that
+    // stopped pacing the video (the regression this test is for) leaves it
+    // behind, and is not excused, nor is a machine that kept up.
+    if (
+      walkS / takeS > BEHIND_REAL_PER_TAKE &&
+      notes.some((n) => PICTURE_AHEAD.test(n))
+    )
+      return;
     // DEM-244: on a machine far behind its frames, Chrome may never start
     // the clip, fully buffered, at readyState 1 or 2 (CI after #105, and the
     // Mac on its efficiency cores beside CPU burners: 4.3 to 7.5 real s per
@@ -736,6 +751,7 @@ describe("a held recording that waits on its server", () => {
     const said = JSON.stringify({
       notes,
       playingAt,
+      playingRefused,
       takeMs,
       lastMoving,
       spans: r.bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
