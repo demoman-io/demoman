@@ -276,18 +276,15 @@ describe("brand copies", () => {
     const wordmark = readFileSync(brand("wordmark.svg"), "utf8");
     const d = wordmark.match(/<path fill="currentColor" d="([^"]+)"/)?.[1];
     const mark = readFileSync(brand("logomark.svg"), "utf8").match(
-      /<g fill="currentColor" stroke="currentColor"([^>]*)>([\s\S]*?)<\/g>/,
-    );
+      /<g fill="currentColor">([\s\S]*)<\/g>\s*<\/svg>/,
+    )?.[1];
     // The premise: the outlines were found, all seven letters' worth, and
-    // the mark's two slashes and its D.
+    // the mark's pieces (the folded mascot's ▶, ●, two legs and body).
     expect(d?.match(/Z/g)?.length ?? 0).toBeGreaterThanOrEqual(7);
-    expect(mark?.[2]?.match(/<polygon /g)?.length).toBe(2);
-    expect(mark?.[2]?.match(/<path /g)?.length).toBe(1);
+    expect(mark?.match(/<path |<circle |<rect /g)?.length).toBe(5);
     const logo = readDocs(copy);
     expect(logo).toContain(`<path fill="${fill}" d="${d}"/>`);
-    expect(logo).toContain(
-      `<g fill="${fill}" stroke="${fill}"${mark?.[1]}>${mark?.[2]}</g>`,
-    );
+    expect(logo).toContain(`<g fill="${fill}">${mark}</g>`);
   });
   it("docs.json points at those copies", () => {
     expect(docsJson().logo).toMatchObject({

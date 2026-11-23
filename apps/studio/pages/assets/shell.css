@@ -395,7 +395,8 @@
   }
   /* The lockup, in two pieces: the logomark at the 32px the bar's mark
      has always been, then the wordmark cut out of brand/'s lockup by an
-     SVG view (x 400–1352 of its 1408, and the disc's own 300 units of
+     SVG view (x 370.4–1322.4 of its 1280, moved 29.6 left when the mark
+     went square on 2026-11-22, so the word keeps its room; the disc's own 300 units of
      height, so the wordmark sits at the lockup's height beside the disc).
      Split so the gap is the bar's to set: the lockup's own is ~4.6px at
      this size, which read as crowded. 12px keeps the popup header's
