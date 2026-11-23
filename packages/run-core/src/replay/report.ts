@@ -1134,9 +1134,9 @@ export function verdictLine(report: RunReport): string {
       unstored.every((w) => w.what === "session") &&
       framesClause(report) === "" &&
       ownClockClause(report) === "";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, intact)}${dialogsClause(report)}${recordingClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${dialogsClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${ownClockClause(report)}${screensClause(report, framesClause(report) === "" && ownClockClause(report) === "")}${dialogsClause(report)}${recordingClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**
@@ -1267,6 +1267,13 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   animationUnpinned:
     "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
+
+/** A repo set 60 fps and the run recorded in real time, so it did not apply. */
+function recordingClause(report: RunReport): string {
+  const r = report.run.recording;
+  if (r?.clock !== "real" || r.frameRateNotApplied === undefined) return "";
+  return ` Recorded in real time: the ${r.frameRateNotApplied.from === "repo" ? "repo's" : "your"} 60 fps applies only to a held recording.`;
+}
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */
 function otherRepoClause(report: RunReport): string {

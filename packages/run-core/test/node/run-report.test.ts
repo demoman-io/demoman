@@ -1772,3 +1772,31 @@ describe("RunReport opening, trim and zoom notes", () => {
     );
   });
 });
+
+describe("verdictLine says what the recording did with the repo's frame rate", () => {
+  const base = buildRunReport(complete());
+  const withRecording = (
+    recording: RunReport["run"]["recording"],
+  ): RunReport => ({ ...base, run: { ...base.run, recording } });
+
+  it("says a real-time run did not apply the repo's 60 fps", () => {
+    const report = withRecording({
+      clock: "real",
+      why: "a phone records in real time",
+      frameRateNotApplied: { asked: 60, from: "repo" },
+    });
+    // Premise: the report really carries the not-applied record.
+    expect(report.run.recording).toHaveProperty("frameRateNotApplied");
+    expect(verdictLine(report)).toContain(
+      "Recorded in real time: the repo's 60 fps applies only to a held recording",
+    );
+  });
+
+  it("says nothing for a real-time run without it, or a held 60 run", () => {
+    const real = withRecording({ clock: "real", why: "a phone" });
+    const held = withRecording({ clock: "held", frameRate: 60, from: "repo" });
+    expect(real.run.recording).not.toHaveProperty("frameRateNotApplied");
+    expect(verdictLine(real)).not.toContain("Recorded in real time");
+    expect(verdictLine(held)).not.toContain("Recorded in real time");
+  });
+});

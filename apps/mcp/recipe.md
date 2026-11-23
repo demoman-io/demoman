@@ -481,10 +481,10 @@ Studio exports go to `~/Downloads`.
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site (a sign-in page off the site's origin, or `_ORIGIN` naming another); `detail` names both. Nothing typed. Check the account's site and `goto`; tell the user. |
 | `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so it was not read. Add it to `.gitignore` (`detail` says the line), or untrack it. |
 | `secretsFileInvalid` | `snapshot`, `run`¹ | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
-| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix the file. |
+| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix it. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
-| `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute folder path. Fix it or leave it out. |
-| `settingUnreadable` | `run`¹ | `.demoman/config.json` or your settings hold a `recordingFrameRate` that is not 30 or 60; `detail` names the file. Fix the file. |
+| `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute folder path. Fix it or omit it. |
+| `settingUnreadable` | `run`¹ | `.demoman/config.json` or your settings cannot be read or hold a `recordingFrameRate` that is not 30 or 60; `detail` names the file. Fix it. |
 | `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
 | `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |

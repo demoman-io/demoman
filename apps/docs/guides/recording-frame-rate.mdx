@@ -3,7 +3,8 @@ title: "Recording frame rate"
 description: "Record your app's own motion at 60 frames a second."
 ---
 
-Demoman records your app at 30 frames a second. Exports are 60, and the
+Demoman records your app at 30 frames a second. Exports at the default
+quality are 60, and the
 camera and pointer move at 60, but what your app animates (a card sliding
 into a column, a dialog opening, a toast) changes on every other frame. At
 60, it is smooth too.
@@ -26,6 +27,12 @@ You can also set it for yourself in `~/.demoman/settings.json`, and the
 repository's file wins. CI reads only the repository's file, so set it there
 for videos CI keeps current.
 
+CI has to run this release or later. A workflow written by an older Demoman
+pins that version and ignores the key, recording at 30 without a word. To
+update it, delete `.github/workflows/demoman.yml` on your default branch, then
+run `npx demoman setup --ci` again (setup refuses to overwrite an existing
+workflow).
+
 The run report says what each video was recorded at, and where that came
 from.
 
@@ -36,22 +43,24 @@ Measured on a 12-second flow:
 | Frame rate | Recording time | Disk |
 | --- | --- | --- |
 | 30 | about 15 s | about 9 MB |
-| 60 | about 30 s | about 15 MB |
+| 60 | about 24 s (up to 30) | about 9 MB |
 
-A recording at 60 takes about twice as long and about 60% more disk. You pay
-that on every refresh of every flow, so on CI it is twice the minutes.
+A recording at 60 takes 1.5 to 2 times as long and about the same disk. You
+pay that on every refresh of every flow, so on CI it is up to twice the
+minutes.
 
 ## Switching
 
 A refresh after you switch records at the new rate, and counts a different
-rate as a change. Every flow's video is replaced on its next refresh, each
-with the reason: `recorded at 60 fps, the committed video at 30`. Switching
-back replaces them again.
+rate as a change. Every flow recorded in the background (a held recording) is
+replaced on its next refresh, each with the reason: `recorded at 60 fps, the committed video at 30`. Switching
+back replaces them again. Phone, tablet and visible-window flows record in
+real time, so they stay unchanged.
 
 ## When a video is still 30
 
-- **Exports at 30.** Sharing quality, and an export kept under a size, are
-  30 frames a second. A video recorded at 60 exports correctly; the extra
+- **Exports at 30.** Sharing quality is 30 frames a second, and an export
+  kept under a size (`maxMB`) may drop to 30. A video recorded at 60 exports correctly; the extra
   frames go unused.
 - **A visible window, a phone or a tablet.** These record in real time, at
   the screen's own pace, whatever the setting. The run report says that 60

@@ -57,7 +57,7 @@ const settingsWith = (
  * set" (`exportQuality` high, `pullRequests` null); a file that will not
  * read or parse, or a value that is not one of the key's choices, gives the
  * same defaults but says why in `problems`, so no caller can mistake it for
- * "not set". One key's bad value does not unset the other.
+ * "not set". One key's bad value does not unset the others.
  */
 export async function readUserSettings(home: string): Promise<UserSettings> {
   const path = join(home, "settings.json");
@@ -78,10 +78,10 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
       recordingFrameRate: said,
     });
   }
-  // Parsed once; both keys are read from `raw`.
+  // Parsed once; all three keys are read from `raw`.
   const raw = parsed(path, text);
   if ("unreadable" in raw) {
-    // Not a JSON object at all: neither key is readable.
+    // Not a JSON object at all: no key is readable.
     return settingsWith(defaults, {
       exportQuality: raw.unreadable,
       pullRequests: raw.unreadable,
