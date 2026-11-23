@@ -21,6 +21,7 @@ import {
   frameOf,
   GIF_BUDGET_BYTES,
   isExportQuality,
+  isRecordingFrameRate,
   lookDigest,
   MAX_STILL_SIDE,
   messageOf,
@@ -1031,10 +1032,15 @@ async function pageScreensOf(
     files.push({ name, bytes });
   }
   // Held bundles only; one from before the key means 30, kept as absent.
-  const frameRate =
-    bundle.heldFrameMs === undefined
-      ? undefined
-      : (Math.round(1000 / bundle.heldFrameMs) as RecordingFrameRate);
+  let frameRate: RecordingFrameRate | undefined;
+  if (bundle.heldFrameMs !== undefined) {
+    const rate = Math.round(1000 / bundle.heldFrameMs);
+    if (!isRecordingFrameRate(rate))
+      return {
+        error: `video ${takeId} has a heldFrameMs of ${bundle.heldFrameMs}, which is not a 30 or 60 fps recording`,
+      };
+    frameRate = rate;
+  }
   return {
     screens: {
       steps,

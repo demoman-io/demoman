@@ -326,4 +326,33 @@ describe("the screens carry the rate the take was recorded at", () => {
     },
     SCREENS_ONLY_MS,
   );
+
+  it(
+    "a heldFrameMs that is not a 30 or 60 fps recording fails, naming the video and the value",
+    async () => {
+      const { original, bundle } = await makeDiskTake(home);
+      const withScreens = await withPageScreens(home, diskTakeId, bundle);
+      await putTake(home, diskTakeId, original, {
+        ...withScreens,
+        heldFrameMs: 1000 / 24,
+      });
+      const out = await exportTake(
+        {
+          takeId: diskTakeId,
+          fileType: "mp4",
+          unlisted: true,
+          screensOnly: true,
+        },
+        exportDeps(join(home, "rate-24")),
+        () => undefined,
+      );
+      expect(out, JSON.stringify(out)).toMatchObject({
+        outcome: "renderFailed",
+        error: expect.stringContaining(`video ${diskTakeId}`),
+      });
+      expect((out as { error: string }).error).toContain(`${1000 / 24}`);
+      expect((out as { error: string }).error).toContain("30 or 60 fps");
+    },
+    SCREENS_ONLY_MS,
+  );
 });
