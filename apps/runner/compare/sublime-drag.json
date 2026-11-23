@@ -1,0 +1,42 @@
+{
+  "name": "Sublime — Add an issue and finish it",
+  "target": "http://localhost:4402/board/web",
+  "account": "ada",
+  "viewport": { "width": 1710, "height": 1107 },
+  "look": {
+    "branding": {
+      "background": { "kind": "wallpaper", "id": "vivid-1", "blur": 0 },
+      "logo": null,
+      "padding": 0.12
+    },
+    "canvas": { "aspect": "16:9" }
+  },
+  "trim": { "start": { "ms": 2500 } },
+  "steps": [
+    { "do": "waitForLoad" },
+    {
+      "do": "click",
+      "on": { "role": "button", "name": "New issue in Todo" }
+    },
+    {
+      "do": "type",
+      "into": { "role": "textbox", "name": "New issue in Todo" },
+      "text": "Retry webhook deliveries on 5xx"
+    },
+    { "do": "press", "key": "Enter" },
+    {
+      "do": "drag",
+      "from": {
+        "on": {
+          "role": "button",
+          "name": "SUB-161 Retry webhook deliveries on 5xx"
+        }
+      },
+      "to": {
+        "on": { "role": "button", "name": "SUB-102 Audit log export to S3" },
+        "at": { "x": 0.5, "y": 0.15 }
+      }
+    },
+    { "do": "pause", "ms": 2200 }
+  ]
+}

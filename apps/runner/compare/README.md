@@ -75,6 +75,39 @@ does the same for a page per push channel (an EventSource, one that goes
 quiet, a long poll, a fetch stream that never ends) beside a page with none. Measured
 2026-11-15 in the held-clock spec's "Measured: held capture as built".
 
+## Camera motion
+
+`camera-motion.mjs --video <mp4> [--from <s>] [--to <s>]` reads a video's
+pixels and prints each frame's pan (px at 2560 wide, `dx` and `dy`) and
+whether it repeats the frame before, then `reversals x:` and `reversals y:`
+(the pan changing direction at 8 px a frame or more) and `repeats:` (a frame
+identical to the one before, between two that changed). With `--repo <root>
+--take <id> --out <mp4>` it first exports that take with `<root>`'s built
+runner, from a copy in a throwaway home, so one take compares across two
+checkouts. The pan is read from row and column profiles, so a pan on both
+axes at once, or one past a tenth of the frame per frame, reads roughly:
+check a surprising number against the frames. On 2026-11-22 the Sublime
+board's drag (DEM-254) read `reversals x: 3 [1.08, 3.23, 7.80]` on main and
+`reversals x: 2 [1.08, 3.23]` with the fix; the repeats at the drop are the
+held clock's 30 fps page (DEM-265).
+
+`--plan --repo <root> --take <id>` reads the camera from the take's plan
+instead of its pixels, so nothing the page draws moves it (its centres are unclamped, as planned, not as drawn at a canvas edge): `plan reversals
+x:` and `y:` (at 0.5 CSS px a frame) and `plan fastest:`. Run it with two
+checkouts' `--repo` to compare a camera change. On the 16 saved takes with a
+zoomed drag (2026-11-23), DEM-254's fix lowered reversals on 7 and raised
+them on none.
+
+`record-cost.mjs --repo <root> --script <file> --out <mp4> [--project <app>]`
+records a script with `<root>`'s built runner in a throwaway home (signed in
+by the project's demo account), exports it, and prints `outcome:` and `cost:
+run <s> s, take <MB> MB on disk`. `sublime-drag.json` is the site's Sublime
+take (`demoman-io/sublime` on 4402, `pnpm reset` before each run, size
+pinned at 1710×1107, the site take's). On 2026-11-23 it recorded in 14.9 s
+and 8.8–9.6 MB at the held clock's 30 fps page time, and in 29.6 s and
+14.1–15.1 MB at 60, where the export's repeated frames went from 11 to 1
+(DEM-265).
+
 ## Export cost
 
 Three scripts for where an export's time goes, all headless, all against a
