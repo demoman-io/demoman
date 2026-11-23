@@ -19,13 +19,12 @@ Commit a `.demoman/config.json`:
 }
 ```
 
-It is `30` or `60`, and `30` when it is not set. Any other value, or a file
-that is not JSON, stops the run with a sentence naming the file; it is never
-read as 30.
+It is `30` or `60`, and `30` when it is not set. It is read only from this
+file, so every machine and CI record the repository at the same rate.
 
-You can also set it for yourself in `~/.demoman/settings.json`, and the
-repository's file wins. CI reads only the repository's file, so set it there
-for videos CI keeps current.
+Any other value stops the run with a sentence naming the file; it is never
+read as 30. A file Demoman cannot read at all (not JSON, say) records at 30,
+and the run report says so, naming the file and why.
 
 CI has to run this release or later. A workflow written by an older Demoman
 pins that version and ignores the key, recording at 30 without a word. To

@@ -763,8 +763,8 @@ describe("an export in progress", () => {
 });
 
 // DEM-265: the run (and the probe) decides the recording frame rate once,
-// from the project's `.demoman/config.json` or the user's settings, records
-// at it, and the report says which and from where.
+// from the project's `.demoman/config.json` alone (ruling B, 2026-11-23: no
+// user layer), records at it, and the report says which and from where.
 describe("the recording frame rate", () => {
   let rateHome: string;
   let rated: LocalExecutor;
@@ -894,8 +894,13 @@ describe("the recording frame rate", () => {
   );
 
   it(
-    "records a held run at 30 when nothing is set",
+    "records a held run at 30 when the repo sets nothing, whatever the user's settings.json says",
     async () => {
+      // Ruling B: a user-level 60 never reaches a run.
+      await writeFile(
+        join(rateHome, "settings.json"),
+        JSON.stringify({ recordingFrameRate: 60 }),
+      );
       const report = await runIn(await projectWith(null), "rate-none");
       expect(report.run.recording).toEqual({
         clock: "held",
@@ -906,6 +911,57 @@ describe("the recording frame rate", () => {
     },
     RUN_MS,
   );
+
+  // Ruling A (2026-11-23): only a bad value refuses. A config.json that
+  // will not parse records at 30 and says why, in the report and the
+  // verdict; status still names the file as unreadable.
+  it(
+    "records at 30 when the repo's config.json will not parse, and says why",
+    async () => {
+      const repo = await projectWith("not json");
+      const file = join(repo, ".demoman", "config.json");
+      const report = await runIn(repo, "rate-unparsed");
+      expect(report.run.recording).toEqual({
+        clock: "held",
+        frameRate: 30,
+        from: "default",
+        frameRateUnread: expect.stringContaining(file),
+      });
+      expect(await heldFrameMsOf(report)).toBeCloseTo(1000 / 30, 6);
+      expect(verdictLine(report)).toContain(
+        ` Recorded at 30 fps: ${file} is not valid JSON (`,
+      );
+      expect(await rated.request("status", { project: repo })).toMatchObject({
+        ok: true,
+        value: {
+          recordingFrameRate: {
+            unreadable: expect.stringContaining(file),
+            file,
+          },
+        },
+      });
+    },
+    RUN_MS,
+  );
+
+  // Code review nit 4: the probe's own target refusal comes before the
+  // project is read, as it did before the frame rate was.
+  it("a probe with a non-http target and a bad project refuses its target", async () => {
+    const { ex, launches } = await countingLaunches();
+    try {
+      const out = await ex.request("probe", {
+        script: { ...fixtureScript(), target: "ftp://example.com/" },
+        project: "relative/path",
+      });
+      expect(out, JSON.stringify(out)).toMatchObject({
+        ok: true,
+        value: { outcome: "refusedBeforeRun", reason: "nonHttpTarget" },
+      });
+      expect(launches()).toBe(0);
+    } finally {
+      await ex.close();
+    }
+  }, 30_000);
 
   describe("with held-clock capture off", () => {
     const was = process.env.DEMOMAN_HELD_CLOCK;

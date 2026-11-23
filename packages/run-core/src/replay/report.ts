@@ -165,19 +165,24 @@ export function parseFilmedCode(raw: unknown): FilmedCode | null {
 }
 
 /** Where a run's recording frame rate came from (`resolveRecordingFrameRate`). */
-export type RecordingFrameRateFrom = "repo" | "user" | "default";
+export type RecordingFrameRateFrom = "repo" | "default";
 
-/** How a run recorded the page's clock (`RunReport.run.recording`). */
+/** How a run recorded the page's clock (`RunReport.run.recording`).
+ *  `frameRateUnread`: the repo's `.demoman/config.json` could not be read
+ *  or parsed, so the run took the default; the sentence names the file and
+ *  why. */
 export type RunRecording =
   | {
       clock: "held";
       frameRate: RecordingFrameRate;
       from: RecordingFrameRateFrom;
+      frameRateUnread?: string;
     }
   | {
       clock: "real";
       why: string;
-      frameRateNotApplied?: { asked: 60; from: "repo" | "user" };
+      frameRateNotApplied?: { asked: 60; from: "repo" };
+      frameRateUnread?: string;
     };
 
 /** A run's or probe's last picture on disk, or why there is none. */
@@ -1268,11 +1273,18 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
 
-/** A repo set 60 fps and the run recorded in real time, so it did not apply. */
+/** A repo set 60 fps and the run recorded in real time, so it did not
+ *  apply; or the repo's file could not be read, so the default was used. */
 function recordingClause(report: RunReport): string {
   const r = report.run.recording;
-  if (r?.clock !== "real" || r.frameRateNotApplied === undefined) return "";
-  return ` Recorded in real time: the ${r.frameRateNotApplied.from === "repo" ? "repo's" : "your"} 60 fps applies only to a held recording.`;
+  if (r === undefined) return "";
+  if (r.frameRateUnread !== undefined) {
+    return r.clock === "held"
+      ? ` Recorded at ${r.frameRate} fps: ${r.frameRateUnread}.`
+      : ` Recording frame rate not read: ${r.frameRateUnread}.`;
+  }
+  if (r.clock !== "real" || r.frameRateNotApplied === undefined) return "";
+  return " Recorded in real time: the repo's 60 fps applies only to a held recording.";
 }
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */

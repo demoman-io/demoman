@@ -156,16 +156,19 @@ export async function prepareStage(
         ? null
         : verdict.why;
   // A real-clock run records at the screen's own pace: a 60 asked for is
-  // said as not applied, never dropped.
+  // said as not applied, never dropped; so is a file that would not read.
+  const unread =
+    rate.unread === undefined ? {} : { frameRateUnread: rate.unread };
   const recording: RunRecording =
     realWhy === null
-      ? { clock: "held", frameRate: rate.value, from: rate.from }
+      ? { clock: "held", frameRate: rate.value, from: rate.from, ...unread }
       : {
           clock: "real",
           why: realWhy,
-          ...(rate.value === 60 && rate.from !== "default"
-            ? { frameRateNotApplied: { asked: 60, from: rate.from } }
+          ...(rate.value === 60 && rate.from === "repo"
+            ? { frameRateNotApplied: { asked: 60, from: "repo" } }
             : {}),
+          ...unread,
         };
   // Held: every document gets the held animation frames and a hidden caret
   // before its first script, and the held clock starts at the pinned instant

@@ -123,11 +123,7 @@ function machine(
     settings: {
       read: async () => {
         settingsReads.n++;
-        return {
-          exportQuality: "high",
-          pullRequests: null,
-          recordingFrameRate: null,
-        };
+        return { exportQuality: "high", pullRequests: null };
       },
       write: async () => {
         throw new Error("a setting was written");
@@ -655,11 +651,7 @@ describe("setup", () => {
     it("is not implied by a pull-request setting of Attach", async () => {
       const m = machine({
         settings: {
-          read: async () => ({
-            exportQuality: "high",
-            pullRequests: "attach",
-            recordingFrameRate: null,
-          }),
+          read: async () => ({ exportQuality: "high", pullRequests: "attach" }),
           write: async () => {
             throw new Error("a setting was written");
           },
@@ -1858,11 +1850,7 @@ describe("setup's settings", () => {
    *  `wrote`, keeping what was written. */
   function settingsOf(
     m: ReturnType<typeof machine>,
-    read: Read = {
-      exportQuality: "high",
-      pullRequests: null,
-      recordingFrameRate: null,
-    },
+    read: Read = { exportQuality: "high", pullRequests: null },
     wrote: Wrote = {},
   ) {
     const writes: Array<[string, string]> = [];
@@ -1897,11 +1885,7 @@ describe("setup's settings", () => {
     expect(q1.asked[0]).toMatchObject({ quality: "high", pullRequests: "ask" });
 
     const set = machine();
-    settingsOf(set, {
-      exportQuality: "full",
-      pullRequests: "attach",
-      recordingFrameRate: null,
-    });
+    settingsOf(set, { exportQuality: "full", pullRequests: "attach" });
     const q2 = asking(set, {});
     await setup(set.d);
     expect(q2.asked[0]).toMatchObject({
@@ -1959,7 +1943,6 @@ describe("setup's settings", () => {
     const writes = settingsOf(m, {
       exportQuality: "high",
       pullRequests: null,
-      recordingFrameRate: null,
       problems: { exportQuality: unreadable, pullRequests: unreadable },
       unreadable,
     });

@@ -484,7 +484,7 @@ Studio exports go to `~/Downloads`.
 | `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix it. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute folder path. Fix it or omit it. |
-| `settingUnreadable` | `run`¹ | `.demoman/config.json` or your settings cannot be read or hold a `recordingFrameRate` that is not 30 or 60; `detail` names the file. Fix it. |
+| `settingUnreadable` | `run`¹, `probe` | `.demoman/config.json` holds a `recordingFrameRate` that is not 30 or 60; `detail` names the file. Fix it. |
 | `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
 | `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |

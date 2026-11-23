@@ -247,11 +247,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     return chooseAccount(await findAccounts(where.from), target, named);
   }
   /** The frame rate a run or probe records at, decided once at its door
-   *  (DEM-265): a setting that cannot be used refuses it, naming the file. */
+   *  (DEM-265): a value that is not 30 or 60 refuses it, naming the file; a
+   *  file that will not read records at the default, carrying why. */
   async function frameRateFor(
     from: string,
   ): Promise<RunDeps["recordingFrameRate"] | Refused> {
-    const rate = await resolveRecordingFrameRate(from, home);
+    const rate = await resolveRecordingFrameRate(from);
     if ("unreadable" in rate) {
       return {
         kind: "refused",
@@ -260,7 +261,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         detail: rate.unreadable,
       };
     }
-    return { value: rate.value, from: rate.from };
+    return {
+      value: rate.value,
+      from: rate.from,
+      ...(rate.unread === undefined ? {} : { unread: rate.unread }),
+    };
   }
   type Chosen = Extract<AccountChoice, { kind: "account" }>;
   /**
@@ -1421,10 +1426,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               "kind" in where
                 ? { unreadable: where.detail, file: null }
                 : await resolvePullRequests(where.from, home);
-            const recordingFrameRate: RecordingFrameRateSetting =
+            // A file a run would record past at the default still answers
+            // unreadable here, so an agent sees it.
+            const rate: RecordingFrameRateSetting =
               "kind" in where
                 ? { unreadable: where.detail, file: null }
-                : await resolveRecordingFrameRate(where.from, home);
+                : await resolveRecordingFrameRate(where.from);
+            const recordingFrameRate =
+              "unread" in rate && rate.unread !== undefined
+                ? { unreadable: rate.unread, file: rate.file ?? null }
+                : rate;
             // Read without launching: tells "not started yet" from "not
             // installed", which browserRunning: false cannot. On Linux a
             // download whose libraries are missing cannot start either.

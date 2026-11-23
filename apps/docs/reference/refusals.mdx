@@ -31,7 +31,7 @@ than this page can: read it first.
 | `browserMissing` | Demoman's browser or its system libraries are missing. Run the command the detail gives |
 | `unsupportedPlatform` | This machine cannot record: it needs macOS or x86_64 Linux |
 | `windowDidNotOpen` | The browser window did not open. Retried once; the detail says whether there is no display |
-| `settingUnreadable` | `.demoman/config.json` or your `settings.json` cannot be read, or holds a `recordingFrameRate` that is not 30 or 60. Fix the file the detail names |
+| `settingUnreadable` | `.demoman/config.json` holds a `recordingFrameRate` that is not 30 or 60, so the run or probe did not start. Fix the file the detail names |
 | `windowClosed` | With `--headed`, the window was closed mid-run. Leave it open |
 | `studioDidNotStart` | The Studio did not start; the detail quotes its log |
 | `videoExpired` | The video's frames have expired. Record the flow again, then export |

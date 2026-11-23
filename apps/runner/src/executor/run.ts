@@ -124,6 +124,9 @@ export interface RunDeps {
   recordingFrameRate: {
     value: RecordingFrameRate;
     from: RecordingFrameRateFrom;
+    /** The repo's file could not be read, so `value` is the default; the
+     *  report carries this as `frameRateUnread`. */
+    unread?: string;
   };
   session: BrowserSession;
   library: Library;

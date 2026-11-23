@@ -101,11 +101,7 @@ describe("runCaptured", () => {
       say: (l) => void lines.push(l),
       ask: null,
       settings: {
-        read: async () => ({
-          exportQuality: "high",
-          pullRequests: null,
-          recordingFrameRate: null,
-        }),
+        read: async () => ({ exportQuality: "high", pullRequests: null }),
         write: async () => ({}),
       },
     });

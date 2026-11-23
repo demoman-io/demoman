@@ -1,54 +1,61 @@
-import { join } from "node:path";
 import {
+  isRecordingFrameRate,
   RECORDING_FRAME_RATE_DEFAULT,
+  RECORDING_FRAME_RATE_VALUES,
   type RecordingFrameRate,
 } from "@demoman/run-core";
 import { findDemomanFile } from "./accounts.js";
 import { REPO_CONFIG } from "./pull-requests.js";
-import { parseRecordingFrameRate, readUserSettings } from "./user-settings.js";
+import { settingsObject } from "./user-settings.js";
 
 export type RecordingFrameRateSetting =
   | {
       value: RecordingFrameRate;
-      from: "repo" | "user" | "default";
+      from: "repo" | "default";
       file?: string;
+      /** The repo's file could not be read or parsed at all, so `value` is
+       *  the default; the sentence names the file and why. */
+      unread?: string;
     }
-  /** `file` null: no file was read, because the `project` status was given
-   *  could not be used (`unreadable` says why). */
+  /** A `recordingFrameRate` that is not one of the choices, which refuses a
+   *  run. `file` null: no file was read, because the `project` status was
+   *  given could not be used (`unreadable` says why). */
   | { unreadable: string; file: string | null };
 
 /**
- * The recording frame rate: the repo's `.demoman/config.json` over the
- * user's `<home>/settings.json`, else `RECORDING_FRAME_RATE_DEFAULT`. A file
- * that cannot be used answers `unreadable` naming it: never the default, and
- * an unusable repo file never falls through to the user's value.
+ * The recording frame rate: the repo's `.demoman/config.json`, else
+ * `RECORDING_FRAME_RATE_DEFAULT`. Repo only (ruling B, 2026-11-23), so every
+ * machine and CI record a repo at the same rate. A value that is not one of
+ * the choices answers `unreadable` naming the file; a file that cannot be
+ * read or parsed at all is the default with `unread` saying why (ruling A).
  */
 export async function resolveRecordingFrameRate(
   from: string,
-  home: string,
 ): Promise<RecordingFrameRateSetting> {
   const repo = await findDemomanFile(from, REPO_CONFIG);
+  const unread = (why: string, file: string) =>
+    ({
+      value: RECORDING_FRAME_RATE_DEFAULT,
+      from: "default",
+      unread: why,
+      file,
+    }) as const;
   if (repo.kind === "unreadable") {
-    return {
-      unreadable: `${repo.path} could not be read (${repo.detail})`,
-      file: repo.path,
-    };
+    return unread(`${repo.path} could not be read (${repo.detail})`, repo.path);
   }
   if (repo.kind === "found") {
-    const parsed = parseRecordingFrameRate(repo.path, repo.text);
-    if ("unreadable" in parsed) {
-      return { unreadable: parsed.unreadable, file: repo.path };
+    const raw = settingsObject(repo.path, repo.text);
+    if ("unreadable" in raw) return unread(raw.unreadable, repo.path);
+    const value = raw.object.recordingFrameRate;
+    if (value !== undefined) {
+      if (!isRecordingFrameRate(value)) {
+        return {
+          unreadable: `${repo.path}: recordingFrameRate must be ${RECORDING_FRAME_RATE_VALUES.join(" or ")}; got ${JSON.stringify(value)}`,
+          file: repo.path,
+        };
+      }
+      return { value, from: "repo", file: repo.path };
     }
-    if (parsed.value !== null) {
-      return { value: parsed.value, from: "repo", file: repo.path };
-    }
-  }
-  const user = await readUserSettings(home);
-  const file = join(home, "settings.json");
-  if (user.problems?.recordingFrameRate !== undefined)
-    return { unreadable: user.problems.recordingFrameRate, file };
-  if (user.recordingFrameRate !== null) {
-    return { value: user.recordingFrameRate, from: "user", file };
   }
   return { value: RECORDING_FRAME_RATE_DEFAULT, from: "default" };
 }

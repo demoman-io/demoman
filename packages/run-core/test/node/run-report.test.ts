@@ -1798,5 +1798,33 @@ describe("verdictLine says what the recording did with the repo's frame rate", (
     expect(real.run.recording).not.toHaveProperty("frameRateNotApplied");
     expect(verdictLine(real)).not.toContain("Recorded in real time");
     expect(verdictLine(held)).not.toContain("Recorded in real time");
+    expect(verdictLine(held)).not.toContain("could not be read");
+  });
+
+  // Ruling A (2026-11-23): a config.json that will not read records at 30
+  // and the verdict says why, in words a person reads.
+  const why = "/r/.demoman/config.json is not valid JSON (Unexpected token)";
+  it("says a held run recorded at 30 because the repo's file could not be read", () => {
+    const report = withRecording({
+      clock: "held",
+      frameRate: 30,
+      from: "default",
+      frameRateUnread: why,
+    });
+    // Premise: the report carries the reason the clause reads.
+    expect(report.run.recording).toHaveProperty("frameRateUnread", why);
+    expect(verdictLine(report)).toContain(` Recorded at 30 fps: ${why}.`);
+  });
+
+  it("says a real-time run could not read the repo's frame rate", () => {
+    const report = withRecording({
+      clock: "real",
+      why: "a phone",
+      frameRateUnread: why,
+    });
+    expect(report.run.recording).toHaveProperty("frameRateUnread", why);
+    expect(verdictLine(report)).toContain(
+      ` Recording frame rate not read: ${why}.`,
+    );
   });
 });
