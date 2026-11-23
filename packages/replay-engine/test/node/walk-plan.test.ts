@@ -1168,11 +1168,19 @@ describe("the rest sits where the camera needs it", () => {
     const { result } = await run([TYPE_A, DRAG_B], {
       zooms: () => true,
       dragSecond: true,
+      camera: gapCamera,
     });
     const evidence = evidenceOf(result);
     expect(result.outcome, evidence).toBe("complete");
     const typed = markerOf(result, 0);
     const dragged = markerOf(result, 1);
+    // The camera, deciding again on the stamps with the room taken out,
+    // zooms the drag the walk waited for: a wait with no push-in after it
+    // would be a hold for nothing.
+    expect(
+      result.document?.camera.map((c) => c.marker.actionId),
+      evidence,
+    ).toEqual([dragged.actionId]);
     expect(dragged.roomHeldMs, evidence).toBeGreaterThan(0);
     expect(
       dragged.sourceTimeMs - (typed.actEndSourceTimeMs as number),
@@ -1283,6 +1291,36 @@ describe("the rest sits where the camera needs it", () => {
         afterScrollMs: ARRIVE,
       },
     ]);
+  });
+
+  // Code review, 2026-11-23. Red if the scroll's wait is a click's alone
+  // again (`unhurriedScroll`'s `step.action.kind === "click"`): a drag's
+  // room is then counted from the typing's end, before the scroll, and the
+  // push-in starts while the page is still moving.
+  it("without a plan waits a scrolled zoomed drag's room from the scroll's end", async () => {
+    const { result } = await run(
+      [
+        TYPE_A,
+        {
+          do: "drag",
+          from: { on: { stableId: "far" } },
+          to: { by: { x: 300, y: 0 } },
+        } as never,
+      ],
+      { zooms: () => true, dragSecond: true },
+    );
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    const typed = markerOf(result, 0);
+    const dragged = markerOf(result, 1);
+    // Premise: the drag's approach scrolled, after the typing had ended.
+    const scrollEnd = dragged.scrollEndSourceTimeMs ?? Number.NaN;
+    expect(scrollEnd, evidence).toBeGreaterThan(
+      typed.actEndSourceTimeMs ?? Number.NaN,
+    );
+    expect(dragged.sourceTimeMs - scrollEnd, evidence).toBeGreaterThanOrEqual(
+      NEEDED_MS,
+    );
   });
 
   // Red if the marker's scroll end is written only under a plan

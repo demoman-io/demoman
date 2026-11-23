@@ -32,11 +32,12 @@ export const PAN_MARGIN_MS = 300;
  * The CLI executor's unhurried beats (spec 2026-10-19): before a click or
  * drag the camera will zoom to, the replay waits until there is room for
  * the settle after the last act, the zoom's push-in at the take's
- * smoothness, and the lead-in. Which clicks zoom is `zoomsForClicks`' own rule (`decideZoom`),
- * asked on time with the added room taken out, so waiting never makes a
- * zoom the take would not have had.
+ * smoothness, and the lead-in. Which clicks and drags zoom is
+ * `zoomsForClicks`' own rule (`decideZoom`), asked on time with the added
+ * room taken out, so waiting never makes a zoom the take would not have
+ * had.
  *
- * A click the camera pans to from the zoom before it, without returning to
+ * A click or drag the camera pans to from the zoom before it, without returning to
  * full frame, needs none of that (spec 2026-10-22, the author's pacing "C"):
  * there is no push-in, and the camera trails the pointer. Pan or return is
  * `returnsBetween`, the camera's own rule.

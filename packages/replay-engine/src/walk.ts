@@ -3686,9 +3686,11 @@ export async function runWalk(
       let roomHere = 0;
       let heldHere = 0;
       const unhurriedScroll =
-        room !== undefined && step.action.kind === "click" && scrolls;
-      // The first wait: a click whose approach scrolls lets the last act's
-      // result settle before the page moves under it.
+        room !== undefined &&
+        (step.action.kind === "click" || step.action.kind === "drag") &&
+        scrolls;
+      // The first wait: a click or drag whose approach scrolls lets the last
+      // act's result settle before the page moves under it.
       if (unhurriedScroll) {
         // The scroll paints, so the act it follows is settled first.
         roomHere += await quietThenFinalize();

@@ -75,7 +75,7 @@ try {
     failed = true;
   } else {
     const take = join(home, "takes", takeId);
-    say(`take: ${takeId}`);
+    if (values.home) say(`take: ${takeId}`);
     say(
       `cost: run ${seconds.toFixed(1)} s, take ${(sizeOf(take) / 1e6).toFixed(1)} MB on disk, ${report.frames?.spans} spans, ${report.frames?.keyframes} keyframes`,
     );
