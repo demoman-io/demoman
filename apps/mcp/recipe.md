@@ -489,15 +489,15 @@ Studio exports go to `~/Downloads`.
 | `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
-| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
+| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to check the PR. |
+| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export. |
 | `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | Retry once, unless `detail` says no display. |
 | `studioDidNotStart` | `studio` | `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. `report(id)` it; retry when it settles. |
 | `busy` | `export`¹ | A run, probe or snapshot is in progress. `report(id)` it first. |
 | `browserSilent` | `status`, `flows`, `derive`, `report` | No answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call it again. |
 | `libraryUnreadable` | `flows`, `studio` | Report it. |
-| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: `notStored` is `{ "what": "video", "error" }`, `provenance.videoId` null. Nothing saved; quote the `error`. |
+| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: `notStored` has `{ "what": "video", "error": … }`; `provenance.videoId` is null. Nothing saved; quote the `error`. |
 | `unknownRun` | `report` | This server never issued that id, or let it go (it keeps the last 50 finished; ids die with a restart). |
 | `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not rerun. |
 | `notAnObject` | `run` | The script is not a JSON object. |
