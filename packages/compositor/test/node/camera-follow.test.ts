@@ -204,6 +204,169 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
   });
 
+  // DEM-254 (the Sublime board, 2026-11-22): the drag's zoom lands between
+  // the card and the drop, 350 ms before the press. The follow chased the
+  // hand to the card, then the press held the drag's aim and the camera
+  // swung back: a bounce before the drag had begun.
+  describe("before a drag's press, with the drag's own aim in force", () => {
+    const grab = { x: 300, y: 400 };
+    const drop = { x: 1000, y: 400 };
+    const middle = { x: 650, y: 400 };
+    const keys = [
+      cameraKey({
+        outputTimeMs: 0,
+        center: { x: 640, y: 400 },
+        scale: 1,
+        transitionMs: 0,
+      }),
+      cameraKey({ outputTimeMs: 1000, center: middle, scale: 1.8 }),
+      cameraKey({ outputTimeMs: 7000, center: middle, scale: 1 }),
+    ];
+    const pressed = [{ startMs: 2000, endMs: 3000 }];
+    /** The largest move toward the grab (−x), px per 60 fps frame. */
+    const mostTowardGrab = (t: ReturnType<typeof track>) => {
+      let worst = 0;
+      let previous = sampleTrack(t, 1000).center;
+      for (let at = 1000 + 1000 / 60; at <= 2000; at += 1000 / 60) {
+        const now = sampleTrack(t, at).center;
+        worst = Math.max(worst, previous.x - now.x);
+        previous = now;
+      }
+      return worst;
+    };
+
+    it("does not chase a hand resting on the card", () => {
+      const hand = pointerThrough([
+        [0, grab],
+        [2000, grab],
+        [2700, drop],
+        [7000, drop],
+      ]);
+      const t = track({ keys, cursorAt: hand, holds: pressed });
+      // Premise: the hand rests on the card, far from the aim, until the press.
+      expect(hand(1999)).toEqual(grab);
+      expect(dist(grab, middle)).toBeGreaterThan(300);
+      expect(mostTowardGrab(t)).toBeLessThan(0.5);
+      expect(dist(sampleTrack(t, 1990).center, middle)).toBeLessThan(3);
+    });
+
+    it("does not chase a hand still on its way to the card", () => {
+      const from = { x: 500, y: 700 };
+      const hand = pointerThrough([
+        [0, from],
+        [1200, from],
+        [1900, grab],
+        [2000, grab],
+        [2700, drop],
+        [7000, drop],
+      ]);
+      const t = track({ keys, cursorAt: hand, holds: pressed });
+      // Premise: the hand travels toward the grab after the zoom lands.
+      expect(dist(hand(1200), hand(1600))).toBeGreaterThan(100);
+      expect(hand(1900)).toEqual(grab);
+      expect(mostTowardGrab(t)).toBeLessThan(0.5);
+      expect(dist(sampleTrack(t, 1990).center, middle)).toBeLessThan(3);
+    });
+
+    // Excalidraw (2026-11-23): the drag's aim set off mid-stretch, 750 px
+    // from the toolbar, and the spring was handed its end at once, so the
+    // camera outran the keys' own eased pan toward it.
+    it("moves onto a drag's aim no faster than the keys' own pan to it", () => {
+      const toolbar = { x: 400, y: 60 };
+      const panKeys = [
+        cameraKey({
+          outputTimeMs: 0,
+          center: { x: 640, y: 400 },
+          scale: 1,
+          transitionMs: 0,
+        }),
+        cameraKey({ outputTimeMs: 1000, center: toolbar, scale: 1.8 }),
+        // Sets off at 2400 − 740 = 1660, lands at 2400; pressed at 2900.
+        cameraKey({
+          outputTimeMs: 2400,
+          center: middle,
+          scale: 1.8,
+          transitionMs: 740,
+        }),
+        cameraKey({ outputTimeMs: 7000, center: middle, scale: 1 }),
+      ];
+      const hand = pointerThrough([
+        [0, toolbar],
+        [1700, toolbar],
+        [2700, grab],
+        [2900, grab],
+        [3500, drop],
+        [7000, drop],
+      ]);
+      const t = track({
+        keys: panKeys,
+        cursorAt: hand,
+        holds: [{ startMs: 2900, endMs: 3500 }],
+      });
+      const frame = 1000 / 60;
+      let keysFastest = 0;
+      let cameraFastest = 0;
+      for (let at = 1660; at <= 2900; at += frame) {
+        keysFastest = Math.max(
+          keysFastest,
+          dist(
+            sampleCamera(panKeys, at).center,
+            sampleCamera(panKeys, at - frame).center,
+          ),
+        );
+        cameraFastest = Math.max(
+          cameraFastest,
+          dist(sampleTrack(t, at).center, sampleTrack(t, at - frame).center),
+        );
+      }
+      // Premise: the keys do pan a long way, from the toolbar to the drag.
+      expect(dist(toolbar, middle)).toBeGreaterThan(300);
+      expect(keysFastest).toBeGreaterThan(5);
+      expect(cameraFastest).toBeLessThanOrEqual(keysFastest * 1.05);
+      expect(dist(sampleTrack(t, 2890).center, middle)).toBeLessThan(3);
+    });
+
+    it("still follows the hand before the drag's own aim has set off", () => {
+      // The same drag with a key before it: the zoom lands on `first` at
+      // 1000, and the drag's aim sets off at 2400 − 600 = 1800.
+      const first = { x: 400, y: 300 };
+      const twoKeys = [
+        cameraKey({
+          outputTimeMs: 0,
+          center: { x: 640, y: 400 },
+          scale: 1,
+          transitionMs: 0,
+        }),
+        cameraKey({ outputTimeMs: 1000, center: first, scale: 1.8 }),
+        cameraKey({
+          outputTimeMs: 2400,
+          center: middle,
+          scale: 1.8,
+          transitionMs: 600,
+        }),
+        cameraKey({ outputTimeMs: 7000, center: middle, scale: 1 }),
+      ];
+      const away = { x: 400, y: 600 };
+      const hand = pointerThrough([
+        [0, first],
+        [1100, first],
+        [1500, away],
+        [2500, away],
+        [2700, grab],
+        [3000, grab],
+      ]);
+      const t = track({
+        keys: twoKeys,
+        cursorAt: hand,
+        holds: [{ startMs: 3000, endMs: 3500 }],
+      });
+      // Premise: the hand moves well away from `first` before 1800.
+      expect(dist(hand(1600), first)).toBeGreaterThan(200);
+      // Before the drag's aim sets off, the camera trails the hand.
+      expect(sampleTrack(t, 1790).center.y).toBeGreaterThan(first.y + 100);
+    });
+  });
+
   // DEM-211 (Excalidraw, 2026-11-18): a drag dropped below its aim, the next
   // step's key (a toolbar, above) set off while the hand still rested at the
   // drop, and the hand then went up to it. The camera went up to the

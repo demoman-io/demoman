@@ -67,8 +67,10 @@ function departs(keys: CameraKey[], i: number): number {
  *   latest key whose move has set off) when `cursorAt` is null (follow off, or no pointer
  *   is drawn), when it answers null, and while a drag's button is held:
  *   the drag's zoom is fitted to both its ends, and trailing the hand from
- *   the press would cut off the far one. It stays the aim after the release
- *   until the hand moves again, since a hand at rest on the drop is in frame.
+ *   the press would cut off the far one. It is the aim before the press too,
+ *   once it is in force, since the hand is going to a grab already in frame.
+ *   It stays the aim after the release until the hand moves again, since a
+ *   hand at rest on the drop is in frame.
  * - Each step is the exact solution for a target held over the step, so
  *   it neither drifts nor depends on the step's size.
  */
@@ -140,11 +142,32 @@ export function solveFollow(args: {
       }
       return null;
     };
+    // The aim the next press will hold is already in force when no key sets
+    // off between now and that press. Its frame was fitted to the drag's
+    // ends, the grab among them, so the hand on its way there is not chased:
+    // chasing it to the card swung the camera there and back at the press,
+    // a bounce before the drag began (DEM-254, the Sublime board). The aim is
+    // the keys' own camera, not the key's end: a pan to it that sets off
+    // mid-stretch is eased as the keys ease it, where its end handed to the
+    // spring at once outran them (Excalidraw, 2026-11-23).
+    const pressAimInForce = (t: number): boolean => {
+      let press = Number.POSITIVE_INFINITY;
+      for (const h of holds) {
+        if (h.startMs > t && h.startMs < press) press = h.startMs;
+      }
+      return (
+        press < endMs && !departures.some((d) => d.at > t && d.at <= press)
+      );
+    };
     const targetAt = (t: number, dt: number): Vec => {
       if (held(t)) {
         holding = true;
         lead = null;
         return aimAt(t);
+      }
+      if (pressAimInForce(t)) {
+        lead = null;
+        return sampleCamera(keys, t).center;
       }
       const hand = cursorAt?.(t) ?? null;
       if (holding) {
