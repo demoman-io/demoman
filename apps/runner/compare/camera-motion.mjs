@@ -252,6 +252,17 @@ async function planMotion(repo, takeId) {
     0,
   );
   console.info(`plan fastest: ${fastest.toFixed(1)} px/frame`);
+  // Each push-in's length and where it lands: a short one was cut to the gap
+  // its step left (a drag got 0.5 s of 1.3 until 2026-11-23).
+  const pushIns = resolved.cameraKeys
+    .filter(
+      (k, i) => k.scale > 1 && (resolved.cameraKeys[i - 1]?.scale ?? 1) === 1,
+    )
+    .map(
+      (k) =>
+        `${Math.round(k.transitionMs)} ms at ${(k.outputTimeMs / 1000).toFixed(2)}`,
+    );
+  console.info(`plan push-ins: ${pushIns.length} [${pushIns.join(", ")}]`);
 }
 
 async function exportTake(repo, takeId, out) {

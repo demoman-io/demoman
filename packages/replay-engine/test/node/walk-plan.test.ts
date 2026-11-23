@@ -11,6 +11,7 @@ import type { AnchorIntent } from "@demoman/resolver";
 import {
   BRANDING_DEFAULTS,
   type DemoScript,
+  MOTION_DEFAULTS,
   type SceneAction,
   type SceneAnchor,
   type SceneDocument,
@@ -292,14 +293,14 @@ async function run(
 
 /**
  * The take's camera, as `zoomsForClicks` decides it with the fake room's
- * numbers: a zoom on every click 2500 ms or more past the last zoomed one,
- * judged on the stamps it is handed.
+ * numbers: a zoom on every click or drag 2500 ms or more past the last
+ * zoomed one, judged on the stamps it is handed.
  */
 const gapCamera: AuthoredDeps["cameraFor"] = (actions) => {
   const camera: SceneDocument["camera"] = [];
   let last: number | null = null;
   for (const a of actions) {
-    if (a.kind !== "click") continue;
+    if (a.kind !== "click" && a.kind !== "drag") continue;
     if (last !== null && a.timestamp - last < 2500) continue;
     last = a.timestamp;
     camera.push({
@@ -376,6 +377,12 @@ const markerOf = (result: AuthoredResult, index: number) => {
 const TYPE_A = { do: "type", into: { stableId: "a" }, text: "4800" } as const;
 const click = (stableId: string) =>
   ({ do: "click", on: { stableId } }) as const;
+/** A drag of `b` 300 px right; run it with `dragSecond` as the second step. */
+const DRAG_B = {
+  do: "drag",
+  from: { on: { stableId: "b" } },
+  to: { by: { x: 300, y: 0 } },
+} as never;
 
 describe("the walk plans its pauses", () => {
   // Red if `commitPlan` sets `designed` from the walk's clock (`at()`)
@@ -553,17 +560,11 @@ describe("the walk plans its pauses", () => {
   // Code review, 2026-11-14. Red if only a click's arrival is recorded:
   // the renderer would decide a drag's pan-or-return from the rendered gap.
   it("records how the camera arrives at a zoomed drag", async () => {
-    const { result } = await run(
-      [
-        click("a"),
-        {
-          do: "drag",
-          from: { on: { stableId: "b" } },
-          to: { by: { x: 300, y: 0 } },
-        } as never,
-      ],
-      { beats: RULES, zooms: () => true, dragSecond: true },
-    );
+    const { result } = await run([click("a"), DRAG_B], {
+      beats: RULES,
+      zooms: () => true,
+      dragSecond: true,
+    });
     const evidence = evidenceOf(result);
     expect(result.outcome, evidence).toBe("complete");
     const dragged = markerOf(result, 1).actionId as string;
@@ -1121,6 +1122,64 @@ const renderedOf = (result: AuthoredResult) => {
 };
 
 describe("the rest sits where the camera needs it", () => {
+  // Sublime, 2026-11-23: a drag 1.27 s after an Enter got a 0.5 s push-in
+  // of 1.3 s. The walk planned room before a zoomed click only, so a zoomed
+  // drag rested the base and `solveCamera` cut its push-in to the gap. Red
+  // if the planned branch is a click's again (`zooms && dragPlan === null
+  // && beats !== undefined`).
+  it("leaves a zoomed drag after a typed step its room, and the camera its whole push-in", async () => {
+    const { result } = await run([TYPE_A, DRAG_B], {
+      beats: RULES,
+      camera: gapCamera,
+      dragSecond: true,
+    });
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    const typed = markerOf(result, 0);
+    const dragged = markerOf(result, 1);
+    // Premise: the drag zoomed from full frame, the only zoom in the take.
+    expect(
+      result.document?.camera.map((c) => [c.marker.actionId, c.arrives]),
+      evidence,
+    ).toEqual([[dragged.actionId, "return"]]);
+    const out = renderedOf(result);
+    const actEnd = typed.actEndSourceTimeMs ?? Number.NaN;
+    expect(
+      out(dragged.sourceTimeMs) - out(actEnd),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
+    // The picture's side: the push-in that lands before the press is the
+    // whole `zoomInMs`, not what a short gap left of it.
+    const { bundle, document } = result;
+    if (bundle === null || document === null) throw new Error(evidence);
+    const { cameraKeys } = resolvePlan(planScene(document), bundle, document);
+    const pushIn = cameraKeys.find((k) => k.scale > 1);
+    expect(pushIn?.outputTimeMs, evidence).toBeCloseTo(
+      out(dragged.sourceTimeMs) + CAMERA_DEFAULTS.leadInMs,
+    );
+    expect(pushIn?.transitionMs, evidence).toBe(
+      motionTimings((document.motion ?? MOTION_DEFAULTS).smoothness).zoomInMs,
+    );
+  });
+
+  // The same without a plan: the walk waits the room out before the press.
+  // Red if the live branch is a click's again (`zooms && dragPlan === null`).
+  it("without a plan waits a zoomed drag's room out", async () => {
+    const { result } = await run([TYPE_A, DRAG_B], {
+      zooms: () => true,
+      dragSecond: true,
+    });
+    const evidence = evidenceOf(result);
+    expect(result.outcome, evidence).toBe("complete");
+    const typed = markerOf(result, 0);
+    const dragged = markerOf(result, 1);
+    expect(dragged.roomHeldMs, evidence).toBeGreaterThan(0);
+    expect(
+      dragged.sourceTimeMs - (typed.actEndSourceTimeMs as number),
+      evidence,
+    ).toBeGreaterThanOrEqual(NEEDED_MS);
+  });
+
   // Task 7 measured 2600 ms here against 6000: the typing's own idle took
   // a share of the rest planned after it. Red if the compositor's rest
   // starts at the previous marker again (`plannedIdleOf`'s

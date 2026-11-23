@@ -29,10 +29,10 @@ import { decideZoom, type LastZoom } from "./auto-zoom.js";
 export const PAN_MARGIN_MS = 300;
 
 /**
- * The CLI executor's unhurried beats (spec 2026-10-19): before a click the
- * camera will zoom to, the replay waits until there is room for the settle
- * after the last act, the zoom's push-in at the take's smoothness, and the
- * lead-in. Which clicks zoom is `zoomsForClicks`' own rule (`decideZoom`),
+ * The CLI executor's unhurried beats (spec 2026-10-19): before a click or
+ * drag the camera will zoom to, the replay waits until there is room for
+ * the settle after the last act, the zoom's push-in at the take's
+ * smoothness, and the lead-in. Which clicks zoom is `zoomsForClicks`' own rule (`decideZoom`),
  * asked on time with the added room taken out, so waiting never makes a
  * zoom the take would not have had.
  *
