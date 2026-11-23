@@ -3,6 +3,14 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.9.9" description="Videos that play, and dialogs that show">
+  - A video playing on the page plays in a headless run, and one that runs ahead and stops is said in the run report.
+  - `confirm()`, `alert()` and `prompt()` are answered and shown in the video, not cancelled in silence.
+  - The camera holds its aim before a drag's press, and a zoomed drag gets its whole push-in; saved videos with a drag export differently.
+  - `"recordingFrameRate": 60` in the repo's `.demoman/config.json` shows app animation more smoothly, for about 1.6x the run time.
+  - CI runs the release it was set up with. To move it to this one, delete `.github/workflows/demoman.yml` on your default branch and run `npx demoman setup --ci` again; `--trigger manual` now runs only from the Actions tab.
+</Update>
+
 <Update label="0.9.8" description="Failed refreshes keep their evidence">
   - To get the new workflow, delete `.github/workflows/demoman.yml` on your default branch, then run `npx demoman setup --ci` again. A failed refresh then keeps its run report and final still as a `demoman-failed` artifact.
   - A failed refresh that its script caused says how to fix it: record the flow again.
