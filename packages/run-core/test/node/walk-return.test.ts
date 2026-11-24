@@ -75,11 +75,25 @@ const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
   },
 });
 
-async function walk(steps: DemoScript["steps"]) {
+/** `navigates`: the first click's release starts and commits a new
+ *  top-frame document, as a link to another page does. */
+async function walk(steps: DemoScript["steps"], navigates = false) {
   const cdp = createCdpFake();
   let clock = 0;
+  let navigated = false;
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
+    if (
+      navigates &&
+      !navigated &&
+      method === "Input.dispatchMouseEvent" &&
+      (params as { type?: string } | undefined)?.type === "mouseReleased"
+    ) {
+      navigated = true;
+      cdp.emit("Page.frameStartedLoading", { frameId: "main" });
+      cdp.emit("Page.frameNavigated", { frame: { id: "main" } });
+      cdp.emit("Page.frameStoppedLoading", { frameId: "main" });
+    }
     if (method === "Page.captureScreenshot") {
       for (let i = 0; i < 3; i++) {
         cdp.emit("Page.screencastFrame", {
@@ -151,7 +165,7 @@ async function walk(steps: DemoScript["steps"]) {
     { scriptVersion: 8, name: "return", target: PAGE, steps },
     deps,
   );
-  return { result, asked: rest.mock.calls.map(([i]) => i) };
+  return { result, asked: rest.mock.calls.map(([i]) => i), navigated };
 }
 
 describe("a zoomed click paced as a return just short of one", () => {
@@ -245,4 +259,73 @@ describe("a zoomed click paced as a return just short of one", () => {
       toOutputMs(timeline, secondClick.sourceTimeMs),
     );
   });
+});
+
+// DEM-187 (ruled 2026-11-20: known waits go on the designed clock). A wait
+// step, or a load, between two zoomed clicks takes the page's time, which
+// the designed clock does not count: without this the second click panned
+// from the first's zoom across a long load. Red if the walk stops reading
+// a wait (`waitedSince`), or stops planning the return's room.
+describe("a zoomed click after a known wait", () => {
+  // Far enough apart that both clicks zoom (the gap rule), near enough that
+  // with nothing between them the second pans.
+  const PAUSE: DemoScript["steps"][number] = { do: "pause", ms: 1500 };
+  const B: DemoScript["steps"][number] = { do: "click", on: { stableId: "b" } };
+  const C: DemoScript["steps"][number] = { do: "click", on: { stableId: "c" } };
+  const cases: [string, DemoScript["steps"], boolean][] = [
+    ["a waitForLoad step", [B, { do: "waitForLoad" }, PAUSE, C], false],
+    ["a load the first click started", [B, PAUSE, C], true],
+  ];
+  it.each(cases)(
+    "after %s, returns through full frame, and is in before the click",
+    async (_, steps, navigates) => {
+      // Premise: the same two clicks with nothing between them both zoom,
+      // and the second pans.
+      const plain = await walk([B, PAUSE, C]);
+      expect(
+        plain.result.document?.camera.map((c) => c.arrives ?? null),
+        JSON.stringify(plain.result.document?.camera),
+      ).toEqual(["return", "pan"]);
+
+      const { result, navigated } = await walk(steps, navigates);
+      const evidence = JSON.stringify({
+        outcome: result.outcome,
+        reason: result.reason,
+        pacing: result.pacing,
+        decided: [...(result.decided ?? new Map())],
+        camera: result.document?.camera,
+      });
+      expect(result.outcome, evidence).toBe("complete");
+      // Premise: the fake committed its document when it was asked to.
+      expect(navigated, evidence).toBe(navigates);
+      const document = result.document;
+      const bundle = result.bundle;
+      if (document === null || bundle === null) throw new Error(evidence);
+      expect(
+        document.camera.map((c) => c.arrives ?? null),
+        evidence,
+      ).toEqual(["return", "return"]);
+
+      // The video: in, out to full frame, and in again before the click.
+      const { timeline, cameraKeys } = resolvePlan(
+        planScene(document),
+        bundle,
+        document,
+      );
+      const keysEvidence = `${evidence} keys ${JSON.stringify(cameraKeys)}`;
+      expect(
+        cameraKeys.map((k) => (k.scale > 1 ? "in" : "out")),
+        keysEvidence,
+      ).toEqual(["out", "in", "out", "in", "out"]);
+      const secondIn = cameraKeys[3];
+      const secondClick = bundle.markers.find(
+        (m) => m.actionId === document.camera[1]?.marker.actionId,
+      );
+      if (secondIn === undefined || secondClick === undefined)
+        throw new Error(keysEvidence);
+      expect(secondIn.outputTimeMs, keysEvidence).toBeLessThanOrEqual(
+        toOutputMs(timeline, secondClick.sourceTimeMs),
+      );
+    },
+  );
 });

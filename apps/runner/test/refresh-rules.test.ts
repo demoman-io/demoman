@@ -68,13 +68,36 @@ describe("runVerdict", () => {
     const got = verdictOf({ frames: { spans: 2, degradations: [kind] } });
     expect(got.kind).toBe("failed");
   });
-  it("calls a run that recorded no motion for its acting steps degraded", () => {
+  // DEM-238 (ruled 2026-11-24): the stills-only rule is the real-time
+  // recorder's starved screencast. Red if a held run that recorded no
+  // motion is called degraded (a static page, on any machine), or if a
+  // real-time one, or one that predates held and names no clock, stops being.
+  it.each([
+    ["in real time", { recording: { clock: "real", why: "asked" } }],
+    ["with no clock named (before held)", {}],
+  ])(
+    "calls a run that recorded no motion for its acting steps %s degraded",
+    (_, run) => {
+      expect(
+        verdictOf({
+          run,
+          steps: acting,
+          frames: { spans: 0, degradations: [] },
+        }),
+      ).toEqual({
+        kind: "degraded",
+        problems: ["no motion was recorded: the video is its stills only"],
+      });
+    },
+  );
+  it("calls a held run that recorded no motion for its acting steps clean", () => {
     expect(
-      verdictOf({ steps: acting, frames: { spans: 0, degradations: [] } }),
-    ).toEqual({
-      kind: "degraded",
-      problems: ["no motion was recorded: the video is its stills only"],
-    });
+      verdictOf({
+        run: { recording: { clock: "held", frameRate: 30, from: "default" } },
+        steps: acting,
+        frames: { spans: 0, degradations: [] },
+      }),
+    ).toEqual({ kind: "clean" });
   });
   // Review, finding 6. Red when a flow with nothing to move is flagged.
   it("a run with no acting steps and no motion is clean", () => {

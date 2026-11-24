@@ -294,9 +294,19 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
     const words = (DEGRADATION_WORDS as Record<string, string>)[k];
     return words === undefined ? k : `${words} (${k})`;
   });
-  // As compare/numbers.ts: no spans matters only when a step acts.
+  // No spans matters only when a step acts. And only in real time, where a
+  // busy machine starves the screencast (DEM-55): a held recording takes
+  // every frame on its clock, and a frame it cannot take or encode stops
+  // the run or is said (encodeRefused, keyframeOnly), so no spans on a
+  // complete held run is a page that did not move (DEM-238, ruled
+  // 2026-11-24). An answer that does not say its clock predates held, and
+  // was real time. (src/compare/numbers.ts refuses any stills-only run, held
+  // too: there the question is whether two runs can be compared at all.)
   const acting = (r.steps ?? []).filter((s) => s.intent?.do !== "pause");
-  const starved = r.frames?.spans === 0 && acting.length > 0;
+  const starved =
+    r.frames?.spans === 0 &&
+    acting.length > 0 &&
+    r.run?.recording?.clock !== "held";
   if (starved) problems.push(STILLS_ONLY);
   const whole =
     r.outcome === "complete" &&
