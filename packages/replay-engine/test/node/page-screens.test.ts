@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { madeFromOf } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
@@ -665,6 +667,89 @@ describe("frames a page screen keeps out of the film", () => {
     ).toBeGreaterThanOrEqual(3);
     expect(pushed, pushed.join(",")).not.toContain("1280x800");
     expect(pushed, pushed.join(",")).not.toContain("2400x1500");
+  });
+
+  // DEM-280. At display scale 1 the window's unscaled surface is the page
+  // frame's own size, so no size rule drops it: CI filmed one as a hard
+  // zoom flash. Red with the walk's `surfaceFrame` check removed. The page
+  // changing for real after it (a key typed, a scroll) is filmed: a false
+  // refusal costs real frames.
+  it("refuses a frame of the window's surface after a page capture at display scale 1, says when, and keeps the page's own changes", async () => {
+    const d = deps();
+    const fixture = (name: string) =>
+      readFileSync(
+        join(import.meta.dirname, "..", "fixtures", "frames", name),
+      ).toString("base64");
+    const GOOD = fixture("crop-good.jpg");
+    const CROP = fixture("crop-surface.jpg");
+    const TYPED = fixture("crop-typed.jpg");
+    const SCROLLED = fixture("crop-scrolled.jpg");
+    let releases = 0;
+    let burstDue = false;
+    let cropPaintedMs = -1;
+    const send = d.cdp.send.bind(d.cdp);
+    const frame = (sessionId: number, data: string, paintedMs: number) =>
+      d.cdp.emit("Page.screencastFrame", {
+        sessionId,
+        data,
+        metadata: { timestamp: paintedMs / 1000 },
+      });
+    d.cdp.send = async (method, params = {}) => {
+      if (
+        method === "Runtime.evaluate" &&
+        String(params.expression).includes("__demomanSettlePaint")
+      ) {
+        d.cdp.emit("Page.screencastFrame", { sessionId: 1, data: GOOD });
+      }
+      if (burstDue && method !== "Page.screencastFrameAck") {
+        burstDue = false;
+        // Past the release's echo, where CI's came (296 ms after its still).
+        const after = d.clock.now() + ECHO_WINDOW_MS + 200;
+        cropPaintedMs = after + 1;
+        frame(2, GOOD, after);
+        frame(3, CROP, cropPaintedMs);
+        frame(4, TYPED, after + 2);
+        frame(5, SCROLLED, after + 3);
+      }
+      const reply = await send(method, params);
+      if (
+        method === "Runtime.evaluate" &&
+        params.expression === PAGE_CAPTURE_RELEASE &&
+        ++releases === 1
+      ) {
+        burstDue = true;
+      }
+      return reply;
+    };
+    const result = await runReplay(scene(), d);
+    const pushed = vi
+      .mocked(d.encoder.push)
+      .mock.calls.map(([f]) => Buffer.from(f.bytes).toString("base64"));
+    const named = pushed.map(
+      (b) =>
+        ({ [GOOD]: "good", [CROP]: "crop", [TYPED]: "typed" })[b] ??
+        (b === SCROLLED ? "scrolled" : "other"),
+    );
+    const said = result.degradations.filter(
+      (x) => x.kind === "surfaceMismatch",
+    );
+    const evidence = JSON.stringify({
+      named,
+      said,
+      crops: result.surfaceCrops,
+    });
+    // The premise: the burst was sent.
+    expect(cropPaintedMs, evidence).toBeGreaterThan(0);
+    expect(named, evidence).not.toContain("crop");
+    // The negative control: the page's own changes inside the window kept.
+    expect(named, evidence).toContain("typed");
+    expect(named, evidence).toContain("scrolled");
+    // Said: counted, and when, on the result and the bundle's degradation.
+    expect(result.surfaceCrops, evidence).toHaveLength(1);
+    expect(said, evidence).toHaveLength(1);
+    expect(said[0]?.note, evidence).toContain(
+      `painted at ${result.surfaceCrops?.[0]} ms`,
+    );
   });
 });
 

@@ -73,7 +73,7 @@ const film = (unplacedBeatSteps?: (string | null)[]): BuildArgs["film"] => ({
     : { unplacedBeats: unplacedBeatSteps.length, unplacedBeatSteps }),
 });
 
-const reportOf = (video: BuildArgs["film"]) =>
+const reportOf = (video: BuildArgs["film"], walked: WalkResultLike = walk) =>
   buildRunReport({
     ...NOT_CHECKED,
     film: video,
@@ -84,7 +84,7 @@ const reportOf = (video: BuildArgs["film"]) =>
       executor: "cli",
       script: { name: "planned", scriptVersion: 1, steps: 3 },
     },
-    walk,
+    walk: walked,
     steps: [step(1), step(2), step(3)],
     // The scene is read only for what the verdict names; it carries no steps
     // of its own here.
@@ -142,5 +142,34 @@ describe("a planned beat that could not be placed", () => {
     const recorded = reportOf(NOT_CHECKED.film);
     expect(recorded.frames.degradations).toEqual([]);
     expect(recorded.frames).not.toHaveProperty("unplacedBeats");
+  });
+});
+
+// DEM-280: frames of the window's unscaled surface the walk refused are
+// counted and timed in the report, beside the kind the verdict line says.
+describe("frames of the window's surface the walk refused", () => {
+  it("are counted, with when each was painted, and said as surfaceMismatch", () => {
+    const report = reportOf(film(), {
+      ...walk,
+      degradations: [
+        {
+          kind: "surfaceMismatch",
+          startMs: 6318,
+          endMs: 6402,
+          note: "refused 2 screencast frames of the window's unscaled surface",
+        },
+      ],
+      surfaceCrops: [6318, 6402],
+    });
+    expect(report.frames.surfaceCrops).toEqual({
+      refused: 2,
+      atMs: [6318, 6402],
+    });
+    expect(report.frames.degradations).toEqual(["surfaceMismatch"]);
+    expect(verdictLine(report)).toContain("(surfaceMismatch)");
+  });
+
+  it("is absent when none was refused", () => {
+    expect(reportOf(film()).frames).not.toHaveProperty("surfaceCrops");
   });
 });

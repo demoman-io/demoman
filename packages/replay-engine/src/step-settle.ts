@@ -245,6 +245,18 @@ export const STRAY_WINDOW_MS = 250;
  */
 export const ECHO_WINDOW_MS = 100;
 
+/**
+ * How long after a full still, a page capture or a metrics re-send a frame
+ * is judged for the window's unscaled surface (`surfaceCrop`, DEM-280).
+ * Sized from CI's film (PR #143's ubuntu, run 45454571676): its stray came
+ * about 423 ms after its still ended; see the walk's `cropWatch`. Judging
+ * costs one luma decode a frame, and only inside it.
+ */
+// shortcut: a stray Chrome sends more than this after its capture ended is
+// filmed as a flash and nothing says so; widen it, or judge every frame,
+// if a film shows one later.
+export const SURFACE_CROP_WINDOW_MS = 1000;
+
 /** A page capture, on the walk's clock: when the hold began and ended (null
  *  while it holds), when the walk's next input began after it (null until
  *  then), and the frame size seen before it (null when none was). */

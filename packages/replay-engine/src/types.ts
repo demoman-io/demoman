@@ -533,6 +533,13 @@ export interface ReplayResult {
    */
   ignoredDrags?: { actionId: string; note: string }[];
   /**
+   * When each screencast frame of the window's unscaled surface was painted,
+   * in ms on the walk's clock, refused rather than filmed (DEM-280,
+   * `surfaceCrop`); the bundle's `surfaceMismatch` degradation says the
+   * same. Optional as `unconfirmedClicks` is; the walk always sets it.
+   */
+  surfaceCrops?: number[];
+  /**
    * Every JavaScript dialog the run answered, in order, with the action it
    * opened during (null between steps), DEM-161. Optional as
    * `unconfirmedClicks` is; the walk always sets it.
