@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CiDeps, CiPlan } from "../src/ci-setup.js";
-import { createStudioCi } from "../src/studio-ci.js";
+import { ciWorkflow } from "../src/ci-workflow.js";
+import { createStudioCi, releaseOlder } from "../src/studio-ci.js";
 
 const ROOT = "/work/app";
 const TYPED = "s3cret-value";
@@ -73,8 +74,96 @@ describe("the Studio's CI door", () => {
     expect(
       await stateOf({ reason: "githubUnreadable", detail: "gh timed out" }),
     ).toEqual({ kind: "unreadable", detail: "gh timed out" });
-    expect(await stateOf(facts(true))).toEqual({ kind: "setUp" });
+    // No workflow text to place: set up, and the reason is kept (DEM-269).
+    expect(await stateOf(facts(true))).toEqual({
+      kind: "setUp",
+      unread: "GitHub sent no content for it",
+    });
     expect(await stateOf(facts(false))).toEqual({ kind: "notSetUp" });
+  });
+
+  // DEM-269. Red if a set-up repo whose workflow an older release wrote is
+  // not offered the update, or one that cannot be read, names no release or
+  // is this release's is.
+  it("offers an update only for a workflow an older release wrote", async () => {
+    const workflow = (version: string, route: "pr" | "main") =>
+      ciWorkflow({
+        version,
+        trigger: "daily",
+        route,
+        branch: "main",
+        app: null,
+        secrets: { accounts: [], app: [] },
+      });
+    const stateOf = (workflowText?: string) =>
+      createStudioCi({
+        deps: () =>
+          ({
+            version: "0.9.9",
+            readGithub: async () => ({
+              ...facts(true),
+              ...(workflowText === undefined ? {} : { workflowText }),
+            }),
+          }) as unknown as Omit<CiDeps, "log" | "signal">,
+      }).state(ROOT);
+    expect(await stateOf(workflow("0.9.8", "main"))).toEqual({
+      kind: "setUp",
+      update: { from: "0.9.8", to: "0.9.9", trigger: "daily", route: "main" },
+    });
+    expect(await stateOf(workflow("0.9.9", "pr"))).toEqual({ kind: "setUp" });
+    // Review of DEM-269: red if a newer workflow is offered a downgrade, or
+    // a tag that is no release is compared as text.
+    expect(await stateOf(workflow("0.9.10", "pr"))).toEqual({ kind: "setUp" });
+    expect(await stateOf(workflow("latest", "pr"))).toMatchObject({
+      kind: "setUp",
+      unread: "its release latest cannot be compared with 0.9.9",
+    });
+    expect(await stateOf("name: Mine\non:\n  push:\n")).toMatchObject({
+      kind: "setUp",
+      unread: expect.stringContaining("refresh"),
+    });
+    expect(await stateOf(undefined)).toEqual({
+      kind: "setUp",
+      unread: "GitHub sent no content for it",
+    });
+    // A workflow run from a packed build names no release.
+    expect(
+      await stateOf(
+        workflow("0.9.8", "pr").replace(/-y demoman@\S+/g, "-y demoman"),
+      ),
+    ).toMatchObject({
+      kind: "setUp",
+      unread: expect.stringContaining("names no"),
+    });
+    // Review of DEM-269: never offered while its pull request is open.
+    const openPr = await createStudioCi({
+      deps: () =>
+        ({
+          version: "0.9.9",
+          readGithub: async () => ({
+            ...facts(true),
+            workflowText: workflow("0.9.8", "pr"),
+            setupBranch: { pr: { number: 9, url: "https://x/9" } },
+          }),
+        }) as unknown as Omit<CiDeps, "log" | "signal">,
+    }).state(ROOT);
+    // Held back, and said (review of DEM-269).
+    expect(openPr).toEqual({
+      kind: "setUp",
+      unread:
+        "its update to 0.9.9 waits on the open setup pull request https://x/9",
+    });
+  });
+
+  it("orders releases as releases, not as text", () => {
+    expect(releaseOlder("0.9.8", "0.9.9")).toBe(true);
+    expect(releaseOlder("0.9.10", "0.9.9")).toBe(false);
+    expect(releaseOlder("0.9.9", "0.9.9")).toBe(false);
+    expect(releaseOlder("0.10.0-rc.1", "0.10.0")).toBe(true);
+    // Review of DEM-269: numbered pre-releases by number, not text.
+    expect(releaseOlder("0.10.0-rc.9", "0.10.0-rc.10")).toBe(true);
+    expect(releaseOlder("0.10.0-rc.10", "0.10.0-rc.9")).toBe(false);
+    expect(releaseOlder("latest", "0.9.9")).toBeNull();
   });
 
   it("plans with the values untouched, applies the same live plan, and redacts every line", async () => {

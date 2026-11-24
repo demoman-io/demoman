@@ -745,19 +745,32 @@ export interface CiAppliedWire {
   lines: string[];
 }
 export type CiAnswerWire = CiPlannedWire | CiAppliedWire | CiStopWire;
+/** CI is set up with a workflow an older Demoman wrote (DEM-269): who wrote
+ *  it, this release, and how it runs now, which an update keeps unless the
+ *  person picks otherwise. */
+export interface CiUpdateWire {
+  from: string;
+  to: string;
+  trigger: CiTriggerWire;
+  route: "pr" | "main";
+}
 /** `repoCiState`'s answer. `finished`: the last job for this repo that
- *  ended, until another starts or the repo is set up. */
+ *  ended, until another starts or the repo is set up. `setUp`'s `unread`:
+ *  why the workflow there could not be placed, so no update is offered. */
 export type CiState =
-  | { kind: "setUp" }
+  | { kind: "setUp"; update?: CiUpdateWire; unread?: string }
   | { kind: "notSetUp" }
   | { kind: "noGh"; detail: string }
   | { kind: "unreadable"; detail: string }
-  | { kind: "running"; jobId: string }
+  /** `update` on `running` and `finished`: the job is an update's, so the
+   *  sheet keeps saying so when reopened. */
+  | { kind: "running"; jobId: string; update?: CiUpdateWire }
   | {
       kind: "finished";
       jobId: string;
       step: "plan" | "apply";
       answer: CiAnswerWire;
+      update?: CiUpdateWire;
     };
 /** `repoCiPlan`'s body: the only request that carries secret values. */
 export interface CiPlanBody {

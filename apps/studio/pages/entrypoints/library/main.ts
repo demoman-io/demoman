@@ -632,8 +632,9 @@ function rootOf(project: string): string | null {
 }
 
 /** Set up CI beside a project's heading (DEM-52): offered for a project
- *  with a flow in the repo whose CI is anything but set up. A state that
- *  will not read still offers it, and the sheet says why. */
+ *  with a flow in the repo whose CI is anything but set up, or set up by an
+ *  older release (Update CI, DEM-269). A state that will not read still
+ *  offers it, and the sheet says why. */
 function ciSetupFor(p: Place): (() => void) | null {
   if (typeof p !== "object") return null;
   const root = rootOf(p.project);
@@ -651,8 +652,29 @@ function ciSetupFor(p: Place): (() => void) | null {
       .finally(paintCi);
     return null;
   }
-  if (st === "reading" || st.kind === "setUp") return null;
+  // Set up: offered only to update an older release's workflow (DEM-269).
+  if (st === "reading" || (st.kind === "setUp" && !updatable(root)))
+    return null;
   return () => void openCi(root, p.project);
+}
+
+/** Whether the repo's CI is set up by an older release (DEM-269): the one
+ *  test the heading's button and the sheet's title both read. */
+function updatable(root: string): boolean {
+  const st = ciStates.get(root);
+  // A running or finished update's job is still an update (review).
+  return (
+    typeof st === "object" &&
+    (st.kind === "setUp" || st.kind === "running" || st.kind === "finished") &&
+    st.update !== undefined
+  );
+}
+
+/** Whether the heading's CI button is an update (DEM-269). */
+function ciUpdating(p: Place): boolean {
+  if (typeof p !== "object") return false;
+  const root = rootOf(p.project);
+  return root !== null && updatable(root);
 }
 
 async function openCi(root: string, project: string): Promise<void> {
@@ -661,6 +683,7 @@ async function openCi(root: string, project: string): Promise<void> {
       root,
       name: project.split("/").slice(1).join("/") || project,
       ci: platform.repoCi,
+      updating: updatable(root),
     });
   } catch (error) {
     reportError("opening CI setup", error);
@@ -673,7 +696,7 @@ async function openCi(root: string, project: string): Promise<void> {
 function paintCi(): void {
   const slot = root.querySelector<HTMLElement>("[data-ci-slot]");
   if (slot !== null && place !== null && typeof place === "object") {
-    paintCiSlot(slot, ciSetupFor(place));
+    paintCiSlot(slot, ciSetupFor(place), ciUpdating(place));
   }
 }
 
@@ -1108,6 +1131,7 @@ const actions: LibraryActions = {
     remove: (id) => void removeFromRepo(id),
   },
   ciSetup: (p) => ciSetupFor(p),
+  ciUpdating: (p) => ciUpdating(p),
   remove: (sceneId: string, kind: RowKind): void => {
     // The run in flight owns the deletes; a second dialog over it would
     // race its list.

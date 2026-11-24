@@ -1,6 +1,6 @@
 // apps/studio/pages/src/shell/ci-sheet.ts
 
-import { button, ciSteps, ciStepsView, type RepoCiDoor } from "./ci-steps";
+import { ciActions, ciSteps, ciStepsView, type RepoCiDoor } from "./ci-steps";
 import { showSheet } from "./sheet-dialog";
 
 /**
@@ -13,6 +13,8 @@ export function openCiSheet(a: {
   /** The project's name, said under the title. */
   name: string;
   ci: RepoCiDoor;
+  /** Opened as Update CI (DEM-269): titled so before its own read lands. */
+  updating?: boolean;
 }): Promise<{ prOpened: string | null }> {
   const dialog = document.createElement("dialog");
   dialog.className = "confirm-dialog repo-sheet";
@@ -37,11 +39,25 @@ export function openCiSheet(a: {
   const draw = (): void => {
     const title = document.createElement("h2");
     title.className = "confirm-title";
-    title.textContent = "Set up CI";
+    const update = steps.update;
+    // The opener's word only until the sheet's own read lands.
+    const updating =
+      update !== null || (steps.step.k === "reading" && a.updating === true);
+    title.textContent = updating ? "Update CI" : "Set up CI";
     const name = document.createElement("p");
     name.className = "repo-sheet-sub";
     name.textContent = a.name;
     const parts: HTMLElement[] = [title, name];
+    // What an update does, before it is done: not over its pull request.
+    if (
+      update !== null &&
+      (steps.step.k === "form" || steps.step.k === "planned")
+    ) {
+      const said = document.createElement("p");
+      said.setAttribute("data-ci-update-said", "");
+      said.textContent = `CI is set up with the workflow Demoman ${update.from} wrote. This is ${update.to}: updating opens one pull request, "Update Demoman's workflow", and keeps how it runs. The whole file is replaced, so anything added to it by hand is dropped.`;
+      parts.push(said);
+    }
     if (steps.step.k === "setUp") {
       const said = document.createElement("p");
       said.textContent = "CI is set up.";
@@ -49,18 +65,20 @@ export function openCiSheet(a: {
       parts.push(said);
     }
     const view = ciStepsView(steps);
-    const done = button("Done", "check");
-    done.setAttribute("data-ci-done", "");
-    done.disabled = steps.busy;
-    done.addEventListener("click", close);
-    const actions = document.createElement("div");
-    actions.className = "confirm-actions";
-    actions.append(...view.actions, done);
-    parts.push(...view.nodes, actions);
+    parts.push(
+      ...view.nodes,
+      ciActions(view.actions, {
+        primary: "Done",
+        quiet: "Close",
+        attr: "data-ci-done",
+        fn: close,
+        disabled: steps.busy,
+      }),
+    );
     form.replaceChildren(...parts);
     if (view.focus !== undefined) queueMicrotask(() => view.focus?.focus());
   };
-  const steps = ciSteps(a.ci, a.root, draw);
+  const steps = ciSteps(a.ci, a.root, draw, { offerUpdate: true });
   draw();
   void steps.read();
 

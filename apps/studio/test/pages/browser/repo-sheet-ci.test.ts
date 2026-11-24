@@ -271,7 +271,12 @@ for (const scheme of ["light", "dark"] as const) {
       await shot("check-status", scheme);
       s.send({ phase: "done", step: "plan", answer: planned });
       await el(dialog, "[data-ci-apply]");
-      expect(dialog.textContent).toContain("Check passed");
+      // The author (DEM-269): the progress goes once the check answers, and
+      // the verdict says what passed, not the bare outcome word.
+      expect(dialog.querySelector("[data-ci-status]")).toBeNull();
+      expect(dialog.querySelector("[data-ci-verdict]")?.textContent).toMatch(
+        /^Check passed: the workflow recorded ".+" from a clean checkout in \d+ s\.$/,
+      );
       expect(dialog.textContent).toContain("Runs on every push.");
       expect(dialog.textContent).toContain("Every release");
       expect(dialog.textContent).not.toContain("Daily");

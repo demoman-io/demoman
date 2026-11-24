@@ -7,6 +7,7 @@ import type {
   CiPlannedWire,
   CiState,
   CiStopWire,
+  CiUpdateWire,
 } from "@demoman/studio-protocol";
 import type { CiEvent, Platform } from "../platform/types";
 import { icon, spinner } from "./icons";
@@ -71,8 +72,16 @@ const holeLabel = (field: string): string =>
  * CI setup for `root`, without a dialog: the add sheet's second section and
  * the CI sheet both drive one. `read` starts it from the repo's state.
  */
-export function ciSteps(door: RepoCiDoor, root: string, onChange: () => void) {
+export function ciSteps(
+  door: RepoCiDoor,
+  root: string,
+  onChange: () => void,
+  /** The Set up CI sheet offers an update of an older workflow (DEM-269);
+   *  the add sheet keeps its own pull request instead. */
+  o: { offerUpdate?: boolean } = {},
+) {
   let step: CiStep = { k: "reading" };
+  let update: CiUpdateWire | null = null;
   let stopCi: (() => void) | undefined;
   let stopped = false;
   let prUrl: string | null = null;
@@ -153,6 +162,10 @@ export function ciSteps(door: RepoCiDoor, root: string, onChange: () => void) {
     get proposal() {
       return proposal;
     },
+    /** An older workflow this sheet offers to update, or null. */
+    get update() {
+      return update;
+    },
     /** The pull request an apply opened, or null. */
     get prUrl() {
       return prUrl;
@@ -167,7 +180,10 @@ export function ciSteps(door: RepoCiDoor, root: string, onChange: () => void) {
       }
       switch (ci.kind) {
         case "setUp":
-          set({ k: "setUp" });
+          if (ci.update !== undefined && o.offerUpdate === true) {
+            update = ci.update;
+            set({ k: "form" });
+          } else set({ k: "setUp" });
           return;
         case "notSetUp":
           set({ k: "form" });
@@ -177,10 +193,14 @@ export function ciSteps(door: RepoCiDoor, root: string, onChange: () => void) {
           set({ k: "note", text: ci.detail });
           return;
         case "running":
+          if (ci.update !== undefined && o.offerUpdate === true)
+            update = ci.update;
           set({ k: "working", lines: [] });
           listen(ci.jobId, true);
           return;
         case "finished":
+          if (ci.update !== undefined && o.offerUpdate === true)
+            update = ci.update;
           set({ k: "working", lines: [] });
           onCi(
             {
@@ -382,8 +402,75 @@ function appliedNodes(r: CiAppliedWire): HTMLElement[] {
   return out;
 }
 
-const verdictOf = (c: CiPlannedWire["plan"]["check"]): string =>
-  "skipped" in c ? `Check skipped: ${c.skipped}` : `Check passed: ${c.outcome}`;
+/** What the check proved, in words (the author, DEM-269): which flow the
+ *  workflow recorded, from where, and how long it took; never the bare
+ *  outcome word. */
+export const verdictOf = (
+  c: CiPlannedWire["plan"]["check"],
+  update: boolean,
+): string =>
+  "skipped" in c
+    ? `Check skipped: ${c.skipped}`
+    : `Check passed: the ${update ? "updated " : ""}workflow recorded "${c.flow}" from a clean checkout in ${c.recordSeconds} s.`;
+
+/**
+ * The author's layout D (DEM-269), for every sheet that shows CI steps: the
+ * next step as one full-width primary, and under it one quiet line of the
+ * rest. `close` is the sheet's own way out: a quiet link while there is a
+ * step to take (`quiet`, or none when the steps carry their own, as the add
+ * sheet's Not now), and the primary once nothing is left (`primary`).
+ */
+export function ciActions(
+  actions: HTMLElement[],
+  close: {
+    primary: string;
+    quiet: string | null;
+    attr: string;
+    fn: () => void;
+    disabled?: boolean;
+  },
+): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "ci-actions";
+  box.setAttribute("data-ci-actions", "");
+  const primary = actions.find((b) => b.dataset.role === "primary");
+  const quiet = actions.filter((b) => b.dataset.role === "quiet");
+  const closing = (b: HTMLButtonElement): HTMLButtonElement => {
+    b.setAttribute(close.attr, "");
+    b.disabled = close.disabled === true;
+    b.addEventListener("click", close.fn);
+    return b;
+  };
+  const links: HTMLElement[] = [];
+  if (primary !== undefined) {
+    box.append(primary);
+    if (close.quiet !== null)
+      links.push(closing(button(close.quiet, null, "ci-link")));
+  } else {
+    box.append(closing(button(close.primary, "check", "btn btn-primary")));
+  }
+  // The way out first, on every sheet: "Close · Check again", and the add
+  // sheet's "Not now · Check again".
+  links.push(
+    ...quiet.filter((b) => b.hasAttribute("data-ci-not-now")),
+    ...quiet.filter((b) => !b.hasAttribute("data-ci-not-now")),
+  );
+  if (links.length > 0) {
+    const line = document.createElement("p");
+    line.className = "ci-quiet";
+    links.forEach((l, i) => {
+      if (i > 0) {
+        const dot = document.createElement("span");
+        dot.setAttribute("aria-hidden", "true");
+        dot.textContent = "·";
+        line.append(dot);
+      }
+      line.append(l);
+    });
+    box.append(line);
+  }
+  return box;
+}
 
 /** What a CI step draws: its nodes, its buttons, what to focus. `setUp`
  *  draws nothing: its caller says what a set-up repo offers. `notNow` adds
@@ -396,20 +483,28 @@ export function ciStepsView(
   const nodes: HTMLElement[] = [];
   const acts: HTMLElement[] = [];
   let focus: HTMLElement | undefined;
+  // The author's layout D (DEM-269): the next step is the one primary;
+  // the rest are quiet links (`ciActions` lays them out).
   const act = (
     word: string,
     glyph: Parameters<typeof icon>[0],
     attr: string,
     fn: () => void,
+    role: "primary" | "quiet" = "primary",
   ) => {
-    const b = button(word, glyph);
+    const b =
+      role === "primary"
+        ? button(word, glyph, "btn btn-primary")
+        : button(word, null, "ci-link");
+    b.dataset.role = role;
     b.setAttribute(attr, "");
     b.addEventListener("click", fn);
     acts.push(b);
   };
   const notNow = (): void => {
     const go = o.notNow;
-    if (go !== undefined) act("Not now", "close", "data-ci-not-now", go);
+    if (go !== undefined)
+      act("Not now", "close", "data-ci-not-now", go, "quiet");
   };
   switch (ci.k) {
     case "reading":
@@ -426,7 +521,15 @@ export function ciStepsView(
     case "stopped":
       nodes.push(text("p", ci.stop.detail, "data-ci-stop"));
       if (ci.stop.tail !== undefined) nodes.push(text("pre", ci.stop.tail));
-      act("Check", "shieldCheck", "data-ci-check", () => void s.check({}));
+      act(
+        s.update === null ? "Check" : "Check the update",
+        "shieldCheck",
+        "data-ci-check",
+        () => void s.check({}),
+      );
+      // Review of DEM-269: the add sheet's way out is Not now; a stop must
+      // not leave the check as the only button.
+      notNow();
       break;
     case "applied":
       nodes.push(statusPanel(ci.progress), ...appliedNodes(ci.applied));
@@ -438,9 +541,14 @@ export function ciStepsView(
       if (stop !== undefined)
         nodes.push(text("p", stop.detail, "data-ci-stop"));
       if (planned !== null) {
+        // The check's progress lines go once it has answered: its last
+        // line ("Reading the repo") read as work still going (the author).
         nodes.push(
-          statusPanel(ci.k === "planned" ? ci.progress : []),
-          text("p", verdictOf(planned.plan.check), "data-ci-verdict"),
+          text(
+            "p",
+            verdictOf(planned.plan.check, s.update !== null),
+            "data-ci-verdict",
+          ),
           lineList(planned.lines, "data-ci-plan-lines"),
         );
         const offered = planned.plan.offers.filter((x) => x.offered);
@@ -457,6 +565,15 @@ export function ciStepsView(
             ),
           );
         });
+        // An update marks how the workflow runs now (the author's mockup).
+        const now = s.update;
+        if (now !== null) {
+          offered.forEach((x, i) => {
+            const o = trigger.options[i];
+            if (o && JSON.stringify(x.trigger) === JSON.stringify(now.trigger))
+              o.text = `${x.label} (as now)`;
+          });
+        }
         trigger.addEventListener("change", () => {
           s.ciChoices.trigger = offered[Number(trigger.value)]?.trigger;
           s.markStale();
@@ -476,6 +593,9 @@ export function ciStepsView(
             ),
           );
         }
+        if (now !== null)
+          for (const o of route.options)
+            if (o.value === now.route) o.text = `${o.text} (as now)`;
         route.addEventListener("change", () => {
           s.ciChoices.route = route.value as "pr" | "main";
           s.markStale();
@@ -516,16 +636,29 @@ export function ciStepsView(
         nodes.push(wrap);
         focus ??= input;
       }
-      act("Check", "shieldCheck", "data-ci-check", () => {
-        // Read once into the request, then cleared: nothing keeps a value.
-        const values = Object.fromEntries(
-          secrets
-            .filter(([, i]) => i.value !== "")
-            .map(([n, i]) => [n, i.value]),
-        );
-        for (const [, i] of secrets) i.value = "";
-        void s.check(values);
-      });
+      // The update's first step says what it is for (the author, DEM-269);
+      // once a fresh plan is in, checking again is the quiet way back.
+      const fresh = planned !== null && ci.k === "planned" && !ci.stale;
+      act(
+        fresh
+          ? "Check again"
+          : s.update === null
+            ? "Check"
+            : "Check the update",
+        "shieldCheck",
+        "data-ci-check",
+        () => {
+          // Read once into the request, then cleared: nothing keeps a value.
+          const values = Object.fromEntries(
+            secrets
+              .filter(([, i]) => i.value !== "")
+              .map(([n, i]) => [n, i.value]),
+          );
+          for (const [, i] of secrets) i.value = "";
+          void s.check(values);
+        },
+        fresh ? "quiet" : "primary",
+      );
       if (planned !== null && ci.k === "planned" && !ci.stale) {
         act(
           "Open pull request",

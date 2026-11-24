@@ -91,7 +91,7 @@ for (const scheme of ["light", "dark"] as const) {
       const said = await el("dialog[open] [data-ci-set-up]");
       expect(said.textContent).toBe("CI is set up.");
       const buttons = [
-        ...document.querySelectorAll("dialog[open] .confirm-actions button"),
+        ...document.querySelectorAll("dialog[open] [data-ci-actions] button"),
       ].map((b) => b.textContent);
       expect(buttons).toEqual(["Done"]);
     });
