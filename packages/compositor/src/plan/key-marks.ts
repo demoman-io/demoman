@@ -43,6 +43,10 @@ export type ResolvedKeycaps = {
   range: OutputRange;
   caps: KeyCap[];
   suffix?: "+ click";
+  /** Starts where the pill before it ends: up at once, no fade in. */
+  handedIn?: true;
+  /** Ends where the next pill starts: gone at once, no fade out. */
+  handedOut?: true;
 }[];
 
 const MODIFIER_GLYPH: Record<Modifier, KeyGlyph> = {
@@ -159,22 +163,37 @@ export function planKeyMarks(
     if (next) p.range.endMs = Math.min(p.range.endMs, next.range.startMs);
   });
 
+  // A pill that hands over to the next does not fade: presses 300 ms apart
+  // would otherwise blink, each at full opacity for about 60 ms.
+  const keycaps = pills.filter((p) => p.range.endMs > p.range.startMs);
+  keycaps.forEach((p, i) => {
+    const next = keycaps[i + 1];
+    if (next && next.range.startMs === p.range.endMs) {
+      p.handedOut = true;
+      next.handedIn = true;
+    }
+  });
+
   const byTime = (x: number, y: number) => x - y;
   return {
     pulseOutputMs: pulses.sort(byTime),
-    keycaps: pills.filter((p) => p.range.endMs > p.range.startMs),
+    keycaps,
     clickTags: clickTags.sort((p, q) => p.outputMs - q.outputMs),
     rightClicks: rightClicks.sort(byTime),
   };
 }
 
 /** A mark's opacity at `ms`: 0 outside `range`, fading in and out over
- *  `KEY_MARK_FADE_MS` at each end. */
-export function markAlpha(range: OutputRange, ms: number): number {
+ *  `KEY_MARK_FADE_MS` at each end, except an end a pill hands over at. */
+export function markAlpha(
+  range: OutputRange,
+  ms: number,
+  handover: { handedIn?: true; handedOut?: true } = {},
+): number {
   if (ms < range.startMs || ms >= range.endMs) return 0;
   return Math.min(
     1,
-    (ms - range.startMs) / KEY_MARK_FADE_MS,
-    (range.endMs - ms) / KEY_MARK_FADE_MS,
+    handover.handedIn ? 1 : (ms - range.startMs) / KEY_MARK_FADE_MS,
+    handover.handedOut ? 1 : (range.endMs - ms) / KEY_MARK_FADE_MS,
   );
 }

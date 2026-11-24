@@ -1,6 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import geistUrl from "../../../../apps/studio/pages/public/fonts/geist-variable.woff2?url";
-import type { KeyCap, KeyGlyph } from "../../src/plan/key-marks";
+import {
+  type KeyCap,
+  type KeyGlyph,
+  planKeyMarks,
+} from "../../src/plan/key-marks";
 import { planScene } from "../../src/plan/plan";
 import { type ResolvedPlan, resolvePlan } from "../../src/plan/resolve";
 import { renderFrame } from "../../src/render/compose";
@@ -293,5 +297,95 @@ describe("renderFrame's key marks", () => {
     const off = differ(await frame(marked(hidden), t), await frame(hidden, t));
     expect(off.inside, "the pill, with the cursor hidden").toBeGreaterThan(0);
     expect(off.outside, "ink outside the pill, with the cursor hidden").toBe(0);
+  });
+
+  it("rapid presses hand the pill over at full opacity, with no blink", async () => {
+    const scene = readonlyScene();
+    const base = resolvePlan(planScene(scene), proceduralBundle(), scene);
+    const t0 = base.clickOutputMs[0];
+    if (t0 === undefined) throw new Error("premise: the fixture clicks");
+    // Three ⏎ presses 300 ms apart: each pill is cut short by the next.
+    const presses = ["a", "b", "c"].map((id) => ({
+      id,
+      anchorId: null,
+      timestamp: 1,
+      marker: "press:none",
+      kind: "press" as const,
+      key: "Enter",
+      modifiers: [],
+    }));
+    const { keycaps } = planKeyMarks(
+      presses as never,
+      presses.map((p, i) => ({ actionId: p.id, outputMs: t0 + 300 * i })),
+      new Set(["click", "type", "drag", "press"]),
+    );
+    const marked = { ...base, keycaps };
+    const [first, second, third] = keycaps.map((p) => p.range);
+    if (!first || !second || !third) throw new Error("premise: three pills");
+    expect(first.endMs, "premise: the first pill hands over").toBe(
+      second.startMs,
+    );
+    expect(
+      third.endMs,
+      "premise: the take runs past the last pill",
+    ).toBeLessThan(base.timeline.outputDurationMs);
+
+    // A point in the pill's left padding, clear of the cap; every pill here
+    // has one ⏎ cap, so every one is laid out alike.
+    const layoutCtx = new OffscreenCanvas(1, 1).getContext(
+      "2d",
+    ) as OffscreenCanvasRenderingContext2D;
+    const { pill } = keycapPillLayout(
+      layoutCtx,
+      [{ glyph: "return" }],
+      undefined,
+      target,
+    );
+    const x = Math.round(pill.x + 4);
+    const y = Math.round(pill.y + pill.height / 2);
+    const px = (d: Uint8ClampedArray): Px => {
+      const i = (y * target.width + x) * 4;
+      return {
+        r: d[i] as number,
+        g: d[i + 1] as number,
+        b: d[i + 2] as number,
+      };
+    };
+    // At full opacity `#111c` reads at most 17 · 0.8 + 255 · 0.2 = 65.
+    const FULL_MAX = 66;
+    const read = async (ms: number) => ({
+      ms,
+      under: px(await frame(base, ms)),
+      drawn: px(await frame(marked, ms)),
+    });
+    const said = (r: Awaited<ReturnType<typeof read>>) =>
+      `at ${r.ms} ms: under ${show(r.under)}, drawn ${show(r.drawn)}`;
+
+    for (const ms of [
+      first.endMs - 1,
+      second.startMs,
+      second.endMs - 1,
+      third.startMs,
+    ]) {
+      const r = await read(ms);
+      // Premise: the page under the point is light, so a faded pill reads
+      // lighter than a full one.
+      expect(luma(r.under), `premise, light page; ${said(r)}`).toBeGreaterThan(
+        120,
+      );
+      expect(
+        luma(r.drawn),
+        `full pill at the handover; ${said(r)}`,
+      ).toBeLessThanOrEqual(FULL_MAX);
+    }
+    // Positive control: the last pill still fades out at its own end, and
+    // the first fades in at its start.
+    for (const ms of [third.endMs - 1, first.startMs + 1]) {
+      const r = await read(ms);
+      expect(luma(r.under), `premise, light page; ${said(r)}`).toBeGreaterThan(
+        120,
+      );
+      expect(luma(r.drawn), `a fading pill; ${said(r)}`).toBeGreaterThan(100);
+    }
   });
 });

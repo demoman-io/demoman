@@ -491,7 +491,7 @@ export async function renderFrame(args: {
         pill.caps,
         pill.suffix,
         target,
-        markAlpha(pill.range, outputTimeMs),
+        markAlpha(pill.range, outputTimeMs, pill),
       ),
     );
     ctx.restore();
