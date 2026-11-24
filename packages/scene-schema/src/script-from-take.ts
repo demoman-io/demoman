@@ -1,6 +1,5 @@
 import type { DeviceId } from "./device.js";
 import {
-  type PressKey,
   type SceneAction,
   type SceneAnchor,
   type SceneBranding,
@@ -10,6 +9,7 @@ import {
   type SceneMotion,
   URL_SCRUB_PLACEHOLDER,
 } from "./document.js";
+import { formatKeyCombo, PRESS_KEYS } from "./keys.js";
 import { stepsInsideRemoved } from "./removed.js";
 import {
   cursorPolishNamed,
@@ -21,6 +21,7 @@ import {
   SCRIPT_VERSION_DEVICE,
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_INPUTS,
+  SCRIPT_VERSION_KEYS,
   SCRIPT_VERSION_MOTION,
   SCRIPT_VERSION_PRESS,
   type ScriptTarget,
@@ -51,9 +52,11 @@ export type DraftStep =
       on?: ScriptTarget;
       at?: DragSpot;
       button?: "middle" | "right";
+      clicks?: 2 | 3;
+      holding?: string;
       recorded?: string;
     }
-  | { do: "press"; key: PressKey; recorded?: string }
+  | { do: "press"; key: string; recorded?: string }
   | {
       do: "type";
       into?: ScriptTarget;
@@ -96,7 +99,8 @@ export interface ScriptDraft {
     | typeof SCRIPT_VERSION_DEVICE
     | typeof SCRIPT_VERSION_DRAG
     | typeof SCRIPT_VERSION_PRESS
-    | typeof SCRIPT_VERSION_INPUTS;
+    | typeof SCRIPT_VERSION_INPUTS
+    | typeof SCRIPT_VERSION_KEYS;
   name: string;
   /** Absent when capture scrubbed the origin — a `scrubbedTarget` hole. */
   target?: string;
@@ -387,7 +391,11 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
 
     // A key press names no element, so no anchor and no target.
     if (action.kind === "press") {
-      steps.push({ do: "press", key: action.key, recorded: action.id });
+      steps.push({
+        do: "press",
+        key: formatKeyCombo(action.modifiers ?? [], action.key),
+        recorded: action.id,
+      });
       return;
     }
 
@@ -425,7 +433,7 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
 
     switch (action.kind) {
       case "click": {
-        if (action.button === "middle" || action.button === "right") {
+        if (action.button === "middle") {
           steps.push({
             do: "click",
             ...on,
@@ -435,13 +443,18 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
           hole({
             field: "button",
             reason: "buttonNotScriptable",
-            sentence: `Step ${n} was a ${action.button} click, and a script can only click with the left button. Deleting "button" makes it a left click — a different action from the one recorded.`,
+            sentence: `Step ${n} was a ${action.button} click, and a script can click with the left or right button only. Deleting "button" makes it a left click — a different action from the one recorded.`,
           });
         } else {
           steps.push({
             do: "click",
             ...on,
             ...(action.at === undefined ? {} : { at: action.at }),
+            ...(action.button === "right" ? { button: "right" as const } : {}),
+            ...(action.clicks === undefined ? {} : { clicks: action.clicks }),
+            ...(action.modifiers === undefined
+              ? {}
+              : { holding: formatKeyCombo(action.modifiers) }),
             ...(dialogIntent(action) === undefined
               ? {}
               : { dialog: dialogIntent(action) }),
@@ -592,20 +605,31 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
       // A phone take declares the device version, which is past motion's,
       // so it may carry the take's motion too.
       scriptVersion: doc.actions.some(
-        (a) => a.kind === "click" && dialogIntent(a) !== undefined,
+        (a) =>
+          (a.kind === "press" &&
+            ((a.modifiers?.length ?? 0) > 0 ||
+              !(PRESS_KEYS as readonly string[]).includes(a.key))) ||
+          (a.kind === "click" &&
+            (a.button === "right" ||
+              a.clicks !== undefined ||
+              a.modifiers !== undefined)),
       )
-        ? SCRIPT_VERSION_INPUTS
+        ? SCRIPT_VERSION_KEYS
         : doc.actions.some(
-              (a) => a.kind === "press" || (a.kind === "click" && a.at),
+              (a) => a.kind === "click" && dialogIntent(a) !== undefined,
             )
-          ? SCRIPT_VERSION_PRESS
-          : doc.actions.some((a) => a.kind === "drag")
-            ? SCRIPT_VERSION_DRAG
-            : doc.meta.capture.device !== undefined
-              ? SCRIPT_VERSION_DEVICE
-              : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
-                ? SCRIPT_VERSION
-                : SCRIPT_VERSION_MOTION,
+          ? SCRIPT_VERSION_INPUTS
+          : doc.actions.some(
+                (a) => a.kind === "press" || (a.kind === "click" && a.at),
+              )
+            ? SCRIPT_VERSION_PRESS
+            : doc.actions.some((a) => a.kind === "drag")
+              ? SCRIPT_VERSION_DRAG
+              : doc.meta.capture.device !== undefined
+                ? SCRIPT_VERSION_DEVICE
+                : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
+                  ? SCRIPT_VERSION
+                  : SCRIPT_VERSION_MOTION,
       name,
       ...(scrubbed ? {} : { target: origin }),
       ...(doc.meta.capture.device === undefined

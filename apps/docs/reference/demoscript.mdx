@@ -41,7 +41,7 @@ snapshot of the page and never makes one up.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` \| `9` | no | The format's number. Demoman sets it; leave it out |
+| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` \| `9` \| `10` | no | The format's number. Demoman sets it; leave it out |
 | `name` | string | yes | The video's name |
 | `target` | string | yes | The page the run opens first, http or https |
 | `viewport` | object | no | The window size in CSS px, `{ width, height }`. Absent: Demoman's own window |
@@ -66,6 +66,9 @@ Click an element.
 | `at` | object | no | Where in the element to click, as fractions of its width and height; its centre if absent |
 | `zoom` | `false` or object | no | The camera's zoom at this click: `false` for none, or `{ scale }` over 1 and at most 2.5. Absent leaves it to the camera |
 | `dialog` | `"accept"` or `"dismiss"` or object | no | How to answer a dialog this click opens: "accept" (the default), "dismiss", or { text } for a prompt |
+| `button` | string | no | "right" for a right-click; absent is a left click |
+| `clicks` | `2` or `3` | no | 2 for a double click, 3 for a triple click |
+| `holding` | string | no | Modifiers held through the click, like "Shift" or "Mod+Shift" |
 | `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
 
 ### `type`
@@ -124,7 +127,7 @@ Press a key.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `key` | `"Enter"` \| `"Tab"` \| `"Escape"` \| `"Backspace"` \| `"Delete"` \| `"ArrowUp"` \| `"ArrowDown"` \| `"ArrowLeft"` \| `"ArrowRight"` \| `"Space"` | yes | The key to press |
+| `key` | string | yes | The key, after any modifiers joined by +: "Enter", "Mod+K", "Shift+Tab" |
 | `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
 
 ### `waitForLoad`
@@ -155,5 +158,7 @@ Beyond each field's own type, a script is refused when it breaks one of these:
 - `trim.start.step` and `trim.end.step` name a step that exists and is not a `pause`, and the start is not after the end.
 - A `look.branding` wallpaper background names one of the built-in wallpapers.
 - `look` names a `kit` or gives a `branding`, not both.
+- A click's `button: "right"` takes no `clicks`.
+- On a `device`, a click takes no `button`, `clicks` or `holding`: a phone or tablet has no mouse.
 
 {/* generated:end */}

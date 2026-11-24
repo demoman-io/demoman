@@ -97,7 +97,7 @@ describe("a click's dialog", () => {
 
 describe("a take's dialogs", () => {
   it("validates at schema 16, with every kind", () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(16);
+    expect(CURRENT_SCHEMA_VERSION).toBe(17);
     expect(DIALOG_KINDS).toHaveLength(4);
     for (const kind of DIALOG_KINDS) {
       expect(DialogRecordSchema.safeParse(record({ kind })).success).toBe(true);
@@ -109,11 +109,11 @@ describe("a take's dialogs", () => {
     expect(draft.steps.length).toBeGreaterThan(0);
   });
 
-  it("migrates a schema-15 take to 16 unchanged otherwise", () => {
+  it("migrates a schema-15 take to 17 unchanged otherwise", () => {
     const old = { ...fixture(), schemaVersion: 15 };
     const migrated = migrateToCurrent(old);
-    expect(migrated.schemaVersion).toBe(16);
-    expect(migrated).toEqual({ ...old, schemaVersion: 16 });
+    expect(migrated.schemaVersion).toBe(17);
+    expect(migrated).toEqual({ ...old, schemaVersion: 17 });
   });
 });
 

@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
+import { isKeyName, ModifierSchema } from "./keys.js";
 import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 const Rect = z.object({
   x: z.number(),
@@ -128,20 +129,7 @@ const MoveTo = z.object({
  */
 export const TEXT_LINES_MAX = 200;
 
-/** The keys a `press` can name: no modifiers, no free text. */
-export const PRESS_KEYS = [
-  "Enter",
-  "Tab",
-  "Escape",
-  "Backspace",
-  "Delete",
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Space",
-] as const;
-export type PressKey = (typeof PRESS_KEYS)[number];
+export { PRESS_KEYS, type PressKey } from "./keys.js";
 
 const Spot = z.object({
   x: z.number().min(0).max(1),
@@ -185,6 +173,10 @@ const Click = z.object({
   /** Where in the target's box the click lands, as fractions of it (v14); absent: its centre. */
   at: Spot.optional(),
   button: z.enum(["left", "middle", "right"]).optional(),
+  /** A double or triple click (v17); absent: one. */
+  clicks: z.union([z.literal(2), z.literal(3)]).optional(),
+  /** The modifiers held through the click (v17), from a script's `holding`; absent: none. */
+  modifiers: z.array(ModifierSchema).min(1).optional(),
   /**
    * The lines of text on screen when the click was measured, in the space
    * `rect` is in and from the same moment. **No longer written, and read by
@@ -268,7 +260,13 @@ const Press = z.object({
   ...dialogs,
   anchorId: z.null(),
   kind: z.literal("press"),
-  key: z.enum(PRESS_KEYS),
+  key: z.string().refine(isKeyName, "not a key Demoman can press"),
+  /**
+   * The modifiers held with the key (v17), in `MODIFIERS` order; `[]` when
+   * there are none. Written on every press from v17 on, and its presence is
+   * what tells the compositor to draw the key pill; absent on an older take.
+   */
+  modifiers: z.array(ModifierSchema).optional(),
 });
 /**
  * A press, a move with the button held, a release (v11, 2026-10-21).
