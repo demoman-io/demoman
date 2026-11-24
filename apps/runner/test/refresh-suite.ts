@@ -496,8 +496,13 @@ const filmed: { name: string; display: string; scale: number | null }[] = [];
  *  its consecutive step markers after the first. */
 const gaps: {
   name: string;
+  /** Whether it filmed the slow page (`SLOW`): a retry's runs and the
+   *  ones before it are told apart by this, not by their order (DEM-197). */
+  slow: boolean;
   gaps: number[];
-  settle: number;
+  /** Milliseconds from the first click to when the page stopped moving, or
+   *  why there is no such time. */
+  settle: number | string;
   /** The page screen after the first click (`after` 2): how long its
    *  settle waited, and why it never settled if it did not. */
   clickScreen: { waitedMs: number; unsettled?: string } | null;
@@ -566,6 +571,7 @@ const deps = (): RefreshDeps => ({
           const click = bundle?.pageScreens?.find((p) => p.after === 2);
           gaps.push({
             name: String((args.script as { name: string }).name),
+            slow: html === SLOW,
             screens: (bundle?.pageScreens ?? []).map((p) => ({
               after: p.after,
               waitedMs: p.waitedMs,
@@ -587,10 +593,13 @@ const deps = (): RefreshDeps => ({
             settle: (() => {
               const from = marks[0]?.sourceTimeMs ?? Number.NaN;
               const to = marks[1]?.sourceTimeMs ?? Number.POSITIVE_INFINITY;
-              const ends = (bundle?.motionSpans ?? [])
+              const all = bundle?.motionSpans ?? [];
+              const ends = all
                 .filter((m) => m.startMs >= from && m.startMs < to)
                 .map((m) => m.endMs);
-              return ends.length === 0 ? Number.NaN : Math.max(...ends) - from;
+              return ends.length > 0
+                ? Math.max(...ends) - from
+                : `no motion span started between the click (${from}) and the next marker (${to}); spans ${JSON.stringify(all.map((m) => [m.startMs, m.endMs]))}`;
             })(),
           });
           filmed.push({
@@ -1043,6 +1052,9 @@ export const unchangedThenSlower = () => {
       expect(SLOW).toContain(`fetch("${SLOW_PATH}")`);
       expect(SLOW).not.toContain("setTimeout");
       const fast = gaps.filter((g) => g.name === B).length;
+      // The video before this one: the last of B filmed on the original
+      // page, also when a retry follows slowed runs of its own.
+      const before = gaps.filter((g) => g.name === B && !g.slow).at(-1);
       const held = slowHeld.length;
       html = SLOW;
       let r: RefreshResult;
@@ -1075,11 +1087,17 @@ export const unchangedThenSlower = () => {
         expect(ms, JSON.stringify(heldNow)).toBeGreaterThanOrEqual(
           SLOW_ANSWER_MS - 5,
         );
-      const bGaps = gaps.filter((g) => g.name === B);
-      const [before, now] = [
-        bGaps[fast - 1],
-        bGaps[fast],
-      ] as (typeof gaps)[0][];
+      // This attempt's last run of B: refresh records a degraded run again
+      // and compares the second (`recordWithRetry`).
+      const now = gaps
+        .filter((g) => g.name === B)
+        .slice(fast)
+        .at(-1);
+      // The premise: one of each, the slowed one from this attempt.
+      expect([before?.slow, now?.slow], JSON.stringify(gaps)).toEqual([
+        false,
+        true,
+      ]);
       // The premise: the settle waited for that request. The screen after
       // the click settled in both videos, and its wait grew by most of the
       // 600 ms.
@@ -1094,6 +1112,8 @@ export const unchangedThenSlower = () => {
       // The premise: the page stopped moving after the first click later
       // than in the video before it, by most of the 600 ms, and neither
       // video's gap sits near the camera's line.
+      expect(typeof before?.settle, JSON.stringify(before)).toBe("number");
+      expect(typeof now?.settle, JSON.stringify(now)).toBe("number");
       expect(
         (now?.settle as number) - (before?.settle as number),
         JSON.stringify(gaps),
