@@ -45,6 +45,10 @@ class Retake extends Error {
  *  answer in for a hung retake, and no other read's. */
 const SCREENSHOT = "its screenshot";
 
+/** Chrome's refusal of one capture, which a slow machine gives now and
+ *  then (DEM-275, DEM-168): taken again once, not given way to. */
+const REFUSED = /Unable to capture screenshot/;
+
 /** A retake's read that went unanswered where its caller can stand the
  *  first read's late answer in for it (`answered`'s `spare`): the run is
  *  not given up, and the caller says what stood in. */
@@ -928,7 +932,33 @@ export function createHeldClock(deps: {
     // From where it was first seen: the pace is counted from there.
     if (pinned.video !== true) videoFrom = null;
     else videoFrom ??= { real: realNow(), held };
-    const shot = await answered(deps.capture(), SCREENSHOT, retake, spare);
+    let shot: Awaited<ReturnType<typeof deps.capture>>;
+    try {
+      shot = await answered(deps.capture(), SCREENSHOT, retake, spare);
+    } catch (e) {
+      // DEM-275: Chrome refused a capture outright on a slow runner, and the
+      // run gave way at once. A refusal on a page that answers a second read
+      // is taken again once, a frame of page time later, as an unanswered
+      // one is, and said; a second refusal stops the run as before. A page
+      // that does not answer (gone, crashed) is not retaken: the refusal is
+      // what stops it, not a clock that could not move after it.
+      if (
+        retake &&
+        fatal === null &&
+        e instanceof Error &&
+        REFUSED.test(e.message)
+      ) {
+        const page = await bounded(deps.evaluate(PAGE_FACTS, 0, false));
+        if (!(page instanceof Error) && page !== SILENT)
+          throw new Retake(
+            `the page did not give a frame ${whenSaid()}: its screenshot was refused (${e.message}), though the page answered a second read`,
+            () => true,
+            SCREENSHOT,
+            () => null,
+          );
+      }
+      throw e;
+    }
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
     if (listeners.length === 0)
