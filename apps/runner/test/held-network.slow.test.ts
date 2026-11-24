@@ -181,12 +181,28 @@ beforeAll(async () => {
     if (path === "/answer") {
       // One byte a chunk, the first at once, the last 1800 ms later.
       res.writeHead(200, { "content-type": "text/plain" });
-      const stream = { askedAt: Date.now(), sentAt: [] as number[] };
+      // Paced on one monotonic clock against absolute deadlines: chunk i
+      // goes no earlier than i gaps after the first, by performance.now(),
+      // and a timer that fires early is set again for what is left. Timed
+      // with Date.now() and chained timers, the ten came 1799 ms apart on
+      // CI's ubuntu (PR #128, DEM-235): a wall clock can step and a chained
+      // timer can come early, and the premise below then failed on the
+      // fixture, not on the walk.
+      const stream = { askedAt: performance.now(), sentAt: [] as number[] };
       streams.push(stream);
       let sent = 0;
+      let firstAt = 0;
       const send = () => {
+        const due = firstAt + sent * CHUNK_GAP_MS;
+        const early = sent === 0 ? 0 : due - performance.now();
+        if (early > 0) {
+          setTimeout(send, Math.ceil(early));
+          return;
+        }
         res.write("x");
-        stream.sentAt.push(Date.now());
+        const now = performance.now();
+        if (sent === 0) firstAt = now;
+        stream.sentAt.push(now);
         if (++sent === CHUNKS) res.end();
         else setTimeout(send, CHUNK_GAP_MS);
       };
