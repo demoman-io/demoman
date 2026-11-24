@@ -450,14 +450,33 @@ describe("unhurried beats through the executor", () => {
   // The quiet wait before a zoomed click is a settle, which a plan keeps:
   // the act's end is measured, up to its ceiling.
   it("stops waiting for a page that never goes quiet", async () => {
-    const { markerOf, said } = await run([
+    const { bundle, markerOf, said } = await run([
       { do: "click", on: { text: "Spin" } },
       CREATE,
     ]);
     const spin = markerOf(0);
     const actEnd = spin.actEndSourceTimeMs as number;
+    const acted = actEnd - spin.sourceTimeMs;
+    // DEM-239 (ruled 2026-11-20: a limit of the real-time recorder, said,
+    // not fixed). The spinner paints on every frame, so an act that ended
+    // short of the ceiling while kept motion resumed after it ended at a
+    // gap in what the recorder kept, not on a quiet page: frames a starved
+    // screencast did not send (4 of 5 runs on the Mac's efficiency cores),
+    // or spans the recorder dropped (its degradations are in `said`). Red
+    // either way, saying which. Resumed before the next step's marker, not
+    // only before the ceiling: a starved screencast's next frame came 881 ms
+    // after the act's end, past it (DEM-239, run 1 of 2026-11-19).
+    const next = markerOf(1).sourceTimeMs;
+    const resumed = bundle.motionSpans
+      .filter((m) => m.startMs >= actEnd && m.startMs < next)
+      .map((m) => m.startMs);
     // Premise: the spinner was still painting at the ceiling.
-    expect(actEnd - spin.sourceTimeMs, said()).toBeGreaterThanOrEqual(900);
+    expect(
+      acted,
+      resumed.length > 0
+        ? `the act ended ${Math.round(acted)} ms after the click, at a gap of no kept motion, and kept motion resumed at ${JSON.stringify(resumed)}: the recorder read a gap in its frames as a quiet page, which on the real-time recorder is a screencast starved of frames (DEM-239), or a dropped span. ${said()}`
+        : said(),
+    ).toBeGreaterThanOrEqual(900);
     // The click's verb is short; its act ends at most 1000 ms after it.
     expect(actEnd - spin.sourceTimeMs, said()).toBeLessThan(2000);
   }, 120_000);
