@@ -66,6 +66,58 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+/** A wait no other timer in the Studio arms, so `heldDeadline` takes this one. */
+const HELD_MS = 43_210;
+
+/**
+ * Holds the Studio's no-window check until the test fires it: the first
+ * timer armed for `ms`, then every re-arm of the same callback (the grace
+ * after an open settles). Every other timer stays real, and a held check the
+ * Studio clears is gone, as it would be. On a real 50 ms timer the deadline
+ * raced the open a case puts in flight: a loaded runner answered the POST
+ * after it, and the Studio stopped with no open counted (DEM-252, DEM-266).
+ */
+function heldDeadline(ms: number): () => void {
+  const real = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  let check: (() => void) | undefined;
+  const armed = new Map<ReturnType<typeof setTimeout>, () => void>();
+  vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: () => void,
+    delay?: number,
+    ...rest: unknown[]
+  ) => {
+    if (check === undefined ? delay !== ms : fn !== check)
+      return real(fn, delay, ...rest);
+    check = fn;
+    const handle = real(() => {}, 2 ** 31 - 1);
+    handle.unref();
+    armed.set(handle, fn);
+    return handle;
+  }) as typeof setTimeout);
+  vi.spyOn(globalThis, "clearTimeout").mockImplementation(((
+    handle?: ReturnType<typeof setTimeout>,
+  ) => {
+    if (handle !== undefined) armed.delete(handle);
+    realClear(handle);
+  }) as typeof clearTimeout);
+  return () => {
+    const last = [...armed].at(-1);
+    if (last === undefined)
+      throw new Error(
+        check === undefined
+          ? `no ${ms} ms deadline was armed`
+          : "the no-window check is not armed: the Studio cleared it, or it already ran",
+      );
+    armed.delete(last[0]);
+    realClear(last[0]);
+    last[1]();
+  };
+}
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 /** A plan the CI stubs answer: the server then holds `plan-1`. */
 const planned = {
   planId: "plan-1",
@@ -630,11 +682,13 @@ describe("stopping", () => {
   });
 
   it("an open still in flight when the wait runs out keeps the Studio up (M1)", async () => {
-    const s = await serve({ noWindowMs: 50, holdOpens: true });
+    const deadline = heldDeadline(HELD_MS);
+    const s = await serve({ noWindowMs: HELD_MS, holdOpens: true });
     const answer = call(s.state, "/api/window", { method: "POST", body: {} });
     await vi.waitFor(() => {
       if (s.held.length !== 1) throw new Error(`${s.held.length} opens held`);
     });
+    deadline();
     // Premise: the wait has run out with the open still in flight.
     await vi.waitFor(
       () => {
@@ -648,6 +702,10 @@ describe("stopping", () => {
     expect(s.exits, "stopped under an open in flight").toEqual([]);
     s.held[0]?.({ ok: true, path: "/" });
     expect((await answer).status).toBe(200);
+    // The settled open re-armed the check (its grace): run it, so the
+    // verdict below is the one that could have stopped the Studio. Red:
+    // drop both `everOpened = true` marks, and this check stops it.
+    deadline();
     await flush();
     await flush();
     expect(s.exits, "stopped though the open worked").toEqual([]);
@@ -655,8 +713,13 @@ describe("stopping", () => {
   });
 
   it("an open in flight that then fails: the deferred wait stops the Studio", async () => {
-    const s = await serve({ noWindowMs: 50, holdOpens: true });
+    const deadline = heldDeadline(HELD_MS);
+    const s = await serve({ noWindowMs: HELD_MS, holdOpens: true });
     const answer = call(s.state, "/api/window", { method: "POST", body: {} });
+    await vi.waitFor(() => {
+      if (s.held.length !== 1) throw new Error(`${s.held.length} opens held`);
+    });
+    deadline();
     await vi.waitFor(
       () => {
         if (!s.logs.join("\n").includes("one is still opening"))
@@ -667,6 +730,7 @@ describe("stopping", () => {
     expect(s.exits).toEqual([]);
     s.held[0]?.({ reason: "windowDidNotOpen", detail: "Chrome did not start" });
     expect((await answer).status).toBe(500);
+    deadline();
     expect(await s.exited).toBe(0);
     expect(s.exits).toEqual([{ code: 0, stateLeft: false }]);
     expect(s.logs.join("\n")).toMatch(/no window opened within/);

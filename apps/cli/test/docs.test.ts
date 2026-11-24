@@ -1,4 +1,14 @@
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { changelogEntries } from "../../../scripts/changelog.mjs";
 import { NODE_FLOORS } from "../scripts/node-floor.mjs";
@@ -6,6 +16,33 @@ import { NODE_FLOORS } from "../scripts/node-floor.mjs";
 // Text-only guards over apps/docs. Nothing here imports apps/cli/src.
 const docs = (p: string) => new URL(`../../docs/${p}`, import.meta.url);
 const brand = (p: string) => new URL(`../../../brand/${p}`, import.meta.url);
+const repo = new URL("../../../", import.meta.url);
+/** Every `.ts` FILE under `dir`, relative to `root`. Files only: a failed
+ *  browser test leaves a FOLDER named `<file>.test.ts` under
+ *  `__screenshots__`, and reading it threw EISDIR from a test about docs
+ *  (DEM-261). */
+const tsFiles = (dir: string, root: URL = repo): string[] =>
+  readdirSync(new URL(dir, root), { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+    .map((e) => relative(fileURLToPath(root), join(e.parentPath, e.name)));
+
+describe("the source walk these guards read", () => {
+  // Red: drop `e.isFile()` from `tsFiles`, and the folder is listed.
+  it("leaves out a folder named like a test file (DEM-261)", () => {
+    const root = mkdtempSync(join(tmpdir(), "docs-walk-"));
+    try {
+      mkdirSync(join(root, "src", "__screenshots__", "a.test.ts"), {
+        recursive: true,
+      });
+      writeFileSync(join(root, "src", "b.ts"), "");
+      expect(tsFiles("src", pathToFileURL(`${root}/`))).toEqual([
+        join("src", "b.ts"),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 type NavNode = string | { group?: string; pages?: NavNode[] };
 type DocsJson = {
@@ -815,11 +852,7 @@ describe("links into the docs from the product", () => {
       "apps/mcp/src",
       "apps/runner/src",
       "apps/studio/src",
-    ].flatMap((d) =>
-      (readdirSync(new URL(d, root), { recursive: true }) as string[])
-        .filter((f) => f.endsWith(".ts"))
-        .map((f) => `${d}/${f}`),
-    );
+    ].flatMap((d) => tsFiles(d));
     const links = files.flatMap((f) =>
       [
         ...readFileSync(new URL(f, root), "utf8").matchAll(
@@ -924,14 +957,9 @@ describe("the reference pages", () => {
       "packages",
     ]
       .flatMap((d) =>
-        (readdirSync(new URL(d, root), { recursive: true }) as string[])
-          .filter(
-            (f) =>
-              f.endsWith(".ts") &&
-              !f.includes("node_modules") &&
-              !f.includes("dist/"),
-          )
-          .map((f) => readFileSync(new URL(`${d}/${f}`, root), "utf8")),
+        tsFiles(d)
+          .filter((f) => !f.includes("node_modules") && !f.includes("dist/"))
+          .map((f) => readFileSync(new URL(f, root), "utf8")),
       )
       .join("\n");
     const codes = new Set(
@@ -1067,19 +1095,17 @@ describe("review fixes: environment and positioning", () => {
         "apps/studio/src",
         "packages/run-core/src",
       ].flatMap((d) =>
-        (readdirSync(new URL(d, root), { recursive: true }) as string[])
-          .filter((f) => f.endsWith(".ts"))
-          .flatMap((f) =>
-            [
-              ...readFileSync(new URL(`${d}/${f}`, root), "utf8").matchAll(
-                /DEMOMAN_[A-Z_]*[A-Z]/g,
-              ),
-            ].map(
-              // A demo account's secrets are one family, DEMOMAN_SECRET_<NAME>.
-              (m) =>
-                m[0].startsWith("DEMOMAN_SECRET_") ? "DEMOMAN_SECRET_" : m[0],
+        tsFiles(d).flatMap((f) =>
+          [
+            ...readFileSync(new URL(f, root), "utf8").matchAll(
+              /DEMOMAN_[A-Z_]*[A-Z]/g,
             ),
+          ].map(
+            // A demo account's secrets are one family, DEMOMAN_SECRET_<NAME>.
+            (m) =>
+              m[0].startsWith("DEMOMAN_SECRET_") ? "DEMOMAN_SECRET_" : m[0],
           ),
+        ),
       ),
     );
     // DEMOMAN_CLIENT is written by setup into an agent's config, never set by a person.
