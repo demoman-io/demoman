@@ -14,6 +14,7 @@ import {
   serializeApp,
 } from "@demoman/run-core";
 import { PLAN_KEPT_MS } from "@demoman/studio";
+import { watchedLines } from "./ci-command.js";
 import { SETUP_BRANCH } from "./ci-pr.js";
 import type { SecretValues } from "./ci-secrets.js";
 import {
@@ -28,7 +29,6 @@ import {
   redact,
 } from "./ci-setup.js";
 import type { Watched } from "./ci-watch.js";
-import { watchedLines } from "./ci-workflow.js";
 
 /** What the person runs to give a value the agent must never see. */
 export const CI_COMMAND = "npx demoman setup --ci";
