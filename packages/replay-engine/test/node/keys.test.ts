@@ -5,6 +5,7 @@ import {
   keyEventOf,
   macCommands,
   pressCombo,
+  releaseKeeping,
 } from "../../src/keys.js";
 import type { CdpSession } from "../../src/types.js";
 
@@ -242,6 +243,25 @@ describe("a modifier's keyDown that throws", () => {
     expect((error as Error).message).toBe(
       "session gone (and lifting the held keys failed: still gone)",
     );
+  });
+});
+
+describe("releaseKeeping", () => {
+  it("keeps both when the first thing thrown is not an Error", async () => {
+    const error = await releaseKeeping("session gone", async () => {
+      throw new Error("still gone");
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "session gone (and lifting the held keys failed: still gone)",
+    );
+    expect((error as Error).cause).toBe("session gone");
+  });
+
+  it("rethrows a non-Error as it is when the release goes through", async () => {
+    await expect(
+      releaseKeeping("session gone", async () => undefined),
+    ).rejects.toBe("session gone");
   });
 });
 

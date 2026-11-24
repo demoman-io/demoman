@@ -69,6 +69,8 @@ async function runInputs(
     said: () => Promise<string>,
   ) => Promise<void>,
   device?: DeviceId,
+  /** Run on the page before the script: fields only this case needs. */
+  setup?: (page: Page) => Promise<void>,
 ): Promise<void> {
   await withReplayBrowser(
     async ({ cdp, page }) => {
@@ -76,6 +78,7 @@ async function runInputs(
       // names its platform.
       expect(await logOf(page)).toEqual([]);
       expect(await page.textContent("#platform")).toMatch(/\|/);
+      await setup?.(page);
       // What the field's own `input` events say, for the typing premise.
       await page.evaluate(() => {
         (window as unknown as { inputs: string[] }).inputs = [];
@@ -287,6 +290,56 @@ describe("clicks and keys, against a real page", () => {
       },
     );
   });
+
+  // No selection offsets on these: coverage is the document's selection.
+  // Added here, not in the shared fixture: the runner's popup case
+  // (executor-inputs.test.ts) evaluates every page the context opens, Demoman's
+  // own mux page too, which goes from about:blank to its loopback origin. With
+  // these fields in inputs-app.html that read landed mid-navigation 3 of 3.
+  it.each([
+    ["email", "sales@northwind.test", "ops@acme.test"],
+    ["number", "4800", "125"],
+  ])(
+    "a type over a pre-filled %s field replaces it, with no note",
+    async (id, prefilled, typed) => {
+      const addField = (page: Page) =>
+        page.evaluate(
+          ([id, value]) => {
+            const f = document.createElement("input");
+            f.id = id as string;
+            f.type = id as string;
+            f.setAttribute("value", value as string);
+            f.autocomplete = "off";
+            f.style.cssText =
+              "position:absolute;left:280px;top:220px;width:200px;height:28px;box-sizing:border-box";
+            document.body.append(f);
+          },
+          [id, prefilled],
+        );
+      await runInputs(
+        [{ do: "waitForLoad" }, { do: "type", into: on(id), text: typed }],
+        async (result, page, said) => {
+          const field = await page.evaluate((id) => {
+            const f = document.getElementById(id) as HTMLInputElement;
+            return {
+              value: f.value,
+              prefilled: f.defaultValue,
+              offsets: f.selectionStart,
+            };
+          }, id);
+          const why = `${await said()} ${id}: ${JSON.stringify(field)}; step: ${JSON.stringify(result.steps[1])}`;
+          expect(result.reason, why).toBeNull();
+          // Premise: pre-filled, and with no offsets to read.
+          expect(field.prefilled, why).toBe(prefilled);
+          expect(field.offsets, why).toBeNull();
+          expect(field.value, why).toBe(typed);
+          expect(result.steps[1]?.fieldNotCleared, why).toBeUndefined();
+        },
+        undefined,
+        addField,
+      );
+    },
+  );
 
   it("a type into a field that will not select says it could not clear it", async () => {
     await runInputs(

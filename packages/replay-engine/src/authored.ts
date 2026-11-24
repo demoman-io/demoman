@@ -254,7 +254,7 @@ export interface AuthoredStep {
   /** On a `type` whose field had text its select did not cover, so the
    *  typed text went in beside it: that text, kept only when the typed text
    *  is (never for a credential field). */
-  fieldNotCleared?: { before?: string };
+  fieldNotCleared?: { before?: string; why?: string };
   /** On a click, type or press that opened JavaScript dialogs: each, as the
    *  run answered it (DEM-161). The action keeps the same list. */
   dialogs?: DialogRecord[];
@@ -1224,9 +1224,12 @@ export function createAuthoredRun(
             : {}),
           ...(step.do === "type"
             ? {
-                onFieldNotCleared: (before: string) => {
+                onFieldNotCleared: (
+                  note: { before: string } | { why: string },
+                ) => {
+                  // A credential field's text is kept nowhere.
                   record.fieldNotCleared =
-                    record.textHidden === null ? { before } : {};
+                    "why" in note || record.textHidden === null ? note : {};
                 },
               }
             : {}),

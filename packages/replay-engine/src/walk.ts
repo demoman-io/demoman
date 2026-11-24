@@ -243,10 +243,12 @@ export interface WalkStep {
   onLastKeyUnpainted?(why: string): void;
   /**
    * Called for a `type` whose field had text that its select did not cover
-   * (`FIELD_SELECT`), with that text capped as a field read is: the typed
-   * text goes in beside it, not in its place. The run goes on.
+   * (`FIELD_SELECT`), with that text capped as a field read is (`before`):
+   * the typed text goes in beside it, not in its place. Or with `why`, when
+   * the select itself threw, so whether the field was cleared is unknown.
+   * The run goes on.
    */
-  onFieldNotCleared?(before: string): void;
+  onFieldNotCleared?(note: { before: string } | { why: string }): void;
   /**
    * How to answer a dialog this step's click opens (a script click's
    * `dialog`). Absent: OK. Armed from the click until the next click, type
@@ -4800,13 +4802,23 @@ async function performVerb(
           functionDeclaration: FIELD_SELECT,
           returnByValue: true,
         });
+        // Null is covered. A page that threw (CDP answers with it rather
+        // than rejecting) leaves no value, and is not known to be.
+        const thrown = reply.exceptionDetails as
+          | { text?: string; exception?: { description?: string } }
+          | undefined;
         const before = (reply.result as { value?: unknown } | undefined)?.value;
-        if (typeof before === "string")
-          onFieldNotCleared?.(
-            before.length > FIELD_VALUE_MAX
-              ? `${before.slice(0, FIELD_VALUE_MAX)}…`
-              : before,
-          );
+        if (thrown !== undefined)
+          onFieldNotCleared?.({
+            why: `selecting the field threw: ${thrown.exception?.description ?? thrown.text ?? "the page threw"}`,
+          });
+        else if (typeof before === "string")
+          onFieldNotCleared?.({
+            before:
+              before.length > FIELD_VALUE_MAX
+                ? `${before.slice(0, FIELD_VALUE_MAX)}…`
+                : before,
+          });
       }
       const typed = typeof text === "string" ? text : "";
       await typeKeys(typed, cdp, sleep);

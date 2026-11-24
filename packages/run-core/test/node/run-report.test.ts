@@ -1530,7 +1530,7 @@ describe("a typed field that does not hold its text", () => {
     expect(report.verdict.kind).toBe("matches");
     expect(report.steps[0]?.fieldNotCleared).toEqual({ before: "Northwind" });
     expect(verdictLine(report)).toContain(
-      "step 1 typed into a field it could not clear first (fieldNotCleared).",
+      "Step 1 typed into a field it could not clear first (fieldNotCleared).",
     );
     // The PR says so too, with the line as its details.
     expect(prVerdict(report)).toEqual({
@@ -1541,6 +1541,26 @@ describe("a typed field that does not hold its text", () => {
     const plain = buildRunReport(args);
     expect(verdictLine(plain)).not.toContain("fieldNotCleared");
     expect(prVerdict(plain).clause).toBe("matches all 3 steps");
+  });
+
+  it("names the uncleared field on a run that stopped at a later step", () => {
+    const args = typedInto("Northwind4800", true);
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const report = buildRunReport({
+      ...args,
+      walk: { ...args.walk, reason: "unresolvedAnchor", completed: 1 },
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, fieldNotCleared: { before: "Northwind" } } : s,
+      ),
+    });
+    const line = verdictLine(report);
+    // Premise: the run stopped after the type, so the stop leads the line.
+    expect(report.outcome, line).toBe("stopped");
+    expect(line).toMatch(/^Stopped/);
+    expect(line).toContain(
+      "Step 1 typed into a field it could not clear first (fieldNotCleared).",
+    );
+    expect(prVerdict(report).details).toBe(line);
   });
 
   it("a field that holds its text leaves the verdict a match", () => {

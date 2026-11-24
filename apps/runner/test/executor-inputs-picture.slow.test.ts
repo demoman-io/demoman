@@ -70,6 +70,10 @@ const COLORS = [
   CAP_FILL,
 ];
 const [PILL, TAG, BLUE, RIPPLE, SEL, CAPC] = [0, 1, 2, 3, 4, 5];
+/** Fewest ripple-edge px per uiScale² in the upper-left quarter, 40 ms
+ *  in. Measured 35.6 at the double-click, 0.26 once its ripples were over
+ *  and 0 at the right-click; 12 leaves 3x for CI's encode. */
+const RIPPLE_MIN = 12;
 
 /** The mockup's pill (`KEYCAP_PILL`), in its 1280-wide stage's px. */
 const PILL_BOTTOM = 58;
@@ -579,8 +583,3 @@ describe("keys and clicks in a held take", () => {
     RUN_MS + EXPORT_MS,
   );
 });
-
-/** Fewest ripple-edge px per uiScale² in the upper-left quarter, 40 ms
- *  in. Measured 35.6 at the double-click, 0.26 once its ripples were over
- *  and 0 at the right-click; 12 leaves 3x for CI's encode. */
-const RIPPLE_MIN = 12;

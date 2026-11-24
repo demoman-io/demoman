@@ -371,3 +371,65 @@ describe("a timed-out wait says what its last look found", () => {
     expect(result.steps[0]?.waitSaw).toBeUndefined();
   });
 });
+
+/** Answers `type`'s select of its field (`FIELD_SELECT`) with `reply`. */
+function selectAnswers(
+  cdp: CdpFake,
+  reply: Record<string, unknown>,
+): { asked: () => number } {
+  const send = cdp.send.bind(cdp);
+  let asked = 0;
+  cdp.send = async (method, params) => {
+    if (
+      method === "Runtime.callFunctionOn" &&
+      String(params?.functionDeclaration ?? "").includes(
+        'execCommand("selectAll")',
+      )
+    ) {
+      asked++;
+      return reply;
+    }
+    return send(method, params);
+  };
+  return { asked: () => asked };
+}
+
+describe("a type's select of its field", () => {
+  it("covered: no note", async () => {
+    const cdp = createCdpFake();
+    const select = selectAnswers(cdp, {
+      result: { type: "object", subtype: "null", value: null },
+    });
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    expect(select.asked()).toBe(1);
+    expect(result.steps[0]?.fieldNotCleared).toBeUndefined();
+  });
+
+  it("text left uncovered is the note's before", async () => {
+    const cdp = createCdpFake();
+    const select = selectAnswers(cdp, {
+      result: { type: "string", value: "Northwind" },
+    });
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    expect(select.asked()).toBe(1);
+    expect(result.steps[0]?.fieldNotCleared).toEqual({ before: "Northwind" });
+  });
+
+  // CDP answers a page's throw rather than rejecting, with no value: that is
+  // not "covered", and the note says why.
+  it("a select the page threw in is not cleared, and says why", async () => {
+    const cdp = createCdpFake();
+    const select = selectAnswers(cdp, {
+      result: { type: "object", subtype: "error" },
+      exceptionDetails: {
+        text: "Uncaught",
+        exception: { description: "TypeError: select is not a function" },
+      },
+    });
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    expect(select.asked()).toBe(1);
+    expect(result.steps[0]?.fieldNotCleared).toEqual({
+      why: "selecting the field threw: TypeError: select is not a function",
+    });
+  });
+});

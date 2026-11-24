@@ -282,8 +282,10 @@ export async function releaseKeeping(
   try {
     await release();
   } catch (releaseError) {
-    if (error instanceof Error)
-      error.message += ` (and lifting the held keys failed: ${releaseError instanceof Error ? releaseError.message : String(releaseError)})`;
+    const also = ` (and lifting the held keys failed: ${releaseError instanceof Error ? releaseError.message : String(releaseError)})`;
+    if (error instanceof Error) error.message += also;
+    // A thrown non-Error has no message to add to: both go in a new one.
+    else throw new Error(`${String(error)}${also}`, { cause: error });
   }
   throw error;
 }
