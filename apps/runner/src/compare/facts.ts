@@ -34,7 +34,7 @@ export interface RunAnswer extends Answer {
     detail?: string;
   };
   steps?: unknown[];
-  provenance?: { takeId?: string | null };
+  provenance?: { videoId?: string | null };
   frames?: { degradations?: string[] };
   video?: {
     steps?: { outputMs: number | null }[];

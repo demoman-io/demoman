@@ -160,7 +160,8 @@ async function filmOnce(args: {
       `${who}: stopped (${report.stopped.reason}) ${stoppedWhere(at ?? {})}, at "${at?.label ?? "?"}" — ${report.stopped.detail ?? report.stopped.sentence ?? "no detail"}`,
     );
   }
-  const takeId = report.provenance?.takeId ?? null;
+  // The run report and `export` name a take `videoId` (it was `takeId`).
+  const takeId = report.provenance?.videoId ?? null;
   let exportMs: number | null = null;
   let exportOutcome: string | null = null;
   let exp: ExportAnswer | null = null;
@@ -170,7 +171,10 @@ async function filmOnce(args: {
     exp = await settle(
       mcp,
       answer<ExportAnswer>(
-        await mcp.callTool({ name: "export", arguments: { takeId } }),
+        await mcp.callTool({
+          name: "export",
+          arguments: { videoId: takeId },
+        }),
       ),
       ["stillRunning", "exporting", "queued"],
       900_000,
