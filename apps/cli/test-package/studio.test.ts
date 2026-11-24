@@ -11,17 +11,21 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { serveFixtureApp } from "../../runner/test/fixture.js";
 import { sampleImage } from "../../runner/test/mp4-probe.js";
 import { connect, installPacked, text } from "../test/packed-install.js";
+import { watchExternalBrowser } from "./external-browser.js";
 
 let packed: Awaited<ReturnType<typeof installPacked>>;
 let app: Awaited<ReturnType<typeof serveFixtureApp>>;
 let home: string;
+let openers: Awaited<ReturnType<typeof watchExternalBrowser>>;
 const env = (): NodeJS.ProcessEnv => ({
   ...process.env,
   DEMOMAN_HOME: home,
   DEMOMAN_NO_UPDATE_CHECK: "1",
+  ...openers.env,
 });
 beforeAll(async () => {
   packed = await installPacked();
+  openers = await watchExternalBrowser();
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-package-studio-"));
 });
@@ -40,6 +44,7 @@ afterAll(async () => {
   app?.close();
   await packed?.cleanup();
   if (home !== undefined) await rm(home, { recursive: true, force: true });
+  await openers?.cleanup();
 });
 
 type Answer = {
@@ -52,7 +57,7 @@ async function takeId(): Promise<string> {
   const c = await connect(
     process.execPath,
     [packed.bin, "mcp", "--out-dir", join(home, "out")],
-    { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1" },
+    { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1", ...openers.env },
   );
   try {
     let v = JSON.parse(
@@ -166,4 +171,8 @@ it("opens the Studio on a take, exports a GIF through its API, and stops", async
   expect(read.width).toBeGreaterThan(0);
 
   expect(demoman("studio", "--stop")).toBe("Stopped the Studio.\n");
+  // The Studio's window is Playwright's Chromium; nothing reached the
+  // person's own browser or desktop on the way (DEM-218). Red: a Studio
+  // or export that `open`s a URL or file.
+  expect(await openers.calls()).toEqual([]);
 }, 600_000);
