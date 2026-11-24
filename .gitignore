@@ -31,6 +31,9 @@ packages/compositor/.fixtures/
 # SP6: vitest browser-mode failure screenshots, regenerated on any failing run
 **/__screenshots__/
 
+# What a failing runner picture test judged (test/keep-on-failure.ts)
+apps/runner/test-failures/
+
 # Local secrets (direnv). Never commit these.
 .envrc
 .envrc.local
