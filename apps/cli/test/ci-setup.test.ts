@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -185,6 +193,8 @@ function fakes(
     tips?: Record<string, string>;
     /** Paths `git check-ignore` matches. */
     ignored?: string[];
+    /** `git check-ignore` failing (exit 128): its stderr. */
+    ignoreFails?: string;
   } = {},
 ) {
   const calls: string[] = [];
@@ -218,6 +228,8 @@ function fakes(
         ? { code: 128, stdout: "", stderr: "fatal: path does not exist" }
         : { code: 0, stdout: text, stderr: "" };
     }
+    if (args[0] === "check-ignore" && o.ignoreFails !== undefined)
+      return { code: 128, stdout: "", stderr: o.ignoreFails };
     if (args[0] === "check-ignore")
       return {
         code: o.ignored?.includes(args.at(-1) as string) ? 0 : 1,
@@ -1375,7 +1387,7 @@ describe("planCiSetup's plan", () => {
     JSON.stringify({
       accountsVersion: 1,
       sites: {
-        "http://localhost:3000": {
+        [ORIGIN]: {
           accounts: {
             seller: {
               about: "a seller",
@@ -1412,6 +1424,38 @@ describe("planCiSetup's plan", () => {
     expect((await okPlan(root, committed)).files).not.toContain(
       "db/seeds/demo.rb",
     );
+    // Review of DEM-240. Red if an executable seed reaches the check (and
+    // so the pull request) without its exec bit: the reset exits 126.
+    await chmod(join(root, "db", "seeds", "demo.rb"), 0o755);
+    const g = fakes();
+    await okPlan(root, g);
+    expect(
+      g.seen.verify?.[0].files.find((x) => x.path === "db/seeds/demo.rb"),
+    ).toMatchObject({ mode: 0o755 });
+  });
+
+  // Review of DEM-240. Red if a listed link (or a file under a linked
+  // folder) is read through: it would carry a file from outside the repo.
+  it("stops on an account's listed file that is a link", async () => {
+    const root = await repo();
+    const outside = await mkdtemp(join(tmpdir(), "outside-"));
+    await writeFile(join(outside, "credentials"), "secret\n");
+    await mkdir(join(root, "config"), { recursive: true });
+    await symlink(join(outside, "credentials"), join(root, "config", "creds"));
+    await symlink(outside, join(root, "linked"));
+    for (const path of ["config/creds", "linked/credentials"]) {
+      await writeFile(
+        join(root, ".demoman", "accounts.json"),
+        withFiles([path]),
+      );
+      const f = fakes();
+      expect(await plan(root, f), path).toMatchObject({
+        reason: "filesUnreadable",
+        detail: expect.stringContaining("not to a file of its own in the repo"),
+      });
+      expect(f.calls).not.toContain("verifySetup");
+    }
+    await rm(outside, { recursive: true, force: true });
   });
 
   // Red if a listed file that is missing, or that git ignores (it could
@@ -1426,7 +1470,7 @@ describe("planCiSetup's plan", () => {
     expect(missing).toMatchObject({
       reason: "filesUnreadable",
       detail: expect.stringContaining(
-        "account seller on http://localhost:3000 lists db/seeds/demo.rb in its files (.demoman/accounts.json), and it is not there",
+        `account seller on ${ORIGIN} lists db/seeds/demo.rb in its files (.demoman/accounts.json), and it is not there`,
       ),
     });
     await mkdir(join(root, "db", "seeds"), { recursive: true });
@@ -1437,13 +1481,38 @@ describe("planCiSetup's plan", () => {
       detail: expect.stringContaining("git ignores it"),
     });
     expect(f.calls).not.toContain("verifySetup");
+    // Review of DEM-240. Red if a check-ignore git cannot answer is taken
+    // for "not ignored".
+    expect(
+      await plan(root, fakes({ ignoreFails: "fatal: bad pattern" })),
+    ).toMatchObject({
+      reason: "filesUnreadable",
+      detail: expect.stringContaining(
+        "git could not say whether it ignores it (fatal: bad pattern)",
+      ),
+    });
   });
 
   // Red if a check that fails signing in as an account with no files does
   // not say the clean checkout may lack its seed or route.
   it("says an account with no files may be missing its seed when the check fails on it", async () => {
     const root = await repo();
-    await writeFile(join(root, ".demoman", "accounts.json"), withFiles());
+    // Review of DEM-240: an account on another site, with no files, is not
+    // the started app's, so a failed reset does not name it.
+    const two = JSON.parse(withFiles());
+    two.sites["https://staging.example.com"] = {
+      accounts: {
+        admin: {
+          about: "an admin",
+          checkUrl: "/",
+          signIn: [{ do: "goto", url: "/login" }],
+        },
+      },
+    };
+    await writeFile(
+      join(root, ".demoman", "accounts.json"),
+      JSON.stringify(two),
+    );
     const failed = (detail: string) =>
       fakes({
         verified: {
@@ -1458,9 +1527,7 @@ describe("planCiSetup's plan", () => {
     expect(
       await plan(
         root,
-        failed(
-          "signing in as seller on http://localhost:3000: its element never appeared",
-        ),
+        failed(`signing in as seller on ${ORIGIN}: its element never appeared`),
       ),
     ).toMatchObject({ detail: expect.stringContaining(hint) });
     // The trial's own stop (account-files-trial.sh, 2026-11-24).
@@ -1468,7 +1535,7 @@ describe("planCiSetup's plan", () => {
       await plan(
         root,
         failed(
-          "signInFailed: the steps for seller ran, but http://localhost:3000/dashboard.html (checkUrl) still lands on http://localhost:3000/login.html: they did not sign in",
+          `signInFailed: the steps for seller ran, but ${ORIGIN}/dashboard.html (checkUrl) still lands on ${ORIGIN}/login.html: they did not sign in`,
         ),
       ),
     ).toMatchObject({ detail: expect.stringContaining(hint) });
@@ -1492,9 +1559,7 @@ describe("planCiSetup's plan", () => {
     expect(
       await plan(
         root,
-        failed(
-          "signing in as seller on http://localhost:3000: its element never appeared",
-        ),
+        failed(`signing in as seller on ${ORIGIN}: its element never appeared`),
       ),
     ).not.toMatchObject({ detail: expect.stringContaining(hint) });
   });

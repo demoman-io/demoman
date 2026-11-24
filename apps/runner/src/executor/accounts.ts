@@ -271,12 +271,20 @@ export function parseAccounts(
           posix.isAbsolute(path) ||
           /^[A-Za-z]:/.test(path) ||
           top === "." ||
-          top === ".." ||
-          top === ".git"
+          top === ".."
         ) {
           return no(
             `${at}.files.${i}`,
             `"${f}" is not a file in the repo: give its path from the repo's root, like db/seeds/demo.rb`,
+          );
+        }
+        // Setup's own files, and git's, are never an account's: secrets.env
+        // and saved sessions live in .demoman (case-blind for macOS).
+        const owned = [".git", ".github", ".demoman", ".gitignore"];
+        if (owned.includes((top ?? "").toLowerCase())) {
+          return no(
+            `${at}.files.${i}`,
+            `"${f}" is in ${top}, which setup handles itself; list only the app's files that make the account, like db/seeds/demo.rb`,
           );
         }
         if (!files.includes(path)) files.push(path);

@@ -84,6 +84,12 @@ describe("parseAccounts", () => {
       "C:/x",
       ".git/config",
       ".",
+      // Review of DEM-240: .git in any case (macOS reads .GIT as .git), and
+      // the files setup handles itself, secrets.env among them.
+      ".GIT/config",
+      ".github/workflows/deploy.yml",
+      ".demoman/secrets.env",
+      ".gitignore",
     ]) {
       const no = parseAccounts("/p/.demoman/accounts.json", withFiles([bad]));
       expect(no, bad).toMatchObject({

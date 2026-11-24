@@ -49,6 +49,7 @@ const args = (
     path: string;
     text: string | Uint8Array;
     appendToBase?: string;
+    mode?: number;
   }>,
 ) => ({
   root,
@@ -143,6 +144,21 @@ describe("openSetupPr", () => {
     ]);
     expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
     expect(sh(root, "branch", "--list", SETUP_BRANCH)).toBe("");
+  });
+
+  // Review of DEM-240. Red if a file carried executable (an account's seed
+  // script) is committed 100644: CI's reset then exits 126.
+  it("commits a file carried with mode 0o755 as executable", async () => {
+    await openSetupPr(
+      args([
+        { path: "bin/seed-demo", text: "#!/bin/sh\n", mode: 0o755 },
+        { path: "db/plain.rb", text: "x\n" },
+      ]),
+      { git, gh: gh() },
+    );
+    const tree = sh(root, "ls-tree", "-r", `origin/${SETUP_BRANCH}`);
+    expect(tree).toMatch(/^100755 blob \S+\tbin\/seed-demo$/m);
+    expect(tree).toMatch(/^100644 blob \S+\tdb\/plain.rb$/m);
   });
 
   // Review finding 6. Red when the branch is built from or pushed to origin

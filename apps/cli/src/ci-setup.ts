@@ -1,7 +1,15 @@
 // One plan for CI setup, checked from a clean checkout before anything is
 // written; then the secrets, the Actions setting, the setup pull request and
 // its run. Both doors (the terminal and the MCP `ci` tool) call these two.
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import {
   APP_FILE,
@@ -263,6 +271,9 @@ export type CiPlan = {
 type SetupFiles = Array<{
   path: string;
   text: string | Uint8Array;
+  /** 0o755 for a file the working tree has executable (a seed script):
+   *  written so in the check and the pull request. */
+  mode?: number;
   /** Lines the PR adds to the base's own file as it is then, unless the
    *  base already ignores what they ignore; `text` is the plan's copy. */
   appendToBase?: string;
@@ -409,6 +420,8 @@ async function draftLeft(
 function unlistedSaid(
   unlisted: { name: string; origin: string }[],
   check: { step: string; detail: string },
+  /** The started app's URL: a failed reset is one of its accounts'. */
+  appUrl: string | null,
 ): string {
   // A failed sign-in names its account (account-signin.ts); a failed reset
   // (app-start.ts) may be any account's seed. Both in their own words.
@@ -416,7 +429,9 @@ function unlistedSaid(
     check.step !== "refresh"
       ? []
       : check.detail.includes("fix the reset command in")
-        ? unlisted.map((u) => u.name)
+        ? unlisted
+            .filter((u) => u.origin === originOf(appUrl))
+            .map((u) => u.name)
         : unlisted
             // "signing in as seller on …", "the steps for seller ran, …"
             // (an account name is [a-z0-9_-]).
@@ -932,6 +947,7 @@ async function makePlan(
     const listed = all.flatMap(({ site, a }) =>
       (a.files ?? []).map((path) => ({ path, site, a })),
     );
+    let rootReal: string | undefined;
     for (const { path, site, a } of listed) {
       if (files.includes(path)) continue;
       const text = await readFile(join(root, path), "utf8").catch(
@@ -942,12 +958,24 @@ async function makePlan(
           "filesUnreadable",
           `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and it ${text.code === "ENOENT" ? "is not there" : `could not be read (${messageOf(text)})`}; restore it or remove it from the account's files, then run setup again`,
         );
-      // An ignored file (secrets.env, a local .env) never goes into a pull
-      // request.
-      if ((await deps.git(["check-ignore", "-q", "--", path], root)).code === 0)
+      // The file itself, in the repo: a link (or a folder that is one) could
+      // carry a file from anywhere into the pull request.
+      const real = await realpath(join(root, path)).catch(() => null);
+      rootReal ??= await realpath(root);
+      if (real !== join(rootReal, path))
         return stop(
           "filesUnreadable",
-          `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and git ignores it, so setup will not commit it; remove it from the account's files (a value it holds goes in a secret), then run setup again`,
+          `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and it resolves to ${real ?? "nothing"}, not to a file of its own in the repo; list the file itself, then run setup again`,
+        );
+      // An ignored file (secrets.env, a local .env) never goes into a pull
+      // request, and one git cannot judge is not taken for one it keeps.
+      const ignored = await deps.git(["check-ignore", "-q", "--", path], root);
+      if (ignored.code !== 1)
+        return stop(
+          "filesUnreadable",
+          ignored.code === 0
+            ? `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and git ignores it, so setup will not commit it; remove it from the account's files (a value it holds goes in a secret), then run setup again`
+            : `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and git could not say whether it ignores it (${ignored.stderr.trim() || `exit ${ignored.code}`}); fix that, then run setup again`,
         );
       for (const ref of ["HEAD", base]) {
         if ((await shown(deps.git, root, ref, path)) !== text) {
@@ -1025,7 +1053,7 @@ async function makePlan(
       ? stop(check.reason, `${hide(check.detail)}; nothing was written`)
       : stop(
           check.reason,
-          `the check failed on its ${check.step} step: ${hide(check.detail)}${await draftLeft(root, check.step, app)}${unlistedSaid(unlisted, check)}`,
+          `the check failed on its ${check.step} step: ${hide(check.detail)}${await draftLeft(root, check.step, app)}${unlistedSaid(unlisted, check, app?.spec.url ?? null)}`,
           { step: check.step, tail: hide(check.tail) },
         );
   const checked: CiPlan["check"] =
@@ -1146,7 +1174,10 @@ async function fileTexts(
       files.push({ path, text: app.text });
     else {
       try {
-        files.push({ path, text: await readFile(join(root, path)) });
+        const text = await readFile(join(root, path));
+        // Git keeps one bit of a file's mode: executable or not.
+        const exec = ((await stat(join(root, path))).mode & 0o111) !== 0;
+        files.push({ path, text, ...(exec ? { mode: 0o755 } : {}) });
       } catch (e) {
         return {
           failed: `${path} could not be read (${messageOf(e)}), so nothing was done; check it is there, then run setup again`,

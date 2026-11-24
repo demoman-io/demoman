@@ -4,7 +4,14 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -66,6 +73,8 @@ const files = () => [
   { path: `${FLOWS_DIR}/${keptFileName("Long")}`, text: flowText("Long", 3) },
   { path: `${FLOWS_DIR}/${keptFileName("Short")}`, text: flowText("Short", 1) },
   { path: ".demoman/receipts/short.screens/final.png", text: BYTES },
+  // An account's seed script, carried executable (review of DEM-240).
+  { path: "bin/seed-demo", text: "#!/bin/sh\n", mode: 0o755 },
 ];
 const video = (over: Partial<RefreshVideo> = {}): RefreshVideo => ({
   name: "Short",
@@ -103,6 +112,8 @@ let refreshed: {
   env: NodeJS.ProcessEnv;
 }[];
 let seen: Map<string, string | Buffer | null>;
+/** Each file's permission bits as the app found them. */
+const modes = new Map<string, number>();
 let dockerCalls: string[][];
 let leftToStop: string[];
 
@@ -111,8 +122,11 @@ const look = async (dir: string) => {
     ...files().map((f) => f.path),
     "README.md",
     ".demoman/secrets.env",
-  ])
+  ]) {
     seen.set(p, await readFile(join(dir, p)).catch(() => null));
+    const st = await stat(join(dir, p)).catch(() => null);
+    if (st !== null) modes.set(p, st.mode & 0o777);
+  }
 };
 const startStub =
   (
@@ -212,6 +226,8 @@ describe("verifySetup", () => {
     expect(existsSync(join(root, ".demoman/secrets.env"))).toBe(true);
     expect(seen.get(".demoman/secrets.env")).toBeNull();
     expect(seen.get("README.md")?.toString()).toBe("committed\n");
+    // Red if the seed script loses its exec bit in the clean checkout.
+    expect(modes.get("bin/seed-demo")).toBe(0o755);
     for (const f of files())
       expect(Buffer.from(seen.get(f.path) as Buffer)).toEqual(
         Buffer.from(f.text),
