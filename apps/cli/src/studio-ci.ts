@@ -12,6 +12,7 @@ import type {
   CiStopWire,
   StudioCi,
 } from "@demoman/studio";
+import { SETUP_BRANCH } from "./ci-pr.js";
 import type { SecretValues } from "./ci-secrets.js";
 import {
   applyCiSetup,
@@ -139,7 +140,7 @@ export function createStudioCi(io: {
             unread:
               facts.setupBranch.pr !== null
                 ? `its update to ${deps.version} waits on the open setup pull request ${facts.setupBranch.pr.url}`
-                : `the branch demoman/setup is on ${facts.remote} with no pull request; delete it to be offered the update to ${deps.version}`,
+                : `the branch ${SETUP_BRANCH} is on ${facts.remote} with no pull request; delete it (git push ${facts.remote} --delete ${SETUP_BRANCH}) to be offered the update to ${deps.version}`,
           };
         return {
           kind: "setUp",

@@ -195,8 +195,13 @@ export function ciSteps(
           set({ k: "note", text: ci.detail });
           return;
         case "running":
-          if (ci.update !== undefined && o.offerUpdate === true)
-            update = ci.update;
+          // An update's job is the CI sheet's: a sheet that offers no update
+          // (Add to repo) sees a set-up repo (review of DEM-269).
+          if (ci.update !== undefined && o.offerUpdate !== true) {
+            set({ k: "setUp" });
+            return;
+          }
+          if (ci.update !== undefined) update = ci.update;
           set({
             k: "working",
             lines: [],
@@ -207,8 +212,11 @@ export function ciSteps(
           listen(ci.jobId, true);
           return;
         case "finished":
-          if (ci.update !== undefined && o.offerUpdate === true)
-            update = ci.update;
+          if (ci.update !== undefined && o.offerUpdate !== true) {
+            set({ k: "setUp" });
+            return;
+          }
+          if (ci.update !== undefined) update = ci.update;
           set({ k: "working", lines: [] });
           onCi(
             {

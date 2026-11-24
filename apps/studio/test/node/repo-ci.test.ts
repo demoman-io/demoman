@@ -343,6 +343,40 @@ describe("the CI routes", () => {
     expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual(live);
   });
 
+  // Review of DEM-269. Red if an applied update replays once its pull
+  // request is gone and the update is on offer again (the sheet would show
+  // the closed pull request and Done for good), or a job for another update
+  // replays.
+  it("an applied update on offer again, or another update, replays nothing", async () => {
+    const update = {
+      from: "0.9.8",
+      to: "0.9.9",
+      trigger: "daily" as const,
+      route: "pr" as const,
+    };
+    let live: CiState = { kind: "setUp", update };
+    const { h } = setup({ state: async () => live });
+    await h.repoCiState(req({ root: ROOT }));
+    await planOnce(h);
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toMatchObject({
+      kind: "finished",
+      update,
+    });
+    live = { kind: "setUp", update: { ...update, to: "0.9.10" } };
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual(live);
+    live = { kind: "setUp", update };
+    // The plan's own update replays; the apply then records it too.
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toMatchObject({
+      kind: "finished",
+      update,
+    });
+    await h.repoCiApply(
+      req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
+    );
+    await flush();
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual(live);
+  });
+
   it("an apply's done event goes to tellIfUnseen, and the jobs drain", async () => {
     const gate = held<CiAppliedWire>();
     const { h, told, jobs } = setup({ apply: () => gate.promise });

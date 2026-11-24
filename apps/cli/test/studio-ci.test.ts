@@ -153,6 +153,24 @@ describe("the Studio's CI door", () => {
       unread:
         "its update to 0.9.9 waits on the open setup pull request https://x/9",
     });
+    // A branch left with no pull request: said with the command to delete it.
+    const stray = await createStudioCi({
+      deps: () =>
+        ({
+          version: "0.9.9",
+          readGithub: async () => ({
+            ...facts(true),
+            workflowText: workflow("0.9.8", "pr"),
+            setupBranch: { pr: null },
+          }),
+        }) as unknown as Omit<CiDeps, "log" | "signal">,
+    }).state(ROOT);
+    expect(stray).toMatchObject({
+      kind: "setUp",
+      unread: expect.stringMatching(
+        /^the branch demoman\/setup is on \S+ with no pull request; delete it \(git push \S+ --delete demoman\/setup\) to be offered the update to 0\.9\.9$/,
+      ),
+    });
   });
 
   it("orders releases as releases, not as text", () => {

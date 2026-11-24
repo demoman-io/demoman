@@ -379,12 +379,17 @@ export function createCiJobs(o: {
         else updates.set(root, update);
         const ended = last.get(root);
         // An update is a flow inside set up: its own last job replays as Set
-        // up CI's does (R16), while that update is still on offer. A set-up
-        // repo replays no other job: not the setup that set it up.
+        // up CI's does (R16), while that same update is still on offer. A
+        // set-up repo replays no other job: not the setup that set it up.
+        // An applied update on offer again lost its pull request (closed,
+        // branch deleted), so it offers the update afresh.
         const replay =
           ended !== undefined &&
           (live.kind !== "setUp" ||
-            (live.update !== undefined && ended.update !== undefined));
+            (live.update !== undefined &&
+              ended.update?.from === live.update.from &&
+              ended.update.to === live.update.to &&
+              !("pr" in ended.answer)));
         const state: CiState = replay ? { kind: "finished", ...ended } : live;
         return { status: 200, json: state };
       },

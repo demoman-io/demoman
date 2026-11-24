@@ -300,6 +300,11 @@ describe("an update of an older workflow", () => {
     });
     await s.read();
     expect(s.update).toEqual(update);
+    // Red if the add sheet shows the update's job in its CI section.
+    const add = ciSteps(ciDoor(state).door, "/r", () => {});
+    await add.read();
+    expect(add.step.k).toBe("setUp");
+    expect(add.update).toBeNull();
   });
 
   // Red if the add sheet loses its own pull request to the update, or the
