@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   cursorMotionSpans,
   type FrameBundle,
+  inScreenSpace,
   planScene,
   resolvePlan,
   sourceDurationOf,
@@ -464,6 +465,65 @@ describe("one script recorded fast and slowed", () => {
         `step ${step}: start differs by ${startDiff}, motion by ${motionDiff}. ${fast.evidence()} ${slow.evidence()}`,
       ).toBeLessThanOrEqual(FRAME_MS);
     }
+  });
+
+  // DEM-273: a planned arrive plays at its length from where the cursor set
+  // off, whatever the machine took to start the journey. Red if the arrive
+  // is counted from the approach marker again (timeline.ts `plannedIdleOf`):
+  // the slowed take's latency then takes its share (CI's macOS: 114 of 300).
+  it("plays each planned arrive at its length from where the cursor set off", () => {
+    /** Film time of idle (and freezes) between two source instants. */
+    const idleOutIn = (r: Recording, a: number, b: number) =>
+      r.timeline.segments
+        .filter((g) => g.kind !== "motion")
+        .reduce((n, g) => {
+          if (g.srcEndMs === g.srcStartMs)
+            return g.srcStartMs > a && g.srcStartMs <= b
+              ? n + g.outEndMs - g.outStartMs
+              : n;
+          const o = Math.min(g.srcEndMs, b) - Math.max(g.srcStartMs, a);
+          return o <= 0
+            ? n
+            : n +
+                ((g.outEndMs - g.outStartMs) * o) / (g.srcEndMs - g.srcStartMs);
+        }, 0);
+    const arrives = (r: Recording) => {
+      const travel = cursorMotionSpans(
+        inScreenSpace(r.bundle, undefined).bundle.cursorSamples,
+      );
+      return steps.flatMap((step) => {
+        const m = markerOf(r, step);
+        const beat = r.scene.pacing?.beats.find(
+          (b) => b.beforeActionId === m.actionId,
+        );
+        const approach = m.approachSourceTimeMs;
+        if (beat === undefined || approach === undefined) return [];
+        const setOff = travel.find(
+          (t) => t.endMs > approach && t.startMs < m.sourceTimeMs,
+        )?.startMs;
+        if (setOff === undefined || setOff < approach) return [];
+        return [
+          {
+            step,
+            latencyMs: setOff - approach,
+            plannedMs: beat.arriveMs,
+            playedMs: idleOutIn(r, setOff, m.sourceTimeMs),
+          },
+        ];
+      });
+    };
+    const [a, b] = [arrives(fast), arrives(slow)];
+    const said = `${JSON.stringify({ fast: a, slow: b })} ${slow.evidence()}`;
+    // Premise: steps with a journey were read, and the slowed take started
+    // at least one of them a frame or more after its approach marker.
+    expect(a.length, said).toBeGreaterThan(0);
+    expect(Math.max(...b.map((x) => x.latencyMs)), said).toBeGreaterThanOrEqual(
+      FRAME_MS,
+    );
+    for (const x of [...a, ...b])
+      expect(Math.abs(x.playedMs - x.plannedMs), said).toBeLessThanOrEqual(
+        FRAME_MS,
+      );
   });
 
   // Result 2: the same script gets the same camera, pan or return
