@@ -23,7 +23,9 @@ export type CiStep =
   | { k: "note"; text: string }
   | { k: "setUp" }
   | { k: "form"; stop?: CiStopWire }
-  | { k: "working"; lines: string[] }
+  /** `doing`: the step at work, which its primary names; absent when a
+   *  reopened sheet cannot tell. */
+  | { k: "working"; lines: string[]; doing?: "check" | "apply" }
   | { k: "planned"; planned: CiPlannedWire; progress: string[]; stale: boolean }
   | { k: "applied"; applied: CiAppliedWire; progress: string[] }
   | { k: "stopped"; stop: CiStopWire };
@@ -118,7 +120,7 @@ export function ciSteps(
   function onCi(e: CiEvent, replayed = false): void {
     if (e.phase === "progress") {
       if (step.k === "working" && shown(e.line))
-        set({ k: "working", lines: [...step.lines, e.line] });
+        set({ ...step, lines: [...step.lines, e.line] });
       return;
     }
     const progress = step.k === "working" ? step.lines : [];
@@ -195,7 +197,13 @@ export function ciSteps(
         case "running":
           if (ci.update !== undefined && o.offerUpdate === true)
             update = ci.update;
-          set({ k: "working", lines: [] });
+          set({
+            k: "working",
+            lines: [],
+            ...(ci.step === undefined
+              ? {}
+              : { doing: ci.step === "plan" ? "check" : "apply" }),
+          });
           listen(ci.jobId, true);
           return;
         case "finished":
@@ -223,7 +231,7 @@ export function ciSteps(
         ciChoices.app = appFrom(proposal.draft, holes);
         ciChoices.appBy = "person";
       }
-      set({ k: "working", lines: [] });
+      set({ k: "working", lines: [], doing: "check" });
       try {
         const { jobId } = await door.plan({
           root,
@@ -244,7 +252,7 @@ export function ciSteps(
     async apply(): Promise<void> {
       if (step.k !== "planned" || step.stale) return;
       const { planId } = step.planned;
-      set({ k: "working", lines: [] });
+      set({ k: "working", lines: [], doing: "apply" });
       try {
         const { jobId } = await door.apply({ root, planId });
         listen(jobId);
@@ -444,7 +452,8 @@ export function ciActions(
   const links: HTMLElement[] = [];
   if (primary !== undefined) {
     box.append(primary);
-    if (close.quiet !== null)
+    // A way out that cannot be taken now is not drawn (a step at work).
+    if (close.quiet !== null && close.disabled !== true)
       links.push(closing(button(close.quiet, null, "ci-link")));
   } else {
     box.append(closing(button(close.primary, "check", "btn btn-primary")));
@@ -515,9 +524,28 @@ export function ciStepsView(
       break;
     case "setUp":
       break;
-    case "working":
-      nodes.push(waiting("Working…", "data-ci-working"), statusPanel(ci.lines));
+    case "working": {
+      // Layout D's own logic: the primary is the step at work, disabled,
+      // turning, and named; the status lines under it say what it is on.
+      const words =
+        ci.doing === "check"
+          ? s.update === null
+            ? "Checking…"
+            : "Checking the update…"
+          : ci.doing === "apply"
+            ? s.update === null
+              ? "Setting up CI…"
+              : "Updating CI…"
+            : "Working…";
+      const b = button(words, null, "btn btn-primary");
+      b.prepend(spinner());
+      b.disabled = true;
+      b.dataset.role = "primary";
+      b.setAttribute("data-ci-working", "");
+      acts.push(b);
+      nodes.push(statusPanel(ci.lines));
       break;
+    }
     case "stopped":
       nodes.push(text("p", ci.stop.detail, "data-ci-stop"));
       if (ci.stop.tail !== undefined) nodes.push(text("pre", ci.stop.tail));

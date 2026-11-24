@@ -229,7 +229,11 @@ describe("ciSteps", () => {
     await s.check({});
     for (const line of ["timing export 4s", "Checking", "timing refresh 9s"])
       d.tellCi({ phase: "progress", line });
-    expect(s.step).toEqual({ k: "working", lines: ["Checking"] });
+    expect(s.step).toEqual({
+      k: "working",
+      lines: ["Checking"],
+      doing: "check",
+    });
   });
 
   // Red if an apply's pull request is not kept for the caller's result.

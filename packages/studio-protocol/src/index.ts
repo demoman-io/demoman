@@ -764,7 +764,13 @@ export type CiState =
   | { kind: "unreadable"; detail: string }
   /** `update` on `running` and `finished`: the job is an update's, so the
    *  sheet keeps saying so when reopened. */
-  | { kind: "running"; jobId: string; update?: CiUpdateWire }
+  | {
+      kind: "running";
+      jobId: string;
+      /** Which step runs: a reopened sheet names it. */
+      step?: "plan" | "apply";
+      update?: CiUpdateWire;
+    }
   | {
       kind: "finished";
       jobId: string;

@@ -7332,9 +7332,9 @@ describe("the Studio's screenshot set", () => {
             turning: spin.getAnimations().map((a) => a.playState),
           };
         }),
-        "the watch: a spinner beside Working…",
+        "the watch: a spinner in the step at work",
       ).toEqual({
-        words: "Working…",
+        words: "Setting up CI…",
         size: ["16px", "16px"],
         shown: true,
         turning: ["running"],

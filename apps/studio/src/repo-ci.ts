@@ -357,6 +357,7 @@ export function createCiJobs(o: {
           const running: CiState = {
             kind: "running",
             jobId: job.jobId,
+            step: job.step,
             ...(job.update === undefined ? {} : { update: job.update }),
           };
           return { status: 200, json: running };

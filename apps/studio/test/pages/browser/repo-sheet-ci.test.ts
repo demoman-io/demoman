@@ -180,12 +180,16 @@ for (const scheme of ["light", "dark"] as const) {
 
     // Red if the add sheet closes under a running CI job, as CI setup's own
     // sheet does not, or a close the browser forces leaves it unsettled.
-    it("holds Escape and Done while a CI job runs; a forced close settles", async () => {
+    it("holds Escape and offers no way out while a CI job runs; a forced close settles", async () => {
       const s = stub({ kind: "running", jobId: "j" } as CiState);
       const dialog = await openSheet(s.door);
       await el(dialog, "[data-ci-status]");
-      const done = dialog.querySelector<HTMLButtonElement>("[data-repo-done]");
-      expect(done?.disabled, "Done is held").toBe(true);
+      // The step at work is the primary, held; no Done to press.
+      const working = dialog.querySelector<HTMLButtonElement>(
+        "[data-ci-actions] [data-ci-working]",
+      );
+      expect(working?.disabled, "the step at work is held").toBe(true);
+      expect(dialog.querySelector("[data-repo-done]"), "no Done").toBeNull();
       dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
       let settled = false;
       void result.then(() => {

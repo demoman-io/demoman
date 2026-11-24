@@ -252,6 +252,7 @@ describe("the CI routes", () => {
     expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual({
       kind: "running",
       jobId,
+      step: "plan",
     });
     // A second job for the same repo waits for the first to end.
     expect(
@@ -298,6 +299,7 @@ describe("the CI routes", () => {
     expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual({
       kind: "running",
       jobId,
+      step: "plan",
       update,
     });
     const stop = { reason: "checkFailed", detail: "d" };
