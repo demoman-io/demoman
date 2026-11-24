@@ -137,8 +137,11 @@ export interface LibraryActions {
   goTab?(t: Tab): void;
   /** Set up CI for a project, beside its heading (DEM-52): what opens it,
    *  or null when the place offers none (no flow of it in the repo, its
-   *  CI set up, or its state not read yet). */
+   *  CI set up and current, or its state not read yet). Set up by an older
+   *  release, it opens Update CI (DEM-269). */
   ciSetup?(p: Place): (() => void) | null;
+  /** Whether that button updates an older release's workflow (DEM-269). */
+  ciUpdating?(p: Place): boolean;
   /** The search box's text, at each keystroke. Absent: no box. */
   search?(query: string): void;
 }
@@ -284,6 +287,8 @@ const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
 export function paintCiSlot(
   slot: HTMLElement,
   openCi: (() => void) | null,
+  /** Update CI (DEM-269): set up by an older release. */
+  update = false,
 ): void {
   if (openCi === null) {
     slot.replaceChildren();
@@ -294,7 +299,11 @@ export function paintCiSlot(
     class: "btn btn-quiet",
     "data-ci-setup": "",
   });
-  b.append(icon("shieldCheck"), "Set up CI");
+  if (update) b.setAttribute("data-ci-update", "");
+  b.append(
+    icon(update ? "refresh" : "shieldCheck"),
+    update ? "Update CI" : "Set up CI",
+  );
   b.addEventListener("click", openCi);
   slot.replaceChildren(b);
 }
@@ -1031,7 +1040,13 @@ function createHeader(withStorage: boolean, footage?: FootageActions): Header {
         at !== undefined && typeof at === "object"
           ? (next.ciSetup?.(at) ?? null)
           : null;
-      paintCiSlot(ciSlot, openCi);
+      paintCiSlot(
+        ciSlot,
+        openCi,
+        at !== undefined &&
+          typeof at === "object" &&
+          next.ciUpdating?.(at) === true,
+      );
       // No rail, no places to switch between: the plain title alone.
       switchName.replaceChildren(
         ...(place === undefined ? [] : placeTitle(place)),

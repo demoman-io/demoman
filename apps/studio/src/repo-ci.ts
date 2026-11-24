@@ -13,6 +13,7 @@ import type {
   CiPlannedWire,
   CiState,
   CiStopWire,
+  CiUpdateWire,
   SetupPrWire,
   StudioEvent,
 } from "@demoman/studio-protocol";
@@ -178,7 +179,15 @@ export function createCiJobs(o: {
   const { ci, log } = o;
   const now = o.now ?? Date.now;
   /** The running job per repo root. */
-  const jobs = new Map<string, { jobId: string; step: "plan" | "apply" }>();
+  /** `update`: the job is an update's, as offered when it started. */
+  const jobs = new Map<
+    string,
+    { jobId: string; step: "plan" | "apply"; update?: CiUpdateWire }
+  >();
+  /** Each root's update on offer, so its job's states keep saying so. */
+  const updates = new Map<string, CiUpdateWire>();
+  /** The last "no update offered" reason logged for each root. */
+  const unreadSaid = new Map<string, string>();
   /** Applies still running, for `drained`. */
   const applying = new Set<Promise<void>>();
   /** Plans still running, each with what stops its check. */
@@ -188,7 +197,12 @@ export function createCiJobs(o: {
   /** The last job per root that ended: a reopened sheet reads it. */
   const last = new Map<
     string,
-    { jobId: string; step: "plan" | "apply"; answer: CiAnswerWire }
+    {
+      jobId: string;
+      step: "plan" | "apply";
+      answer: CiAnswerWire;
+      update?: CiUpdateWire;
+    }
   >();
   /** The typed values of each root's held plan, until it is applied or
    *  replaced: the apply's lines are hidden over them too. */
@@ -219,7 +233,9 @@ export function createCiJobs(o: {
       return refuse(409, "ciBusy", `CI setup is already running for ${root}.`);
     }
     const jobId = randomUUID();
-    jobs.set(root, { jobId, step });
+    const update = updates.get(root);
+    const its = update === undefined ? {} : { update };
+    jobs.set(root, { jobId, step, ...its });
     const addsAtStart = adds.get(root) ?? 0;
     const wall = (t: string) => scrubLine(hide(t, values));
     const progress = (line: string) => {
@@ -255,7 +271,7 @@ export function createCiJobs(o: {
             };
           }
         }
-        last.set(root, { jobId, step, answer });
+        last.set(root, { jobId, step, answer, ...its });
         log(
           `studio: ci ${jobId}: ${step} ended${"reason" in answer ? `: ${answer.reason}: ${answer.detail}` : ""}`,
         );
@@ -338,7 +354,12 @@ export function createCiJobs(o: {
         if (!isRoot(root)) return badBody("root is not an absolute path");
         const job = jobs.get(root);
         if (job !== undefined) {
-          const running: CiState = { kind: "running", jobId: job.jobId };
+          const running: CiState = {
+            kind: "running",
+            jobId: job.jobId,
+            step: job.step,
+            ...(job.update === undefined ? {} : { update: job.update }),
+          };
           return { status: 200, json: running };
         }
         let live: CiState;
@@ -347,11 +368,29 @@ export function createCiJobs(o: {
         } catch (error) {
           live = { kind: "unreadable", detail: messageOf(error) };
         }
+        // Each reason once per root, not on every read (review of DEM-269).
+        const unread = live.kind === "setUp" ? live.unread : undefined;
+        if (unread !== undefined && unreadSaid.get(root) !== unread)
+          log(`studio: ci ${root}: no update offered: ${unread}`);
+        if (unread === undefined) unreadSaid.delete(root);
+        else unreadSaid.set(root, unread);
+        const update = live.kind === "setUp" ? live.update : undefined;
+        if (update === undefined) updates.delete(root);
+        else updates.set(root, update);
         const ended = last.get(root);
-        const state: CiState =
-          live.kind === "setUp" || ended === undefined
-            ? live
-            : { kind: "finished", ...ended };
+        // An update is a flow inside set up: its own last job replays as Set
+        // up CI's does (R16), while that same update is still on offer. A
+        // set-up repo replays no other job: not the setup that set it up.
+        // An applied update on offer again lost its pull request (closed,
+        // branch deleted), so it offers the update afresh.
+        const replay =
+          ended !== undefined &&
+          (live.kind !== "setUp" ||
+            (live.update !== undefined &&
+              ended.update?.from === live.update.from &&
+              ended.update.to === live.update.to &&
+              !("pr" in ended.answer)));
+        const state: CiState = replay ? { kind: "finished", ...ended } : live;
         return { status: 200, json: state };
       },
 

@@ -21,6 +21,7 @@ import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import {
   type CiPlannedWire,
+  type CiUpdateWire,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
   pathFor,
@@ -7018,11 +7019,26 @@ describe("the Studio's screenshot set", () => {
       const PR = "https://github.com/acme/web/pull/7";
       /** The repo's live CI state: set up once the setup run passed. */
       let ciKind: "notSetUp" | "setUp" = "notSetUp";
+      /** DEM-269: set up by an older release, once the case gets there. */
+      let ciUpdate: CiUpdateWire | undefined;
       const LATER_PR = "https://github.com/acme/web/pull/8";
+      /** Review of DEM-269: the next check stops with this, once. */
+      let stopNext: { reason: string; detail: string } | null = null;
+      /** Review of DEM-269: the next check waits for this. */
+      let planHeld: Promise<void> | null = null;
       const repoCi: StudioCi = {
-        state: async () => ({ kind: ciKind }),
+        state: async () =>
+          ciKind === "setUp" && ciUpdate !== undefined
+            ? { kind: "setUp", update: ciUpdate }
+            : { kind: ciKind },
         plan: async (_root, _choices, _values, progress) => {
           progress("Reading the repo");
+          if (planHeld !== null) await planHeld;
+          if (stopNext !== null) {
+            const stop = stopNext;
+            stopNext = null;
+            return stop;
+          }
           return {
             planId: "plan-1",
             plan: {
@@ -7432,6 +7448,23 @@ describe("the Studio's screenshot set", () => {
       expect(sheetText).not.toMatch(/screens settled/);
       await dialogPaint("the last step");
       await shoot("add-sheet-last-step", "the last step");
+      // Review of DEM-269: a stopped check keeps its way out. Red if Check
+      // is the add sheet's only button after a stop.
+      stopNext = {
+        reason: "checkFailed",
+        detail:
+          "The check stopped: the app did not answer on http://localhost:4000 within 60 s.",
+      };
+      await page.locator("[data-ci-check]").click();
+      await page.locator("dialog[open] [data-ci-stop]").waitFor();
+      expect(
+        await page
+          .locator("dialog[open] [data-ci-actions] button")
+          .allInnerTexts(),
+        "the stopped check",
+      ).toEqual(["Check", "Not now"]);
+      await dialogPaint("the stopped check");
+      await shoot("add-sheet-ci-stopped", "the stopped check");
       await page.locator("[data-ci-check]").click();
       await page.locator("[data-ci-apply]").waitFor();
       await settle(page, "plan");
@@ -7467,9 +7500,9 @@ describe("the Studio's screenshot set", () => {
             turning: spin.getAnimations().map((a) => a.playState),
           };
         }),
-        "the watch: a spinner beside Working…",
+        "the watch: a spinner in the step at work",
       ).toEqual({
-        words: "Working…",
+        words: "Setting up CI…",
         size: ["16px", "16px"],
         shown: true,
         turning: ["running"],
@@ -7642,7 +7675,117 @@ describe("the Studio's screenshot set", () => {
         .locator("[data-list] [role=row] [data-kept]")
         .first()
         .waitFor({ timeout: 2_000 });
-      expect(shots).toHaveLength(20);
+      // ---- DEM-269: set up by an older release: Update CI beside the
+      // heading, and its sheet after the check. Red if the heading offers
+      // nothing, the sheet does not say it updates, its check is not named,
+      // or the choices do not mark how it runs now.
+      ciUpdate = { from: "0.9.8", to: "0.9.9", trigger: "push", route: "pr" };
+      at = "Update CI";
+      await page.goto(`${studio.origin}/?project=${encodeURIComponent(KEY)}`);
+      const updateCi = page.locator("[data-ci-setup][data-ci-update]");
+      await updateCi.waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
+      // The slot over a few frames, for a failure to say what it painted.
+      const buttons = await page.evaluate(async () => {
+        const seen: string[] = [];
+        for (let i = 0; i < 10; i++) {
+          seen.push(
+            document.querySelector("[data-ci-slot]")?.innerHTML ?? "(no slot)",
+          );
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        return [...new Set(seen)];
+      });
+      expect(await updateCi.innerText(), `${at}: ${buttons.join("\n")}`).toBe(
+        "Update CI",
+      );
+      await shoot("library-ci-update", at);
+      await updateCi.click();
+      await page.locator("dialog[open][data-ci-sheet]").waitFor();
+      expect(
+        await page.locator("dialog[open] .confirm-title").innerText(),
+        at,
+      ).toBe("Update CI");
+      expect(
+        await page.locator("dialog[open] [data-ci-update-said]").innerText(),
+        at,
+      ).toContain("Demoman 0.9.8 wrote. This is 0.9.9");
+      const checkUpdate = page.locator("dialog[open] [data-ci-check]");
+      expect(await checkUpdate.innerText(), at).toBe("Check the update");
+      // Layout D (the author): the next step is the one primary, and Close
+      // the quiet line under it.
+      expect(
+        await page
+          .locator("dialog[open] [data-ci-actions] .ci-quiet")
+          .innerText(),
+        at,
+      ).toBe("Close");
+      await dialogPaint("the update sheet before its check");
+      await shoot(
+        "ci-sheet-update-before",
+        "the update sheet before its check",
+      );
+      await checkUpdate.click();
+      await page
+        .locator("dialog[open] [data-ci-apply]")
+        .waitFor({ timeout: PAINT_MS });
+      const marked = await page.evaluate(() => {
+        const texts = (sel: string) =>
+          [...document.querySelectorAll(`dialog[open] ${sel} option`)].map(
+            (o) => o.textContent,
+          );
+        return {
+          trigger: texts("[data-ci-trigger]"),
+          route: texts("[data-ci-route]"),
+        };
+      });
+      expect(marked, `${at}: how it runs now, marked`).toEqual({
+        trigger: ["On each push to main (as now)", "Every day"],
+        route: ["Pull request (as now)", "Straight to the default branch"],
+      });
+      await dialogPaint("the update sheet");
+      await shoot("ci-sheet-update", "the update sheet");
+      await page.locator("dialog[open] [data-ci-done]").click();
+      // Review of DEM-269: an update's check running while its sheet is
+      // left and opened again is still an update. Red if the title falls
+      // back to "Set up CI".
+      let letGo: () => void = () => {};
+      planHeld = new Promise<void>((r) => {
+        letGo = r;
+      });
+      await updateCi.click();
+      await page.locator("dialog[open] [data-ci-check]").click();
+      await page.locator("dialog[open] [data-ci-working]").waitFor();
+      // The sheet stays open while it works: a reload is how it is left
+      // and opened again over the running check.
+      await page.reload();
+      await updateCi.waitFor({ timeout: PAINT_MS });
+      expect(
+        await updateCi.innerText(),
+        "the heading over a running update",
+      ).toBe("Update CI");
+      await updateCi.click();
+      await page.locator("dialog[open] [data-ci-working]").waitFor();
+      expect(
+        await page.locator("dialog[open] .confirm-title").innerText(),
+        "the running update",
+      ).toBe("Update CI");
+      await dialogPaint("the running update");
+      await shoot("ci-sheet-update-running", "the running update");
+      planHeld = null;
+      letGo();
+      // A plan heard by a sheet opened over its check is stale, as Set up
+      // CI's is: it offers the update's check again, still named for it.
+      await page
+        .locator("dialog[open] [data-ci-check]", {
+          hasText: "Check the update",
+        })
+        .waitFor({ timeout: PAINT_MS });
+      expect(await page.locator("dialog[open] [data-ci-apply]").count()).toBe(
+        0,
+      );
+      await page.locator("dialog[open] [data-ci-done]").click();
+      expect(shots).toHaveLength(25);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       release();
       running = null;

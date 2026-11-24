@@ -1,7 +1,11 @@
 import type { CiState } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
 import type { CiEvent } from "../../../pages/src/platform/types";
-import { ciSteps, type RepoCiDoor } from "../../../pages/src/shell/ci-steps";
+import {
+  ciSteps,
+  ciStepsView,
+  type RepoCiDoor,
+} from "../../../pages/src/shell/ci-steps";
 
 /** A CI door that answers `state`, and lets the test send events and see bodies. */
 function ciDoor(state: CiState | Error) {
@@ -202,13 +206,34 @@ describe("ciSteps", () => {
     expect(live.d.planBodies).toHaveLength(2);
   });
 
+  // Review of DEM-269. Red if a stopped check leaves Check as the add
+  // sheet's only button (no way out but Escape).
+  it("offers Not now beside Check after a stop", async () => {
+    const { d, s } = await read({ kind: "notSetUp" });
+    await s.check({});
+    d.tellCi({
+      phase: "done",
+      step: "plan",
+      answer: stopOf({ reason: "checkFailed" }),
+    });
+    expect(s.step.k).toBe("stopped");
+    const attrs = ciStepsView(s, { notNow: () => {} }).actions.map((b) =>
+      [...b.attributes].map((a) => a.name).find((n) => n.startsWith("data-ci")),
+    );
+    expect(attrs).toEqual(["data-ci-check", "data-ci-not-now"]);
+  });
+
   // Red if the panels show the timings.
   it("leaves timing lines out of its panel", async () => {
     const { d, s } = await read({ kind: "notSetUp" });
     await s.check({});
     for (const line of ["timing export 4s", "Checking", "timing refresh 9s"])
       d.tellCi({ phase: "progress", line });
-    expect(s.step).toEqual({ k: "working", lines: ["Checking"] });
+    expect(s.step).toEqual({
+      k: "working",
+      lines: ["Checking"],
+      doing: "check",
+    });
   });
 
   // Red if an apply's pull request is not kept for the caller's result.
@@ -244,5 +269,110 @@ describe("ciSteps", () => {
     s.stop();
     d.tellCi({ phase: "progress", line: "late" });
     expect(changes()).toBe(before);
+  });
+});
+
+// DEM-269: the Set up CI sheet offers an update of an older release's
+// workflow; the add sheet keeps its own pull request.
+describe("an update of an older workflow", () => {
+  const update = {
+    from: "0.9.8",
+    to: "0.9.9",
+    trigger: "daily" as const,
+    route: "main" as const,
+  };
+  const older: CiState = { kind: "setUp", update };
+
+  // Review of DEM-269. Red if a reopened sheet over a running or finished
+  // update's job forgets it is an update (title "Set up CI", "Check").
+  it.each<CiState>([
+    { kind: "running", jobId: "ci-1", update },
+    {
+      kind: "finished",
+      jobId: "ci-1",
+      step: "plan",
+      answer: stopOf({ reason: "checkFailed" }),
+      update,
+    },
+  ])("keeps the update over a $kind job", async (state) => {
+    const s = ciSteps(ciDoor(state).door, "/r", () => {}, {
+      offerUpdate: true,
+    });
+    await s.read();
+    expect(s.update).toEqual(update);
+    // Red if the add sheet shows the update's job in its CI section.
+    const add = ciSteps(ciDoor(state).door, "/r", () => {});
+    await add.read();
+    expect(add.step.k).toBe("setUp");
+    expect(add.update).toBeNull();
+  });
+
+  // Red if the add sheet loses its own pull request to the update, or the
+  // CI sheet is not offered it.
+  it("is a form in the CI sheet, and stays set up in the add sheet", async () => {
+    const sheet = ciSteps(ciDoor(older).door, "/r", () => {}, {
+      offerUpdate: true,
+    });
+    await sheet.read();
+    expect(sheet.step.k).toBe("form");
+    expect(sheet.update).toEqual(update);
+    const add = ciSteps(ciDoor(older).door, "/r", () => {});
+    await add.read();
+    expect(add.step.k).toBe("setUp");
+    expect(add.update).toBeNull();
+  });
+
+  // The author's ruling: the action says what it does, and the choices say
+  // which is how it runs now.
+  it("names its check, and marks the trigger and route it runs on now", async () => {
+    const d = ciDoor(older);
+    const s = ciSteps(d.door, "/r", () => {}, { offerUpdate: true });
+    await s.read();
+    const check = ciStepsView(s).actions.find((b) =>
+      b.hasAttribute("data-ci-check"),
+    );
+    expect(check?.textContent).toBe("Check the update");
+    await s.check({});
+    d.tellCi({
+      phase: "done",
+      step: "plan",
+      answer: {
+        planId: "p1",
+        lines: ["Updates .github/workflows/demoman.yml"],
+        plan: {
+          trigger: "daily",
+          route: "main",
+          check: { skipped: "no app" },
+          offers: [
+            { trigger: "daily", label: "once a day", offered: true, why: "" },
+            {
+              trigger: "push",
+              label: "on each merge to main",
+              offered: true,
+              why: "",
+            },
+          ],
+        },
+      },
+    });
+    expect(s.step.k).toBe("planned");
+    const box = document.createElement("div");
+    box.append(...ciStepsView(s).nodes);
+    const options = (sel: string) =>
+      [...(box.querySelector<HTMLSelectElement>(sel)?.options ?? [])].map(
+        (o) => o.text,
+      );
+    expect(options("[data-ci-trigger]")).toEqual([
+      "once a day (as now)",
+      "on each merge to main",
+    ]);
+    expect(options("[data-ci-route]")).toEqual([
+      "Pull request",
+      "Straight to the default branch (as now)",
+    ]);
+    expect(
+      ciStepsView(s).actions.find((b) => b.hasAttribute("data-ci-apply"))
+        ?.textContent,
+    ).toBe("Open pull request");
   });
 });

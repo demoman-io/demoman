@@ -73,10 +73,12 @@ for (const scheme of ["light", "dark"] as const) {
       });
       const dialog = await el<HTMLDialogElement>("dialog[open][data-ci-sheet]");
       await el("dialog[open] [data-ci-status]");
-      // Premise: a job runs, so Done is held.
+      // Premise: a job runs, so its step is the held primary, and no Close.
       expect(
-        (dialog.querySelector("[data-ci-done]") as HTMLButtonElement).disabled,
+        (dialog.querySelector("[data-ci-working]") as HTMLButtonElement)
+          .disabled,
       ).toBe(true);
+      expect(dialog.querySelector("[data-ci-done]")).toBeNull();
       dialog.close();
       expect(await result).toEqual({ prOpened: null });
     });
@@ -91,7 +93,7 @@ for (const scheme of ["light", "dark"] as const) {
       const said = await el("dialog[open] [data-ci-set-up]");
       expect(said.textContent).toBe("CI is set up.");
       const buttons = [
-        ...document.querySelectorAll("dialog[open] .confirm-actions button"),
+        ...document.querySelectorAll("dialog[open] [data-ci-actions] button"),
       ].map((b) => b.textContent);
       expect(buttons).toEqual(["Done"]);
     });

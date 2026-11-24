@@ -12,6 +12,7 @@ import type {
   CiStopWire,
   StudioCi,
 } from "@demoman/studio";
+import { SETUP_BRANCH } from "./ci-pr.js";
 import type { SecretValues } from "./ci-secrets.js";
 import {
   applyCiSetup,
@@ -24,7 +25,45 @@ import {
   redact,
 } from "./ci-setup.js";
 import { runOf } from "./ci-tool.js";
-import { watchedLines } from "./ci-workflow.js";
+import { foundWorkflow, watchedLines } from "./ci-workflow.js";
+
+/** Whether release `a` is older than `b` (x.y.z, a pre-release before its
+ *  release); null when either is not one (`latest`, `next`). Never a plain
+ *  string difference, which would offer a newer workflow a downgrade. */
+export function releaseOlder(a: string, b: string): boolean | null {
+  const parse = (v: string) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)(-.+)?$/.exec(v);
+    return m === null
+      ? null
+      : { n: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  if (x === null || y === null) return null;
+  for (let i = 0; i < 3; i++) {
+    const d = (x.n[i] ?? 0) - (y.n[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  if (x.pre === y.pre) return false;
+  if (x.pre === null) return false;
+  if (y.pre === null) return true;
+  // Per semver: dot-separated parts, numbers as numbers (rc.9 < rc.10).
+  const xs = x.pre.slice(1).split(".");
+  const ys = y.pre.slice(1).split(".");
+  for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
+    const p = xs[i];
+    const q = ys[i];
+    if (p === undefined) return true;
+    if (q === undefined) return false;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return Number(p) < Number(q);
+    if (pn !== qn) return pn;
+    return p < q;
+  }
+  return false;
+}
 
 export function createStudioCi(io: {
   /** Everything the plan reads and does; `progress` is the watch's. */
@@ -67,9 +106,52 @@ export function createStudioCi(io: {
 
   return {
     async state(root) {
-      const facts = await io.deps(root, () => {}).readGithub(root);
-      if (!("reason" in facts))
-        return { kind: facts.workflowOnDefault ? "setUp" : "notSetUp" };
+      const deps = io.deps(root, () => {});
+      const facts = await deps.readGithub(root);
+      if (!("reason" in facts)) {
+        if (!facts.workflowOnDefault) return { kind: "notSetUp" };
+        // DEM-269: an older release's workflow is offered an update, kept
+        // as it runs, unless its pull request is already open. One it cannot
+        // place is still set up, and `unread` says why (the Studio logs it).
+        const found =
+          facts.workflowText === undefined
+            ? { unreadable: "GitHub sent no content for it" }
+            : foundWorkflow(facts.workflowText);
+        if ("unreadable" in found)
+          return { kind: "setUp", unread: found.unreadable };
+        if (found.release === null)
+          return {
+            kind: "setUp",
+            unread: "it names no Demoman release (a packed build?)",
+          };
+        const older = releaseOlder(found.release, deps.version);
+        if (older === null)
+          return {
+            kind: "setUp",
+            unread: `its release ${found.release} cannot be compared with ${deps.version}`,
+          };
+        if (!older) return { kind: "setUp" };
+        // Held back while a setup branch is there, and said: an open pull
+        // request, or a branch left with none (the terminal's
+        // setupBranchExists).
+        if (facts.setupBranch !== null)
+          return {
+            kind: "setUp",
+            unread:
+              facts.setupBranch.pr !== null
+                ? `its update to ${deps.version} waits on the open setup pull request ${facts.setupBranch.pr.url}`
+                : `the branch ${SETUP_BRANCH} is on ${facts.remote} with no pull request; delete it (git push ${facts.remote} --delete ${SETUP_BRANCH}) to be offered the update to ${deps.version}`,
+          };
+        return {
+          kind: "setUp",
+          update: {
+            from: found.release,
+            to: deps.version,
+            trigger: found.trigger,
+            route: found.route,
+          },
+        };
+      }
       return facts.reason === "githubUnreadable"
         ? { kind: "unreadable", detail: facts.detail }
         : { kind: "noGh", detail: facts.detail };

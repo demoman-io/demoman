@@ -502,7 +502,7 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     // the server stops listening in this tick, so this read is refused, and
     // the pages have been told it is stopping.
     const state = await call(s.state, "/api/repo/ci?root=%2Fwork%2Fapp");
-    expect(state.json()).toEqual({ kind: "running", jobId });
+    expect(state.json()).toEqual({ kind: "running", jobId, step: "apply" });
     expect(stream.text()).not.toContain("server:stopping");
     expect(s.logs).toContain(
       "studio: the window closed; finishing CI setup first",

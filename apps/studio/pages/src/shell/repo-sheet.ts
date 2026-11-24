@@ -14,6 +14,7 @@ import {
   anchor,
   button,
   type CiSteps,
+  ciActions,
   ciSteps,
   ciStepsView,
   messageOf,
@@ -491,6 +492,8 @@ function drawSheet(
   const parts: HTMLElement[] = [el("h2", "confirm-title", "Add to repo")];
   const actions = el("div", "confirm-actions");
   let focus: HTMLElement | undefined;
+  /** The CI section laid out its own actions (layout D). */
+  let ciLaidOut = false;
   const cancel = (): HTMLButtonElement => {
     const b = button("Cancel", "close");
     b.setAttribute("data-repo-cancel", "");
@@ -599,15 +602,22 @@ function drawSheet(
         const sec = el("section", "repo-section");
         sec.append(heading(false, "CI"), ...view.nodes);
         parts.push(el("div", "repo-rule"), sec);
-        // Not now already closes: two ways out would be one too many.
-        const closes = view.actions.some((b) =>
-          b.hasAttribute("data-ci-not-now"),
+        // Layout D, as the CI sheet: Not now already closes while a step is
+        // left, so the sheet adds no Close of its own; Done once none is.
+        parts.push(
+          ciActions(view.actions, {
+            primary: "Done",
+            quiet: null,
+            attr: "data-repo-done",
+            fn: () => model.close(),
+            disabled: model.ci?.busy === true,
+          }),
         );
-        actions.append(...view.actions, ...(closes ? [] : [done(false)]));
         focus = view.focus;
+        ciLaidOut = true;
       }
     }
-    parts.push(actions);
+    if (!ciLaidOut) parts.push(actions);
   }
   // A redraw replaces the control that was pressed: focus its successor, so
   // a keyboard user is not dropped to the body after every toggle.

@@ -1888,6 +1888,50 @@
 .repo-sheet .confirm-actions {
   margin-top: 12px;
 }
+/* The CI sheets' actions, the author's layout D (DEM-269): the next step as
+   one full-width primary, and under it one quiet line of the rest, joined
+   by a dot ("Close · Check again"). Shared by Set up CI, Update CI and the
+   add sheet's CI section. */
+.repo-sheet .ci-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.repo-sheet .ci-actions > .btn {
+  width: 100%;
+  justify-content: center;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+.repo-sheet .ci-actions > .btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.repo-sheet .ci-quiet {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+.repo-sheet .ci-link {
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.repo-sheet .ci-link:not(:disabled):hover {
+  color: var(--ink);
+}
+.repo-sheet .ci-link:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .repo-sheet .repo-line {
   margin: 0;
   color: var(--ink-muted);
