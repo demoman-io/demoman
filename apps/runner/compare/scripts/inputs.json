@@ -1,0 +1,14 @@
+{
+  "name": "Keys and clicks: a combo, a double-click, a right-click, a Shift-click",
+  "target": "http://127.0.0.1:8130/inputs-app.html",
+  "viewport": { "width": 1280, "height": 800 },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "press", "key": "Mod+K" },
+    { "do": "press", "key": "Escape" },
+    { "do": "click", "on": { "stableId": "row2" }, "clicks": 2 },
+    { "do": "click", "on": { "stableId": "row4" }, "button": "right" },
+    { "do": "click", "on": { "stableId": "field" } },
+    { "do": "click", "on": { "stableId": "row3" }, "holding": "Shift" }
+  ]
+}

@@ -87,6 +87,9 @@ export interface RectReading {
    * differ in shape, and this is the shape.
    */
   nearWhiteBox: { width: number; height: number } | null;
+  /** For each requested colour, how many of the rect's full-resolution
+   *  pixels are within `colorTolerance` of it (no erosion). */
+  colorCounts: number[];
 }
 
 export interface FrameTimes {
@@ -191,6 +194,9 @@ export interface SampleRequest {
    * the window, not of the file.
    */
   spacingSec: number;
+  /** When given, read exactly these instants (seconds) instead of the
+   *  spacing's grid: a mark that lasts 300 ms is read inside it. */
+  atSecs?: number[];
   blockPoints: Point[];
   /** Block side, as a fraction of the frame's width. */
   blockFraction: number;
@@ -319,10 +325,10 @@ async function sampleFrames(
       `spacingSec must be a positive number of seconds, not ${request.spacingSec}`,
     );
   }
-  const timestamps: number[] = [];
+  const timestamps: number[] = request.atSecs ? [...request.atSecs] : [];
   const span = Math.max(0, durationSec - 1 / 30);
   const steps = Math.ceil(span / request.spacingSec);
-  for (let i = 0; i <= steps; i++) {
+  for (let i = 0; i <= steps && !request.atSecs; i++) {
     timestamps.push(steps === 0 ? 0 : (span * i) / steps);
   }
 
@@ -479,7 +485,7 @@ function readCanvas(
   // Full resolution, for the rects only — see WORK_WIDTH's docblock.
   const fullCtx = full.getContext("2d") as OffscreenCanvasRenderingContext2D;
   const rects = request.rects.map((rect) =>
-    readRect(fullCtx, full, rect, request.nearWhiteMin),
+    readRect(fullCtx, full, rect, request),
   );
 
   const work = new OffscreenCanvas(
@@ -636,7 +642,7 @@ function readRect(
   ctx: OffscreenCanvasRenderingContext2D,
   canvas: OffscreenCanvas,
   [fx0, fy0, fx1, fy1]: Rect,
-  nearWhiteMin: number,
+  { nearWhiteMin, colors, colorTolerance }: SampleRequest,
 ): RectReading {
   const x = Math.round(fx0 * canvas.width);
   const y = Math.round(fy0 * canvas.height);
@@ -666,10 +672,18 @@ function readRect(
     }
   }
   const total = pixels.length / 4;
+  const colorCounts = colors.map(() => 0);
+  for (let i = 0; i < total; i++) {
+    colors.forEach((color, c) => {
+      if (matches(pixels, i, color, colorTolerance))
+        colorCounts[c] = (colorCounts[c] as number) + 1;
+    });
+  }
   return {
     nearWhite,
     meanLuma: luma / total,
     total,
+    colorCounts,
     nearWhiteBox:
       maxX < 0
         ? null
