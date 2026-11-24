@@ -127,6 +127,12 @@ export function ciRetry(env = process.env, say = (line) => console.log(line)) {
         );
     } else if (result.state === "skipped" && result.note) {
       say(`::warning title=Skipped::${name}: ${result.note}`);
+      // A retry that skips (a starved run, DEM-239) after a first attempt
+      // that failed: the failure is said too, or a red reads as a skip.
+      for (const error of result.errors ?? [])
+        say(
+          `First attempt of ${name} failed: ${error.stack ?? error.message ?? String(error)}`,
+        );
     }
   };
   return {
