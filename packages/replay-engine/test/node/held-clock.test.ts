@@ -1750,6 +1750,86 @@ describe("createHeldClock", () => {
     );
   });
 
+  // DEM-275: on a slow runner Chrome refused one capture outright ("Unable
+  // to capture screenshot") and the run gave way. Red if one refusal stops
+  // the run, is not said, or the frame is filed at the time it was refused;
+  // red if a second refusal does not stop it.
+  const refused = () =>
+    Promise.reject(
+      new Error(
+        "Protocol error (Page.captureScreenshot): Unable to capture screenshot",
+      ),
+    );
+  it("takes a refused screenshot again once, a frame later, and says so", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const { clock, frames } = setup({
+      shot: () =>
+        ++n === 1
+          ? refused()
+          : Promise.resolve({
+              bytes: new Uint8Array([n]),
+              width: 2,
+              height: 1,
+            }),
+    });
+    await clock.hold(START);
+    await clock.sleep(100);
+    expect(clock.failed()).toBeNull();
+    // The retake is the frame after; the sleep's last frame follows it.
+    expect(inFrames(times(frames))).toEqual([2, 3]);
+    expect(clock.retaken().map((r) => r.what)).toEqual([
+      expect.stringMatching(
+        /its screenshot was refused \(Protocol error \(Page\.captureScreenshot\): Unable to capture screenshot\), though the page answered a second read$/,
+      ),
+    ]);
+  });
+  // Review of DEM-275. Red if a refusal on a page that does not answer a
+  // second read (gone, crashed) is retaken: the run would then stop on a
+  // clock that could not move, not on the refusal.
+  it("stops on a refusal at once when the page does not answer a second read", async () => {
+    vi.useFakeTimers();
+    const { clock, budgets } = setup({
+      pin: (_, source) =>
+        source === PIN_ANIMATIONS
+          ? []
+          : (new Promise(() => undefined) as never),
+      shot: refused,
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(SECOND_READ_MS + 10);
+    await slept;
+    expect(String(failed)).toMatch(/Unable to capture screenshot/);
+    expect(clock.retaken()).toEqual([]);
+    // No retake's grant: only the frame's own.
+    expect(budgets()).toHaveLength(1);
+  });
+  it("stops when the retake of a refused screenshot is refused too", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const { clock } = setup({
+      shot: () =>
+        ++n <= 2
+          ? refused()
+          : Promise.resolve({
+              bytes: new Uint8Array([n]),
+              width: 2,
+              height: 1,
+            }),
+    });
+    await clock.hold(START);
+    let failed: unknown = null;
+    await clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    expect(String(failed)).toMatch(/Unable to capture screenshot/);
+    expect(clock.retaken()).toHaveLength(1);
+  });
+
   // Red if a page that does not answer a second read is taken again: that
   // one runs a script, and a frame of page time more cannot end it.
   it("takes no frame again on a page that does not answer a second read", async () => {
