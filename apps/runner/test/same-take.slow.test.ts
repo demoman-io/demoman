@@ -27,6 +27,7 @@ import { launch } from "../src/launch.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
+import { keepOnFailure } from "./keep-on-failure.js";
 import { heldByLagMs, lagCdp } from "./lag.js";
 import { mp4FirstFrameSize, mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 import { pairSeams } from "./seams.js";
@@ -491,6 +492,10 @@ describe("one script recorded fast and slowed", () => {
     async () => {
       const film = fast.mp4;
       if (film === null) throw new Error("the fast take was not rendered");
+      // A red run keeps the film whose seams it read.
+      keepOnFailure("same-take-seams", () => [
+        { name: "fast.mp4", bytes: film.bytes },
+      ]);
       const pairStart = start(fast, 0);
       const pairEnd = start(fast, 1);
       // The pair's runs and the seams the check can sample (seams.ts).

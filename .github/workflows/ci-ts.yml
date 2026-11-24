@@ -177,6 +177,15 @@ jobs:
           browser: "true"
       - name: Tests (the runner, shard ${{ matrix.shard }} of 4)
         run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/4 --exclude 'test/refresh-*.slow.test.ts'
+      # A failed picture case keeps the film it judged (test/keep-on-failure.ts).
+      # Without it a red run that only the MP4 could explain had none (DEM-272).
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-failure-films-${{ matrix.os }}-${{ matrix.shard }}
+          path: apps/runner/test-failures/
+          if-no-files-found: ignore
+          retention-days: 7
 
   refresh:
     needs: changes

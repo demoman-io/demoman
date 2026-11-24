@@ -21,6 +21,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
+import { keepOnFailure } from "./keep-on-failure.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 // x5 for CI (fff4505) on the Mac's ~10 s run and ~15 s export.
@@ -63,6 +64,8 @@ let home: string;
 let executor: LocalExecutor;
 let takeId: string;
 let recording: unknown;
+/** The run's final still, when it made one: kept beside the film. */
+let stillPath: string | undefined;
 
 beforeAll(async () => {
   server = createServer((_req, res) => {
@@ -108,6 +111,7 @@ beforeAll(async () => {
     ? (run.value as {
         provenance?: { takeId?: unknown };
         run?: { recording?: unknown };
+        still?: { path?: unknown };
       })
     : undefined;
   const id = report?.provenance?.takeId;
@@ -116,6 +120,8 @@ beforeAll(async () => {
   }
   takeId = id;
   recording = report?.run?.recording;
+  const still = report?.still?.path;
+  stillPath = typeof still === "string" ? still : undefined;
 }, RUN_MS);
 
 afterAll(async () => {
@@ -145,6 +151,11 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
         throw new Error(JSON.stringify(answer));
       }
+      // A red run keeps the film it judged, and the still (DEM-272).
+      const film = answer.file.path;
+      keepOnFailure("picture-checks", () =>
+        stillPath === undefined ? [film] : [film, stillPath],
+      );
       const bytes = new Uint8Array(await readFile(answer.file.path));
       const read = await mp4FrameTimes(bytes);
       const ms = read.timesSec.map((t) => t * 1000);
