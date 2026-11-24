@@ -15,6 +15,7 @@ import {
   type SessionFile,
 } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
+import { watchArrivals } from "./arrivals.js";
 import { lagCdp } from "./lag.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
@@ -132,6 +133,8 @@ export async function record(
     onLaunched: async ({ context }) => {
       await installResolver(context);
       await installExecutorEntry(context);
+      // When each answer's data reached Demoman (`arrivals.ts`, DEM-235).
+      await watchArrivals(context);
       if (lagMs !== undefined) {
         await lagCdp(context, lagMs);
         lagged = context;
