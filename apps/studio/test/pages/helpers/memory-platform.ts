@@ -340,6 +340,15 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       })),
       write: member("exportQuality", "write", async () => ({})),
     },
+    exportFolder: {
+      read: member("exportFolder", "read", async () => ({
+        folder: null,
+        defaultFolder: "/Users/me/Downloads",
+      })),
+      write: member("exportFolder", "write", async () => ({
+        saved: null,
+      })),
+    },
     libraryView: {
       read: member("libraryView", "read", async () => ({
         view: seed.libraryView ?? DEFAULT_LIBRARY_VIEW,

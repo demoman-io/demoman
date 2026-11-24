@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readUserSettings } from "../src/executor/user-settings.js";
+import {
+  defaultExportFolder,
+  exportFolderOf,
+  readUserSettings,
+} from "../src/executor/user-settings.js";
 
 const made: string[] = [];
 const temp = async () => {
@@ -39,6 +43,7 @@ describe("readUserSettings: exportQuality", () => {
     expect(await readUserSettings(home)).toEqual({
       exportQuality: "full",
       pullRequests: "ask",
+      exportFolder: null,
     });
   });
 
@@ -91,5 +96,59 @@ describe("readUserSettings: exportQuality", () => {
     await writeFile(file(home), '{"exportQuality":"nope"}');
     await readUserSettings(home);
     expect(await readFile(file(home), "utf8")).toBe('{"exportQuality":"nope"}');
+  });
+});
+
+// DEM-180: one answer to "where does this export land".
+describe("exportFolderOf", () => {
+  it("a given folder wins, else the setting, else ~/Downloads", async () => {
+    const home = await temp();
+    expect(await exportFolderOf(home, "/given")).toEqual({
+      folder: "/given",
+      from: "given",
+    });
+    expect(await exportFolderOf(home, undefined)).toEqual({
+      folder: defaultExportFolder(),
+      from: "default",
+    });
+    await writeFile(file(home), JSON.stringify({ exportFolder: "/films" }));
+    expect(await exportFolderOf(home, undefined)).toEqual({
+      folder: "/films",
+      from: "setting",
+    });
+    expect(await exportFolderOf(home, "/given")).toMatchObject({
+      folder: "/given",
+    });
+    // null is the Studio's "back to the default".
+    await writeFile(file(home), JSON.stringify({ exportFolder: null }));
+    expect(await exportFolderOf(home, undefined)).toMatchObject({
+      from: "default",
+    });
+  });
+
+  // Red if a folder the person chose but cannot be used falls back to
+  // ~/Downloads without a word.
+  it("a setting it cannot use is unusable, naming the file and the value", async () => {
+    const home = await temp();
+    await writeFile(file(home), JSON.stringify({ exportFolder: "films" }));
+    expect(await exportFolderOf(home, undefined)).toEqual({
+      unusable: `${file(home)}: exportFolder must be an absolute path; got "films"`,
+    });
+    // A file that will not read may never have named a folder: ~/Downloads,
+    // with why, for the export to say (review of DEM-180: refusing here
+    // stopped every export over a broken file).
+    await writeFile(file(home), "{nope");
+    const broken = await exportFolderOf(home, undefined);
+    expect(broken).toMatchObject({
+      folder: defaultExportFolder(),
+      from: "default",
+      unread: expect.stringContaining(file(home)),
+    });
+    // A bad folder leaves the other keys readable.
+    await writeFile(
+      file(home),
+      JSON.stringify({ exportFolder: 3, exportQuality: "full" }),
+    );
+    expect((await readUserSettings(home)).exportQuality).toBe("full");
   });
 });

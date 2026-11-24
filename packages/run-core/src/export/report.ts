@@ -226,6 +226,9 @@ export interface ExportWarnings {
    *  row, so the studio's list of exports will not show it: why. Absent:
    *  it is listed (or this door keeps no such list). */
   notListed?: { error: string };
+  /** The settings file would not read, so the file went to ~/Downloads, not
+   *  a chosen Export folder (DEM-180): why. */
+  exportFolderUnread?: string;
   /** The file was saved but could not be tagged with its video and version
    *  (or the take's video could not be read): why. Absent: it is tagged, or
    *  the take belongs to no video. */
@@ -805,6 +808,11 @@ export function exportCaveats(
     videoSize,
   } = report.warnings;
   return [
+    ...(report.warnings.exportFolderUnread === undefined
+      ? []
+      : [
+          `it is in ~/Downloads, not a chosen Export folder, because the settings file could not be read (${report.warnings.exportFolderUnread.replace(/\.$/, "")})`,
+        ]),
     ...(videoSize?.settingUnreadable === undefined
       ? []
       : [

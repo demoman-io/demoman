@@ -318,7 +318,7 @@ async function studio(args: string[]): Promise<void> {
   }
   await runServe({
     home,
-    outDir: join(homedir(), "Downloads"),
+    // No outDir: each export reads the user's Export folder (DEM-180).
     pagesDir,
     version: VERSION,
     executablePath: fullChromiumPath(),

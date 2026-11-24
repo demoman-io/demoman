@@ -92,6 +92,11 @@
       /* Export and Pull requests: one row each, the choices centred on the label. */
       [data-section="pullRequests"] .switch-row,
       [data-section="export"] .switch-row { align-items: center; }
+      /* The Export folder under the quality, its own labelled field. */
+      .export-folder { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ring); }
+      .export-label { display: block; margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-muted); }
+      .export-folder input { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 12px; }
+      .export-folder .hint { margin: 6px 0 0; }
 
       /* Brand kits (2026-10-08): the kits as a strip of live tiles, the
          selected one's picture full width, and its controls in three short

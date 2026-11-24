@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { FLOWS_DIR, type KeptVideo, serializeKept } from "@demoman/run-core";
 import {
@@ -1205,6 +1205,87 @@ describe("exportQuality", () => {
     expect((r.json() as { reason: string }).reason).toBe(
       "exportQualityInvalid",
     );
+  });
+});
+
+// DEM-180: where the Studio's exports, and an agent's without --out-dir, land.
+describe("exportFolder", () => {
+  const put = (exportFolder: unknown) =>
+    h.call(pathFor("exportFolderPut"), {
+      method: "PUT",
+      body: JSON.stringify(exportFolder === undefined ? {} : { exportFolder }),
+    });
+  const reasonOf = (r: { json(): unknown }) =>
+    r.json() as { reason: string; detail: string };
+
+  it("none set reads null with the default beside it", async () => {
+    expect((await h.call(pathFor("exportFolderGet"))).json()).toEqual({
+      exportFolder: null,
+      defaultFolder: join(homedir(), "Downloads"),
+    });
+  });
+
+  // Red if a folder that cannot take a file is saved, to fail only at the
+  // first export.
+  it("saves a folder that takes files, keeping the other keys; refuses one that cannot", async () => {
+    await writeFile(join(home, "settings.json"), '{"exportQuality":"full"}');
+    const films = await mkdtemp(join(tmpdir(), "studio-films-"));
+    const r = await put(films);
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({
+      exportFolder: films,
+      defaultFolder: join(homedir(), "Downloads"),
+    });
+    expect(
+      JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
+    ).toEqual({ exportQuality: "full", exportFolder: films });
+    expect((await h.call(pathFor("exportFolderGet"))).json()).toMatchObject({
+      exportFolder: films,
+    });
+
+    const gone = join(films, "nope");
+    const missing = await put(gone);
+    expect(missing.status).toBe(400);
+    expect(reasonOf(missing)).toEqual({
+      reason: "exportFolderInvalid",
+      detail: `The Export folder setting was not saved: ${gone} does not exist.`,
+    });
+    const file = join(films, "a.txt");
+    await writeFile(file, "x");
+    expect(reasonOf(await put(file)).detail).toContain(
+      "is a file, not a folder",
+    );
+    expect(reasonOf(await put("films")).detail).toContain(
+      "is not a folder's full path",
+    );
+    // A broken request is refused, never read as "back to the default".
+    expect(reasonOf(await put(undefined)).detail).toContain(
+      "named no exportFolder",
+    );
+    // None of those reached the file.
+    expect(
+      JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
+    ).toMatchObject({ exportFolder: films });
+
+    // null goes back to the default.
+    expect((await put(null)).json()).toMatchObject({ exportFolder: null });
+    await rm(films, { recursive: true, force: true });
+  });
+
+  it("a leading ~/ is the home folder", async () => {
+    const r = await put("~/");
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toMatchObject({ exportFolder: join(homedir(), "/") });
+  });
+
+  it("a stored value it cannot use reads null and says why", async () => {
+    await writeFile(join(home, "settings.json"), '{"exportFolder":"films"}');
+    const body = (await h.call(pathFor("exportFolderGet"))).json() as {
+      exportFolder: unknown;
+      unreadable: string;
+    };
+    expect(body.exportFolder).toBeNull();
+    expect(body.unreadable).toContain("exportFolder must be an absolute path");
   });
 });
 

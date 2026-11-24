@@ -119,6 +119,23 @@ export interface Platform {
     write(quality: ExportQualityChoice): Promise<{ replaced?: string }>;
   };
   /**
+   * Where the studio's exports are saved (DEM-180): `folder` is null when
+   * none is chosen, and exports land in `defaultFolder` (~/Downloads). With
+   * `unreadable` the setting cannot be used, and the page says why.
+   */
+  exportFolder: {
+    read(): Promise<{
+      folder: string | null;
+      defaultFolder: string;
+      unreadable?: string;
+    }>;
+    /** null is back to the default; answers the folder saved (`~` made
+     *  whole), and `replaced` as for `pullRequests.write`. */
+    write(
+      folder: string | null,
+    ): Promise<{ saved: string | null; replaced?: string }>;
+  };
+  /**
    * The Library's layout and sort, kept by the studio in settings.json. With
    * `unreadable` the view is the default and the page says why.
    */

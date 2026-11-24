@@ -55,7 +55,7 @@ import { tagBytes as tagFileBytes, type VideoTag } from "./export-tag.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
-import { readUserSettings } from "./user-settings.js";
+import { exportFolderOf, readUserSettings } from "./user-settings.js";
 import type { VideoStore } from "./videos.js";
 import { readDialogFont, readWallpaper } from "./wallpaper-read.js";
 
@@ -70,7 +70,9 @@ export interface ExportDeps {
   /** The built-in wallpapers' folder (`<id>-<shape>.webp`): the CLI's
    *  `dist/studio/wallpapers`, the studio's `<pagesDir>/wallpapers`. */
   wallpapersDir: string;
-  outDir: string;
+  /** A folder the caller chose (`--out-dir`, a temporary one); absent: the
+   *  user's Export folder, read when the export starts (DEM-180). */
+  outDir?: string;
   log: (line: string) => void;
   /** Tests only: sees the work page, so a case can close it mid-render. */
   onWorkPage?: (page: Page) => void;
@@ -295,6 +297,18 @@ export async function exportTake(
     );
   }
   // Only a take that exists: a lease on a missing one would make its folder.
+  // Where it lands is decided once, before anything is leased or rendered.
+  const where = await exportFolderOf(deps.home, deps.outDir);
+  if ("unusable" in where)
+    return told(
+      withSummary({
+        outcome: "saveFailed",
+        takeId,
+        error: `the Export folder setting cannot be used (${where.unusable}); choose a folder in the Studio's Settings → Export`,
+        beforeRender: true,
+        fileType: asked,
+      }),
+    );
   let lease: Awaited<ReturnType<Library["lease"]>>;
   try {
     lease = await library.lease(takeId, {
@@ -314,6 +328,7 @@ export async function exportTake(
       asked,
       stills,
       quality,
+      where,
       ...(settingUnreadable === undefined ? {} : { settingUnreadable }),
       maxBytes,
       scene: framed,
@@ -326,11 +341,20 @@ export async function exportTake(
     });
     if (answer.outcome === "saved" && answer.fileType === "screens")
       return answer;
+    // A settings file that would not read: the file went to ~/Downloads,
+    // and the answer says why it is not in a chosen folder (DEM-180).
+    const said =
+      answer.outcome === "saved" && where.unread !== undefined
+        ? withSummary({
+            ...answer,
+            warnings: { ...answer.warnings, exportFolderUnread: where.unread },
+          })
+        : answer;
     // `unlisted`: `keep` and `refresh` render into a temp folder they then
     // empty, so a row would list a file that is gone. Not an MCP argument.
-    return answer.outcome === "saved" && args.unlisted !== true
-      ? await listed(answer, takeId, scene, deps)
-      : told(answer);
+    return said.outcome === "saved" && args.unlisted !== true
+      ? await listed(said, takeId, scene, deps)
+      : told(said);
   } finally {
     try {
       await lease.release();
@@ -507,6 +531,8 @@ async function exportLeased(a: {
   asked: FileType;
   stills: StillsOptions;
   quality: ExportQuality;
+  /** Where the file goes, decided by `exportTake`. */
+  where: { folder: string; from: "given" | "setting" | "default" };
   /** Why the Settings quality could not be read, when `quality` is the
    *  default in its place. */
   settingUnreadable?: string;
@@ -575,7 +601,16 @@ async function exportLeased(a: {
 
   // Before the render, not after it: a folder that cannot take the file
   // would otherwise cost the whole render to find out.
-  const folder = await checkExportFolder(deps.outDir);
+  const outDir = a.where.folder;
+  // A folder the person chose that is gone is said, never made again where
+  // they no longer look (~/Downloads and --out-dir are made if missing).
+  const gone = a.where.from === "setting" ? await missingFolder(outDir) : null;
+  const folder =
+    gone !== null
+      ? {
+          error: `your Export folder ${outDir} ${gone}; choose another in the Studio's Settings → Export`,
+        }
+      : await checkExportFolder(outDir);
   if (folder !== null) {
     return withSummary({
       outcome: "saveFailed",
@@ -601,7 +636,7 @@ async function exportLeased(a: {
         error: screens.error,
       });
     const saved = await saveStillsFolder(
-      deps.outDir,
+      outDir,
       `${takeId} screens`,
       screens.files,
     );
@@ -758,7 +793,7 @@ async function exportLeased(a: {
       });
     }
     const saved = await saveStillsFolder(
-      deps.outDir,
+      outDir,
       stillsFolder(aspect, base),
       // `renderStills` names every still on the marker path, so the
       // fallback only applies to caller-supplied times, which exportTake
@@ -803,7 +838,7 @@ async function exportLeased(a: {
   }
   const name = exportFileName(asked, aspect, base);
   const bytes = tagger.apply(asked, file.bytes);
-  const saved = await saveExport(deps.outDir, name, bytes);
+  const saved = await saveExport(outDir, name, bytes);
   times.mark("save");
   deps.log(times.line(`export ${takeId} ${asked}`));
   return withSummary(
@@ -856,6 +891,18 @@ async function exportLeased(a: {
         : {}),
     }),
   );
+}
+
+/** Why a chosen folder cannot take the file, or null when it is a folder:
+ *  missing, not a folder, or not checkable, each in words of its own. */
+async function missingFolder(dir: string): Promise<string | null> {
+  try {
+    return (await stat(dir)).isDirectory() ? null : "is a file, not a folder";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? "is gone (moved, renamed or deleted)"
+      : `could not be checked (${messageOf(error)})`;
+  }
 }
 
 /** The user's Export quality (`<home>/settings.json`), and why it could not

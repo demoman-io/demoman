@@ -47,6 +47,9 @@ export { couldNotCheck, postToolUseAnswer } from "./executor/pr-hook.js";
 export { execGit, hasCommit, readRepo } from "./executor/repo.js";
 export { followCheckouts } from "./executor/repo-aliases.js";
 export {
+  defaultExportFolder,
+  exportFolderOf,
+  isExportFolder,
   readUserSettings,
   type UserSettings,
 } from "./executor/user-settings.js";

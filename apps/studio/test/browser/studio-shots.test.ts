@@ -983,6 +983,41 @@ describe("the Studio's screenshot set", () => {
       const ticked = join(SHOTS, "editor-export-files-1440x900-dark.png");
       await page.screenshot({ path: ticked });
       shots.push(ticked);
+      // DEM-180: Settings → Export, with the Export folder under the
+      // quality. Red if the field is not painted, shows no folder, or its
+      // label or the --out-dir line is missing.
+      await openPage(page, studio, "kits", editorTake, new Set());
+      await page.locator("#export").scrollIntoViewIfNeeded();
+      const folderRow = await page.evaluate(() => {
+        const input = document.querySelector<HTMLInputElement>(
+          "[data-export-folder]",
+        );
+        if (input === null) return null;
+        const r = input.getBoundingClientRect();
+        return {
+          value: input.value,
+          label: document.querySelector('label[for="export-folder"]')
+            ?.textContent,
+          hint: document.querySelector(".export-folder .hint")?.textContent,
+          // The author's 2026-11-24 ruling: both rows labelled.
+          quality: document.querySelector("[data-quality-label]")?.textContent,
+          painted:
+            r.width > 200 &&
+            r.height > 16 &&
+            r.top >= 0 &&
+            r.bottom <= window.innerHeight,
+        };
+      });
+      expect(folderRow, "settings: the Export folder row").toMatchObject({
+        value: expect.stringMatching(/Downloads$/),
+        label: "Export folder",
+        quality: "Quality",
+        hint: expect.stringContaining("--out-dir"),
+        painted: true,
+      });
+      const exportShot = join(SHOTS, "settings-export-1440x900-dark.png");
+      await page.screenshot({ path: exportShot });
+      shots.push(exportShot);
       // The editor stacked (spec 2026-10-19 §5.3): the inspector under the
       // dock, each part over a hairline (studio-look asserts the lines).
       await sizeWindow(context, page, 900, 800);
@@ -1074,7 +1109,7 @@ describe("the Studio's screenshot set", () => {
         Math.abs(blocks?.gap ?? Number.NaN),
         `editor zoom hand-off: ${JSON.stringify(blocks)}`,
       ).toBeLessThan(1.5);
-      expect(shots).toHaveLength(11);
+      expect(shots).toHaveLength(12);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);

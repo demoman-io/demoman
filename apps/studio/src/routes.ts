@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
@@ -9,6 +10,7 @@ import {
 import {
   checkAddable,
   createVideoStore,
+  defaultExportFolder,
   describeVideo,
   ensureVideos,
   execGit,
@@ -36,6 +38,7 @@ import {
   type Addable,
   type BundleAnswer,
   type DeleteAnswer,
+  type ExportFolderAnswer,
   type ExportQualityAnswer,
   type ExportQualityChoice,
   FILE_NAME_HEADER,
@@ -1162,6 +1165,73 @@ export function createRoutes(o: {
       }
       const answer: ExportQualityAnswer = {
         exportQuality: quality as ExportQualityChoice,
+        ...refused,
+      };
+      return json(200, answer);
+    },
+
+    async exportFolderGet() {
+      const got = await readUserSettings(home);
+      const unreadable = got.problems?.exportFolder;
+      const answer: ExportFolderAnswer = {
+        exportFolder: got.exportFolder ?? null,
+        defaultFolder: defaultExportFolder(),
+        ...(unreadable === undefined ? {} : { unreadable }),
+      };
+      if (unreadable !== undefined)
+        log(`studio: Export folder cannot be used: ${unreadable}`);
+      return json(200, answer);
+    },
+
+    async exportFolderPut(req) {
+      const body = await bodyJson(req);
+      const refusedAs = (detail: string) =>
+        refuse(
+          400,
+          "exportFolderInvalid",
+          `The Export folder setting was not saved: ${detail}.`,
+        );
+      if (!body.ok) return refusedAs(body.error);
+      const given = (body.value as { exportFolder?: unknown } | null)
+        ?.exportFolder;
+      // Absent is a broken request, never "back to the default".
+      if (given === undefined)
+        return refusedAs("the request named no exportFolder (a path, or null)");
+      // A folder the person typed: ~ is theirs, and it must take files now,
+      // not at the first export.
+      const folder =
+        typeof given === "string" && /^~(\/|$)/.test(given.trim())
+          ? join(homedir(), given.trim().slice(1))
+          : typeof given === "string"
+            ? given.trim()
+            : given;
+      if (typeof folder === "string" && isAbsolute(folder)) {
+        const isDir = await stat(folder).then(
+          (s) => s.isDirectory(),
+          (e: NodeJS.ErrnoException) =>
+            e.code === "ENOENT"
+              ? `${folder} does not exist`
+              : `${folder} could not be checked (${messageOf(e)})`,
+        );
+        if (typeof isDir === "string") return refusedAs(isDir);
+        if (!isDir) return refusedAs(`${folder} is a file, not a folder`);
+        const writable = await access(folder, constants.W_OK).then(
+          () => null,
+          (e: unknown) => messageOf(e),
+        );
+        if (writable !== null)
+          return refusedAs(`${folder} cannot be written to (${writable})`);
+      }
+      const refused = await writeSetting(home, "exportFolder", folder);
+      if ("reason" in refused) {
+        return json(
+          refused.reason === "exportFolderInvalid" ? 400 : 500,
+          refused,
+        );
+      }
+      const answer: ExportFolderAnswer = {
+        exportFolder: folder as string | null,
+        defaultFolder: defaultExportFolder(),
         ...refused,
       };
       return json(200, answer);

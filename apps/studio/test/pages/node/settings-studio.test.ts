@@ -124,6 +124,13 @@ function fakePlatform(kits: StoredKit[] = []): Fake {
       read: async () => ({ quality: "share" }),
       write: async () => ({}),
     },
+    exportFolder: {
+      read: async () => ({
+        folder: null,
+        defaultFolder: "/Users/me/Downloads",
+      }),
+      write: async () => ({ saved: null }),
+    },
     nav: {
       editor: (id: string) => `/editor.html?scene=${id}`,
       library: () => "/",

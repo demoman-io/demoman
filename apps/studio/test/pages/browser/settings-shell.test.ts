@@ -86,12 +86,14 @@ const MODEL: SettingsModel = {
   brandKitWallpaper: { custom: null, loadError: null },
   pullRequests: "off",
   exportQuality: "share",
+  exportFolder: { folder: null, defaultFolder: "/Users/me/Downloads" },
   kitsUnwatched: null,
 };
 
 const noop = {
   setPullRequests() {},
   setExportQuality() {},
+  setExportFolder() {},
   setBrandKit() {},
   previewBrandKit() {},
   uploadKitLogo() {},

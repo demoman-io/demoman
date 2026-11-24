@@ -321,3 +321,67 @@ describe("export tagging", () => {
     3 * EXPORT_MS,
   );
 });
+
+// DEM-180: with no --out-dir, an export lands in the user's Export folder,
+// decided once before anything is leased or rendered.
+describe("export goes to the Export folder the settings name", () => {
+  /** depsFor() with no outDir, and a count of work pages opened. */
+  const settingDeps = () => {
+    const { outDir: _given, ...deps } = depsFor();
+    let opened = 0;
+    const open = deps.session.openWorkPage;
+    deps.session.openWorkPage = () => {
+      opened++;
+      return open();
+    };
+    return { deps, opened: () => opened };
+  };
+  const choose = (value: unknown) =>
+    writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({ exportFolder: value }),
+    );
+
+  it(
+    "saves into the chosen folder",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      const chosen = join(home, "films");
+      await mkdir(chosen);
+      await choose(chosen);
+      const { deps } = settingDeps();
+      const answer = await exportOnce({ fileType: "mp4" }, deps);
+      if (answer.outcome !== "saved" || answer.fileType === "stills")
+        throw new Error(`not a saved file: ${JSON.stringify(answer)}`);
+      expect(dirname(answer.file.path)).toBe(chosen);
+    },
+    EXPORT_MS,
+  );
+
+  // Review of DEM-180: red if a value it cannot use falls back to
+  // ~/Downloads, or a chosen folder that is gone is made again.
+  it("refuses a value it cannot use, and a chosen folder that is gone, before rendering", async () => {
+    await putTake(home, take.takeId, take.original, take.bundle);
+    await choose("films");
+    const bad = settingDeps();
+    const refused = await exportOnce({ fileType: "mp4" }, bad.deps);
+    expect(refused).toMatchObject({
+      outcome: "saveFailed",
+      beforeRender: true,
+      error: expect.stringContaining("exportFolder must be an absolute path"),
+    });
+    expect(bad.opened()).toBe(0);
+
+    const gone = join(home, "renamed");
+    await choose(gone);
+    const missing = settingDeps();
+    const said = await exportOnce({ fileType: "mp4" }, missing.deps);
+    expect(said).toMatchObject({
+      outcome: "saveFailed",
+      beforeRender: true,
+      error: expect.stringContaining(`your Export folder ${gone} is gone`),
+    });
+    expect(missing.opened()).toBe(0);
+    expect(await readdir(home)).not.toContain("renamed");
+  });
+});

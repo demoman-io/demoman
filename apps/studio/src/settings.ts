@@ -5,7 +5,7 @@ import {
   isExportQuality,
   isPullRequestsValue,
 } from "@demoman/run-core";
-import { takePidLock } from "@demoman/runner/studio";
+import { isExportFolder, takePidLock } from "@demoman/runner/studio";
 import {
   DEFAULT_LIBRARY_VIEW,
   isLibraryViewChoice,
@@ -24,7 +24,11 @@ import {
  * 2026-10-19 §6), and a `theme` key an older studio left in the file is kept
  * by every save and read by nothing.
  */
-export type SettingKey = "pullRequests" | "exportQuality" | "libraryView";
+export type SettingKey =
+  | "pullRequests"
+  | "exportQuality"
+  | "exportFolder"
+  | "libraryView";
 
 export const settingsPath = (home: string): string =>
   join(home, "settings.json");
@@ -73,6 +77,13 @@ async function writeSettingNow(
       detail: `"${String(value)}" is not a choice — choose ${EXPORT_QUALITY_VALUES.join(", ")}.`,
     };
   }
+  // null is "back to ~/Downloads"; the route checks the folder itself.
+  if (key === "exportFolder" && value !== null && !isExportFolder(value)) {
+    return {
+      reason: "exportFolderInvalid",
+      detail: `${JSON.stringify(value)} is not a folder's full path — give one that starts with / or ~/.`,
+    };
+  }
   if (key === "libraryView" && !isLibraryViewChoice(value)) {
     return {
       reason: "libraryViewInvalid",
@@ -83,9 +94,11 @@ async function writeSettingNow(
   const what =
     key === "exportQuality"
       ? "The Export quality setting"
-      : key === "libraryView"
-        ? "The Library view setting"
-        : "The Pull requests setting";
+      : key === "exportFolder"
+        ? "The Export folder setting"
+        : key === "libraryView"
+          ? "The Library view setting"
+          : "The Pull requests setting";
   // Across processes too (DEM-87): setup saving pullRequests beside a Studio
   // saving libraryView each kept the file it read, dropping the other's key.
   const lock = `${path}.lock`;
