@@ -23,6 +23,7 @@ import {
   type CiOptions,
   ciSetup,
   expr,
+  foundWorkflow,
   ciWorkflow as workflow,
 } from "../src/ci-workflow.js";
 
@@ -92,6 +93,54 @@ const withApp = ciWorkflow({
 });
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
+
+// DEM-241: an update keeps how the workflow on the default branch runs.
+// Red if foundWorkflow misreads any trigger, route or artifact it writes.
+describe("foundWorkflow", () => {
+  const routes = (t: CiOptions["trigger"]) =>
+    t === "release" || typeof t === "object"
+      ? (["pr"] as const)
+      : (["pr", "main"] as const);
+  const cases = triggers.flatMap((trigger) =>
+    routes(trigger).flatMap((route) =>
+      [false, true].flatMap((artifact) =>
+        [false, true].map((full) => ({ trigger, route, artifact, full })),
+      ),
+    ),
+  );
+  it("covers every trigger, both routes and the artifact", () => {
+    // The premise: 5 triggers, 3 of them with route main, × artifact × app.
+    expect(cases).toHaveLength((5 + 3) * 4);
+  });
+  it.each(cases)(
+    "reads back $trigger $route artifact=$artifact app=$full",
+    (c) => {
+      const text = ciWorkflow({
+        version: "0.9.8",
+        trigger: c.trigger,
+        route: c.route,
+        ...(c.artifact ? { artifact: true } : {}),
+        ...(c.full ? { app, secrets } : {}),
+      });
+      expect(foundWorkflow(text)).toEqual({
+        trigger: c.trigger,
+        route: c.route,
+        artifact: c.artifact,
+        release: "0.9.8",
+      });
+    },
+  );
+  it("says why a workflow is not one it can read", () => {
+    expect(foundWorkflow("name: Mine\non:\n  push:\njobs: {}\n")).toEqual({
+      unreadable: "it has no refresh step that delivers by pr or main",
+    });
+    expect(
+      foundWorkflow(
+        "on:\n  pull_request:\njobs:\n  r:\n    run: npx demoman refresh --deliver pr\n",
+      ),
+    ).toEqual({ unreadable: "it runs on none of Demoman's triggers" });
+  });
+});
 
 describe("ciWorkflow artifact", () => {
   const art = ciWorkflow({
@@ -1910,6 +1959,47 @@ describe("ciSetup", () => {
     expect(offers.map((o) => o.label)).toContain("on each merge to trunk");
     expect(asked.find(([k]) => k === "route")?.[1]).toEqual(["trunk"]);
     expect(m.seen.pr?.body).toContain(
+      "Delivers what changed as a commit on trunk.",
+    );
+  });
+
+  // DEM-241 review: red if a workflow setup cannot read stops the terminal
+  // with "pass --trigger" instead of asking it, or one it can read is asked.
+  it("asks the trigger over a workflow it cannot read, and not over one it can", async () => {
+    const mine = asker({
+      trigger: async () => "daily",
+      route: async () => "pr",
+      confirm: async () => true,
+    });
+    const hand = door({
+      ask: mine.ask,
+      facts: {
+        workflowOnDefault: true,
+        workflowText: "name: Mine\non:\n  push:\n",
+      },
+    });
+    expect(await ciSetup(["--ci"], hand.io)).toBe(0);
+    expect(mine.asked.map(([k]) => k)).toContain("trigger");
+    expect(hand.seen.pr?.title).toBe("Update Demoman's workflow");
+
+    const ours = asker({ confirm: async () => true });
+    const read = door({
+      ask: ours.ask,
+      facts: {
+        workflowOnDefault: true,
+        workflowText: workflow({
+          version: "0.8.0",
+          trigger: "push",
+          route: "main",
+          branch: "trunk",
+          app: null,
+          secrets: { accounts: [], app: [] },
+        }),
+      },
+    });
+    expect(await ciSetup(["--ci"], read.io)).toBe(0);
+    expect(ours.asked.map(([k]) => k)).not.toContain("trigger");
+    expect(read.seen.pr?.body).toContain(
       "Delivers what changed as a commit on trunk.",
     );
   });

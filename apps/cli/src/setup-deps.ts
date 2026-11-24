@@ -87,6 +87,25 @@ export function runCaptured(
   );
 }
 
+/** One terminal row (a wrapped one would outlive the clear): the command
+ *  setup is waiting on, and when it gives up on it. */
+export function waitingLine(
+  command: string,
+  args: string[],
+  columns: number,
+): string {
+  const max = Math.max(columns - 1, 1);
+  const cmd = [command, ...args].join(" ");
+  const limit = ` (stopped after ${CAPTURED_TIMEOUT_MS / 1000} s)`;
+  const full = `… waiting on \`${cmd}\`${limit}`;
+  if (full.length <= max) return full;
+  // Too narrow: the limit is dropped before the command is cut.
+  const bare = `… waiting on \`${cmd}\``;
+  const room = max - (full.length - cmd.length);
+  if (room >= 12) return `… waiting on \`${cmd.slice(0, room - 1)}…\`${limit}`;
+  return bare.length <= max ? bare : `${bare.slice(0, max - 1)}…`;
+}
+
 /** The runner's Playwright CLI (`playwrightCliPath`), the one the
  *  libraries are installed with too. Checked now, not at the download: a
  *  wrong path would otherwise surface only on a machine that has no
@@ -348,7 +367,19 @@ export function realSetupDeps(
     arch: process.arch,
     isRoot: process.getuid?.() === 0,
     version,
-    run: (command, args) => runCaptured(command, args),
+    run: (command, args) => {
+      // DEM-109: spawnSync blocks the event loop, so no spinner can turn;
+      // in a terminal this line says what setup waits on until it returns.
+      if (!io.stdoutTTY) return runCaptured(command, args);
+      process.stdout.write(
+        waitingLine(command, args, process.stdout.columns ?? 80),
+      );
+      try {
+        return runCaptured(command, args);
+      } finally {
+        process.stdout.write("\r\x1b[2K");
+      }
+    },
     // No timeout: a 190 MB download on a slow line is not a stall, and its
     // progress is on screen.
     runVisible: (command, args) =>

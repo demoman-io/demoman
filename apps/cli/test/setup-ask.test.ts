@@ -1,11 +1,22 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXPORT_QUALITY_VALUES, PULL_REQUESTS_VALUES } from "@demoman/run-core";
 import { DOCKER_TIMED_OUT } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
-import { realDocker, realSetupDeps, SETUP_HINTS } from "../src/setup-deps.js";
+import {
+  realDocker,
+  realSetupDeps,
+  SETUP_HINTS,
+  waitingLine,
+} from "../src/setup-deps.js";
 
 const dist = fileURLToPath(new URL("../pkg/dist", import.meta.url));
 const io = (stdinTTY: boolean, stdoutTTY: boolean, env = {}) => ({
@@ -22,6 +33,63 @@ describe("setup's questions, for real", () => {
     expect(
       realSetupDeps("0.0.0", dist, io(true, true, { CI: "true" })).ask,
     ).toBeNull();
+  });
+
+  // DEM-109: red if a terminal shows nothing while a captured command runs,
+  // or the line is left behind after it.
+  it("in a terminal, says the command it waits on and clears it after", () => {
+    // The command leaves a file: each write records whether it had run.
+    const mark = join(mkdtempSync(join(tmpdir(), "demoman-wait-")), "ran");
+    const args = [
+      "-e",
+      `require("fs").writeFileSync(${JSON.stringify(mark)}, "")`,
+    ];
+    const written: Array<[string, boolean]> = [];
+    const write = process.stdout.write;
+    process.stdout.write = ((c: string) => {
+      written.push([c, existsSync(mark)]);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const said = realSetupDeps("0.0.0", dist, io(false, true)).run(
+        "node",
+        args,
+      );
+      expect(said.status).toBe(0);
+      realSetupDeps("0.0.0", dist, io(false, false)).run("node", ["-v"]);
+    } finally {
+      process.stdout.write = write;
+    }
+    // The line before the command ran, the clear after it; nothing without
+    // a terminal.
+    expect(written).toEqual([
+      [waitingLine("node", args, process.stdout.columns ?? 80), false],
+      ["\r\x1b[2K", true],
+    ]);
+  });
+
+  it("keeps the waiting line to one row", () => {
+    expect(waitingLine("codex", ["--version"], 80)).toBe(
+      "… waiting on `codex --version` (stopped after 180 s)",
+    );
+    const long = waitingLine("claude", ["plugin", "x".repeat(200)], 60);
+    expect(long.length).toBe(59);
+    expect(long).toMatch(
+      /^… waiting on `claude plugin x+…` \(stopped after 180 s\)$/,
+    );
+    // Review: red if a narrow terminal gets a line that wraps, which the
+    // clear cannot take back.
+    for (const columns of [40, 30]) {
+      const narrow = waitingLine(
+        "codex",
+        ["plugin", "marketplace", "add"],
+        columns,
+      );
+      expect(narrow.length, `${columns}: ${narrow}`).toBeLessThanOrEqual(
+        columns - 1,
+      );
+      expect(narrow).toMatch(/^… waiting on `codex/);
+    }
   });
 
   it("asks in a terminal", () => {

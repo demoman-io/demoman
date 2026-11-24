@@ -60,6 +60,7 @@ import {
   ciWorkflow,
   DEPLOYMENT_MAIN,
   ENVIRONMENT_NAME,
+  foundWorkflow,
   RELEASE_MAIN,
   runsByHand,
 } from "./ci-workflow.js";
@@ -239,7 +240,11 @@ export type CiPlan = {
   /** Flows that go in as the script alone (Decision 5), and why. */
   scriptOnly: Array<{ flow: string; why: string }>;
   branch: typeof SETUP_BRANCH;
-  title: typeof SETUP_TITLE;
+  title: string;
+  /** The workflow is already on the default branch, and the pull request
+   *  replaces it (DEM-241): the release that wrote it, if it says, and this
+   *  one. */
+  update: { from: string | null; to: string } | null;
   /** Only when push is chosen. */
   pushCost: string | null;
   /** triggerNote's sentence: environments setup did not look for. */
@@ -340,10 +345,9 @@ function routeRefusal(
 }
 
 function optionsOf(
-  p: Pick<
-    CiPlan,
-    "trigger" | "route" | "artifact" | "app" | "secrets" | "repo"
-  >,
+  p: Pick<CiPlan, "trigger" | "route" | "artifact" | "app" | "repo"> & {
+    secrets: Array<{ name: string }>;
+  },
   version: string,
 ): CiOptions {
   const appSecrets = p.app?.spec.secrets ?? [];
@@ -400,6 +404,7 @@ async function draftLeft(
 }
 
 const ACCOUNTS_FILE = ".demoman/accounts.json";
+export const UPDATE_TITLE = "Update Demoman's workflow";
 
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
@@ -496,22 +501,62 @@ export async function planCiSetup(
 
 async function makePlan(
   root: string,
-  choices: CiChoices,
+  asked: CiChoices,
   deps: CiDeps,
   values: SecretValues,
 ): Promise<CiPlan | CiStop> {
-  const facts = await deps.readGithub(root, {
-    older: true,
-    ...(typeof choices.trigger === "object"
-      ? { environment: choices.trigger.deployment }
-      : {}),
-  });
+  let choices = asked;
+  const read = (t: CiChoices["trigger"]) =>
+    deps.readGithub(root, {
+      older: true,
+      ...(typeof t === "object" ? { environment: t.deployment } : {}),
+    });
+  let facts = await read(choices.trigger);
   if ("reason" in facts) return stop(facts.reason, facts.detail);
-  if (facts.workflowOnDefault)
-    return stop(
-      "alreadySetUp",
-      `${CI_WORKFLOW_PATH} is already on ${facts.defaultBranch}, so Demoman is set up here; to set it up again, delete it there first`,
-    );
+  // DEM-241: a workflow already there is updated in the one pull request,
+  // run as it runs now unless the door chose otherwise.
+  let update: CiPlan["update"] = null;
+  if (facts.workflowOnDefault) {
+    const found =
+      facts.workflowText === undefined
+        ? { unreadable: "GitHub sent no content for it" }
+        : foundWorkflow(facts.workflowText);
+    if ("unreadable" in found) {
+      if (choices.trigger === undefined)
+        return stop(
+          "alreadySetUp",
+          `${CI_WORKFLOW_PATH} is already on ${facts.defaultBranch}, and setup cannot tell how it runs (${found.unreadable}); to replace it, run setup again with --trigger and --route, or delete it there first`,
+        );
+      update = { from: null, to: deps.version };
+    } else {
+      choices = {
+        ...choices,
+        trigger: choices.trigger ?? found.trigger,
+        // The found route only where the trigger can take it: a release
+        // or deployment given here over a main-route workflow goes by pr,
+        // as a fresh setup would, never refused for a flag not passed.
+        route:
+          choices.route ??
+          (routeRefusal(choices.trigger ?? found.trigger, found.route) === null
+            ? found.route
+            : "pr"),
+        ...(choices.artifact === undefined && found.artifact
+          ? { artifact: true }
+          : {}),
+      };
+      update = { from: found.release, to: deps.version };
+      // The environment it records is looked up by name, as a given one is.
+      const t = choices.trigger;
+      if (
+        typeof t === "object" &&
+        asked.trigger === undefined &&
+        !facts.deployments.some((d) => d.environment === t.deployment)
+      ) {
+        facts = await read(t);
+        if ("reason" in facts) return stop(facts.reason, facts.detail);
+      }
+    }
+  }
   if (facts.setupBranch !== null)
     return facts.setupBranch.pr !== null
       ? stop(
@@ -708,6 +753,30 @@ async function makePlan(
       "invalidArgs",
       `asked to replace ${list(unknown)}, and this setup uses no secret by ${unknown.length === 1 ? "that name" : "those names"} (it uses ${list(uses) || "none"}); nothing was written; fix the name, then run setup again`,
     );
+  // Written before any value is asked: an update that changes nothing stops
+  // here, and the workflow takes the secrets' names alone.
+  const artifact = choices.artifact === true || filesFlows.length > 0;
+  const repoOf = {
+    slug: facts.slug,
+    defaultBranch: facts.defaultBranch,
+    remote: facts.remote,
+  };
+  let workflow: string;
+  try {
+    workflow = ciWorkflow(
+      optionsOf(
+        { trigger, route, artifact, app, secrets: need.needed, repo: repoOf },
+        deps.version,
+      ),
+    );
+  } catch (e) {
+    return stop("workflowRefused", messageOf(e));
+  }
+  if (update !== null && workflow === facts.workflowText)
+    return stop(
+      "alreadySetUp",
+      `${CI_WORKFLOW_PATH} on ${facts.defaultBranch} is already the one this release writes for that trigger and route, so there is nothing to update`,
+    );
   const existing = await deps.existingSecrets(facts.slug);
   if (!Array.isArray(existing))
     return stop(
@@ -763,10 +832,18 @@ async function makePlan(
     missing.find(
       (m) => m.for === "account" && !m.name.endsWith(SECRET_ORIGIN_SUFFIX),
     )?.name ?? `${SECRET_PREFIX}NAME`;
+  // DEM-241: GitHub never gives a value back, and the check records here.
+  const held = missing
+    .filter((m) => existing.includes(m.name))
+    .map((m) => m.name);
+  const heldSaid =
+    held.length === 0
+      ? ""
+      : `; GitHub has ${list(held)} already and keeps ${held.length === 1 ? "it" : "them"}, but the check here records the flows with each value`;
   if (missing.length > 0)
     return stop(
       "secretMissing",
-      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}; set each in the environment (an account's can also go in .demoman/secrets.env as a line such as ${eg}=value, with ${eg}${SECRET_ORIGIN_SUFFIX}=<origin> beside it), or give it when setup asks, then run setup again`,
+      `no value for ${list(missing.map((m) => m.name))}${"unread" in local && local.unread ? ` (${local.unread})` : ""}${heldSaid}; set each in the environment (an account's can also go in .demoman/secrets.env as a line such as ${eg}=value, with ${eg}${SECRET_ORIGIN_SUFFIX}=<origin> beside it), or give it when setup asks, then run setup again`,
       { secrets: missing },
     );
   const replace = choices.replaceSecrets ?? [];
@@ -779,24 +856,7 @@ async function makePlan(
         : "keep",
   }));
 
-  const shape = {
-    trigger,
-    route,
-    artifact: choices.artifact === true || filesFlows.length > 0,
-    app,
-    secrets,
-    repo: {
-      slug: facts.slug,
-      defaultBranch: facts.defaultBranch,
-      remote: facts.remote,
-    },
-  };
-  let workflow: string;
-  try {
-    workflow = ciWorkflow(optionsOf(shape, deps.version));
-  } catch (e) {
-    return stop("workflowRefused", messageOf(e));
-  }
+  const shape = { trigger, route, artifact, app, secrets, repo: repoOf };
 
   // shortcut: a commit that cannot be read says nothing about the difference.
   const [head, tip] = await Promise.all(
@@ -925,7 +985,8 @@ async function makePlan(
     files,
     scriptOnly,
     branch: SETUP_BRANCH,
-    title: SETUP_TITLE,
+    title: update === null ? SETUP_TITLE : UPDATE_TITLE,
+    update,
     pushCost,
     offBase,
     ...(note === null ? {} : { notLookedFor: note }),
@@ -1064,8 +1125,18 @@ function planSaid(p: CiPlan) {
   const source =
     src === undefined ? null : "file" in src ? src.file : `the ${src.kind}`;
   const c = p.check;
+  const u = p.update;
   return {
     label,
+    update:
+      u === null
+        ? []
+        : [
+            u.from === u.to
+              ? `Rewrites ${CI_WORKFLOW_PATH}, already on ${p.repo.defaultBranch} and written by ${u.to}, for this setup's app, secrets and choices.`
+              : `Updates ${CI_WORKFLOW_PATH}, already on ${p.repo.defaultBranch}${u.from === null ? "" : ` (written by ${u.from})`}, to ${u.to}'s.`,
+            "The whole file is replaced: anything added to it by hand is dropped.",
+          ],
     trigger: `Records the repo flows ${label}.`,
     byHand: runsByHand(p.trigger) ? [BY_HAND] : [],
     delivery:
@@ -1105,6 +1176,7 @@ function planSaid(p: CiPlan) {
 export function planLines(p: CiPlan): string[] {
   const said = planSaid(p);
   return [
+    ...said.update,
     said.trigger,
     ...(p.notLookedFor === undefined ? [] : [p.notLookedFor]),
     ...said.byHand,
@@ -1145,7 +1217,11 @@ export function prBody(p: CiPlan): string {
     missing: "missing",
   } as const;
   return [
-    `Merging this sets up Demoman: it records the repo's flows ${said.label} and ${delivers} when a video changes.`,
+    p.update === null
+      ? `Merging this sets up Demoman: it records the repo's flows ${said.label} and ${delivers} when a video changes.`
+      : p.update.from === p.update.to
+        ? `Merging this rewrites Demoman's workflow for this setup (it stays ${p.update.to}'s): it records the repo's flows ${said.label} and ${delivers} when a video changes. The whole file is replaced, so anything added to it by hand is dropped.`
+        : `Merging this updates Demoman's workflow${p.update.from === null ? "" : ` from ${p.update.from}`} to ${p.update.to}: it records the repo's flows ${said.label} and ${delivers} when a video changes. The whole file is replaced, so anything added to it by hand is dropped.`,
     "",
     "### What it does",
     ...[
@@ -1251,6 +1327,7 @@ export async function applyCiSetup(
     base: defaultBranch,
     files: contents,
     body: prBody(plan),
+    title: plan.title,
   });
   if ("failed" in pr)
     return stop("prFailed", `${pr.detail}. Secrets ${done}${settingSaid}`);

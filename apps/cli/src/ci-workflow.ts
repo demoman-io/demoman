@@ -243,6 +243,52 @@ ${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check --failures
 `;
 }
 
+/** What an update keeps from the workflow already on the default branch
+ *  (DEM-241): read back from the text ciWorkflow writes, or why it cannot be.
+ *  A hand-edited workflow that still reads as one of ours is taken at its
+ *  word; the setup pull request's diff shows the person what changes. */
+export type FoundWorkflow =
+  | {
+      trigger: CiOptions["trigger"];
+      route: "pr" | "main";
+      artifact: boolean;
+      /** The release that wrote it, from its `npx demoman@<version>` line. */
+      release: string | null;
+    }
+  | { unreadable: string };
+
+export function foundWorkflow(text: string): FoundWorkflow {
+  const route = /\brefresh --deliver (pr|main)\b/.exec(text)?.[1] as
+    | "pr"
+    | "main"
+    | undefined;
+  if (route === undefined)
+    return { unreadable: "it has no refresh step that delivers by pr or main" };
+  const on = /^on:\n((?: {2}.*\n?)*)/m.exec(text)?.[1] ?? "";
+  const has = (key: string) => new RegExp(`^ {2}${key}:`, "m").test(on);
+  let trigger: CiOptions["trigger"];
+  if (has("deployment_status")) {
+    const env = /github\.event\.deployment\.environment == '([^']*)'/.exec(
+      text,
+    )?.[1];
+    if (env === undefined)
+      return {
+        unreadable: "it runs on deployment_status but names no environment",
+      };
+    trigger = { deployment: env };
+  } else if (has("release")) trigger = "release";
+  else if (has("schedule")) trigger = "daily";
+  else if (has("push")) trigger = "push";
+  else if (has("workflow_dispatch")) trigger = "manual";
+  else return { unreadable: "it runs on none of Demoman's triggers" };
+  return {
+    trigger,
+    route,
+    artifact: /--out-dir demoman-out\b/.test(text),
+    release: /-y \S*?\bdemoman@(\S+)/.exec(text)?.[1] ?? null,
+  };
+}
+
 /** The steps both jobs share. `deliver` is the refresh job; without it these
  *  are the self-check's steps, which run on the setup pull request and
  *  deliver nothing. */
@@ -652,11 +698,14 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   ) {
     const facts = await deps.readGithub(root, { older: true });
     // A repo setup cannot go on with is said by the plan, before any question.
-    if (
+    // A workflow there that setup can read is updated as it runs; one it
+    // cannot read is asked about, as a repo without one is.
+    const keptAsFound =
       !("reason" in facts) &&
-      !facts.workflowOnDefault &&
-      facts.setupBranch === null
-    ) {
+      facts.workflowOnDefault &&
+      facts.workflowText !== undefined &&
+      !("unreadable" in foundWorkflow(facts.workflowText));
+    if (!("reason" in facts) && !keptAsFound && facts.setupBranch === null) {
       if (choices.trigger === undefined) {
         const offers = triggerOffers(facts);
         const t = await ask.trigger(

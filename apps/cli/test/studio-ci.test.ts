@@ -51,6 +51,7 @@ function livePlan(): CiPlan {
     scriptOnly: [],
     branch: "demoman/setup",
     title: "Set up Demoman",
+    update: null,
     pushCost: null,
     offBase: null,
   };

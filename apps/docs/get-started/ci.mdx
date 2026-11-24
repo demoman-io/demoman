@@ -57,6 +57,10 @@ opens or updates one pull request, "Refresh demo videos", listing each
 changed video. Merge it to publish them. When nothing changed, nothing is
 committed. [Refresh](/concepts/refresh) explains how a change is judged.
 
+The workflow runs the Demoman release that wrote it. To move it to a newer
+one, run `npx demoman setup --ci` again: it opens one pull request, "Update
+Demoman's workflow", that keeps the trigger and route you chose.
+
 <Note>
   The `pr` route needs **Allow GitHub Actions to create and approve pull
   requests** under Settings → Actions → General. Setup turns it on for you;

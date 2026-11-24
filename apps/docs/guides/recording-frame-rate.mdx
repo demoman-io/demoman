@@ -28,9 +28,8 @@ and the run report says so, naming the file and why.
 
 CI has to run this release or later. A workflow written by an older Demoman
 pins an older release and ignores the key: it records at 30 without a word. To
-update it, delete `.github/workflows/demoman.yml` on your default branch, then
-run `npx demoman setup --ci` again (setup refuses to overwrite an existing
-workflow).
+update it, run `npx demoman setup --ci` again: it opens one pull request that
+replaces the workflow, keeping its trigger and route.
 
 The run report says what each video was recorded at, and where that came
 from.
