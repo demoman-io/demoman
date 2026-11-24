@@ -5116,7 +5116,7 @@ describe("the Studio's screenshot set", () => {
       const notChecked = panel.locator("[data-removed-empty]");
       await notChecked.waitFor({ timeout: PAINT_MS });
       expect(await notChecked.innerText()).toBe(
-        "Not checked at 30 days yet: the next cleanup runs when a recording starts or the Studio opens.",
+        "Not checked at 30 days yet: the next cleanup runs when a video is recorded or the Studio opens.",
       );
       await page.screenshot({
         path: join(

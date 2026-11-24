@@ -226,7 +226,7 @@ describe("the Storage panel, after review", () => {
       },
     });
     expect(text(changed.el, "[data-removed-empty]")).toBe(
-      "Not checked at 30 days yet: the next cleanup runs when a recording starts or the Studio opens.",
+      "Not checked at 30 days yet: the next cleanup runs when a video is recorded or the Studio opens.",
     );
   });
 

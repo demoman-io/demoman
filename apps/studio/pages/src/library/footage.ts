@@ -226,7 +226,7 @@ export function footageBody(
               : r.expiry.lastRanAt !== null &&
                   r.expiry.problem === undefined &&
                   days !== null
-                ? `Not checked at ${days} days yet: the next cleanup runs when a recording starts or the Studio opens.`
+                ? `Not checked at ${days} days yet: the next cleanup runs when a video is recorded or the Studio opens.`
                 : "Nothing removed yet.",
         ),
       );
