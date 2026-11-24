@@ -547,12 +547,22 @@ export async function signInAccount(
         // here, and waited out the 10 s (DEM-151).
         let signedInPlace = false;
         let lastLook = 0;
+        // What the last look saw, for the line below when none is enough
+        // (DEM-81): the path, the field, or why the page would not read.
+        let lastSeen = "the page was never read";
         while (nav.documents === 0 && Date.now() < navUntil) {
           if (Date.now() - lastLook >= 250) {
             lastLook = Date.now();
             const facts = await readLandingFacts(page, page.url()).catch(
-              () => null,
+              (error: unknown) => {
+                // Playwright's errors can name the page's address, token and all.
+                lastSeen = `the page could not be read (${messageOf(error).replace(/https?:\/\/\S+/g, (u) => scrubUrl(u))})`;
+                return null;
+              },
             );
+            if (facts !== null) {
+              lastSeen = `on ${scrubUrl(originAndPath(facts.landedUrl))}, begun on ${scrubUrl(nav.pathBefore)}, password field ${facts.passwordFieldVisible ? "showing" : "gone"}`;
+            }
             if (
               facts !== null &&
               !facts.passwordFieldVisible &&
@@ -587,7 +597,7 @@ export async function signInAccount(
         if (nav.documents === 0 && !signedInPlace) {
           deps.log(
             deps.sweep.scrub(
-              `signing in as ${name}: no page navigation followed the last click, type or goto within ${STEP_WAIT_MS / 1000} s; checking ${account.checkUrl} now`,
+              `signing in as ${name}: no page navigation followed the last click, type or goto within ${STEP_WAIT_MS / 1000} s (last look: ${lastSeen}); checking ${account.checkUrl} now`,
             ),
           );
         }

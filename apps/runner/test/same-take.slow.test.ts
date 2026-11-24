@@ -29,6 +29,7 @@ import { installResolver } from "../src/page-agent.js";
 import { renderToFiles } from "../src/render.js";
 import { heldByLagMs, lagCdp } from "./lag.js";
 import { mp4FirstFrameSize, mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
+import { pairSeams } from "./seams.js";
 
 // Spec 2026-11-13 (same take on any machine), Part 4 tests 1 to 3. One
 // script is recorded twice in this process, the second time with every CDP
@@ -492,36 +493,13 @@ describe("one script recorded fast and slowed", () => {
       if (film === null) throw new Error("the fast take was not rendered");
       const pairStart = start(fast, 0);
       const pairEnd = start(fast, 1);
-      // The timeline's segments, runs of one kind merged: two idle
-      // segments side by side are one still stretch on the film.
-      const segments: { outStartMs: number; outEndMs: number; kind: string }[] =
-        [];
-      for (const g of fast.timeline.segments) {
-        if (g.outEndMs <= pairStart) continue;
-        if (g.outStartMs >= pairEnd) break;
-        const kind = g.kind === "motion" ? "motion" : "still";
-        const last = segments.at(-1);
-        if (last?.kind === kind) last.outEndMs = g.outEndMs;
-        else
-          segments.push({
-            outStartMs: g.outStartMs,
-            outEndMs: g.outEndMs,
-            kind,
-          });
-      }
-      const still = (g: (typeof segments)[number]) => g.kind === "still";
-      const seams: { atMs: number; idleBefore: boolean }[] = [];
-      for (let i = 0; i + 1 < segments.length; i++) {
-        const a = segments[i] as (typeof segments)[number];
-        const b = segments[i + 1] as (typeof segments)[number];
-        if (still(a) === still(b)) continue;
-        const idle = still(a) ? a : b;
-        const moving = still(a) ? b : a;
-        // Only seams a frame and the 100 ms reference can sit either side of.
-        if (idle.outEndMs - idle.outStartMs < 100 + 3 * FRAME_MS) continue;
-        if (moving.outEndMs - moving.outStartMs < 3 * FRAME_MS) continue;
-        seams.push({ atMs: a.outEndMs, idleBefore: still(a) });
-      }
+      // The pair's runs and the seams the check can sample (seams.ts).
+      const { runs: segments, seams } = pairSeams(
+        fast.timeline.segments,
+        pairStart,
+        pairEnd,
+        FRAME_MS,
+      );
       const said = `${JSON.stringify(seams)} ${fast.evidence()}`;
       // Premise: the pair has motion, and a seam on each side of it.
       const motionMs = segments
