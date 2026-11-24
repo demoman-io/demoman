@@ -29,10 +29,26 @@ class Retake extends Error {
     message: string,
     /** Whether the first read has answered since. */
     readonly firstAnswered: () => boolean,
+    /** The read, as the sentence names it ("its screenshot"). */
+    readonly what: string,
+    /** The first read's answer once it came: how long after it was asked,
+     *  and the held time when it came, which is the time its picture
+     *  shows (a screenshot waits for the next frame drawn); null until
+     *  then. */
+    readonly late: () => { value: unknown; ms: number; heldAt: number } | null,
   ) {
     super(message);
   }
 }
+
+/** The screenshot read, as the sentence names it: `shoot` stands its late
+ *  answer in for a hung retake, and no other read's. */
+const SCREENSHOT = "its screenshot";
+
+/** A retake's read that went unanswered where its caller can stand the
+ *  first read's late answer in for it (`answered`'s `spare`): the run is
+ *  not given up, and the caller says what stood in. */
+class Spared extends Error {}
 
 /** `p`'s answer or its error, or SILENT after SECOND_READ_MS. */
 const bounded = (p: Promise<unknown>): Promise<unknown> => {
@@ -512,11 +528,13 @@ export function createHeldClock(deps: {
   let held = 0;
   /** `HeldClock.startTake`'s held time; null before it. */
   let takeFrom: number | null = null;
-  /** When a stop happened, in the video's time. */
-  const whenSaid = (): string =>
+  /** A held time, in the video's time: as `whenSaid` says the clock's. */
+  const heldSaid = (t: number): string =>
     takeFrom === null
-      ? `during the opening, ${Math.round(held)} ms into its load`
-      : `at ${Math.round(held - takeFrom)} ms of the recording`;
+      ? `during the opening, ${Math.round(t)} ms into its load`
+      : `at ${Math.round(t - takeFrom)} ms of the recording`;
+  /** When a stop happened, in the video's time. */
+  const whenSaid = (): string => heldSaid(held);
   /** `HeldClock.failed`. */
   let fatal: Error | null = null;
   const listeners: ((frame: HeldFrame) => Promise<void>)[] = [];
@@ -581,6 +599,9 @@ export function createHeldClock(deps: {
    *  the first read has answered since. */
   const retaken: { atMs: number; what: string }[] = [];
   let retaking: (() => boolean) | null = null;
+  /** A late first screenshot has stood in for a hung retake (`shoot`):
+   *  once a run, so a page whose screenshots keep hanging still stops. */
+  let spared = false;
   /** Page time retakes took past a designed sleep's end, owed back. */
   let behind = 0;
   /** The windows of the waits on the page running (`waiting`). */
@@ -693,14 +714,18 @@ export function createHeldClock(deps: {
     read: Promise<T>,
     what: string,
     retake = false,
+    spare?: () => boolean,
   ): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Set by the read itself, not the race: a race's settling reaches its
     // handlers a few microtasks after the read's.
     let over = false;
+    const askedAt = realNow();
+    let answer: { value: unknown; ms: number; heldAt: number } | null = null;
     read.then(
-      () => {
+      (value) => {
         over = true;
+        answer = { value, ms: realNow() - askedAt, heldAt: held };
       },
       () => {
         over = true;
@@ -720,7 +745,18 @@ export function createHeldClock(deps: {
             // its held time never moved, so the picture is the same.
             if (over) return;
             if (retake && answers)
-              return reject(new Retake(error.message, () => over));
+              return reject(
+                new Retake(
+                  error.message,
+                  () => over,
+                  what,
+                  () => answer,
+                ),
+              );
+            // Only a page that answers a second read: one that does not runs
+            // a script, or is gone, and is not stood in for.
+            if (answers && spare?.() === true)
+              return reject(new Spared(error.message));
             fatal ??= error;
             void deps.abandon?.().catch(() => undefined); // its calls answer, closed
             reject(fatal);
@@ -798,7 +834,8 @@ export function createHeldClock(deps: {
       await shootOnce(server, true);
     } catch (e) {
       if (!(e instanceof Retake)) throw e;
-      retaken.push({ atMs: held, what: e.message });
+      const retake = { atMs: held, what: e.message };
+      retaken.push(retake);
       const from = held;
       if (span?.endMs === from) {
         // A stretch this frame ended goes on to the retake's, and follows
@@ -811,8 +848,44 @@ export function createHeldClock(deps: {
       await grant(frameTo(held) + frameMs);
       if (span?.endMs === from) span.endMs = held;
       retaking = e.firstAnswered;
+      // The first screenshot, if it answered late, is a picture of the page
+      // at the held time it answered: once a run (`spared`).
+      const first = () =>
+        e.what === SCREENSHOT && !spared
+          ? (e.late() as {
+              value: { bytes: Uint8Array; width: number; height: number };
+              ms: number;
+              heldAt: number;
+            } | null)
+          : null;
+      const retakeFrom = realNow();
       try {
-        await shootOnce(server, false);
+        await shootOnce(server, false, () => first() !== null);
+      } catch (hung) {
+        const stood = first();
+        if (!(hung instanceof Spared) || stood === null) throw hung;
+        // DEM-237 (nylon, 2026-11-24): the retake hung too, after the first
+        // had answered. Its picture is filed at the page time it shows, and
+        // said on the frame's one retake note.
+        spared = true;
+        retake.what = `${retake.what}; then the retake's screenshot went unanswered too (${hung.message}), and the first picture, answered ${Math.round(stood.ms)} ms after it was asked, stands for the frame ${heldSaid(stood.heldAt)}`;
+        // The retake's hang was not the server's either: a stretch going on
+        // follows none of it, as the first hang above.
+        if (span?.endMs === held)
+          stretchFrom = {
+            real: stretchFrom.real + (realNow() - retakeFrom),
+            held: stretchFrom.held,
+          };
+        // A capture's latency stays the last one measured: this frame's
+        // took the hangs, and read as one would stamp the next frame of a
+        // stretch tens of seconds ahead.
+        shotAt = realNow();
+        if (listeners.length === 0)
+          throw new Error(
+            "a frame was captured with no frame listener to file it",
+          );
+        for (const listener of listeners)
+          await listener({ sourceTimeMs: stood.heldAt, ...stood.value });
       } finally {
         retaking = null;
       }
@@ -826,7 +899,11 @@ export function createHeldClock(deps: {
     await shoot();
     behind += Math.max(0, held - Math.max(before, end));
   };
-  const shootOnce = async (server: boolean, retake: boolean) => {
+  const shootOnce = async (
+    server: boolean,
+    retake: boolean,
+    spare?: () => boolean,
+  ) => {
     if (fatal !== null) throw fatal;
     let failed: unknown;
     try {
@@ -851,7 +928,7 @@ export function createHeldClock(deps: {
     // From where it was first seen: the pace is counted from there.
     if (pinned.video !== true) videoFrom = null;
     else videoFrom ??= { real: realNow(), held };
-    const shot = await answered(deps.capture(), "its screenshot", retake);
+    const shot = await answered(deps.capture(), SCREENSHOT, retake, spare);
     shotAt = realNow();
     shotLatency = shotAt - grantAt;
     if (listeners.length === 0)

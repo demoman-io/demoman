@@ -1599,6 +1599,157 @@ describe("createHeldClock", () => {
     );
   });
 
+  /** Screenshots by call: `late` ones answer after 1.5 waits, `hung` ones
+   *  never, the rest at once; byte 0 is the call's number. A page whose
+   *  second read answers unless `silentFrom` (that read and after hang). */
+  const shots = (o: {
+    late: number[];
+    hung: number[];
+    silentFrom?: number;
+  }) => {
+    let n = 0;
+    let reads = 0;
+    /** Set once the harness exists: a late answer moves its real clock by
+     *  the time it took, as a real machine's does. */
+    let advance: (ms: number) => void = () => undefined;
+    return {
+      calls: () => n,
+      tick: (a: (ms: number) => void) => {
+        advance = a;
+      },
+      pin: (_: number, source: string) =>
+        source === PIN_ANIMATIONS
+          ? []
+          : ++reads >= (o.silentFrom ?? Number.POSITIVE_INFINITY)
+            ? (new Promise(() => undefined) as never)
+            : ["http://x.test/invoices", "complete"],
+      shot: () => {
+        const k = ++n;
+        const shot = { bytes: new Uint8Array([k]), width: 2, height: 1 };
+        if (o.hung.includes(k)) return new Promise<never>(() => undefined);
+        return o.late.includes(k)
+          ? new Promise<typeof shot>((r) =>
+              setTimeout(() => {
+                advance(1.5 * GRANT_EXPIRY_TIMEOUT_MS);
+                r(shot);
+              }, 1.5 * GRANT_EXPIRY_TIMEOUT_MS),
+            )
+          : Promise.resolve(shot);
+      },
+    };
+  };
+
+  // DEM-237's CI sighting (nylon, 2026-11-24): the retake's screenshot went
+  // unanswered too, after the first had answered late. A screenshot waits
+  // for the next frame drawn, so the first's picture shows the page at the
+  // held time it answered: here after the retake's grant, a frame on. Red
+  // if the run stops there, if the picture is filed at another time than
+  // the one it shows, or if it goes unsaid.
+  it("stands the first screenshot's late picture in when its retake goes unanswered too", async () => {
+    vi.useFakeTimers();
+    const page = shots({ late: [1], hung: [2] });
+    const { clock, frames, advance } = setup(page);
+    page.tick(advance);
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
+    await slept;
+    expect(failed).toBeNull();
+    expect(clock.failed()).toBeNull();
+    // Premise: the first was taken again, and the retake was asked.
+    expect(page.calls()).toBeGreaterThanOrEqual(2);
+    // The first's picture, at the time it shows; then the sleep's last.
+    expect(inFrames(times(frames))).toEqual([2, 3]);
+    expect(frames.map((f) => f.bytes[0])).toEqual([1, 3]);
+    // One frame, one note, saying both.
+    expect(clock.retaken().map((r) => r.what)).toEqual([
+      expect.stringMatching(
+        /^the page did not answer .*its screenshot went unanswered, though the page answered a second read.*; then the retake's screenshot went unanswered too \(.*\), and the first picture, answered \d+ ms after it was asked, stands for the frame during the opening, 67 ms into its load$/,
+      ),
+    ]);
+    // Premise and measure: the first answered late, by the time it took.
+    const ms = Number(
+      /answered (\d+) ms after it was asked/.exec(
+        clock.retaken()[0]?.what ?? "",
+      )?.[1],
+    );
+    expect(ms).toBeGreaterThanOrEqual(1.5 * GRANT_EXPIRY_TIMEOUT_MS);
+  });
+
+  // Review of DEM-237's stand-in. Red if the hangs it took reach the
+  // stretch it is part of: the frame after it then jumps page time by the
+  // late answer's real time (the latency read from them, or the retake's
+  // hang followed as the server's).
+  it("keeps a server stretch's pace through a stand-in", async () => {
+    vi.useFakeTimers();
+    const page = shots({ late: [2], hung: [3] });
+    const { clock, frames, advance } = setup({ waiting: () => true, ...page });
+    page.tick(advance);
+    await clock.hold(START);
+    const slept = clock.sleep(400);
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
+    await slept;
+    // Premise: the second frame was stood in for.
+    expect(clock.retaken()[0]?.what ?? "").toContain("stands for the frame");
+    const at = times(frames);
+    const said = JSON.stringify(at);
+    // Every frame of the stretch a frame or so after the one before: none
+    // jumps the 22.5 s the late answer took.
+    for (let i = 1; i < at.length; i++)
+      expect((at[i] ?? 0) - (at[i - 1] ?? 0), said).toBeLessThan(
+        4 * HELD_FRAME_MS,
+      );
+  });
+
+  // Review of DEM-237's stand-in. Red if a retake whose second read went
+  // unanswered (a script, or a page gone) is stood in for: that is a stop.
+  it("stands nothing in when the retake's second read goes unanswered", async () => {
+    vi.useFakeTimers();
+    const { clock } = setup(shots({ late: [1], hung: [2], silentFrom: 2 }));
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(100).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(
+      2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
+    await slept;
+    expect(String(failed)).toMatch(
+      /its screenshot went unanswered when the frame was taken again a frame of page time later, and a second read too/,
+    );
+  });
+
+  // Review of DEM-237's stand-in. Red if it is allowed more than once a
+  // run: a page whose screenshots keep hanging would crawl on, 30 s a frame.
+  it("stands a late picture in once a run, and stops the second time", async () => {
+    vi.useFakeTimers();
+    const page = shots({ late: [1, 4], hung: [2, 5] });
+    const { clock } = setup(page);
+    await clock.hold(START);
+    let failed: unknown = null;
+    const slept = clock.sleep(400).catch((e: unknown) => {
+      failed = e;
+    });
+    await vi.advanceTimersByTimeAsync(
+      4 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
+    );
+    await slept;
+    // Premise: the second hang was reached.
+    expect(page.calls()).toBeGreaterThanOrEqual(5);
+    expect(clock.retaken()).toHaveLength(2);
+    expect(String(failed)).toMatch(
+      /its screenshot went unanswered when the frame was taken again a frame of page time later, though the page answered/,
+    );
+  });
+
   // Red if a page that does not answer a second read is taken again: that
   // one runs a script, and a frame of page time more cannot end it.
   it("takes no frame again on a page that does not answer a second read", async () => {

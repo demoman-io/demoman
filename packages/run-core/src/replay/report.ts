@@ -1268,7 +1268,7 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   answerUnpaced:
     "an answer from the server was still arriving during a pause or a rest, which the video does not pace by the server, so it landed where this machine put it; wait for it with a waitFor step to have it paced",
   frameRetaken:
-    "a screenshot went unanswered on this machine and was taken again a frame of page time later, so one frame of the page is not in the video (or in the opening before it), and the page's time after it may stand a frame apart from another video of the same script",
+    "a screenshot went unanswered on this machine and was taken again a frame of page time later, or the first one, answered late, stood in for it, so one frame of the page may be missing from the video (or from the opening before it), and the page's time after it may stand a frame apart from another video of the same script",
   animationUnpinned:
     "part of the page could not be held on the video's clock (an animation that could not be paused, a playing video, or a frame from another site, whose timers, animations and requests run on their own), so it ran in real time and may not match the video's pacing; or the page asked for a smooth scroll, which shows as a jump",
 };
