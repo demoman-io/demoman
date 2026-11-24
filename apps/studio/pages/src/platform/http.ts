@@ -17,11 +17,13 @@ import {
   type CiStarted,
   type CiState,
   type DeleteAnswer,
+  type ExpiryAnswer,
   type ExportFolderAnswer,
   type ExportQualityAnswer,
   type ExportStartAnswer,
   type ExportStartBody,
   FILE_NAME_HEADER,
+  type KeepFootageAnswer,
   type KitsPutAnswer,
   type KitsPutBody,
   type KitsRead,
@@ -1037,6 +1039,30 @@ export function createPlatform(
           saved: got.exportFolder,
           ...(got.replaced === undefined ? {} : { replaced: got.replaced }),
         };
+      },
+    },
+    keepFootage: {
+      async read() {
+        const got = await answer<KeepFootageAnswer>(
+          await request("keepFootageGet"),
+        );
+        return {
+          value: got.keepFootage,
+          ...(got.unreadable === undefined
+            ? {}
+            : { unreadable: got.unreadable }),
+        };
+      },
+      async write(keepFootage) {
+        const got = await answer<KeepFootageAnswer>(
+          await request("keepFootagePut", { json: { keepFootage } }),
+        );
+        return got.replaced === undefined ? {} : { replaced: got.replaced };
+      },
+    },
+    expiry: {
+      async read() {
+        return answer<ExpiryAnswer>(await request("expiryGet"));
       },
     },
     libraryView: {

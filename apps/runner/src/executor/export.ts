@@ -281,7 +281,7 @@ export async function exportTake(
   if (expired !== null) {
     return refused(
       "versionExpired",
-      `video ${takeId} of the flow ${expired.name} (${expired.videoId}) expired on ${expired.at} (over 30 days old, its frames were removed) — record it again with run({ flow: { id: "${expired.videoId}" } })`,
+      `video ${takeId} of the flow ${expired.name} (${expired.videoId}) expired on ${expired.at} (its frames were removed when it passed the Keep footage setting) — record it again with run({ flow: { id: "${expired.videoId}" } })`,
     );
   }
   if (bundle === null) {

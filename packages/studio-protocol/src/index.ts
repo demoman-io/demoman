@@ -9,6 +9,7 @@ import type {
   ExportQuality,
   FileType,
   FilmedCode,
+  KeepFootage,
   KeptDeliver,
   OutputListing,
   PullRequestsValue,
@@ -58,6 +59,10 @@ export const ROUTES = {
   exportQualityPut: { method: "PUT", path: "/api/settings/export-quality" },
   exportFolderGet: { method: "GET", path: "/api/settings/export-folder" },
   exportFolderPut: { method: "PUT", path: "/api/settings/export-folder" },
+  keepFootageGet: { method: "GET", path: "/api/settings/keep-footage" },
+  keepFootagePut: { method: "PUT", path: "/api/settings/keep-footage" },
+  /** What expiry last removed, and when it last ran (DEM-179). */
+  expiryGet: { method: "GET", path: "/api/expiry" },
   libraryViewGet: { method: "GET", path: "/api/settings/library-view" },
   libraryViewPut: { method: "PUT", path: "/api/settings/library-view" },
   reveal: { method: "POST", path: "/api/reveal" },
@@ -196,6 +201,7 @@ export type StudioReason =
   /** A folder that is not absolute, not there, not a folder or not
    *  writable; `detail` names it and why. */
   | "exportFolderInvalid"
+  | "keepFootageInvalid"
   | "libraryViewInvalid"
   | "invalidFileType"
   | "routeNotFound"
@@ -460,6 +466,44 @@ export interface ExportFolderAnswer {
   unreadable?: string;
   /** On a PUT: the file was not a JSON object and was replaced; says so. */
   replaced?: string;
+}
+
+/** How long old footage is kept (DEM-179): `30d` when nothing is set. With
+ *  `unreadable` the setting cannot be used, `keepFootage` is null, and
+ *  expiry removes nothing until it can. */
+export interface KeepFootageAnswer {
+  keepFootage: KeepFootage | null;
+  unreadable?: string;
+  /** On a PUT: the file was not a JSON object and was replaced; says so. */
+  replaced?: string;
+}
+
+/** One video whose footage expiry removed. */
+export interface RemovedFootage {
+  videoId: string;
+  name: string;
+  /** When that version was recorded. */
+  recordedAt: string;
+  bytes: number;
+}
+
+/** What expiry last did (DEM-179). `lastRemoval` is the last pass that
+ *  removed anything, kept across the empty passes after it; null when none
+ *  ever has. `lastRanAt` is null when no pass has run. `problem` says why
+ *  the last pass failed, or why its record will not read: never read as
+ *  "nothing removed". */
+export interface ExpiryAnswer {
+  lastRanAt: string | null;
+  /** The Keep footage setting the last pass ran under, when it says. */
+  ranUnder?: KeepFootage;
+  lastRemoval: {
+    at: string;
+    videos: RemovedFootage[];
+    /** Removed but not listed. */
+    more: number;
+    bytes: number;
+  } | null;
+  problem?: string;
 }
 
 export type LibraryLayout = "list" | "grid";

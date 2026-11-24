@@ -38,11 +38,13 @@ import {
   type Addable,
   type BundleAnswer,
   type DeleteAnswer,
+  type ExpiryAnswer,
   type ExportFolderAnswer,
   type ExportQualityAnswer,
   type ExportQualityChoice,
   FILE_NAME_HEADER,
   isLibraryViewChoice,
+  type KeepFootageAnswer,
   type LibraryViewAnswer,
   type OutputsAnswer,
   type PingAnswer,
@@ -1233,6 +1235,73 @@ export function createRoutes(o: {
         exportFolder: folder as string | null,
         defaultFolder: defaultExportFolder(),
         ...refused,
+      };
+      return json(200, answer);
+    },
+
+    async keepFootageGet() {
+      const got = await readUserSettings(home);
+      const unreadable = got.problems?.keepFootage;
+      const answer: KeepFootageAnswer = {
+        keepFootage: got.keepFootage ?? null,
+        ...(unreadable === undefined ? {} : { unreadable }),
+      };
+      if (unreadable !== undefined)
+        log(`studio: Keep footage cannot be used: ${unreadable}`);
+      return json(200, answer);
+    },
+
+    async keepFootagePut(req) {
+      const body = await bodyJson(req);
+      if (!body.ok) {
+        return refuse(
+          400,
+          "keepFootageInvalid",
+          `The Keep footage setting was not saved: ${body.error}.`,
+        );
+      }
+      const keep = (body.value as { keepFootage?: unknown } | null)
+        ?.keepFootage;
+      const refused = await writeSetting(home, "keepFootage", keep);
+      if ("reason" in refused) {
+        return json(
+          refused.reason === "keepFootageInvalid" ? 400 : 500,
+          refused,
+        );
+      }
+      const answer: KeepFootageAnswer = {
+        keepFootage: keep as KeepFootageAnswer["keepFootage"],
+        ...refused,
+      };
+      return json(200, answer);
+    },
+
+    async expiryGet() {
+      const got = await expiryStatus(library);
+      const answer: ExpiryAnswer = {
+        lastRanAt: "ranAt" in got ? got.ranAt : null,
+        ...("keepFootage" in got && got.keepFootage !== undefined
+          ? { ranUnder: got.keepFootage }
+          : {}),
+        lastRemoval:
+          got.lastRemoval === undefined
+            ? null
+            : {
+                at: got.lastRemoval.at,
+                more: got.lastRemoval.more,
+                bytes: got.lastRemoval.bytes,
+                videos: got.lastRemoval.videos.map((v) => ({
+                  videoId: v.videoId,
+                  name: v.name,
+                  recordedAt: v.recordedAt,
+                  bytes: v.bytes,
+                })),
+              },
+        ...("failed" in got
+          ? { problem: got.failed }
+          : "unreadable" in got
+            ? { problem: got.unreadable }
+            : {}),
       };
       return json(200, answer);
     },

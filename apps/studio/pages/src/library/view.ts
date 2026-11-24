@@ -7,6 +7,7 @@ import type {
 import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
+import { type FootageActions, footageBody } from "./footage";
 import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import {
@@ -63,6 +64,9 @@ export interface LibraryActions {
    *  draws neither (a platform that has no storage to manage). */
   reclaim?(): void;
   setBudget?(bytes: number): void;
+  /** The Studio's Storage panel (DEM-179): with these, the Storage figure
+   *  opens it. Read again each time it opens. */
+  footage?: FootageActions;
   edit(sceneId: string): void;
   /** The author committed a new name on the card. Trimmed and non-empty:
    *  the view keeps a blank or unchanged edit to itself. */
@@ -413,6 +417,7 @@ function meterBar(): { bar: HTMLElement; set(fraction: number): void } {
 
 /** The storage panel's id, which its trigger's `popovertarget` names. */
 const STORAGE_PANEL = "storage-panel";
+const FOOTAGE_PANEL = "footage-panel";
 
 /** The narrow switcher's menu: the rail's places (spec 2026-11-01
  *  library-projects-design, Addendum). */
@@ -609,7 +614,7 @@ function placeTitle(
  * is not enough either — a number field mid-edit reads "1." back as "1",
  * so its text cannot be put back once the field is gone.
  */
-function createHeader(withStorage: boolean): Header {
+function createHeader(withStorage: boolean, footage?: FootageActions): Header {
   let actions: LibraryActions | null = null;
   let view: LibraryViewChoice | undefined;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
@@ -739,14 +744,64 @@ function createHeader(withStorage: boolean): Header {
     icon("chevronDown"),
   );
   const storage = el("div", { class: "storage" });
-  // The studio's total: the word, then what the folder holds. Not a button
-  // and no budget — the studio manages no storage, it only states it.
+  // The studio's total: the word, then what the folder holds. No budget —
+  // the studio manages no storage. With footage actions (DEM-179) it is the
+  // button that opens the Storage panel: how long footage is kept, and what
+  // the last cleanup removed.
   const totalValue = el("span", { "data-total-size": "" });
-  const total = el("span", {
-    class: "library-total",
-    "data-library-total": "",
-  });
+  const total =
+    footage === undefined
+      ? el("span", { class: "library-total", "data-library-total": "" })
+      : el("button", {
+          type: "button",
+          class: "btn btn-quiet library-total total-trigger",
+          "data-library-total": "",
+          popovertarget: FOOTAGE_PANEL,
+          "aria-controls": FOOTAGE_PANEL,
+        });
   total.append(el("span", { class: "storage-label" }, "Storage"), totalValue);
+  const footageBox = footage === undefined ? null : footageBody(footage);
+  const footagePanel =
+    footageBox === null
+      ? null
+      : el("div", {
+          id: FOOTAGE_PANEL,
+          class: "storage-panel",
+          popover: "",
+          "data-footage-panel": "",
+          "aria-label": "Storage",
+        });
+  if (footagePanel !== null && footageBox !== null) {
+    total.append(icon("chevronDown"));
+    footagePanel.append(
+      el("h2", { class: "storage-title" }, "Storage"),
+      footageBox.element,
+    );
+    let followed: AbortController | null = null;
+    footagePanel.addEventListener("beforetoggle", (event) => {
+      if ((event as ToggleEvent).newState === "open")
+        placePanel(footagePanel, total);
+    });
+    footagePanel.addEventListener("toggle", (event) => {
+      const open = (event as ToggleEvent).newState === "open";
+      total.toggleAttribute("data-open", open);
+      followed?.abort();
+      followed = null;
+      if (!open) return;
+      // Read each time it opens: a cleanup may have run since.
+      void footageBox.refresh().then(() => placePanel(footagePanel, total));
+      placePanel(footagePanel, total);
+      followed = new AbortController();
+      window.addEventListener("resize", () => placePanel(footagePanel, total), {
+        signal: followed.signal,
+      });
+      window.addEventListener(
+        "scroll",
+        () => placePanel(footagePanel, total, true),
+        { passive: true, signal: followed.signal },
+      );
+    });
+  }
 
   // A notice names what is holding the space, and the panel is how the
   // author answers it — so the notices sit in the page, where they are
@@ -1008,6 +1063,7 @@ function createHeader(withStorage: boolean): Header {
       }
       if (model.totalBytes === undefined) {
         total.remove();
+        footagePanel?.remove();
       } else {
         // A folder the studio could not measure is not in the sum, so the
         // figure is a floor: a `+`, and the title says how many it misses.
@@ -1025,7 +1081,12 @@ function createHeader(withStorage: boolean): Header {
         );
         if (why === null) total.removeAttribute("title");
         else total.setAttribute("title", why);
+        footageBox?.setUsed(
+          `${figure} of videos in the library${why === null ? "" : ` (${why})`}`,
+        );
         if (total.parentNode === null) (slot ?? side).append(total);
+        if (footagePanel !== null && footagePanel.parentNode === null)
+          (slot ?? side).append(footagePanel);
       }
       const used = formatBytes(model.usedBytes);
       const limit = formatBytes(model.budgetBytes);
@@ -2116,6 +2177,7 @@ export function renderLibrary(
   if (head === undefined) {
     head = createHeader(
       actions.reclaim !== undefined && actions.setBudget !== undefined,
+      actions.footage,
     );
     headers.set(root, head);
   }

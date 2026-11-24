@@ -22,7 +22,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import {
-  EXPIRE_AFTER_MS,
   expireOld,
   expiryStatus,
   SKIPPED_SAID,
@@ -35,6 +34,8 @@ import { WALLPAPERS_DIR } from "./fixture.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
 const DAY = 86_400_000;
+/** The default Keep footage, 30 days. */
+const EXPIRE_AFTER_MS = 30 * DAY;
 const NOW = new Date("2026-12-01T00:00:00.000Z");
 const ago = (days: number, from = NOW) =>
   new Date(from.getTime() - days * DAY).toISOString();
@@ -147,6 +148,80 @@ const exists = (path: string) =>
 /** A pid that is certainly not running: a child that has already exited. */
 const deadPid = () => spawnSync("true").pid as number;
 
+// DEM-179: how long footage is kept is the user's, and what goes is named.
+describe("expireOld under the Keep footage setting", () => {
+  const setting = (value: unknown) =>
+    writeFile(
+      join(home, "settings.json"),
+      JSON.stringify({ keepFootage: value }),
+    );
+
+  it("90 days keeps a 40-day-old video and removes a 100-day-old one", async () => {
+    const one = await newVideo("Checkout");
+    const forty = await take(one, "scene-a", ago(40));
+    const old = await take(one, "scene-b", ago(100));
+    await take(one, "scene-c", ago(1));
+    await setting("90d");
+    const result = await expireOld(store, lib, NOW);
+    expect(result).toMatchObject({
+      keepFootage: "90d",
+      expired: 1,
+      removed: [{ takeId: "scene-b", name: "Checkout" }],
+    });
+    expect(await exists(join(forty.dir, "frames"))).toBe(true);
+    expect(await exists(join(old.dir, "frames"))).toBe(false);
+  });
+
+  it("Forever removes nothing, and says it ran under Forever", async () => {
+    const one = await newVideo("Checkout");
+    const old = await take(one, "scene-a", ago(400));
+    await take(one, "scene-b", ago(1));
+    await setting("forever");
+    expect(await expireOld(store, lib, NOW)).toEqual({
+      ranAt: NOW.toISOString(),
+      keepFootage: "forever",
+      expired: 0,
+      freedBytes: 0,
+      skippedLeased: 0,
+      skippedUnreadable: [],
+      removed: [],
+    });
+    expect(await exists(join(old.dir, "frames"))).toBe(true);
+  });
+
+  // Red if a choice that will not read is taken for 30 days: it may be
+  // Forever, and footage would go that the person meant to keep.
+  it("a setting it cannot read removes nothing, and says why", async () => {
+    const one = await newVideo("Checkout");
+    const old = await take(one, "scene-a", ago(400));
+    await take(one, "scene-b", ago(1));
+    await setting("always");
+    const result = await expireOld(store, lib, NOW);
+    expect(result).toEqual({
+      ranAt: NOW.toISOString(),
+      failed: `the Keep footage setting cannot be used (${join(home, "settings.json")}: keepFootage must be 30d, 90d, forever; got "always"), so no footage was removed`,
+    });
+    expect(await exists(join(old.dir, "frames"))).toBe(true);
+    expect(await expiryStatus(lib)).toMatchObject({
+      failed: (result as { failed: string }).failed,
+    });
+  });
+
+  // Red if a pass that removes nothing wipes out what an earlier one named.
+  it("keeps the last removal across passes that remove nothing", async () => {
+    const one = await newVideo("Checkout");
+    await take(one, "scene-a", ago(40));
+    await take(one, "scene-b", ago(1));
+    await expireOld(store, lib, NOW);
+    const later = new Date(NOW.getTime() + 2 * 3_600_000);
+    expect(await expireOld(store, lib, later)).toMatchObject({ expired: 0 });
+    expect(await expiryStatus(lib)).toMatchObject({
+      ranAt: later.toISOString(),
+      lastRemoval: { at: NOW.toISOString(), videos: [{ takeId: "scene-a" }] },
+    });
+  });
+});
+
 describe("expireOld", () => {
   it("removes only the frames and thumbs of versions not kept, and says what it freed", async () => {
     const one = await newVideo("Checkout");
@@ -187,13 +262,54 @@ describe("expireOld", () => {
     expect((await store.current(two))?.takeId).toBe("scene-i");
     const exportedBefore = await readFile(a.exported as string, "utf8");
 
-    const result = await expireOld(store, lib, NOW);
+    const got = await expireOld(store, lib, NOW);
+    // The flows are walked in the store's order, which follows their random
+    // ids: the removals are compared by take, not by position.
+    const result =
+      "removed" in got
+        ? {
+            ...got,
+            removed: [...(got.removed ?? [])].sort((x, y) =>
+              x.takeId.localeCompare(y.takeId),
+            ),
+          }
+        : got;
+    // DEM-179: each removal is named, never only counted.
     expect(result).toEqual({
       ranAt: NOW.toISOString(),
+      keepFootage: "30d",
       expired: 2,
       freedBytes: a.bytes + dead.bytes,
       skippedLeased: 1,
       skippedUnreadable: [],
+      removed: [
+        {
+          videoId: one,
+          name: "Checkout",
+          takeId: "scene-a",
+          recordedAt: ago(40),
+          bytes: a.bytes,
+        },
+        {
+          videoId: two,
+          name: "Sign up",
+          takeId: "scene-g",
+          recordedAt: ago(44),
+          bytes: dead.bytes,
+        },
+      ],
+    });
+    // Status says them too, as the last removal.
+    expect(await expiryStatus(lib)).toMatchObject({
+      lastRemoval: {
+        at: NOW.toISOString(),
+        more: 0,
+        bytes: a.bytes + dead.bytes,
+        videos: expect.arrayContaining([
+          expect.objectContaining({ name: "Checkout" }),
+          expect.objectContaining({ name: "Sign up" }),
+        ]),
+      },
     });
 
     for (const gone of [a, dead]) {
@@ -229,7 +345,12 @@ describe("expireOld", () => {
     expect((await store.list()).map((v) => v.id).sort()).toEqual(
       [one, two].sort(),
     );
-    expect(await expiryStatus(lib)).toEqual(result);
+    // Status is the result, with what it removed as the last removal
+    // (asserted name by name above).
+    expect(await expiryStatus(lib)).toEqual({
+      ...got, // the pass as it ran, unsorted
+      lastRemoval: expect.objectContaining({ bytes: a.bytes + dead.bytes }),
+    });
   });
 
   it("expires an old migrated version that was never edited, exported or current", async () => {
@@ -295,6 +416,7 @@ describe("expireOld", () => {
       freedBytes: 0,
       skippedLeased: 0,
       skippedUnreadable: [],
+      removed: [],
     });
     expect(await exists(join(a.dir, "frames", "k0.jpg"))).toBe(true);
     expect((await store.versions(video))[0]?.expired).toBeNull();
@@ -491,8 +613,17 @@ describe("expireOld", () => {
       skipped: "ranRecently",
       lastRanAt: NOW.toISOString(),
     });
-    // The skip is not a result: status still says the run that happened.
-    expect(await expiryStatus(lib)).toEqual(first);
+    // The skip is not a result: status still says the run that happened,
+    // and what it removed.
+    expect(await expiryStatus(lib)).toEqual({
+      ...first,
+      lastRemoval: {
+        at: NOW.toISOString(),
+        videos: (first as { removed: unknown[] }).removed,
+        more: 0,
+        bytes: (first as { freedBytes: number }).freedBytes,
+      },
+    });
   });
 
   it("marks the take before removing, so frames/ that will not go answers failed with the path and the mark stands", async () => {
@@ -514,7 +645,13 @@ describe("expireOld", () => {
       expect("failed" in result && result.failed).toContain(
         "left alone: video scene-z",
       );
-      expect(await expiryStatus(lib)).toEqual(result);
+      // DEM-179: a pass that failed part-way still names what it removed.
+      expect(await expiryStatus(lib)).toEqual({
+        ...result,
+        lastRemoval: expect.objectContaining({
+          videos: [expect.objectContaining({ takeId: "scene-a" })],
+        }),
+      });
       expect((await store.videoOf("scene-a"))?.expired).toEqual({
         at: NOW.toISOString(),
         freedBytes: a.bytes,
@@ -688,5 +825,90 @@ describe("the executor", () => {
     } finally {
       await executor.close();
     }
+  });
+});
+
+// Review of DEM-179: what one pass names is never wiped out by another, and
+// a pass the lock cut short is not recorded as one that finished.
+describe("expireOld's record of what it removed, under contention", () => {
+  const statePath = () => join(home, "videos", ".expiry.json");
+
+  it("keeps another pass's removal saved while this one ran", async () => {
+    const one = await newVideo("Checkout");
+    await take(one, "scene-a", ago(40));
+    await take(one, "scene-b", ago(1));
+    const other = {
+      at: NOW.toISOString(),
+      videos: [
+        {
+          videoId: "v-other",
+          name: "Sign up",
+          takeId: "t-other",
+          recordedAt: ago(50),
+          bytes: 7,
+        },
+      ],
+      more: 0,
+      bytes: 7,
+    };
+    // Another pass saves its removal after this one has read the state.
+    let saved = false;
+    const racing = {
+      ...store,
+      versions: async (id: string) => {
+        if (!saved) {
+          saved = true;
+          await mkdir(join(home, "videos"), { recursive: true });
+          await writeFile(
+            statePath(),
+            JSON.stringify({
+              lastRanAt: NOW.toISOString(),
+              result: {
+                ranAt: NOW.toISOString(),
+                expired: 1,
+                freedBytes: 7,
+                skippedLeased: 0,
+                skippedUnreadable: [],
+              },
+              lastRemoval: other,
+            }),
+          );
+        }
+        return store.versions(id);
+      },
+    } as VideoStore;
+    await expireOld(racing, lib, NOW);
+    const status = await expiryStatus(lib);
+    expect(
+      "lastRemoval" in status &&
+        status.lastRemoval?.videos.map((v) => v.name).sort(),
+    ).toEqual(["Checkout", "Sign up"]);
+  });
+
+  it("records only what a pass the lock cut short removed, never a finished pass", async () => {
+    const one = await newVideo("Checkout");
+    await take(one, "scene-a", ago(40));
+    await take(one, "scene-b", ago(1));
+    const two = await newVideo("Sign up");
+    await take(two, "scene-c", ago(40));
+    await take(two, "scene-d", ago(1));
+    // The lock is free for the first mark, then held by another.
+    let marks = 0;
+    const cut = {
+      ...store,
+      exclusive: async (fn: Parameters<VideoStore["exclusive"]>[0]) => {
+        marks++;
+        return marks === 1
+          ? store.exclusive(fn)
+          : { ok: false as const, held: "another pass" };
+      },
+    } as VideoStore;
+    const result = await expireOld(cut, lib, NOW);
+    expect(result).toMatchObject({ skipped: "lockHeld", expired: 1 });
+    const status = await expiryStatus(lib);
+    expect(status).toMatchObject({ never: true });
+    expect("lastRemoval" in status && status.lastRemoval?.videos).toHaveLength(
+      1,
+    );
   });
 });

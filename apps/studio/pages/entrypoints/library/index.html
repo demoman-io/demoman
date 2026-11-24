@@ -161,6 +161,33 @@
         font-size: 13px;
         font-variant-numeric: tabular-nums;
       }
+      /* DEM-179: in the Studio the figure is the button that opens the
+         Storage panel, quiet as the storage trigger is. */
+      .total-trigger { align-items: center; color: var(--ink-muted); font-weight: 500; }
+      .total-trigger:hover,
+      .total-trigger[data-open] { color: var(--ink); }
+      .total-trigger[data-open] { background: var(--control-hover); }
+      .total-trigger svg { width: 14px; height: 14px; transition: transform 120ms ease; }
+      .total-trigger[data-open] svg { transform: rotate(180deg); }
+      /* Keep footage: the shell's segmented choice, scoped here. */
+      .keep-footage .segmented { display: inline-flex; width: fit-content; border: 1px solid var(--ring-strong); border-radius: var(--radius); overflow: hidden; }
+      .keep-footage .segment { padding: 6px 12px; background: var(--control); border: 0; color: var(--ink-muted); font: inherit; cursor: pointer; }
+      .keep-footage .segment + .segment { border-left: 1px solid var(--ring-strong); }
+      .keep-footage .segment[aria-checked="true"] { background: var(--control-hover); color: var(--ink); font-weight: 600; }
+      .keep-footage .label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--ink-muted); }
+      .footage .notice { margin-top: 10px; font-size: 12px; }
+      /* What the last cleanup removed (the author's variant A). */
+      .removed { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ring); }
+      .removed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-muted); }
+      .removed-head .total { font-variant-numeric: tabular-nums; }
+      .removed-list { list-style: none; margin: 0; padding: 0; }
+      .removed-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 4px 0; font-size: 12px; }
+      .removed-list .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+      .removed-list .date { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      .removed-list .size { color: var(--ink-muted); font-variant-numeric: tabular-nums; text-align: right; min-width: 52px; }
+      .removed-more { margin-top: 2px; padding: 2px 0; border: 0; background: none; color: var(--ink-muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+      .removed-more:hover { color: var(--ink); }
+      .removed-empty { margin: 0; font-size: 12px; color: var(--ink-faint); }
       .storage-trigger svg {
         width: 14px;
         height: 14px;

@@ -9,20 +9,52 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { type KeepFootage, keepFootageDays } from "@demoman/run-core";
 import { messageOf } from "../report.js";
 import { type Library, readLeases } from "./library.js";
 import { pidAlive } from "./pid-lock.js";
+import { readUserSettings } from "./user-settings.js";
 import type { Version, VideoStore } from "./videos.js";
 
-export const EXPIRE_AFTER_MS = 30 * 86_400_000;
+export const DAY_MS = 86_400_000;
 export const MIN_INTERVAL_MS = 3_600_000;
+
+/** One video whose footage a pass removed (DEM-179): said by name, never
+ *  only counted. */
+export type RemovedVideo = {
+  videoId: string;
+  name: string;
+  takeId: string;
+  /** When the version was recorded. */
+  recordedAt: string;
+  bytes: number;
+};
+
+/** The most removals a result or the state file names; the rest are a
+ *  count (`more`), as `skippedUnreadable` is capped. */
+export const REMOVED_SAID = 50;
+
+/** The last pass that removed anything, kept across the passes after it
+ *  that removed nothing, so "what went" is never answered by "nothing". */
+export type LastRemoval = {
+  at: string;
+  videos: RemovedVideo[];
+  /** Removed but not listed, past `REMOVED_SAID`. */
+  more: number;
+  bytes: number;
+};
 
 export type ExpiryResult =
   | {
       ranAt: string;
+      /** The Keep footage setting the pass ran under. Absent from a state
+       *  file saved before it existed (then 30 days). */
+      keepFootage?: KeepFootage;
       expired: number;
       freedBytes: number;
       skippedLeased: number;
+      /** What this pass removed, at most `REMOVED_SAID`. */
+      removed?: RemovedVideo[];
       /** One sentence per flow or video left alone because a file it is
        *  judged by would not read (DEM-127); empty when none, at most
        *  SKIPPED_SAID and a count of the rest. Absent from a state file saved
@@ -33,10 +65,11 @@ export type ExpiryResult =
 
 /** What `status` answers: the last result, none yet, or a state file that
  *  will not read (said, never read as "never ran"). */
-export type ExpiryStatus =
+export type ExpiryStatus = (
   | ExpiryResult
   | { never: true }
-  | { unreadable: string };
+  | { unreadable: string }
+) & { lastRemoval?: LastRemoval };
 
 /** The most skips a result names: one cause across a library (a restore
  *  with the wrong owner) would otherwise put thousands of sentences into
@@ -60,9 +93,9 @@ export function skippedOf(answer: object): string[] {
     : [];
 }
 
-const isOld = (v: Version, now: Date) =>
+const isOld = (v: Version, now: Date, days: number) =>
   // NaN (an unreadable date) is never old.
-  now.getTime() - Date.parse(v.createdAt) > EXPIRE_AFTER_MS;
+  now.getTime() - Date.parse(v.createdAt) > days * DAY_MS;
 
 const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
 
@@ -107,9 +140,15 @@ async function keptOf(
   return kept;
 }
 
-async function readState(
-  library: Library,
-): Promise<{ lastRanAt: string; result: ExpiryResult } | null> {
+type State = {
+  lastRanAt: string;
+  /** Absent when no pass has finished yet, though one the lock cut short
+   *  removed something (`lastRemoval`). */
+  result?: ExpiryResult;
+  lastRemoval?: LastRemoval;
+};
+
+async function readState(library: Library): Promise<State | null> {
   const text = await readFile(statePath(library), "utf8").catch(
     (e: unknown) => {
       if (isMissing(e)) return null;
@@ -123,7 +162,11 @@ async function readState(
 export async function expiryStatus(library: Library): Promise<ExpiryStatus> {
   try {
     const state = await readState(library);
-    return state === null ? { never: true } : state.result;
+    if (state === null) return { never: true };
+    const result = state.result ?? { never: true as const };
+    return state.lastRemoval === undefined
+      ? result
+      : { ...result, lastRemoval: state.lastRemoval };
   } catch (error) {
     return {
       unreadable: `could not read ${statePath(library)} (${messageOf(error)})`,
@@ -132,11 +175,14 @@ export async function expiryStatus(library: Library): Promise<ExpiryStatus> {
 }
 
 /**
- * Removes the frames and thumbnails of every version over 30 days old that
- * is not kept, at most once an hour. Only `takes/<id>/frames/` and
- * `takes/<id>/thumbs/` go: scene, script, report, status, outputs and every
- * exported file stay. Never throws: a failure is the result, and is saved
- * for `status` like any other.
+ * Removes the frames and thumbnails of every version older than the user's
+ * Keep footage setting (30 days unless changed, DEM-179) that is not kept,
+ * at most once an hour. Only `takes/<id>/frames/` and `takes/<id>/thumbs/`
+ * go: scene, script, report, status, outputs and every exported file stay.
+ * Forever removes nothing, and so does a setting that will not read: the
+ * result says which. What a pass removes is named, and kept as the state's
+ * `lastRemoval` until a later pass removes something. Never throws: a
+ * failure is the result, and is saved for `status` like any other.
  */
 export async function expireOld(
   store: VideoStore,
@@ -147,13 +193,14 @@ export async function expireOld(
   | ExpiryResult
   | { skipped: "ranRecently"; lastRanAt: string }
   /** Another call held the videos lock: the pass stopped at the first take
-   *  it could not mark, counting what it did before; nothing is saved, so
-   *  the next pass is not held back. */
-  | ({ skipped: "lockHeld"; held: string } & Tally)
+   *  it could not mark, counting what it did before. The throttle is not
+   *  moved, so the next pass is not held back; what it removed is saved. */
+  | ({ skipped: "lockHeld"; held: string } & Said)
 > {
   const ranAt = now.toISOString();
+  let last: State | null = null;
   try {
-    const last = await readState(library);
+    last = await readState(library);
     if (
       last !== null &&
       now.getTime() - Date.parse(last.lastRanAt) <
@@ -165,39 +212,65 @@ export async function expireOld(
     // A state file that will not read only costs the throttle: this run
     // writes a fresh one, and until then `status` says it is unreadable.
   }
-  const tally: Tally = {
-    expired: 0,
-    freedBytes: 0,
-    skippedLeased: 0,
-    skippedUnreadable: [],
-  };
+  const settings = await readUserSettings(dirname(library.root));
+  const keep = settings.keepFootage;
+  const tally = emptyTally();
   let result: ExpiryResult;
-  try {
-    const held = await expire(store, library, now, tally);
-    const said = {
-      ...tally,
-      skippedUnreadable: capped(tally.skippedUnreadable),
-    };
-    if (held !== null) return { skipped: "lockHeld", held, ...said };
-    result = { ranAt, ...said };
-  } catch (error) {
-    // What was marked before the failure is said too: those versions are gone.
+  if (keep === null || keep === undefined) {
+    // A choice it cannot read may be Forever: nothing goes until it reads.
     result = {
       ranAt,
-      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${capped(tally.skippedUnreadable).join("; ")}`})`,
+      failed: `the Keep footage setting cannot be used (${settings.problems?.keepFootage ?? "it was not read"}), so no footage was removed`,
     };
+  } else {
+    const days = keepFootageDays(keep);
+    try {
+      const held =
+        days === null ? null : await expire(store, library, now, days, tally);
+      const said = saidOf(tally);
+      if (held !== null) {
+        // Saved only when it removed something: the throttle and last result
+        // stay as they were (an empty throttle when there was none), so the
+        // next pass goes on from here, and what went is still named.
+        const notSaved =
+          tally.removed.length === 0
+            ? null
+            : await save(library, {
+                lastRanAt: last?.lastRanAt ?? "",
+                // Never a made-up finished result: a pass the lock cut short
+                // is not one that looked at the whole library.
+                ...(last?.result === undefined ? {} : { result: last.result }),
+                ...(await removal(library, last, ranAt, tally)),
+              }).then(
+                () => null,
+                (e: unknown) => messageOf(e),
+              );
+        return {
+          skipped: "lockHeld",
+          held:
+            notSaved === null
+              ? held
+              : `${held}; and what it removed could not be saved (${notSaved})`,
+          ...said,
+        };
+      }
+      result = { ranAt, keepFootage: keep, ...said };
+    } catch (error) {
+      // What was marked before the failure is said too: those versions are gone.
+      result = {
+        ranAt,
+        failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes${namesOf(tally)}${tally.skippedUnreadable.length === 0 ? "" : `; and left alone: ${capped(tally.skippedUnreadable).join("; ")}`})`,
+      };
+    }
   }
-  const path = statePath(library);
-  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(temp, JSON.stringify({ lastRanAt: ranAt, result }), {
-      mode: 0o600,
+    await save(library, {
+      lastRanAt: ranAt,
+      result,
+      ...(await removal(library, last, ranAt, tally)),
     });
-    await rename(temp, path);
   } catch (error) {
-    await rm(temp, { force: true }).catch(() => undefined);
-    const lost = `could not write ${path} (${messageOf(error)}), so status cannot say this run's result`;
+    const lost = `could not write ${statePath(library)} (${messageOf(error)}), so status cannot say this run's result${tally.removed.length === 0 ? "" : ` or what it removed${namesOf(tally)}`}`;
     return {
       ranAt,
       failed: "failed" in result ? `${result.failed}; and ${lost}` : lost,
@@ -211,7 +284,79 @@ type Tally = {
   freedBytes: number;
   skippedLeased: number;
   skippedUnreadable: string[];
+  removed: RemovedVideo[];
 };
+type Said = Tally;
+
+const emptyTally = (): Tally => ({
+  expired: 0,
+  freedBytes: 0,
+  skippedLeased: 0,
+  skippedUnreadable: [],
+  removed: [],
+});
+
+const saidOf = (t: Tally): Said => ({
+  ...t,
+  skippedUnreadable: capped(t.skippedUnreadable),
+  removed: t.removed.slice(0, REMOVED_SAID),
+});
+
+/** ": <name>, <name>" for a sentence, or nothing; at most REMOVED_SAID
+ *  names and a count of the rest. */
+const namesOf = (t: Tally): string => {
+  if (t.removed.length === 0) return "";
+  const named = t.removed.slice(0, REMOVED_SAID).map((r) => r.name);
+  const rest = t.removed.length - named.length;
+  return `: ${named.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}`;
+};
+
+/** This pass's removals as the state's `lastRemoval`, or the last one kept
+ *  when it removed nothing. The state is read again first: another pass
+ *  (the Studio's start and a run, at once) may have saved its own since
+ *  this one began, and neither list may wipe out the other. */
+async function removal(
+  library: Library,
+  last: State | null,
+  at: string,
+  t: Tally,
+): Promise<{ lastRemoval?: LastRemoval }> {
+  const now = await readState(library).catch(() => last);
+  const theirs = now?.lastRemoval ?? last?.lastRemoval;
+  if (t.removed.length === 0)
+    return theirs === undefined ? {} : { lastRemoval: theirs };
+  const mine: LastRemoval = {
+    at,
+    videos: t.removed.slice(0, REMOVED_SAID),
+    more: Math.max(0, t.removed.length - REMOVED_SAID),
+    bytes: t.removed.reduce((n, r) => n + r.bytes, 0),
+  };
+  // Another pass removed something after this one started: both are named.
+  const since = last?.lastRemoval?.at;
+  if (theirs === undefined || theirs.at === since) return { lastRemoval: mine };
+  const videos = [...mine.videos, ...theirs.videos];
+  return {
+    lastRemoval: {
+      at: mine.at > theirs.at ? mine.at : theirs.at,
+      videos: videos.slice(0, REMOVED_SAID),
+      more: mine.more + theirs.more + Math.max(0, videos.length - REMOVED_SAID),
+      bytes: mine.bytes + theirs.bytes,
+    },
+  };
+}
+
+async function save(library: Library, state: State): Promise<void> {
+  const path = statePath(library);
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(temp, JSON.stringify(state), { mode: 0o600 });
+    await rename(temp, path);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
 
 /** Take by take, as before: judged, marked, then its files removed. Only the
  *  mark holds the videos lock, so a merge cannot land between its read and
@@ -222,6 +367,7 @@ async function expire(
   store: VideoStore,
   library: Library,
   now: Date,
+  days: number,
   tally: Tally,
 ): Promise<string | null> {
   const ranAt = now.toISOString();
@@ -244,7 +390,8 @@ async function expire(
     }
     // A flow with nothing old to expire is not judged, so a file of it that
     // will not read costs expiry nothing and is no skip (review of DEM-127).
-    if (!versions.some((v) => v.expired === null && isOld(v, now))) continue;
+    if (!versions.some((v) => v.expired === null && isOld(v, now, days)))
+      continue;
     let kept: Set<string>;
     try {
       kept = await keptOf(versions, library);
@@ -254,7 +401,7 @@ async function expire(
     }
     for (const v of versions) {
       if (v.expired !== null || kept.has(v.takeId)) continue;
-      if (!isOld(v, now)) continue;
+      if (!isOld(v, now, days)) continue;
       const dir = library.takeDir(v.takeId);
       let leases: Awaited<ReturnType<typeof readLeases>>;
       try {
@@ -296,6 +443,13 @@ async function expire(
       if (!marked.ok) return marked.held;
       tally.expired++;
       tally.freedBytes += bytes;
+      tally.removed.push({
+        videoId: video.id,
+        name: video.name,
+        takeId: v.takeId,
+        recordedAt: v.createdAt,
+        bytes,
+      });
       for (const path of paths) {
         try {
           await rm(path, { recursive: true, force: true });

@@ -44,6 +44,7 @@ describe("readUserSettings: exportQuality", () => {
       exportQuality: "full",
       pullRequests: "ask",
       exportFolder: null,
+      keepFootage: "30d",
     });
   });
 
@@ -150,5 +151,26 @@ describe("exportFolderOf", () => {
       JSON.stringify({ exportFolder: 3, exportQuality: "full" }),
     );
     expect((await readUserSettings(home)).exportQuality).toBe("full");
+  });
+});
+
+// DEM-179. Red if a choice that cannot be read is taken for 30 days: expiry
+// would then remove footage the person may have chosen to keep forever.
+describe("readUserSettings: keepFootage", () => {
+  it("reads a choice, 30 days when unset, and null with why when unusable", async () => {
+    const home = await temp();
+    expect((await readUserSettings(home)).keepFootage).toBe("30d");
+    await writeFile(file(home), JSON.stringify({ keepFootage: "forever" }));
+    expect((await readUserSettings(home)).keepFootage).toBe("forever");
+    await writeFile(file(home), JSON.stringify({ keepFootage: 30 }));
+    const bad = await readUserSettings(home);
+    expect(bad.keepFootage).toBeNull();
+    expect(bad.problems?.keepFootage).toBe(
+      `${file(home)}: keepFootage must be 30d, 90d, forever; got 30`,
+    );
+    await writeFile(file(home), "{");
+    const broken = await readUserSettings(home);
+    expect(broken.keepFootage).toBeNull();
+    expect(broken.problems?.keepFootage).toContain(file(home));
   });
 });
