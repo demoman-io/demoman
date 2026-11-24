@@ -3789,10 +3789,7 @@ export async function runWalk(
         await stepStill(keyAction.id);
         if (armDialogs(step, keyAction.id)) break;
         if (!continuous) recorder?.open();
-        // shortcut: `key` is a PressKey until the engine performs combos (DEM-154 engine task); a combo or other key throws in pressKey at KEY_EVENTS, loudly.
-        await gate.section(() =>
-          pressKey(cdp, keyAction.key as Parameters<typeof pressKey>[1]),
-        );
+        await gate.section(() => pressKey(cdp, keyAction.key));
         const keyDialogs = dialogs.seen();
         if (!continuous) {
           await recorder?.close();

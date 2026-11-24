@@ -313,6 +313,16 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       recorded: RecordedSchema,
     })
     .strict()
+    .superRefine((step, ctx) => {
+      // A right-click is one click; saying both would leave the run to pick.
+      if (step.button !== undefined && step.clicks !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "a right-click takes no clicks",
+          path: ["clicks"],
+        });
+      }
+    })
     .describe("Click an element"),
   z
     .object({
@@ -658,14 +668,6 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
   }
   script.steps.forEach((step, index) => {
     if (step.do !== "click") return;
-    // A right-click is one click; saying both would leave the run to pick.
-    if (step.button !== undefined && step.clicks !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "a right-click takes no clicks",
-        path: ["steps", index, "clicks"],
-      });
-    }
     if (
       script.device !== undefined &&
       DEVICES[script.device].touch &&

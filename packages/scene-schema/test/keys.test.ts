@@ -120,13 +120,13 @@ describe("the door", () => {
     expect(left.error?.issues[0]?.path).toEqual(["button"]);
     const middle = ScriptStepSchema.safeParse(click({ button: "middle" }));
     expect(middle.error?.issues[0]?.path).toEqual(["button"]);
-    const both = DemoScriptSchema.safeParse(
-      script([click({ button: "right", clicks: 2 })]),
+    const both = ScriptStepSchema.safeParse(
+      click({ button: "right", clicks: 2 }),
     );
-    const issue = both.error?.issues.find(
-      (i) => i.message === "a right-click takes no clicks",
-    );
-    expect(issue?.path).toEqual(["steps", 0, "clicks"]);
+    expect(both.error?.issues.map((i) => [i.message, i.path])).toContainEqual([
+      "a right-click takes no clicks",
+      ["clicks"],
+    ]);
     const held = ScriptStepSchema.safeParse(click({ holding: "Ctrl" }));
     expect(held.error?.issues[0]?.path).toEqual(["holding"]);
     const press = ScriptStepSchema.safeParse({ do: "press", key: "Cmd+K" });
@@ -134,16 +134,24 @@ describe("the door", () => {
   });
 
   it("refuses a mouse field on a touch device, at the field", () => {
-    expect(DEVICES.phone.touch).toBe(true);
-    const r = DemoScriptSchema.safeParse(
-      script([click({ clicks: 2 })], { device: "phone" }),
-    );
-    const issue = r.error?.issues.find(
-      (i) => i.path.join(".") === "steps.0.clicks",
-    );
-    expect(issue?.message).toBe(
-      "a phone or tablet has no mouse: button, clicks and holding need a desktop take",
-    );
+    const sentence =
+      "a phone or tablet has no mouse: button, clicks and holding need a desktop take";
+    for (const device of ["phone", "tablet"] as const) {
+      expect(DEVICES[device].touch, device).toBe(true);
+      for (const [field, extra] of [
+        ["clicks", { clicks: 2 }],
+        ["button", { button: "right" }],
+        ["holding", { holding: "Shift" }],
+      ] as const) {
+        const r = DemoScriptSchema.safeParse(
+          script([click(extra)], { device }),
+        );
+        const issue = r.error?.issues.find(
+          (i) => i.path.join(".") === `steps.0.${field}`,
+        );
+        expect(issue?.message, `${device} ${field}`).toBe(sentence);
+      }
+    }
   });
 });
 
@@ -160,7 +168,7 @@ describe("script version", () => {
     expect(v({ do: "press", key: "Enter" })).toBe(7);
   });
 
-  it("refuses a v9 script naming a combo with the version sentence", () => {
+  it("raises a v9 script naming a combo to version 10", () => {
     const r = DemoScriptSchema.safeParse(
       script([{ do: "press", key: "Mod+K" }], { scriptVersion: 9 }),
     );

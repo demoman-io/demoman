@@ -51,6 +51,7 @@ import {
   type DragSpot,
   deviceFor,
   type FailureReasonName,
+  PRESS_KEYS,
   type SceneAction,
   type SceneAnchor,
   type SceneAspect,
@@ -805,6 +806,15 @@ export function createAuthoredRun(
           continue;
         }
 
+        if (
+          step.do === "press" &&
+          !(PRESS_KEYS as readonly string[]).includes(step.key)
+        ) {
+          // A combo or a key outside PRESS_KEYS: Task 3 of the DEM-154/155 plan replaces this stop with the real verb.
+          stop = "unperformableStep";
+          return;
+        }
+
         if (step.do === "press") {
           // No element to resolve: the action goes out with no anchor, as a
           // navigation wait does. Performing it is Task 4's.
@@ -840,6 +850,11 @@ export function createAuthoredRun(
           // avoid. Read off the runtime shape, since the type no longer has it.
           const button = (step as { button?: unknown }).button;
           if (button !== undefined && button !== "left") {
+            stop = "unperformableStep";
+            return;
+          }
+          // `clicks` and `holding` pass the parse but nothing performs them yet: Task 2 of the DEM-154/155 plan replaces this stop with the real verb.
+          if (step.clicks !== undefined || step.holding !== undefined) {
             stop = "unperformableStep";
             return;
           }

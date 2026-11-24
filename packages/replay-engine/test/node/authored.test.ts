@@ -766,6 +766,28 @@ describe("the authored source and its assembler", () => {
     expect(driven.walk.completed).toBe(1);
   });
 
+  // Until Tasks 2 and 3 of the DEM-154/155 plan perform them, a step the door
+  // accepts but nothing performs must stop the run, not record a plain click.
+  it.each([
+    ["clicks", { clicks: 2 }],
+    ["holding", { holding: "Shift" }],
+  ])("stops on a click carrying %s", async (_name, extra) => {
+    const loose = {
+      do: "click",
+      on: { role: "button", name: "Row" },
+      ...extra,
+    } as unknown as ScriptStep;
+    const driven = await drive(script([loose]));
+    expect(driven.run.stop()).toBe("unperformableStep");
+    expect(driven.run.actions).toHaveLength(0);
+  });
+
+  it.each(["Mod+K", "F5"])("stops on a press of %s", async (key) => {
+    const driven = await drive(script([{ do: "press", key } as ScriptStep]));
+    expect(driven.run.stop()).toBe("unperformableStep");
+    expect(driven.run.actions).toHaveLength(0);
+  });
+
   it("a click stops with unresolvedAnchor after 10 s when the target never comes", async () => {
     const driven = await drive(oneStepScript(), { captures: absent() });
 

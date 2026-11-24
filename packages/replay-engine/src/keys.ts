@@ -47,11 +47,18 @@ const MAC_HOST =
 /** A keyDown then a keyUp of one named key. */
 export async function pressKey(
   cdp: CdpSession,
-  key: PressKey,
+  key: string,
   mac = MAC_HOST,
 ): Promise<void> {
-  const { text, ...event } = KEY_EVENTS[key];
-  const command = mac ? MAC_COMMANDS[key] : undefined;
+  const named = (
+    KEY_EVENTS as Partial<Record<string, (typeof KEY_EVENTS)[PressKey]>>
+  )[key];
+  // The walk refuses a script's other keys before this (`unperformableStep`);
+  // a take that names one still fails here by name, not as a TypeError.
+  if (named === undefined)
+    throw new Error(`pressKey: no key event for "${key}"`);
+  const { text, ...event } = named;
+  const command = mac ? MAC_COMMANDS[key as PressKey] : undefined;
   await cdp.send("Input.dispatchKeyEvent", {
     type: text === undefined ? "rawKeyDown" : "keyDown",
     ...event,
