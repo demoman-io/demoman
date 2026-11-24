@@ -52,6 +52,9 @@ describe("parseKeyCombo", () => {
     expect(msg(parseKeyCombo("Shift+Shift+K"))).toBe(
       '"Shift" is named twice in "Shift+Shift+K"',
     );
+    expect(msg(parseKeyCombo("++"))).toBe(
+      '"++" has an empty name beside a "+": write each name once, like "Mod+Shift+K", or "Mod++" for the + key',
+    );
     expect(msg(parseKeyCombo("Mod+Shift"))).toBe(
       '"Mod+Shift" names no key: end it with one, like "Mod+Shift+K"',
     );
@@ -206,6 +209,13 @@ describe("the take", () => {
     doc.actions.push(press as never);
     const r = SceneDocumentSchema.safeParse(doc);
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+    // A letter is stored uppercase, as the walk writes it: "k" is refused.
+    press.key = "k";
+    const lower = SceneDocumentSchema.safeParse(doc);
+    expect(lower.success).toBe(false);
+    expect(JSON.stringify(lower.error?.issues)).toContain(
+      "a letter is stored uppercase",
+    );
   });
 
   it("migrates a schema-16 take to 17 with nothing else changed", () => {

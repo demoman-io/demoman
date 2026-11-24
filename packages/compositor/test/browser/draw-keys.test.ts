@@ -284,11 +284,23 @@ describe("renderFrame's key marks", () => {
     });
     const t = click + 200;
 
-    // Positive control: with the pointer drawn, the tag and the mouse put
-    // ink outside the pill.
+    // Positive control: with the pointer drawn, each of the tag and the
+    // mouse, drawn alone, puts ink outside the pill.
     const shown = differ(await frame(marked(base), t), await frame(base, t));
     expect(shown.inside, "premise: the pill drew").toBeGreaterThan(0);
-    expect(shown.outside, "premise: the tag and mouse drew").toBeGreaterThan(0);
+    const tagOnly = { ...base, clickTags: marked(base).clickTags };
+    const mouseOnly = { ...base, rightClicks: marked(base).rightClicks };
+    // Premise: the click already presses the pointer, so the right-click
+    // changes nothing but the mouse mark.
+    expect(base.pulseOutputMs).toContain(click);
+    expect(
+      differ(await frame(tagOnly, t), await frame(base, t)).outside,
+      "premise: the tag drew",
+    ).toBeGreaterThan(0);
+    expect(
+      differ(await frame(mouseOnly, t), await frame(base, t)).outside,
+      "premise: the mouse drew",
+    ).toBeGreaterThan(0);
 
     const hidden = {
       ...base,

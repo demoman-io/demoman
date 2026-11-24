@@ -4,6 +4,7 @@ import {
   MOUSE_MARK_MS,
   MULTI_CLICK_GAP_MS,
   markAlpha,
+  pointerPressOutputMs,
 } from "../plan/key-marks.js";
 import type { ResolvedPlan } from "../plan/resolve.js";
 import { cursorIdleAlpha, sampleCursor } from "../plan/resolve.js";
@@ -436,7 +437,7 @@ export async function renderFrame(args: {
       {
         press: cursorPressScale(
           outputTimeMs,
-          resolved.pulseOutputMs,
+          pointerPressOutputMs(resolved),
           look.clickBounce ?? CURSOR_POLISH_DEFAULTS.clickBounce,
           resolved.holdOutputMs,
         ),

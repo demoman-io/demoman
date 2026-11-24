@@ -29,7 +29,24 @@ async function sent(
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
+
+/** What a press sends on a linux host: `process` is stubbed BEFORE the
+ *  module loads, so a host check made at load time would see linux too. */
+async function sentOnLinux(
+  modifiers: Modifier[],
+  key: string,
+): Promise<Record<string, unknown>[]> {
+  vi.stubGlobal("process", { ...process, platform: "linux" });
+  vi.resetModules();
+  const fresh = await import("../../src/keys.js");
+  const { calls, cdp } = recorder();
+  await fresh.pressCombo(cdp, modifiers, key);
+  return calls;
+}
 
 describe("pressCombo", () => {
   it("Mod+Shift+K goes down modifier by modifier, presses K with no text, and lifts in reverse", async () => {
@@ -94,15 +111,13 @@ describe("pressCombo", () => {
   });
 
   it("Enter carries no command and types a carriage return, on any host", async () => {
-    vi.stubGlobal("process", { ...process, platform: "linux" });
-    const [down] = await sent([], "Enter");
+    const [down] = await sentOnLinux([], "Enter");
     expect(down?.text).toBe("\r");
     expect(down && "commands" in down).toBe(false);
   });
 
   it("ArrowDown carries moveDown on a linux host", async () => {
-    vi.stubGlobal("process", { ...process, platform: "linux" });
-    const [down] = await sent([], "ArrowDown");
+    const [down] = await sentOnLinux([], "ArrowDown");
     expect(down?.commands).toEqual(["moveDown"]);
   });
 
@@ -123,6 +138,45 @@ describe("pressCombo", () => {
     const down = calls.find((c) => c.code === "KeyK");
     expect(down).toMatchObject({ key: "K", text: "K", modifiers: 8 });
   });
+
+  it.each([
+    ["/", "?", "Slash"],
+    ["1", "!", "Digit1"],
+    ["8", "*", "Digit8"],
+    [";", ":", "Semicolon"],
+  ])("Shift+%s sends key and text %s on %s", async (key, shifted, code) => {
+    const calls = await sent(["Shift"], key);
+    const down = calls.find((c) => c.code === code);
+    expect(down, JSON.stringify(calls)).toMatchObject({
+      type: "keyDown",
+      key: shifted,
+      text: shifted,
+      modifiers: 8,
+    });
+    const up = calls.find((c) => c.code === code && c.type === "keyUp");
+    expect(up?.key).toBe(shifted);
+  });
+
+  it("an unshifted digit and punctuation send themselves", () => {
+    expect(keyEventOf("1", false)).toMatchObject({ key: "1", text: "1" });
+    expect(keyEventOf("/", false)).toMatchObject({ key: "/", text: "/" });
+  });
+
+  it.each([["V"], ["C"], ["X"]])(
+    "Mod+%s carries no command: it never reaches the clipboard (DEM-163)",
+    async (key) => {
+      const calls = await sent(["Mod"], key);
+      const down = calls.find(
+        (c) => c.code === `Key${key}` && c.type !== "keyUp",
+      );
+      // Premise: the page still gets the ⌘ key's keydown for its own shortcut.
+      expect(down, JSON.stringify(calls)).toMatchObject({
+        type: "rawKeyDown",
+        modifiers: 4,
+      });
+      expect(down && "commands" in down, JSON.stringify(down)).toBe(false);
+    },
+  );
 
   it("an unshifted letter is lowercase", () => {
     expect(keyEventOf("K", false)).toMatchObject({ key: "k", text: "k" });
@@ -151,6 +205,43 @@ describe("a dispatch that throws", () => {
       "Shift",
       "Meta",
     ]);
+  });
+});
+
+describe("a modifier's keyDown that throws", () => {
+  it("lifts the modifiers already down, then rethrows", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const cdp = {
+      send: async (_method: string, params?: Record<string, unknown>) => {
+        calls.push(params ?? {});
+        if (params?.key === "Shift" && params.type === "rawKeyDown")
+          throw new Error("session gone");
+        return {};
+      },
+    } as unknown as CdpSession;
+    await expect(holdModifiers(cdp, ["Mod", "Shift"])).rejects.toThrow(
+      "session gone",
+    );
+    expect(calls.map((c) => [c.type, c.key, c.modifiers])).toEqual([
+      ["rawKeyDown", "Meta", 4],
+      ["rawKeyDown", "Shift", 12],
+      ["keyUp", "Meta", 0],
+    ]);
+  });
+
+  it("keeps the first error when lifting the keys throws too", async () => {
+    const cdp = {
+      send: async (_method: string, params?: Record<string, unknown>) => {
+        if (params?.code === "KeyK") throw new Error("session gone");
+        if (params?.type === "keyUp") throw new Error("still gone");
+        return {};
+      },
+    } as unknown as CdpSession;
+    const error = await pressCombo(cdp, ["Mod"], "K").catch((e) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "session gone (and lifting the held keys failed: still gone)",
+    );
   });
 });
 

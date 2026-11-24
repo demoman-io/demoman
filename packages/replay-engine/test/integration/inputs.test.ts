@@ -217,6 +217,95 @@ describe("clicks and keys, against a real page", () => {
     );
   });
 
+  it("a right-click on an element with no menu of its own leaves Chrome's menu shut", async () => {
+    await runInputs(
+      [
+        { do: "waitForLoad" },
+        { do: "click", on: on("plain"), button: "right" },
+      ],
+      async (result, page, said) => {
+        expect(result.reason, await said()).toBeNull();
+        // The line is logged once the event is done, after every listener.
+        await page.waitForFunction(() =>
+          document.getElementById("log")?.textContent?.includes("settled"),
+        );
+        const lines = await logOf(page);
+        // Premise: the page's own contextmenu arrived, and it has no handler
+        // that prevents it (the line comes from the fixture's logger only).
+        expect(
+          lines.filter((l) => l.startsWith("contextmenu button 2")),
+          await said(),
+        ).toHaveLength(1);
+        expect(
+          lines.filter((l) => l.startsWith("contextmenu settled")),
+          await said(),
+        ).toEqual(["contextmenu settled defaultPrevented true"]);
+      },
+    );
+  });
+
+  it("a type over a pre-filled field replaces its text, with no modifier key", async () => {
+    await runInputs(
+      [{ do: "waitForLoad" }, { do: "type", into: on("field"), text: "Acme" }],
+      async (result, page, said) => {
+        expect(result.reason, await said()).toBeNull();
+        // Premise: the field started with text to replace.
+        expect(await page.getAttribute("#field", "value"), await said()).toBe(
+          "Northwind",
+        );
+        expect(await page.inputValue("#field"), await said()).toBe("Acme");
+        expect(result.steps[1]?.fieldNotCleared, await said()).toBeUndefined();
+        // No keydown an app's ⌘A or Ctrl+A handler could catch.
+        expect(
+          (await logOf(page)).filter((l) => / (meta|ctrl)/.test(l)),
+          await said(),
+        ).toEqual([]);
+      },
+    );
+  });
+
+  it("a type into a field inside a shadow root replaces its text", async () => {
+    await runInputs(
+      [
+        { do: "waitForLoad" },
+        { do: "type", into: on("shadowed"), text: "Acme" },
+      ],
+      async (result, page, said) => {
+        const inner = await page.evaluate(() => {
+          const input = document
+            .getElementById("shadowed")
+            ?.shadowRoot?.querySelector("input");
+          return input
+            ? { value: input.value, prefilled: input.defaultValue }
+            : null;
+        });
+        const why = `${await said()} shadow field: ${JSON.stringify(inner)}`;
+        expect(result.reason, why).toBeNull();
+        // Premise: the inner field was pre-filled.
+        expect(inner?.prefilled, why).toBe("Northwind");
+        expect(inner?.value, why).toBe("Acme");
+      },
+    );
+  });
+
+  it("a type into a field that will not select says it could not clear it", async () => {
+    await runInputs(
+      [
+        { do: "waitForLoad" },
+        { do: "type", into: on("stubborn"), text: "Acme" },
+      ],
+      async (result, page, said) => {
+        const why = `${await said()} stubborn: ${await page.inputValue("#stubborn")}; step: ${JSON.stringify(result.steps[1])}`;
+        expect(result.reason, why).toBeNull();
+        // Premise: the select did nothing, so the text went in beside.
+        expect(await page.inputValue("#stubborn"), why).not.toBe("Acme");
+        expect(result.steps[1]?.fieldNotCleared, why).toEqual({
+          before: "Northwind",
+        });
+      },
+    );
+  });
+
   it("a Shift-click holds Shift around the press and selects the range", async () => {
     await runInputs(
       [

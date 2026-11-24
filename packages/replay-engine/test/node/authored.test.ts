@@ -832,6 +832,23 @@ describe("the authored source and its assembler", () => {
     },
   );
 
+  it.each([
+    ["a holding no modifier means", { holding: "Cmd" }],
+    ["five clicks", { clicks: 5 }],
+  ])(
+    "stops on a click carrying %s, instead of throwing or clicking on",
+    async (_name, extra) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive(script([loose]));
+      expect(driven.run.stop()).toBe("unperformableStep");
+      expect(driven.run.actions).toHaveLength(0);
+    },
+  );
+
   it("stops on a press whose key no parse accepts, instead of throwing", async () => {
     const driven = await drive(
       script([{ do: "press", key: "Mod+" } as ScriptStep]),

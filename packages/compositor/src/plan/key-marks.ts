@@ -183,6 +183,13 @@ export function planKeyMarks(
   };
 }
 
+/** Where the pointer is drawn pressed: every ripple, and every right-click,
+ *  which is a press of the mouse whose ripple the mouse mark replaces. A
+ *  key press is in neither. */
+export const pointerPressOutputMs = (
+  marks: Pick<KeyMarks, "pulseOutputMs" | "rightClicks">,
+): number[] => [...marks.pulseOutputMs, ...marks.rightClicks];
+
 /** A mark's opacity at `ms`: 0 outside `range`, fading in and out over
  *  `KEY_MARK_FADE_MS` at each end, except an end a pill hands over at. */
 export function markAlpha(

@@ -251,6 +251,10 @@ export interface AuthoredStep {
    *  step's end is the bound, so the camera may leave before the value
    *  shows (DEM-173). */
   lastKeyPaint?: { unconfirmed: string };
+  /** On a `type` whose field had text its select did not cover, so the
+   *  typed text went in beside it: that text, kept only when the typed text
+   *  is (never for a credential field). */
+  fieldNotCleared?: { before?: string };
   /** On a click, type or press that opened JavaScript dialogs: each, as the
    *  run answered it (DEM-161). The action keeps the same list. */
   dialogs?: DialogRecord[];
@@ -876,6 +880,17 @@ export function createAuthoredRun(
             stop = "unperformableStep";
             return;
           }
+          // So with a `holding` no modifier means, and a click count other
+          // than a double or a triple: never a bare throw, never five clicks.
+          if (
+            (step.holding !== undefined && !parseHolding(step.holding).ok) ||
+            (step.clicks !== undefined &&
+              (step.clicks as unknown) !== 2 &&
+              (step.clicks as unknown) !== 3)
+          ) {
+            stop = "unperformableStep";
+            return;
+          }
           // A phone has no mouse: a tap cannot be a right, double or held
           // click, and tapping once would record what did not happen.
           if (
@@ -1204,6 +1219,14 @@ export function createAuthoredRun(
             ? {
                 onLastKeyUnpainted: (why: string) => {
                   record.lastKeyPaint = { unconfirmed: why };
+                },
+              }
+            : {}),
+          ...(step.do === "type"
+            ? {
+                onFieldNotCleared: (before: string) => {
+                  record.fieldNotCleared =
+                    record.textHidden === null ? { before } : {};
                 },
               }
             : {}),

@@ -1517,6 +1517,32 @@ describe("a typed field that does not hold its text", () => {
     expect(line).not.toContain("step 0");
   });
 
+  it("the verdict line names a type that could not clear its field first", () => {
+    const args = typedInto("Northwind4800", true);
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const report = buildRunReport({
+      ...args,
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, fieldNotCleared: { before: "Northwind" } } : s,
+      ),
+    });
+    // Premise: the field holds the typed text, so only the note can say it.
+    expect(report.verdict.kind).toBe("matches");
+    expect(report.steps[0]?.fieldNotCleared).toEqual({ before: "Northwind" });
+    expect(verdictLine(report)).toContain(
+      "step 1 typed into a field it could not clear first (fieldNotCleared).",
+    );
+    // The PR says so too, with the line as its details.
+    expect(prVerdict(report)).toEqual({
+      clause: "matches all 3 steps, with notes",
+      details: verdictLine(report),
+    });
+    // Control: the same run without the note says nothing of it.
+    const plain = buildRunReport(args);
+    expect(verdictLine(plain)).not.toContain("fieldNotCleared");
+    expect(prVerdict(plain).clause).toBe("matches all 3 steps");
+  });
+
   it("a field that holds its text leaves the verdict a match", () => {
     const report = buildRunReport(typedInto("4,800", true));
     expect(report.steps[0]?.fieldHolds).toEqual({

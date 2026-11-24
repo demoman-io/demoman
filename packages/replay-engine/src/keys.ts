@@ -69,13 +69,15 @@ export function keyEventOf(key: string, shift: boolean): KeyEvent {
       text: printed,
     };
   }
-  if (/^[0-9]$/.test(key))
+  if (/^[0-9]$/.test(key)) {
+    const printed = shift ? (SHIFTED_DIGITS[Number(key)] as string) : key;
     return {
-      key,
+      key: printed,
       code: `Digit${key}`,
       windowsVirtualKeyCode: key.charCodeAt(0),
-      text: key,
+      text: printed,
     };
+  }
   const digit = key.length === 1 ? SHIFTED_DIGITS.indexOf(key) : -1;
   if (digit !== -1)
     return {
@@ -85,8 +87,10 @@ export function keyEventOf(key: string, shift: boolean): KeyEvent {
       text: key,
     };
   for (const [plain, shifted, code, vk] of PUNCTUATION)
-    if (key === plain || key === shifted)
-      return { key, code, windowsVirtualKeyCode: vk, text: key };
+    if (key === plain || key === shifted) {
+      const printed = shift ? shifted : key;
+      return { key: printed, code, windowsVirtualKeyCode: vk, text: printed };
+    }
   throw new Error(`keyEventOf: no key event for "${key}"`);
 }
 
@@ -189,9 +193,7 @@ const MAC_COMMANDS: Record<string, string | string[]> = {
   "Shift+Meta+ArrowLeft": "moveToLeftEndOfLineAndModifySelection",
   "Shift+Meta+ArrowRight": "moveToRightEndOfLineAndModifySelection",
   "Meta+KeyA": "selectAll",
-  "Meta+KeyC": "copy",
-  "Meta+KeyX": "cut",
-  "Meta+KeyV": "paste",
+  // No copy, cut or paste: those reach the system clipboard (DEM-163).
   "Meta+KeyZ": "undo",
   "Shift+Meta+KeyZ": "redo",
 };
@@ -243,25 +245,47 @@ function modifierEvent(
 }
 
 /** Press the modifiers down, in order; the returned function lifts them in
- *  reverse. */
+ *  reverse. A keyDown that throws lifts the ones already down, then rethrows. */
 export async function holdModifiers(
   cdp: CdpSession,
   modifiers: readonly Modifier[],
 ): Promise<() => Promise<void>> {
   let mask = 0;
-  for (const m of modifiers) {
-    mask |= MODIFIER_KEYS[m].bit;
-    await cdp.send(
-      "Input.dispatchKeyEvent",
-      modifierEvent("rawKeyDown", m, mask),
-    );
-  }
-  return async () => {
-    for (const m of [...modifiers].reverse()) {
+  const down: Modifier[] = [];
+  const release = async () => {
+    for (const m of [...down].reverse()) {
       mask &= ~MODIFIER_KEYS[m].bit;
       await cdp.send("Input.dispatchKeyEvent", modifierEvent("keyUp", m, mask));
     }
   };
+  for (const m of modifiers) {
+    try {
+      await cdp.send(
+        "Input.dispatchKeyEvent",
+        modifierEvent("rawKeyDown", m, mask | MODIFIER_KEYS[m].bit),
+      );
+    } catch (error) {
+      await releaseKeeping(error, release);
+    }
+    mask |= MODIFIER_KEYS[m].bit;
+    down.push(m);
+  }
+  return release;
+}
+
+/** Run `release` after `error`, then throw `error`: a release that also
+ *  throws is said in its message, never thrown in its place. */
+export async function releaseKeeping(
+  error: unknown,
+  release: () => Promise<void>,
+): Promise<never> {
+  try {
+    await release();
+  } catch (releaseError) {
+    if (error instanceof Error)
+      error.message += ` (and lifting the held keys failed: ${releaseError instanceof Error ? releaseError.message : String(releaseError)})`;
+  }
+  throw error;
 }
 
 /** The modifiers down, the key down and up, the modifiers up. */
@@ -289,7 +313,8 @@ export async function pressCombo(
       ...event,
       modifiers: mask,
     });
-  } finally {
-    await release();
+  } catch (error) {
+    await releaseKeeping(error, release);
   }
+  await release();
 }

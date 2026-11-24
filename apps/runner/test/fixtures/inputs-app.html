@@ -18,6 +18,9 @@
       #items input.rename { width: 100%; height: 100%; box-sizing: border-box; margin: 0; }
       #menu { position: fixed; width: 120px; height: 60px; background: #fff; border: 1px solid #888; z-index: 5; }
       #palette { position: absolute; left: 280px; top: 90px; width: 200px; height: 60px; background: #eef; }
+      #plain { position: absolute; left: 280px; top: 170px; width: 120px; height: 32px; background: #eee; }
+      #shadowed { display: block; position: absolute; left: 420px; top: 44px; width: 200px; height: 28px; }
+      #stubborn { position: absolute; left: 640px; top: 44px; width: 200px; height: 28px; box-sizing: border-box; }
       #log { position: absolute; left: 20px; top: 280px; width: 440px; height: 300px; margin: 0; overflow: auto; font: 12px monospace; }
     </style>
   </head>
@@ -28,7 +31,13 @@
          `type button B detail D`, each followed by the modifiers held, named
          (`meta shift alt ctrl`), in that order. The log covers keydown and
          keyup on the document and mousedown, mouseup, click, dblclick and
-         contextmenu on #items. -->
+         contextmenu on #items and #plain. #plain has no menu of its own: its
+         `contextmenu` is logged, then, once the event is done,
+         `contextmenu settled defaultPrevented <bool>`, which says whether
+         anything (the walk's guard) kept Chrome's own menu shut.
+         #shadowed is a custom element whose real field, pre-filled, sits in
+         its shadow root. #stubborn, pre-filled, ignores select(): text
+         typed into it goes in beside what it holds. -->
     <span id="hint"></span>
     <span id="platform"></span>
     <input id="field" value="Northwind" autocomplete="off" />
@@ -40,6 +49,9 @@
       <div id="row4">Row 4</div>
       <div id="row5">Row 5</div>
     </div>
+    <div id="plain">Plain</div>
+    <shadow-field id="shadowed"></shadow-field>
+    <input id="stubborn" value="Northwind" autocomplete="off" />
     <div id="menu" hidden>Rename<br />Delete</div>
     <div id="palette" hidden>Command palette</div>
     <pre id="log"></pre>
@@ -59,10 +71,27 @@
       };
       for (const type of ["keydown", "keyup"])
         document.addEventListener(type, (e) => log(`${type} ${e.key}${held(e)}`));
-      for (const type of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"])
-        $("items").addEventListener(type, (e) =>
-          log(`${type} button ${e.button} detail ${e.detail}${held(e)}`),
-        );
+      for (const id of ["items", "plain"])
+        for (const type of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"])
+          $(id).addEventListener(type, (e) =>
+            log(`${type} button ${e.button} detail ${e.detail}${held(e)}`),
+          );
+      $("plain").addEventListener("contextmenu", (e) =>
+        setTimeout(() => log(`contextmenu settled defaultPrevented ${e.defaultPrevented}`)),
+      );
+      $("stubborn").select = () => undefined;
+      customElements.define(
+        "shadow-field",
+        class extends HTMLElement {
+          connectedCallback() {
+            const input = document.createElement("input");
+            input.setAttribute("value", "Northwind");
+            input.autocomplete = "off";
+            input.style.cssText = "width:100%;height:100%;box-sizing:border-box;margin:0";
+            this.attachShadow({ mode: "open" }).append(input);
+          }
+        },
+      );
 
       document.addEventListener("keydown", (e) => {
         if (e.metaKey && e.key === "k") {

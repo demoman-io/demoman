@@ -308,6 +308,12 @@ async function sampleFrames(
   height: number;
   readings: FrameReading[];
 }> {
+  // An empty list would read no frame, and a check over no frames passes.
+  if (request.atSecs !== undefined && request.atSecs.length === 0) {
+    throw new Error(
+      "atSecs is empty: name at least one instant to read, or leave it out for the spacing's grid",
+    );
+  }
   const { input, track } = await openTrack(base64);
   if (!track) throw new Error("this mp4 has no video track to sample");
   if (!(await track.canDecode())) {
@@ -365,6 +371,9 @@ async function readCrops(
   size: { width: number; height: number },
   withGrey: boolean,
 ): Promise<CropReading[]> {
+  if (atSecs.length === 0) {
+    throw new Error("atSecs is empty: name at least one instant to read");
+  }
   const { track } = await openTrack(base64);
   if (!track) throw new Error("this mp4 has no video track to read");
   if (!(await track.canDecode())) {

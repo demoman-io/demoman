@@ -14,8 +14,9 @@
          `keydown` apart. #typed appears on the first `input` (the control:
          the text landed); #suggestion appears only on a printable
          `keydown`, as an autocomplete that opens on keys does. A modifier
-         key does not count: `type` sends Meta+A to select the field first
-         (walk.ts), which would reveal it with no character typed. -->
+         key does not count, so a ⌘ or Ctrl chord never reveals it with no
+         character typed. `type` sends no select-all key: it selects the
+         field with the field's own select() (walk.ts). -->
     <label>Company <input id="company" autocomplete="off" /></label>
     <p id="input-log">input events: 0</p>
     <p id="key-log">keydown events: 0</p>

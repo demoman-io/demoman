@@ -1045,12 +1045,18 @@ export function resolvePlan(
     .filter((m) => clickActionIds.has(m.actionId))
     .map((m) => toOutputMs(timeline, m.sourceTimeMs))
     .sort((a, b) => a - b);
+  // A step cut or trimmed out of the video draws no mark: its marker would
+  // land on the seam, or its pill run into the video's first frames.
   const keyMarks = planKeyMarks(
     scene?.actions ?? [],
-    bundle.markers.map((m) => ({
-      actionId: m.actionId,
-      outputMs: toOutputMs(timeline, m.sourceTimeMs),
-    })),
+    bundle.markers.flatMap((m) => {
+      const outputMs = toOutputMs(timeline, m.sourceTimeMs);
+      return cutIds.has(m.actionId) ||
+        outputMs < trim.range.startMs ||
+        outputMs > trim.range.endMs
+        ? []
+        : [{ actionId: m.actionId, outputMs }];
+    }),
     clickKinds,
   );
   const touch = scene?.meta.capture.device?.touch === true;

@@ -46,7 +46,7 @@ describe("factsFromRun — the report as the gate counts it", () => {
         at: { index: 8, of: 9, label: "scrollTo Atlas Robotics" },
       },
       steps: Array.from({ length: 9 }, (_, i) => ({ index: i })),
-      provenance: { takeId: "t1" },
+      provenance: { videoId: "t1" },
     };
     // Premise: the records alone would say nine.
     expect(report.steps).toHaveLength(9);

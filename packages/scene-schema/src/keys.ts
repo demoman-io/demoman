@@ -86,6 +86,12 @@ export function parseKeyCombo(
       message: `"${text}" names no key: end it with one, like "${text}+K"`,
     };
   }
+  if (names.includes("")) {
+    return {
+      ok: false,
+      message: `"${text}" has an empty name beside a "+": write each name once, like "Mod+Shift+K", or "Mod++" for the + key`,
+    };
+  }
   const mods = modifierSet(
     names,
     text,

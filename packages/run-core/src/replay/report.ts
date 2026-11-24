@@ -116,6 +116,9 @@ export interface StepReport {
   /** A `type` whose last key the page was not seen to paint: why. The step
    *  ended at the bound, so the camera may leave before the value shows. */
   lastKeyPaint?: { unconfirmed: string };
+  /** A `type` whose field had text it could not select first, so the typed
+   *  text went in beside it: that text (`before`), absent for a credential. */
+  fieldNotCleared?: { before?: string };
   /** A `waitForLoad` that was met: false when no load started since the
    *  previous step began — a note, not a divergence. */
   loadSeen?: boolean;
@@ -549,6 +552,9 @@ function toStepReport(step: AuthoredStep): StepReport {
     ...(step.lastKeyPaint === undefined
       ? {}
       : { lastKeyPaint: step.lastKeyPaint }),
+    ...(step.fieldNotCleared === undefined
+      ? {}
+      : { fieldNotCleared: step.fieldNotCleared }),
     ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }
@@ -1231,7 +1237,9 @@ function prClause(report: RunReport, clean: string): string {
     report.frames.degradations.some((k) => !SCREENS_ONLY.has(k)) ||
     report.frames.storageRefused ||
     (report.look?.brandKitError ?? null) !== null ||
-    (report.look?.wallpaperError ?? null) !== null;
+    (report.look?.wallpaperError ?? null) !== null ||
+    // A field typed into without being cleared may hold more than its text.
+    report.steps.some((s) => s.fieldNotCleared !== undefined);
   return noted ? `${clean}, with notes` : clean;
 }
 
@@ -1508,8 +1516,16 @@ function runOutcomeLine(report: RunReport): string {
     "takeId" in report.run.script
       ? "the original footage showed"
       : "the script asked for";
+  // Said after either verdict: the field may hold the typed text and more.
+  const uncleared = report.steps
+    .filter((s) => s.fieldNotCleared !== undefined)
+    .map(
+      (s) =>
+        `step ${s.index + 1} typed into a field it could not clear first (fieldNotCleared)`,
+    );
+  const cleared = uncleared.length === 0 ? "" : ` ${uncleared.join("; ")}.`;
   if (report.verdict.kind === "matches") {
-    return `Complete: the video matches every step ${asked}.`;
+    return `Complete: the video matches every step ${asked}.${cleared}`;
   }
   const n = report.verdict.diverged.length;
   const unheld = report.verdict.diverged
@@ -1520,7 +1536,7 @@ function runOutcomeLine(report: RunReport): string {
       return `${which} typed ${JSON.stringify(d.wanted)} and the field holds ${JSON.stringify(d.value)} (fieldDoesNotHold)`;
     });
   const fields = unheld.length === 0 ? "" : ` ${unheld.join("; ")}.`;
-  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.${fields}`;
+  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.${fields}${cleared}`;
 }
 
 /** Why a run carrying a stop reason stopped: what the host saw where it said,

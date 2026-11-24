@@ -1,6 +1,6 @@
 // DEM-154/155: the key and click marks are in the picture. The compare
-// script `compare/scripts/inputs.json` (Mod+K, Escape, a double-click, a
-// right-click, a click, a Shift-click) runs through the real executor (held
+// script `compare/scripts/inputs.json` (Mod+K, Escape, a double-click, two
+// right-clicks, two clicks, a Shift-click) runs through the real executor (held
 // clock, the default), is exported, and is read from decoded frames at
 // instants taken from the resolved plan, as the export composes it: the
 // keycap pill at the bottom centre, the ×2 tag and the right-click mouse
@@ -59,8 +59,17 @@ const MOUSE_BLUE: Rgb = [0x1a, 0x73, 0xe8];
 const RIPPLE_EDGE: Rgb = [93, 98, 111];
 /** `#items > div.selected`'s `#cde`. */
 const SELECTED: Rgb = [0xcc, 0xdd, 0xee];
-const COLORS = [PILL_ON_WHITE, TAG_DARK, MOUSE_BLUE, RIPPLE_EDGE, SELECTED];
-const [PILL, TAG, BLUE, RIPPLE, SEL] = [0, 1, 2, 3, 4];
+/** A cap's `#ffffff1f` over the pill on white: 65 + 0.122 · (255 − 65). */
+const CAP_FILL: Rgb = [88, 88, 88];
+const COLORS = [
+  PILL_ON_WHITE,
+  TAG_DARK,
+  MOUSE_BLUE,
+  RIPPLE_EDGE,
+  SELECTED,
+  CAP_FILL,
+];
+const [PILL, TAG, BLUE, RIPPLE, SEL, CAPC] = [0, 1, 2, 3, 4, 5];
 
 /** The mockup's pill (`KEYCAP_PILL`), in its 1280-wide stage's px. */
 const PILL_BOTTOM = 58;
@@ -213,7 +222,8 @@ describe("keys and clicks in a held take", () => {
         resolved.clickTags.map((t) => t.count),
         plan,
       ).toEqual([2]);
-      expect(resolved.rightClicks.length, plan).toBe(1);
+      // Row 4's, which opens the page's menu, then #plain's, which has none.
+      expect(resolved.rightClicks.length, plan).toBe(2);
       const [modK, , shift] = resolved.keycaps as [
         (typeof resolved.keycaps)[number],
         (typeof resolved.keycaps)[number],
@@ -267,13 +277,15 @@ describe("keys and clicks in a held take", () => {
         width: 40 * s,
         height: (PILL_PAD - 4) * s,
       };
-      /** Left of centre, inside the caps' height: the ⌘ cap of a ⌘K pill.
-       *  K's cap is 44 px for any K narrower than 20 px, and K's ink starts
-       *  right of centre; a wider K would only push ⌘ further left. */
+      /** The middle of the ⌘ cap of a ⌘K pill, wholly inside the cap: the
+       *  pill is 2 · 14 + 44 + 6 + 44 = 122 px wide while K is narrower than
+       *  20 px, so ⌘'s cap spans W/2 − 47 to W/2 − 3, and this crop keeps 7
+       *  px clear of each side (a K up to 14 px wider still leaves it in).
+       *  Inside it is cap fill and ⌘'s white stroke, no page. */
       const commandCap: Box = {
-        x: W / 2 - 70 * s,
+        x: W / 2 - 40 * s,
         y: pillTop + (PILL_PAD + 8) * s,
-        width: 67 * s,
+        width: 30 * s,
         height: (CAP - 16) * s,
       };
       /** Lower right of the pointer's tip, clear of the arrow (24 · uiScale
@@ -441,6 +453,7 @@ describe("keys and clicks in a held take", () => {
           blue: g.rect.colorCounts[BLUE],
           ripple: g.rect.colorCounts[RIPPLE],
           selected: g.rect.colorCounts[SEL],
+          capFill: g.rect.colorCounts[CAPC],
         })),
         plan,
       });
@@ -480,10 +493,11 @@ describe("keys and clicks in a held take", () => {
         `pill-dark at ${band.at}; ${said}`,
       ).toBeGreaterThan(0.8);
       const cmd = read("⌘K pill: ⌘ cap");
-      // Measured 0.73 pill-dark (the rest is the cap's fill and ink).
+      // Premise: the crop is inside the cap, so no white page is in it and
+      // near-white can only be the glyph's stroke (the fill reads 88).
       expect(
-        cmd.share(PILL),
-        `the pill covers the ⌘ cap at ${cmd.at}; ${said}`,
+        cmd.share(CAPC),
+        `cap fill under the ⌘ crop at ${cmd.at}; ${said}`,
       ).toBeGreaterThan(0.4);
       expect(
         cmd.nearWhite / cmd.total,

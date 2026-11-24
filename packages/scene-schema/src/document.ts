@@ -260,7 +260,14 @@ const Press = z.object({
   ...dialogs,
   anchorId: z.null(),
   kind: z.literal("press"),
-  key: z.string().refine(isKeyName, "not a key Demoman can press"),
+  /** As `parseKeyCombo` stores it: a name, or one character, a letter
+   *  uppercase ("K", never "k"). */
+  key: z
+    .string()
+    .refine(
+      (k) => isKeyName(k) && !/^[a-z]$/.test(k),
+      "not a key Demoman can press as a take stores it (a letter is stored uppercase)",
+    ),
   /**
    * The modifiers held with the key (v17), in `MODIFIERS` order; `[]` when
    * there are none. Written on every press from v17 on, and its presence is
