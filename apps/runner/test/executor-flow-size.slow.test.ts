@@ -42,6 +42,12 @@ const script = (more: Record<string, unknown> = {}) => ({
   ...more,
 });
 
+/** A flow name no earlier run in this file has taken. The home is shared
+ *  by every case and every retry of one: under a fixed name the retry was
+ *  refused `nameTaken` by its own first attempt's flow (DEM-274). */
+let made = 0;
+const newFlow = (name: string) => `${name} (${++made})`;
+
 const runOn = async (
   executor: LocalExecutor,
   args: Record<string, unknown>,
@@ -84,7 +90,7 @@ describe("a flow's later runs read its size", () => {
     const large = onDisplay("1600x1000@2");
     const first = await runOn(small, {
       callId: "flow-size-1",
-      video: { new: "Sized flow" },
+      video: { new: newFlow("Sized flow") },
       script: script(),
     });
     expect(first.size, JSON.stringify(first.size)).toMatchObject({
@@ -97,7 +103,7 @@ describe("a flow's later runs read its size", () => {
     // so 1280 below can only have come from the flow.
     const elsewhere = await runOn(large, {
       callId: "flow-size-premise",
-      video: { new: "Sized elsewhere" },
+      video: { new: newFlow("Sized elsewhere") },
       script: script(),
     });
     expect(await capturedWidth(elsewhere)).toBe(1600);
@@ -139,7 +145,7 @@ describe("a flow's later runs read its size", () => {
     const large = onDisplay("1600x1000@2");
     const first = await runOn(small, {
       callId: "flow-unread-1",
-      video: { new: "Unread flow" },
+      video: { new: newFlow("Unread flow") },
       script: script(),
     });
     const flowId = first.videoVersion?.id;
@@ -208,25 +214,24 @@ describe("a flow's later runs read its scale", () => {
     const at1 = onDisplay("1280x800@1");
     const first = await runOn(at1, {
       callId: "flow-scale-1",
-      video: { new: "Flow at 1x" },
+      video: { new: newFlow("Flow at 1x") },
       script: script(),
     });
     // DEMOMAN_DISPLAY's scale wins, and is what the take records.
     expect(await recordedScale(first)).toBe(1);
-
     const lines: string[] = [];
     const unset = unsetOn(home, lines);
     // Premise: a new flow on this executor records at the constant.
     const fresh = await runOn(unset, {
       callId: "flow-scale-premise",
-      video: { new: "Flow at the constant" },
+      video: { new: newFlow("Flow at the constant") },
       script: script(),
     });
     expect(await recordedScale(fresh)).toBe(2);
 
     const phone = await runOn(unset, {
       callId: "flow-scale-phone",
-      video: { new: "Phone flow" },
+      video: { new: newFlow("Phone flow") },
       script: script({ device: "phone" }),
     });
     expect(await recordedScale(phone)).toBe(3);

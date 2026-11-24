@@ -16,7 +16,7 @@ import {
   type Recorded,
   record,
 } from "./held-record.js";
-import { relagCdp } from "./lag.js";
+import { heldByLagMs, relagCdp } from "./lag.js";
 
 /**
  * The network half of held capture (spec tests 3, 4 and 6): while the page
@@ -181,12 +181,28 @@ beforeAll(async () => {
     if (path === "/answer") {
       // One byte a chunk, the first at once, the last 1800 ms later.
       res.writeHead(200, { "content-type": "text/plain" });
-      const stream = { askedAt: Date.now(), sentAt: [] as number[] };
+      // Paced on one monotonic clock against absolute deadlines: chunk i
+      // goes no earlier than i gaps after the first, by performance.now(),
+      // and a timer that fires early is set again for what is left. Timed
+      // with Date.now() and chained timers, the ten came 1799 ms apart on
+      // CI's ubuntu (PR #128, DEM-235): a wall clock can step and a chained
+      // timer can come early, and the premise below then failed on the
+      // fixture, not on the walk.
+      const stream = { askedAt: performance.now(), sentAt: [] as number[] };
       streams.push(stream);
       let sent = 0;
+      let firstAt = 0;
       const send = () => {
+        const due = firstAt + sent * CHUNK_GAP_MS;
+        const early = sent === 0 ? 0 : due - performance.now();
+        if (early > 0) {
+          setTimeout(send, Math.ceil(early));
+          return;
+        }
         res.write("x");
-        stream.sentAt.push(Date.now());
+        const now = performance.now();
+        if (sent === 0) firstAt = now;
+        stream.sentAt.push(now);
         if (++sent === CHUNKS) res.end();
         else setTimeout(send, CHUNK_GAP_MS);
       };
@@ -354,17 +370,25 @@ const STREAMS_MS = 300_000;
 describe("a held recording that waits on its server", () => {
   let normal: Recorded;
   let slowed: Recorded;
+  /** The lag's holds during each recording, summed over its commands
+   *  (parallel ones each count): 0 for the normal one. */
+  let normalHeldMs = 0;
+  let slowHeldMs = 0;
   /** The server's side of each one's answer (`streams`). */
   const served = new Map<Recorded, (typeof streams)[number] | undefined>();
 
   beforeAll(async () => {
     const from = streams.length;
+    const normalBefore = heldByLagMs();
     normal = await record(home, `${url}/`, ASK, {}, undefined, FAR_PIN);
+    normalHeldMs = heldByLagMs() - normalBefore;
     served.set(
       normal,
       streams.length === from + 1 ? streams.at(-1) : undefined,
     );
+    const heldBefore = heldByLagMs();
     slowed = await record(home, `${url}/`, ASK, {}, 40, FAR_PIN);
+    slowHeldMs = heldByLagMs() - heldBefore;
     served.set(
       slowed,
       streams.length === from + 2 ? streams.at(-1) : undefined,
@@ -399,7 +423,16 @@ describe("a held recording that waits on its server", () => {
       }),
     );
     const said = JSON.stringify(both);
-    expect(slowed.realMs, said).toBeGreaterThan(normal.realMs + 10_000);
+    // Premises: the lag held the slowed recording's commands and none of the
+    // normal one's. Asked of the lag, not of the two recordings' lengths: on
+    // a starved macOS runner the normal one took 41.3 s by itself and the
+    // slowed one 40.5 (DEM-235, PR #123), though the lag held every command
+    // as asked. The sum counts each held command's 40 ms, parallel ones
+    // too, so 10 s is about 250 commands held, not 10 s of the recording's
+    // length; what the lag does to frame times is asserted below.
+    const heldSaid = `normalHeldMs ${normalHeldMs} slowHeldMs ${slowHeldMs} ${said}`;
+    expect(normalHeldMs, heldSaid).toBe(0);
+    expect(slowHeldMs, heldSaid).toBeGreaterThan(10_000);
     for (const s of both) {
       // Premise: the server sent one answer, all ten chunks, at least 200 ms
       // apart (each is set off by the one before).
