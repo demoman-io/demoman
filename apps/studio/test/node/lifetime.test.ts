@@ -855,6 +855,11 @@ describe("start-up checks", () => {
       const page = await call(s.state, "/", { api: false });
       expect(page.status).toBe(200);
     }
-    expect(s.logs.filter((l) => /theme|settings\.json/.test(l))).toEqual([]);
+    const said = s.logs.filter((l) => /theme|settings\.json/.test(l));
+    // DEM-179: the start-up cleanup says, once, that it removed nothing over
+    // the broken file; no page load says anything.
+    const expiry = (l: string) => l.startsWith("studio: expiring old videos:");
+    expect(said.filter((l) => !expiry(l))).toEqual([]);
+    expect(said.filter(expiry).length).toBeLessThanOrEqual(1);
   });
 });
