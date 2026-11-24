@@ -18,6 +18,10 @@ export type GithubFacts = {
   }>;
   hasReleases: boolean;
   workflowOnDefault: boolean;
+  /** The workflow on the default branch, as GitHub holds it: what an update
+   *  reads its trigger and route from (DEM-241). Absent when GitHub's answer
+   *  carried no content. */
+  workflowText?: string;
   /** Environments older deployments name that were not looked for, over the
    *  by-name limit (DEM-89): said beside the trigger, with how to check one. */
   unchecked?: string[];
@@ -333,6 +337,12 @@ export async function readGithub(
     setupBranch = { pr: pr ? { number: pr.number, url: pr.url } : null };
   }
 
+  const content = wf.ok ? (wf.json as { content?: unknown })?.content : null;
+  const workflowText =
+    typeof content === "string"
+      ? Buffer.from(content, "base64").toString("utf8")
+      : undefined;
+
   return {
     slug,
     defaultBranch,
@@ -343,6 +353,7 @@ export async function readGithub(
     ...(olderUnread === undefined ? {} : { olderUnread }),
     hasReleases,
     workflowOnDefault: wf.ok,
+    ...(workflowText === undefined ? {} : { workflowText }),
     setupBranch,
     remote,
   };

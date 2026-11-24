@@ -37,6 +37,16 @@ the "Set up Demoman" pull request from `demoman/setup` and watches its first
 run. A trigger or route not given is asked. The walkthrough is
 [Keep videos current](/get-started/ci).
 
+Run again where the workflow is already on the default branch, setup updates
+it to this release's in one pull request, "Update Demoman's workflow". The
+plan keeps the trigger, route and artifact the workflow has: `--trigger` and
+`--route` replace theirs, and `--artifact` turns the artifact on (an update
+never turns it off). The whole file is replaced, so anything added to it by
+hand is dropped; the plan says so. A workflow that is already this release's
+stops with `alreadySetUp`. One setup cannot read is asked about in a
+terminal, and needs `--trigger` without one. The Studio does not update a
+workflow: run setup in a terminal, or ask your agent.
+
 Nothing is written to your checkout, branch or default branch before the
 confirmation, except a drafted `.demoman/app.json` when the app step fails, so
 you can fix it and run setup again.

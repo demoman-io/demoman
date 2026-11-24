@@ -27,7 +27,7 @@ import {
   triggerNote,
   triggerOffers,
 } from "../src/ci-setup.js";
-import { DEPLOYMENT_MAIN } from "../src/ci-workflow.js";
+import { ciWorkflow, DEPLOYMENT_MAIN } from "../src/ci-workflow.js";
 
 const ORIGIN = "http://127.0.0.1:3999";
 const VALUE = "hunter2-very-secret-value";
@@ -492,11 +492,134 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(f.calls).toEqual(["readGithub"]);
   });
 
-  it("already set up on the default branch", async () => {
-    const f = fakes({ github: facts({ workflowOnDefault: true }) });
+  // DEM-241: the workflow on the default branch, as an older release wrote
+  // it, with a trigger, route and artifact none of which is the default.
+  const onDefault = (version: string, o: { app?: boolean } = {}) =>
+    ciWorkflow({
+      version,
+      trigger: "push",
+      route: "main",
+      branch: "trunk",
+      artifact: true,
+      app: o.app === false ? null : app(),
+      secrets: { accounts: [], app: [] },
+    });
+  const setUp = (text: string | undefined) =>
+    facts({
+      workflowOnDefault: true,
+      ...(text === undefined ? {} : { workflowText: text }),
+    });
+
+  // Red if a workflow already on the default branch stops setup again, or
+  // the update drops the trigger, route or artifact it found.
+  it("updates a workflow already on the default branch, as it runs there", async () => {
+    const f = fakes({ github: setUp(onDefault("0.9.8")) });
+    const p = await okPlan(await repo(), f);
+    expect(p).toMatchObject({
+      trigger: "push",
+      route: "main",
+      artifact: true,
+      update: { from: "0.9.8", to: "0.9.0" },
+      title: "Update Demoman's workflow",
+    });
+    expect(p.files).toContain(".github/workflows/demoman.yml");
+    const workflow = String(
+      f.seen.verify?.[0].files.find(
+        (x) => x.path === ".github/workflows/demoman.yml",
+      )?.text,
+    );
+    expect(workflow).toBe(onDefault("0.9.0"));
+    expect(planLines(p)[0]).toBe(
+      "Updates .github/workflows/demoman.yml, already on trunk (written by 0.9.8), to 0.9.0's.",
+    );
+    expect(prBody(p)).toMatch(
+      /^Merging this updates Demoman's workflow from 0\.9\.8 to 0\.9\.0: it records/,
+    );
+    await applyCiSetup(p, f.deps, new Map());
+    expect(f.seen.pr?.title).toBe("Update Demoman's workflow");
+  });
+
+  // Red if the found environment is not looked up by name, as a given one is.
+  it("looks up a found deployment environment by name", async () => {
+    const text = ciWorkflow({
+      version: "0.9.8",
+      trigger: { deployment: "production" },
+      route: "pr",
+      branch: "trunk",
+      app: app(),
+      secrets: { accounts: [], app: [] },
+    });
+    const f = fakes({ github: setUp(text) });
+    const r = await plan(await repo(), f);
+    expect(f.calls.filter((c) => c === "readGithub")).toHaveLength(2);
+    expect(f.seen.github).toEqual({ older: true, environment: "production" });
+    // The fake knows no deployment, so it stops there, naming it.
+    expect(isStop(r) && r.reason).toBe("noDeployment");
+    expect(isStop(r) && r.detail).toContain("production");
+  });
+
+  // Review finding 1: red if a release trigger given over a main-route
+  // workflow is refused for the --route main nobody passed.
+  it("a trigger given that cannot take the found route goes by pr", async () => {
+    const f = fakes({
+      github: { ...setUp(onDefault("0.9.8")), hasReleases: true },
+    });
+    const p = await okPlan(await repo(), f, { trigger: "release" });
+    expect(p).toMatchObject({ trigger: "release", route: "pr" });
+  });
+
+  // Review finding 5: red if a rewrite by the same release reads as a move
+  // from that release to itself.
+  it("a workflow this release wrote but that differs is rewritten, said as such", async () => {
+    const f = fakes({ github: setUp(onDefault("0.9.0", { app: false })) });
+    const p = await okPlan(await repo(), f);
+    expect(planLines(p).slice(0, 2)).toEqual([
+      "Rewrites .github/workflows/demoman.yml, already on trunk and written by 0.9.0, for this setup's app, secrets and choices.",
+      "The whole file is replaced: anything added to it by hand is dropped.",
+    ]);
+    expect(prBody(p)).toMatch(
+      /^Merging this rewrites Demoman's workflow for this setup \(it stays 0\.9\.0's\)/,
+    );
+  });
+
+  it("a trigger or route the door gives wins over the one found", async () => {
+    const f = fakes({ github: setUp(onDefault("0.9.8")) });
+    const p = await okPlan(await repo(), f, { trigger: "daily", route: "pr" });
+    expect(p).toMatchObject({ trigger: "daily", route: "pr", artifact: true });
+  });
+
+  // Red if an update that changes nothing asks for secrets or runs the check.
+  it("stops before any secret or check when the workflow is already this release's", async () => {
+    const f = fakes({ github: setUp(onDefault("0.9.0")) });
     const r = await plan(await repo(), f);
     expect(isStop(r) && r.reason).toBe("alreadySetUp");
-    expect(f.calls).toEqual(["readGithub"]);
+    expect(isStop(r) && r.detail).toContain("nothing to update");
+    expect(f.calls).not.toContain("existingSecrets");
+    expect(f.calls).not.toContain("verifySetup");
+  });
+
+  it("a workflow it cannot read stops unless a trigger is given, and says why", async () => {
+    const mine = "name: Mine\non:\n  push:\n";
+    const r = await plan(await repo(), fakes({ github: setUp(mine) }));
+    expect(isStop(r) && r.reason).toBe("alreadySetUp");
+    expect(isStop(r) && r.detail).toContain(
+      "setup cannot tell how it runs (it has no refresh step that delivers by pr or main)",
+    );
+    const none = await plan(await repo(), fakes({ github: setUp(undefined) }));
+    expect(isStop(none) && none.detail).toContain(
+      "GitHub sent no content for it",
+    );
+    const p = await okPlan(await repo(), fakes({ github: setUp(mine) }), {
+      trigger: "daily",
+    });
+    expect(p).toMatchObject({
+      trigger: "daily",
+      route: "pr",
+      update: { from: null, to: "0.9.0" },
+    });
+    expect(planLines(p)[0]).toBe(
+      "Updates .github/workflows/demoman.yml, already on trunk, to 0.9.0's.",
+    );
   });
 
   it("an open setup pull request, named", async () => {
@@ -622,6 +745,22 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_SELLER");
     expect(f.calls).not.toContain("existingSecrets");
     expect(f.calls).not.toContain("verifySetup");
+  });
+
+  // DEM-241: red if a value GitHub already holds is asked for without why.
+  it("a missing secret GitHub already has says the check needs its value", async () => {
+    const f = fakes({
+      needed: [account("DEMOMAN_SECRET_BUYER")],
+      existing: ["DEMOMAN_SECRET_BUYER"],
+    });
+    const r = await plan(await repo(), f);
+    expect(isStop(r) && r.reason).toBe("secretMissing");
+    expect(isStop(r) && r.detail).toContain(
+      "GitHub has DEMOMAN_SECRET_BUYER already and keeps it, but the check here records the flows with each value",
+    );
+    const g = fakes({ needed: [account("DEMOMAN_SECRET_BUYER")] });
+    const r2 = await plan(await repo(), g);
+    expect(isStop(r2) && r2.detail).not.toContain("GitHub has");
   });
 
   it("a missing secret: named, never a value, and the check never ran", async () => {

@@ -1086,7 +1086,7 @@ describe("the files route", () => {
     expect(by(otherFile)).toMatchObject({
       outcome: "failed",
       detail: expect.stringMatching(
-        /^deliver files needs --out-dir .*delete \.github\/workflows\/demoman\.yml .*setup --ci` again, which turns the artifact on/,
+        /^deliver files needs --out-dir .*run `npx demoman setup --ci` again, which updates the workflow and turns the artifact on/,
       ),
     });
     expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");

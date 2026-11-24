@@ -65,7 +65,7 @@ than this page can: read it first.
 | Reason | What to do |
 | --- | --- |
 | `ghMissing`, `ghSignedOut`, `notGitHub`, `githubUnreadable` | Install `gh` and run `gh auth login`; the repo must be on github.com |
-| `alreadySetUp` | The workflow is already on the default branch |
+| `alreadySetUp` | The workflow on the default branch is already this release's, or setup cannot tell its trigger and none was given |
 | `setupPrOpen`, `setupBranchExists` | A setup pull request is open, or `demoman/setup` exists without one. Merge or close it |
 | `noRepoFlows`, `flowUnreadable` | No flow in the repo to refresh, or a DemoScript will not read |
 | `noRelease`, `noDeployment` | The trigger you chose has nothing on record. Pick another |

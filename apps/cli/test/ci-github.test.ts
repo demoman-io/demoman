@@ -555,6 +555,8 @@ describe("readGithub", () => {
         [`api repos/${S}/releases?per_page=1`]: ok([{ id: 1 }]),
         [`api repos/${S}/contents/.github/workflows/demoman.yml?ref=main`]: ok({
           name: "demoman.yml",
+          // GitHub wraps its base64 every 60 characters.
+          content: `${Buffer.from("name: Demoman\non:\n  release:\n").toString("base64").slice(0, 20)}\n${Buffer.from("name: Demoman\non:\n  release:\n").toString("base64").slice(20)}`,
         }),
         "pr list --repo o/r --head demoman/setup --state open --json number,url":
           ok([{ number: 7, url: "https://github.com/o/r/pull/7" }]),
@@ -564,6 +566,8 @@ describe("readGithub", () => {
     expect(r).toMatchObject({
       hasReleases: true,
       workflowOnDefault: true,
+      // Red if the content is not decoded: an update reads its trigger here.
+      workflowText: "name: Demoman\non:\n  release:\n",
       setupBranch: { pr: { number: 7, url: "https://github.com/o/r/pull/7" } },
     });
   });
