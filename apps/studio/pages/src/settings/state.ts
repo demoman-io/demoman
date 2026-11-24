@@ -41,6 +41,9 @@ export interface SettingsModel {
   /** The studio's Export quality, or null when it could not be read: the
    *  section then says why and checks nothing. Not set reads "high". */
   exportQuality: ExportQualityChoice | null;
+  /** The Export folder: the chosen one (null: none) and where exports land
+   *  without one; null when it could not be read, and the section says why. */
+  exportFolder: { folder: string | null; defaultFolder: string } | null;
   /** Why the kits' change feed will not fire (`platform.kits.unwatched`),
    *  or null while it does: said in the Brand kit section. */
   kitsUnwatched: string | null;

@@ -28,6 +28,8 @@ export interface SettingsActions {
   /** The user's Pull requests default. */
   setPullRequests(value: PullRequestsChoice): void;
   setExportQuality(value: ExportQualityChoice): void;
+  /** A full path, `~/…`, or null for the default (DEM-180). */
+  setExportFolder(folder: string | null): void;
   /** Commits one Brand kit control. */
   setBrandKit(patch: BrandingPatch): void;
   /** A Brand kit control mid-gesture: repaint the preview, nothing else. */
@@ -197,7 +199,17 @@ export function renderSettings(
       group.append(button);
     }
     row.append(group);
-    ex.body.append(row);
+    // Labelled as the folder under it is, and as the Brand kit's controls
+    // are (the author, 2026-11-24).
+    ex.body.append(
+      el(
+        "span",
+        { class: "export-label", "data-quality-label": "" },
+        "Quality",
+      ),
+      row,
+      exportFolderRow(model, actions),
+    );
     content.append(ex.box);
   }
 
@@ -246,6 +258,51 @@ export function renderSettings(
   const layout = el("div", { class: "settings" });
   layout.append(side, content);
   root.replaceChildren(layout);
+}
+
+/** Where exports land (DEM-180): the folder, typed, saved on `change` as
+ *  the library's budget is. Unreadable: the field is empty and disabled, and
+ *  the section's notice says why. Emptied, or set to the default, it saves
+ *  null. */
+function exportFolderRow(
+  model: SettingsModel,
+  actions: SettingsActions,
+): HTMLElement {
+  const box = el("div", { class: "export-folder" });
+  const label = el(
+    "label",
+    { class: "export-label", for: "export-folder" },
+    "Export folder",
+  );
+  const input = el("input", {
+    type: "text",
+    id: "export-folder",
+    "data-export-folder": "",
+    spellcheck: "false",
+    autocomplete: "off",
+  });
+  // Unreadable: empty but still editable, so the setting can be fixed here,
+  // as the quality's choices stay clickable.
+  const now = model.exportFolder;
+  if (now !== null) {
+    input.value = now.folder ?? now.defaultFolder;
+    input.placeholder = now.defaultFolder;
+  }
+  input.addEventListener("change", () => {
+    const typed = input.value.trim();
+    const next = typed === "" || typed === now?.defaultFolder ? null : typed;
+    if (now === null || next !== now.folder) actions.setExportFolder(next);
+  });
+  box.append(
+    label,
+    input,
+    el(
+      "p",
+      { class: "hint" },
+      "Saves automatically. An agent's Demoman server started with --out-dir saves its exports there instead.",
+    ),
+  );
+  return box;
 }
 
 /**

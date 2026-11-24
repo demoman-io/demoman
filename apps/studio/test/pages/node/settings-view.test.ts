@@ -22,6 +22,7 @@ const model: SettingsModel = {
   brandKitWallpaper: { custom: null, loadError: null },
   pullRequests: "off",
   exportQuality: "share",
+  exportFolder: { folder: null, defaultFolder: "/Users/me/Downloads" },
   kitsUnwatched: null,
 };
 
@@ -29,6 +30,7 @@ const actions = (): SettingsActions &
   Record<string, ReturnType<typeof vi.fn>> => ({
   setPullRequests: vi.fn(),
   setExportQuality: vi.fn(),
+  setExportFolder: vi.fn(),
   setBrandKit: vi.fn(),
   previewBrandKit: vi.fn(),
   uploadKitLogo: vi.fn(),
@@ -49,6 +51,66 @@ const q = <T extends Element>(root: ParentNode, sel: string): T => {
 };
 
 describe("renderSettings", () => {
+  // DEM-180. Red if the row shows nothing where none is chosen, a change
+  // does not reach setExportFolder, the default or an empty field is saved
+  // as a folder, or an unreadable setting can be typed over.
+  it("draws the Export folder and saves what is typed", () => {
+    const root = document.createElement("div");
+    const a = actions();
+    renderSettings(root, model, a, new Map());
+    const section = q<HTMLElement>(root, '[data-section="export"]');
+    const input = q<HTMLInputElement>(section, "[data-export-folder]");
+    expect(input.value).toBe("/Users/me/Downloads");
+    expect(q(section, `label[for="${input.id}"]`).textContent).toBe(
+      "Export folder",
+    );
+    expect(q(section, ".export-folder .hint").textContent).toContain(
+      "--out-dir",
+    );
+    const type = (v: string) => {
+      input.value = v;
+      input.dispatchEvent(new Event("change"));
+    };
+    type("~/Movies/demos");
+    expect(a.setExportFolder).toHaveBeenLastCalledWith("~/Movies/demos");
+    // The default, or nothing, is no folder of its own: unchanged here.
+    type("/Users/me/Downloads");
+    type("  ");
+    expect(a.setExportFolder).toHaveBeenCalledTimes(1);
+
+    const chosen = document.createElement("div");
+    const b = actions();
+    renderSettings(
+      chosen,
+      {
+        ...model,
+        exportFolder: {
+          folder: "/films",
+          defaultFolder: "/Users/me/Downloads",
+        },
+      },
+      b,
+      new Map(),
+    );
+    const field = q<HTMLInputElement>(chosen, "[data-export-folder]");
+    expect(field.value).toBe("/films");
+    field.value = "";
+    field.dispatchEvent(new Event("change"));
+    expect(b.setExportFolder).toHaveBeenCalledWith(null);
+
+    // Review of DEM-180: an unusable setting leaves the field empty and
+    // editable, so the fix an export names can be made here.
+    const unreadable = document.createElement("div");
+    const c = actions();
+    renderSettings(unreadable, { ...model, exportFolder: null }, c, new Map());
+    const off = q<HTMLInputElement>(unreadable, "[data-export-folder]");
+    expect(off.disabled).toBe(false);
+    expect(off.value).toBe("");
+    off.value = "/films";
+    off.dispatchEvent(new Event("change"));
+    expect(c.setExportFolder).toHaveBeenCalledWith("/films");
+  });
+
   // Red if the checked state is not the model's, a click does not reach
   // `setPullRequests`, or null is painted as a choice.
   it("draws Pull requests with the model's choice", () => {
@@ -129,8 +191,10 @@ describe("renderSettings", () => {
       "false",
       "false",
     ]);
-    // No helper text: the section holds the heading and the group only.
-    expect(section.querySelector(".hint")).toBeNull();
+    // No helper text on the quality: its row holds the group only.
+    expect(q(section, ".export-quality").querySelector(".hint")).toBeNull();
+    // Labelled, as the Export folder under it is (the author, 2026-11-24).
+    expect(q(section, "[data-quality-label]").textContent).toBe("Quality");
     q<HTMLButtonElement>(group, '[data-export-quality="full"]').click();
     expect(a.setExportQuality).toHaveBeenCalledWith("full");
     q<HTMLButtonElement>(group, '[data-export-quality="share"]').click();

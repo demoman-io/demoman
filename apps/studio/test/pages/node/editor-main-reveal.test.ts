@@ -150,6 +150,13 @@ vi.mock("#platform", async (importOriginal) => {
       read: async () => ({ quality: "share" }),
       write: async () => ({}),
     },
+    exportFolder: {
+      read: async () => ({
+        folder: null,
+        defaultFolder: "/Users/me/Downloads",
+      }),
+      write: async () => ({ saved: null }),
+    },
     libraryView: {
       read: async () => ({ view: DEFAULT_LIBRARY_VIEW }),
       write: async () => ({}),

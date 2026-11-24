@@ -336,8 +336,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    A GIF is as wide as fits 10 MB (`warnings.gifSize`: how wide, which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
    default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Only when asked.
-2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
-   server's `--out-dir`. For `stills`, `fileType`
+2. `saved` - the file is at `file.path`, absolute: in `status.exportsTo`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
    with no still. `summary` is one
@@ -393,7 +392,7 @@ When the `studio` tool is listed and there is no `links.studio`, **offer**
 it; never open it unasked. `studio({ videoId })`
 opens a window to edit and export it.
 `{ outcome: "opened", videoId?, note? }`: say it is open; quote `note` if set.
-Studio exports go to `~/Downloads`.
+Studio exports go to the Export folder (Settings).
 
 ## 6. The format
 

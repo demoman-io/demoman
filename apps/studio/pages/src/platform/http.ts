@@ -17,6 +17,7 @@ import {
   type CiStarted,
   type CiState,
   type DeleteAnswer,
+  type ExportFolderAnswer,
   type ExportQualityAnswer,
   type ExportStartAnswer,
   type ExportStartBody,
@@ -1013,6 +1014,29 @@ export function createPlatform(
           await request("exportQualityPut", { json: { exportQuality } }),
         );
         return got.replaced === undefined ? {} : { replaced: got.replaced };
+      },
+    },
+    exportFolder: {
+      async read() {
+        const got = await answer<ExportFolderAnswer>(
+          await request("exportFolderGet"),
+        );
+        return {
+          folder: got.exportFolder,
+          defaultFolder: got.defaultFolder,
+          ...(got.unreadable === undefined
+            ? {}
+            : { unreadable: got.unreadable }),
+        };
+      },
+      async write(exportFolder) {
+        const got = await answer<ExportFolderAnswer>(
+          await request("exportFolderPut", { json: { exportFolder } }),
+        );
+        return {
+          saved: got.exportFolder,
+          ...(got.replaced === undefined ? {} : { replaced: got.replaced }),
+        };
       },
     },
     libraryView: {

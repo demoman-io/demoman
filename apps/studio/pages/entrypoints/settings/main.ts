@@ -586,7 +586,7 @@ async function paint({ keepNotice = false } = {}): Promise<void> {
   const writesBefore = kitWriteCount;
   // Every section on its own: one store refusing must cost that section
   // its facts and a sentence saying why, never the whole page.
-  const [kit, pullRequests, exportQuality] = await Promise.all([
+  const [kit, pullRequests, exportQuality, exportFolder] = await Promise.all([
     // Never throws: an unreadable kit comes back `invalid` with the
     // reason, which the section itself says.
     brandKits.read(),
@@ -596,7 +596,20 @@ async function paint({ keepNotice = false } = {}): Promise<void> {
     read("export", "the Export quality setting", () =>
       platform.exportQuality.read(),
     ),
+    read("export", "the Export folder setting", () =>
+      platform.exportFolder.read(),
+    ),
   ]);
+  // A file that will not read says so once, through the quality's note.
+  if (
+    exportFolder?.unreadable !== undefined &&
+    exportFolder.unreadable !== exportQuality?.unreadable
+  ) {
+    note(
+      "export",
+      `Couldn't use the Export folder setting: ${exportFolder.unreadable}`,
+    );
+  }
   if (exportQuality?.unreadable !== undefined) {
     note(
       "export",
@@ -623,6 +636,13 @@ async function paint({ keepNotice = false } = {}): Promise<void> {
     ? kitWallpaperDone.get(wallpaperKey(kitBg, KIT_PREVIEW_BOX))
     : undefined;
   const model: SettingsModel = {
+    exportFolder:
+      exportFolder === null || exportFolder.unreadable !== undefined
+        ? null
+        : {
+            folder: exportFolder.folder,
+            defaultFolder: exportFolder.defaultFolder,
+          },
     exportQuality:
       exportQuality === null || exportQuality.unreadable !== undefined
         ? null
@@ -786,6 +806,17 @@ const actions = {
     act("save the Pull requests setting", async () => {
       const done = await platform.pullRequests.write(value);
       return done.replaced === undefined ? null : { warn: done.replaced };
+    }),
+  setExportFolder: (folder: string | null): void =>
+    act("save the Export folder setting", async () => {
+      const done = await platform.exportFolder.write(folder);
+      if (done.replaced !== undefined) return { warn: done.replaced };
+      return {
+        info:
+          done.saved === null
+            ? "Exports save in the default folder again"
+            : `Exports now save in ${done.saved}`,
+      };
     }),
   setExportQuality: (value: ExportQualityChoice): void =>
     act("save the Export quality setting", async () => {

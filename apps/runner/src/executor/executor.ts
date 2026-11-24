@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { homedir, userInfo } from "node:os";
+import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
   AGENT_ARG,
@@ -84,6 +84,7 @@ import { createSessionLoader } from "./session-loader.js";
 import { createSessionStore, type SessionChoice } from "./sessions.js";
 import { snapshotOp } from "./snapshot.js";
 import type { ExecutorOptions, LocalExecutor } from "./types.js";
+import { exportFolderOf } from "./user-settings.js";
 import { sameName } from "./video-match.js";
 import {
   createVideoStore,
@@ -198,7 +199,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       : { updateCommand: options.updateCommand },
   );
   const videos = createVideoStore(home, library, { log });
-  const outDir = options.outDir ?? join(homedir(), "Downloads");
+  // Absent: each export reads the user's Export folder (DEM-180).
+  const outDir = options.outDir;
   const sessionStore = createSessionStore(home);
   const sessions = createSessionLoader(sessionStore, log);
   const signinCommand = options.signinCommand ?? DEFAULT_SIGNIN_COMMAND;
@@ -514,7 +516,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     door: "agent",
     home,
     wallpapersDir: options.wallpapersDir,
-    outDir,
+    ...(outDir === undefined ? {} : { outDir }),
     log,
     ...(options.onWorkPage === undefined
       ? {}
@@ -1464,7 +1466,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                     libraries.missing.length > 0
                   ),
                 ...(libraries === null ? {} : { browserLibraries: libraries }),
-                exportsTo: outDir,
+                // Where the next export lands, or why it cannot.
+                ...(await exportFolderOf(home, outDir).then((w) =>
+                  "unusable" in w
+                    ? { exportsTo: null, exportsToUnusable: w.unusable }
+                    : { exportsTo: w.folder },
+                )),
                 sessions: await sessionsForStatus(),
                 accounts: await accountsForStatus(),
                 secretsFile: await secretsFileForStatus(),

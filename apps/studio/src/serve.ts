@@ -102,7 +102,8 @@ export function buildHandlers(o: {
   /** What an add renders with: the studio's own headless browser. */
   session: ExportDeps["session"];
   wallpapersDir: string;
-  outDir: string;
+  /** Tests: a folder in place of the user's Export folder (DEM-180). */
+  outDir?: string;
   /** Tests: stand-ins for the runner's add and remove. */
   keep?: typeof keepVideo;
   removeFlow?: typeof removeRepoFlow;
@@ -295,7 +296,7 @@ export function buildHandlers(o: {
                   door: "studio",
                   home: o.home,
                   wallpapersDir: o.wallpapersDir,
-                  outDir: o.outDir,
+                  ...(o.outDir === undefined ? {} : { outDir: o.outDir }),
                   log: o.log,
                 },
               },
@@ -460,7 +461,8 @@ export function buildHandlers(o: {
 
 export interface ServeOptions {
   home: string;
-  outDir: string;
+  /** Tests: a folder in place of the user's Export folder (DEM-180). */
+  outDir?: string;
   pagesDir: string;
   version: string;
   executablePath?: string;
@@ -640,7 +642,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
         session: renderer,
         home,
         wallpapersDir: join(o.pagesDir, "wallpapers"),
-        outDir: o.outDir,
+        ...(o.outDir === undefined ? {} : { outDir: o.outDir }),
         log,
         door: "studio",
       },
@@ -703,7 +705,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     queue,
     session: renderer,
     wallpapersDir: join(o.pagesDir, "wallpapers"),
-    outDir: o.outDir,
+    ...(o.outDir === undefined ? {} : { outDir: o.outDir }),
     upkeepOnStart: true,
     ci,
     tell: tellIfUnseen,

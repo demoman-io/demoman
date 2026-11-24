@@ -31,10 +31,16 @@ describe("matchRoute", () => {
     // library; 26 since 2026-10-28, with wallpaperPut and wallpaper; 28
     // since 2026-10-31, with libraryViewGet and libraryViewPut; 35 since
     // 2026-11-05, with Part C's seven repo routes; 36 since 2026-11-06,
-    // with repoFolders.
-    expect(ids.length).toBe(36);
+    // with repoFolders; 38 since 2026-11-23, with exportFolderGet and
+    // exportFolderPut (DEM-180).
+    expect(ids.length).toBe(38);
     expect(ids).toEqual(
-      expect.arrayContaining(["libraryViewGet", "libraryViewPut"]),
+      expect.arrayContaining([
+        "libraryViewGet",
+        "libraryViewPut",
+        "exportFolderGet",
+        "exportFolderPut",
+      ]),
     );
     // 10 since 2026-10-24: the two video routes carry :id, so 8 became 10.
     // The library view's two carry none. 13 since 2026-11-05: the repo

@@ -56,6 +56,8 @@ export const ROUTES = {
   pullRequestsPut: { method: "PUT", path: "/api/settings/pull-requests" },
   exportQualityGet: { method: "GET", path: "/api/settings/export-quality" },
   exportQualityPut: { method: "PUT", path: "/api/settings/export-quality" },
+  exportFolderGet: { method: "GET", path: "/api/settings/export-folder" },
+  exportFolderPut: { method: "PUT", path: "/api/settings/export-folder" },
   libraryViewGet: { method: "GET", path: "/api/settings/library-view" },
   libraryViewPut: { method: "PUT", path: "/api/settings/library-view" },
   reveal: { method: "POST", path: "/api/reveal" },
@@ -191,6 +193,9 @@ export type StudioReason =
   | "revealRefused"
   | "pullRequestsInvalid"
   | "exportQualityInvalid"
+  /** A folder that is not absolute, not there, not a folder or not
+   *  writable; `detail` names it and why. */
+  | "exportFolderInvalid"
   | "libraryViewInvalid"
   | "invalidFileType"
   | "routeNotFound"
@@ -438,6 +443,20 @@ export interface PullRequestsAnswer {
 export type ExportQualityChoice = ExportQuality;
 export interface ExportQualityAnswer {
   exportQuality: ExportQualityChoice;
+  unreadable?: string;
+  /** On a PUT: the file was not a JSON object and was replaced; says so. */
+  replaced?: string;
+}
+
+/** The user's Export folder (DEM-180): where the Studio's exports, and an
+ *  agent's not started with `--out-dir`, are saved. `exportFolder` is null
+ *  when none is chosen (then `defaultFolder`, ~/Downloads), or when the file
+ *  could not be used, in which case `unreadable` says why. A PUT takes an
+ *  absolute path (a leading `~/` is the home folder), or null for the
+ *  default. */
+export interface ExportFolderAnswer {
+  exportFolder: string | null;
+  defaultFolder: string;
   unreadable?: string;
   /** On a PUT: the file was not a JSON object and was replaced; says so. */
   replaced?: string;

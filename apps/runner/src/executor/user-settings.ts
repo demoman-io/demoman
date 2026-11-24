@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
   EXPORT_QUALITY_VALUES,
@@ -19,21 +20,37 @@ export interface UserSettings {
   exportQuality: ExportQuality;
   /** null: not set, or set to something unusable (then `problems` says why). */
   pullRequests: PullRequestsValue | null;
+  /** The folder exports are saved in (DEM-180); null: not set, or set to
+   *  something unusable (then `problems.exportFolder` says why). Where an
+   *  export lands is `exportFolderOf`'s answer. */
+  exportFolder?: string | null;
   /** Why the file or a value could not be used, one sentence per key that
    *  could not. Absent when all is well. A file that will not read or parse
    *  names both keys. */
-  problems?: { exportQuality?: string; pullRequests?: string };
+  problems?: {
+    exportQuality?: string;
+    pullRequests?: string;
+    exportFolder?: string;
+  };
   /** Every sentence of `problems` in one, for a log. Absent when all is well. */
   unreadable?: string;
+  /** The file itself would not read or parse: every key is its default and
+   *  `problems` names this for each. Absent when the file read. */
+  fileUnreadable?: string;
 }
 
 const settingsWith = (
-  settings: Pick<UserSettings, "exportQuality" | "pullRequests">,
+  settings: Pick<
+    UserSettings,
+    "exportQuality" | "pullRequests" | "exportFolder"
+  >,
   problems: NonNullable<UserSettings["problems"]>,
 ): UserSettings => {
-  const said = [problems.exportQuality, problems.pullRequests].filter(
-    (p): p is string => p !== undefined,
-  );
+  const said = [
+    problems.exportQuality,
+    problems.pullRequests,
+    problems.exportFolder,
+  ].filter((p): p is string => p !== undefined);
   if (said.length === 0) return settings;
   return { ...settings, problems, unreadable: [...new Set(said)].join("; ") };
 };
@@ -50,6 +67,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   const defaults = {
     exportQuality: DEFAULT_EXPORT_QUALITY,
     pullRequests: null,
+    exportFolder: null,
   } as const;
   let text: string;
   try {
@@ -57,27 +75,43 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults;
     const said = `${path} could not be read (${messageOf(error)})`;
-    return settingsWith(defaults, { exportQuality: said, pullRequests: said });
+    return {
+      ...settingsWith(defaults, {
+        exportQuality: said,
+        pullRequests: said,
+        exportFolder: said,
+      }),
+      fileUnreadable: said,
+    };
   }
   // Parsed once; both keys are read from `raw`.
   const raw = settingsObject(path, text);
   if ("unreadable" in raw) {
     // Not a JSON object at all: neither key is readable.
-    return settingsWith(defaults, {
-      exportQuality: raw.unreadable,
-      pullRequests: raw.unreadable,
-    });
+    return {
+      ...settingsWith(defaults, {
+        exportQuality: raw.unreadable,
+        pullRequests: raw.unreadable,
+        exportFolder: raw.unreadable,
+      }),
+      fileUnreadable: raw.unreadable,
+    };
   }
   // The file is a JSON object from here: each key stands on its own.
   const pr = pullRequestsIn(path, raw.object);
   const quality = raw.object.exportQuality;
   const qualityBad = quality !== undefined && !isExportQuality(quality);
+  const folder = raw.object.exportFolder;
+  // null is the Studio's "back to the default".
+  const folderBad =
+    folder !== undefined && folder !== null && !isExportFolder(folder);
   return settingsWith(
     {
       exportQuality: isExportQuality(quality)
         ? quality
         : DEFAULT_EXPORT_QUALITY,
       pullRequests: "unreadable" in pr ? null : pr.value,
+      exportFolder: isExportFolder(folder) ? folder : null,
     },
     {
       ...(qualityBad
@@ -86,8 +120,55 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
           }
         : {}),
       ...("unreadable" in pr ? { pullRequests: pr.unreadable } : {}),
+      ...(folderBad
+        ? {
+            exportFolder: `${path}: exportFolder must be an absolute path; got ${JSON.stringify(folder)}`,
+          }
+        : {}),
     },
   );
+}
+
+/** An Export folder the settings file may hold: an absolute path. */
+export const isExportFolder = (v: unknown): v is string =>
+  typeof v === "string" && v !== "" && isAbsolute(v);
+
+/** Where exports land when nothing chose a folder. */
+export const defaultExportFolder = (): string => join(homedir(), "Downloads");
+
+/**
+ * The one answer to "where does this export land" (DEM-180): the folder the
+ * caller was given (`--out-dir`, a temporary folder), else the user's Export
+ * folder, else ~/Downloads. An exportFolder value that cannot be used is
+ * `unusable`, never ~/Downloads in its place: the person chose a folder. A
+ * settings file that will not read at all may never have held one, so it
+ * goes to ~/Downloads with `unread` saying why, for the export to say.
+ */
+export async function exportFolderOf(
+  home: string,
+  given: string | undefined,
+): Promise<
+  | {
+      folder: string;
+      from: "given" | "setting" | "default";
+      unread?: string;
+    }
+  | { unusable: string }
+> {
+  if (given !== undefined) return { folder: given, from: "given" };
+  const settings = await readUserSettings(home);
+  if (settings.fileUnreadable !== undefined)
+    return {
+      folder: defaultExportFolder(),
+      from: "default",
+      unread: settings.fileUnreadable,
+    };
+  const why = settings.problems?.exportFolder;
+  if (why !== undefined) return { unusable: why };
+  const set = settings.exportFolder ?? null;
+  return set === null
+    ? { folder: defaultExportFolder(), from: "default" }
+    : { folder: set, from: "setting" };
 }
 
 /** A settings file's text as the JSON object it must hold, or `unreadable`

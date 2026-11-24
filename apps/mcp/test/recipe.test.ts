@@ -556,7 +556,9 @@ describe("the CLI's recipe", () => {
   it("says an unknown key in a step or look is refused, and where Studio exports go", () => {
     expect(RECIPE).toContain("An unknown key is refused and named.");
     expect(RECIPE).toContain("An unknown key in `look` is refused and named.");
-    expect(RECIPE).toContain("Studio exports go to `~/Downloads`.");
+    expect(RECIPE).toContain(
+      "Studio exports go to the Export folder (Settings).",
+    );
   });
 
   // DEM-106: the recipe's count is the one the server keeps.

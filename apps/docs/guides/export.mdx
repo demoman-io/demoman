@@ -50,10 +50,13 @@ says what it lowered, or that it still could not fit.
 
 ## Where files land
 
-In `~/Downloads`. Your agent tells you the path when it is done.
+In your Export folder: `~/Downloads` until you choose another under the
+Studio's Settings → Export. The Studio's exports and your agent's both land
+there, and your agent tells you the path when it is done. A folder that is
+gone or cannot be written stops the export before it renders, and says so.
 
-To save somewhere else, connect your agent with the stdio server below,
-which adds `--out-dir`:
+To send one agent's exports somewhere else, whatever the setting says,
+connect it with the stdio server below, which adds `--out-dir`:
 
 ```json
 {"command": "npx", "args": ["--prefix", "~/", "-y", "demoman@latest", "mcp", "--out-dir", "<folder>"]}
