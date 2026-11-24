@@ -354,14 +354,18 @@ const STREAMS_MS = 300_000;
 describe("a held recording that waits on its server", () => {
   let normal: Recorded;
   let slowed: Recorded;
-  /** How long the lag held the slowed recording's commands, in all. */
+  /** The lag's holds during each recording, summed over its commands
+   *  (parallel ones each count): 0 for the normal one. */
+  let normalHeldMs = 0;
   let slowHeldMs = 0;
   /** The server's side of each one's answer (`streams`). */
   const served = new Map<Recorded, (typeof streams)[number] | undefined>();
 
   beforeAll(async () => {
     const from = streams.length;
+    const normalBefore = heldByLagMs();
     normal = await record(home, `${url}/`, ASK, {}, undefined, FAR_PIN);
+    normalHeldMs = heldByLagMs() - normalBefore;
     served.set(
       normal,
       streams.length === from + 1 ? streams.at(-1) : undefined,
@@ -403,14 +407,16 @@ describe("a held recording that waits on its server", () => {
       }),
     );
     const said = JSON.stringify(both);
-    // Premise: the slowed recording was slowed. Asked of what the lag held,
-    // not of the two recordings' lengths: on a starved macOS runner the
-    // normal one took 41.3 s by itself and the slowed one 40.5 (DEM-235,
-    // PR #123), though the lag had held every command as asked. Same-take
-    // asks it the same way.
-    expect(slowHeldMs, `slowHeldMs ${slowHeldMs} ${said}`).toBeGreaterThan(
-      10_000,
-    );
+    // Premises: the lag held the slowed recording's commands and none of the
+    // normal one's. Asked of the lag, not of the two recordings' lengths: on
+    // a starved macOS runner the normal one took 41.3 s by itself and the
+    // slowed one 40.5 (DEM-235, PR #123), though the lag held every command
+    // as asked. The sum counts each held command's 40 ms, parallel ones
+    // too, so 10 s is about 250 commands held, not 10 s of the recording's
+    // length; what the lag does to frame times is asserted below.
+    const heldSaid = `normalHeldMs ${normalHeldMs} slowHeldMs ${slowHeldMs} ${said}`;
+    expect(normalHeldMs, heldSaid).toBe(0);
+    expect(slowHeldMs, heldSaid).toBeGreaterThan(10_000);
     for (const s of both) {
       // Premise: the server sent one answer, all ten chunks, at least 200 ms
       // apart (each is set off by the one before).
