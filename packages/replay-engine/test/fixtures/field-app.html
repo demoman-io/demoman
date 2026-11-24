@@ -17,6 +17,11 @@
   <input id="frozen" type="text">
   <!-- Navigates on its first key: the document the key went into is gone. -->
   <input id="leave" type="text">
+  <!-- Its second frame after a key comes 600 ms late (that frame busy-waits
+       first): the type verb waits two frames after its last key (DEM-173).
+       Measured 2026-11-24 at 300 ms: the act lasted 297 ms longer than the
+       same key on a plain field with the wait, and no longer without it. -->
+  <input id="slowpaint" type="text">
   <script>
     document.getElementById("fmt").addEventListener("input", (e) => {
       const digits = e.target.value.replace(/\D/g, "");
@@ -35,6 +40,14 @@
       setTimeout(() => {
         if (performance.now() >= frozenUntil) window.requestAnimationFrame = raf;
       }, 1500);
+    });
+    document.getElementById("slowpaint").addEventListener("input", () => {
+      raf(() =>
+        raf(() => {
+          const t = performance.now();
+          while (performance.now() - t < 600) {}
+        }),
+      );
     });
     document.getElementById("leave").addEventListener("input", () => {
       location.replace(location.href.split("?")[0] + "?left=1");

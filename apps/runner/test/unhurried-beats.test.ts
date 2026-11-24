@@ -8,6 +8,7 @@ import {
   planScene,
   resolvePlan,
   toOutputMs,
+  toSourceMs,
 } from "@demoman/compositor";
 import type { ExportAnswer } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -71,6 +72,9 @@ let url: string;
 let home: string;
 let executor: LocalExecutor;
 let takeId: string;
+/** The run report's step for the type: `lastKeyPaint` when the walk could
+ *  not confirm it drew the last key. */
+let typeStep: { lastKeyPaint?: { unconfirmed: string } } | undefined;
 
 /** Real time (`DEMOMAN_HELD_CLOCK=0`): its page busy-waits on performance.now(), which never ends on a held clock, and a held plan plays its beats rather than handing them to the renderer. */
 const heldWas = process.env.DEMOMAN_HELD_CLOCK;
@@ -121,6 +125,16 @@ beforeAll(async () => {
     throw new Error(`the take was not made: ${JSON.stringify(run)}`);
   }
   takeId = id;
+  typeStep = run.ok
+    ? (
+        run.value as {
+          steps?: {
+            intent?: { do?: string };
+            lastKeyPaint?: { unconfirmed: string };
+          }[];
+        }
+      ).steps?.find((st) => st.intent?.do === "type")
+    : undefined;
 }, RUN_MS);
 
 afterAll(async () => {
@@ -134,7 +148,7 @@ afterAll(async () => {
 describe("a typed field and a far click, filmed unhurried", () => {
   it(
     "shows the value finished and settled before the camera moves, and the camera still before the click",
-    async () => {
+    async (ctx) => {
       const library = createLibrary(home);
       const scene = (await library.getScene(takeId)) as SceneDocument;
       const bundle = (await library
@@ -185,7 +199,8 @@ describe("a typed field and a far click, filmed unhurried", () => {
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
         throw new Error(JSON.stringify(answer));
       }
-      // A red run keeps the film it read (DEM-253: the last key late).
+      // A red run keeps the film it read (DEM-253: the last key late). A
+      // starved run that skips keeps none: CI uploads only a failed job's.
       const mp4 = answer.file.path;
       keepOnFailure("unhurried-beats", () => [mp4]);
       const bytes = new Uint8Array(await readFile(answer.file.path));
@@ -281,9 +296,35 @@ describe("a typed field and a far click, filmed unhurried", () => {
       // caret's blink is less than that).
       const full = ink.findIndex((e) => e >= peak - glyph / 2);
       const fullValueMs = (sampled[full] as { ms: number }).ms;
-      expect(movingMs, inkSaid()).toBeGreaterThanOrEqual(
-        fullValueMs + SETTLE_MS - frameMs,
+      // DEM-253 (ruled 2026-11-24, as DEM-239): the walk saw the page draw
+      // the last key (no `lastKeyPaint`), the film shows the whole value
+      // more than a frame (and under a second) after the act's recorded end,
+      // and the bundle kept no screencast frame from the act's end until the
+      // one that shows it. That is the real-time screencast starved of frames
+      // and delivering the paint late (470-613 ms on CI, under load), not a
+      // picture drawn late from frames it had: the value's assertion is
+      // skipped there, the camera's below still run, and the case skips at
+      // the end saying so. That the walk waits for the frames at all is
+      // guarded where no screencast is read (replay-field-read, "ends the
+      // type's act after the page drew the frames after the last key");
+      // without that guard this skip would hide a DEM-173 regression.
+      const actEndSrc = typed?.actEndSourceTimeMs as number;
+      const fullSrc = toSourceMs(timeline, fullValueMs);
+      const gapFrames = bundle.motionSpans.filter(
+        (m) => m.endMs > actEndSrc && m.startMs < fullSrc - frameMs,
       );
+      const starved =
+        typeStep !== undefined &&
+        typeStep.lastKeyPaint === undefined &&
+        fullValueMs > typedEnd + frameMs &&
+        fullValueMs - typedEnd < 1000 &&
+        gapFrames.length === 0 &&
+        movingMs < fullValueMs + SETTLE_MS - frameMs;
+      if (!starved)
+        expect(
+          movingMs,
+          `${inkSaid()} frames kept between the act's end and the whole value ${JSON.stringify(gapFrames.map((m) => [m.startMs, m.endMs]))}`,
+        ).toBeGreaterThanOrEqual(fullValueMs + SETTLE_MS - frameMs);
       // At its own speed: the push-in takes its full length (1300 ms at the
       // default smoothness), not a move squeezed into whatever room was
       // left. Without the plan's rest before the click played on film the
@@ -304,6 +345,10 @@ describe("a typed field and a far click, filmed unhurried", () => {
         Math.max(...beforeClick.map((f) => f.change)),
         evidence(),
       ).toBeLessThan(CAMERA_CHANGE);
+      if (starved)
+        ctx.skip(
+          `a starved screencast (DEM-253): the walk saw the last key drawn by ${Math.round(typedEnd)} ms of film, the bundle kept no frame until the one at ${Math.round(fullValueMs)} ms that shows the whole value; the real-time screencast delivered the paint late. ${inkSaid()}`,
+        );
     },
     EXPORT_MS,
   );
