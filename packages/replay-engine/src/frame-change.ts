@@ -262,6 +262,60 @@ export function strongestChange(a: LumaBlocks, b: LumaBlocks): number {
   return most;
 }
 
+/**
+ * Whether `frame` is the window's unscaled surface rather than the page: the
+ * top-left `1 / factor` of what `good` shows, magnified `factor` times, at
+ * `good`'s own size (DEM-280). Chrome's screencast sends one around a full
+ * still: the page is drawn at the still's DPR, and a frame of the window
+ * takes its corner. Where the window's surface is the frame's size (a 1x
+ * display) it cannot be told by size, and filmed it is a hard zoom flash.
+ *
+ * Told by the picture: it must differ from `good` (a frame that barely
+ * does is the page, a key typed) and match the magnified corner far better
+ * than `good` itself (a page that scrolled or changed matches neither).
+ */
+export function surfaceCrop(
+  frame: LumaBlocks,
+  good: LumaBlocks,
+  factor: number,
+): boolean {
+  if (factor <= 1 || frame.width !== good.width) return false;
+  if (frame.height !== good.height) return false;
+  let fromGood = 0;
+  let fromCorner = 0;
+  for (let y = 0; y < frame.height; y++) {
+    for (let x = 0; x < frame.width; x++) {
+      const at = frame.dc[y * frame.width + x] as number;
+      const corner = good.dc[
+        Math.floor(y / factor) * good.width + Math.floor(x / factor)
+      ] as number;
+      fromGood += Math.abs(at - (good.dc[y * good.width + x] as number));
+      fromCorner += Math.abs(at - corner);
+    }
+  }
+  const blocks = frame.dc.length;
+  return (
+    fromGood / blocks >= SURFACE_CROP_MIN_CHANGE &&
+    fromCorner <= SURFACE_CROP_MATCH * fromGood &&
+    fromCorner / blocks <= SURFACE_CROP_MAX_OFF
+  );
+}
+
+/** And is close to the magnified corner in itself, not only closer than to
+ *  the page: a page that changed wholesale into something dark and plain
+ *  (an overlay) can sit nearer a plain corner than the page, never this
+ *  near. Measured: Chrome's crop was 40 per block from it, at quality 80
+ *  with the 8x8 blocks' own rounding. */
+const SURFACE_CROP_MAX_OFF = 64;
+
+/** A surface crop differs from the page by at least this, in luma block
+ *  units per block (about seven to a grey level): a typed key or a caret
+ *  changes far less across the whole frame. */
+const SURFACE_CROP_MIN_CHANGE = 7;
+/** And matches the magnified corner at least this much better than the
+ *  page: its distance from it is under this share of its distance from it. */
+const SURFACE_CROP_MATCH = 0.4;
+
 /** A screencast frame as the walk keeps it: CDP's base64, and when it came. */
 export interface SeenFrame {
   data: string;

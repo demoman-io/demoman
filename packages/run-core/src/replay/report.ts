@@ -365,6 +365,13 @@ export interface RunReport {
      * what the video does instead. Absent when there were none.
      */
     unplacedBeats?: { step: string; note: string }[];
+    /**
+     * Screencast frames of the window's unscaled surface that were refused
+     * rather than filmed (a `surfaceMismatch` in `degradations`, DEM-280):
+     * how many, and when each was painted, in ms from the run's start.
+     * Absent when there were none.
+     */
+    surfaceCrops?: { refused: number; atMs: number[] };
   };
   /**
    * Every JavaScript dialog the run answered, in order (DEM-161). `step` is
@@ -453,6 +460,8 @@ export interface WalkResultLike {
   storageRefused: boolean;
   counters: Pick<ReplayCounters, "encodeShrunkSpans">;
   unconfirmedClicks?: { actionId: string; note: string }[];
+  /** `ReplayResult.surfaceCrops`. */
+  surfaceCrops?: number[];
   /** `ReplayResult.dialogs`: optional there, so read as `?? []`. */
   dialogs?: (Omit<
     NonNullable<RunReport["dialogs"]>[number],
@@ -1075,6 +1084,14 @@ export function buildRunReport(args: BuildArgs): RunReport {
       shrunkSpans: args.walk.counters.encodeShrunkSpans,
       ...unconfirmedClicksOf(args.walk, args.steps),
       ...unplacedBeatsOf(args.film, args.steps),
+      ...((args.walk.surfaceCrops ?? []).length === 0
+        ? {}
+        : {
+            surfaceCrops: {
+              refused: args.walk.surfaceCrops?.length ?? 0,
+              atMs: args.walk.surfaceCrops ?? [],
+            },
+          }),
     },
     ...dialogsOf(args.walk, args.steps, args.scene),
     video: args.film,

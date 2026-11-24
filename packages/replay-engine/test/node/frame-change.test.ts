@@ -8,6 +8,7 @@ import {
   pageMoving,
   type SeenFrame,
   standInFrame,
+  surfaceCrop,
 } from "../../src/frame-change.js";
 
 /**
@@ -203,5 +204,63 @@ describe("standInFrame", () => {
     );
     expect(got).toBeNull();
     expect(asked).toEqual([]);
+  });
+});
+
+/**
+ * DEM-280. The `crop-*` fixtures are 1280x800 frames of unhurried-beats'
+ * page from Chrome's own encoder (`make-surface-crop.mjs`): the page, its
+ * window surface at DPR 3 (the top-left third magnified 3x, at the same
+ * size: the frame CI filmed as a flash), and two pages that changed for
+ * real, a key typed and a scroll.
+ */
+describe("surfaceCrop", () => {
+  const blocks = (name: string) => {
+    const b = lumaBlocks(frame(name));
+    if (b === null) throw new Error(`${name} did not decode`);
+    return b;
+  };
+  const good = blocks("crop-good.jpg");
+  /** Per block, the frame's distance from the page and the share its
+   *  distance from the magnified corner is of that: the guard's two reads. */
+  const said = (f: ReturnType<typeof blocks>, factor: number) => {
+    let fromGood = 0;
+    let fromCorner = 0;
+    for (let y = 0; y < f.height; y++) {
+      for (let x = 0; x < f.width; x++) {
+        const at = f.dc[y * f.width + x] as number;
+        fromGood += Math.abs(at - (good.dc[y * good.width + x] as number));
+        fromCorner += Math.abs(
+          at -
+            (good.dc[
+              Math.floor(y / factor) * good.width + Math.floor(x / factor)
+            ] as number),
+        );
+      }
+    }
+    return `per block ${(fromGood / f.dc.length).toFixed(2)}, corner share ${(fromCorner / fromGood).toFixed(3)}`;
+  };
+
+  it("refuses the window's surface at the page's size", () => {
+    const crop = blocks("crop-surface.jpg");
+    expect(surfaceCrop(crop, good, 3), said(crop, 3)).toBe(true);
+  });
+
+  // The negative controls: a page that changed inside the window is the
+  // page, filmed. A false refusal costs real frames.
+  it("keeps a key typed", () => {
+    const typed = blocks("crop-typed.jpg");
+    expect(surfaceCrop(typed, good, 3), said(typed, 3)).toBe(false);
+  });
+
+  it("keeps a page that scrolled", () => {
+    const scrolled = blocks("crop-scrolled.jpg");
+    expect(surfaceCrop(scrolled, good, 3), said(scrolled, 3)).toBe(false);
+  });
+
+  it("judges nothing where the still's scale is the screencast's", () => {
+    const crop = blocks("crop-surface.jpg");
+    expect(surfaceCrop(crop, good, 1)).toBe(false);
+    expect(surfaceCrop(blocks("base.jpg"), good, 3)).toBe(false);
   });
 });

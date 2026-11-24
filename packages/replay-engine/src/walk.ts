@@ -96,7 +96,13 @@ import {
   inViewport,
   rangeThumb,
 } from "./drag.js";
-import { type SeenFrame, standInFrame } from "./frame-change.js";
+import {
+  type LumaBlocks,
+  lumaBlocks,
+  type SeenFrame,
+  standInFrame,
+  surfaceCrop,
+} from "./frame-change.js";
 import {
   type CdpFrameNode,
   hopsFromTreePath,
@@ -128,6 +134,7 @@ import {
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   type StepSettleReport,
+  SURFACE_CROP_WINDOW_MS,
   stepSettleExpression,
 } from "./step-settle.js";
 import type {
@@ -889,6 +896,7 @@ export async function runWalk(
     reason,
     degradations: [],
     unconfirmedClicks: [],
+    surfaceCrops: [],
     // Nothing was built, so nothing was lost to the store. See the field.
     storageRefused: false,
     hoverSensitive: config.hoverSensitive,
@@ -1295,15 +1303,124 @@ export async function runWalk(
    * changing rather than replaying.
    */
   //
+  /**
+   * DEM-280: screencast frames of the window's unscaled surface. A full
+   * still, a page capture or a metrics re-send draws the page at
+   * `stillScale`, and Chrome's screencast can send a frame of the window's
+   * corner of it after: the page's top-left magnified, at the page frame's
+   * own size where the window's surface is the viewport on a 1x display
+   * (CI's ubuntu), which no size rule tells apart. Filmed, it is a hard zoom
+   * flash. From each such call's start to `SURFACE_CROP_WINDOW_MS` after
+   * its end, every frame is judged against the last one kept
+   * (`surfaceCrop`); outside that, nothing is decoded.
+   *
+   * The window (`SURFACE_CROP_WINDOW_MS`), sized from CI's film (run
+   * 45454571676): its flash was 296 ms of film after the type's act ended.
+   * Through the same take's timeline recorded on the Mac, that is 252 ms of
+   * source after the act's end, and 423 ms after the still before it ended
+   * (filed at the act's end - 171; the next still came after the flash).
+   * Measured from the first frame painted after the call ended, never
+   * earlier than its end, so a still that lands late on a loaded runner
+   * moves its window with it; what is left is how long Chrome takes to send
+   * the stray, and 1000 ms is 2.4 times the one measured. A stray
+   * sent later still is filmed as before this and unsaid; a window longer
+   * than needed costs only a luma decode per frame (5-16 ms) inside it, and
+   * no frame the picture test keeps.
+   */
+  /** The latest such call: whether it has ended, and the paint time of the
+   *  first frame after it, from which the window runs. No clock is read
+   *  for it, so a walk's timings are what they were without it. */
+  /** Calls in flight, and the paint time of the first frame after the last
+   *  of them ended, from which the window runs; null until a frame has come
+   *  since. Calls overlap (the recorder's re-send during a still), so the
+   *  window waits for every one. No clock is read for it, so a walk's
+   *  timings are what they were without it. */
+  let watchesOpen = 0;
+  let watchedFromMs: number | null = null;
+  let watched = false;
+  /** The last frame kept, and its luma once a judgement needed it. */
+  let lastKept: { data: string; blocks?: LumaBlocks | null } | null = null;
+  /** When each refused frame was painted, on the walk's clock (`at()`). */
+  const surfaceCrops: number[] = [];
+  const watching = async <T>(call: () => Promise<T>): Promise<T> => {
+    watchesOpen++;
+    watched = true;
+    watchedFromMs = null;
+    try {
+      return await call();
+    } finally {
+      watchesOpen--;
+    }
+  };
+  /** Starts the window on the first frame painted after every call ended:
+   *  a frame before filming counts, so none is judged long after. */
+  const watchFrom = (paintedMs: number): void => {
+    if (watched && watchesOpen === 0 && watchedFromMs === null)
+      watchedFromMs = paintedMs;
+  };
+  const decoded = (data: string): Uint8Array | null => {
+    try {
+      return decodeBase64(data);
+    } catch {
+      return null;
+    }
+  };
+  /**
+   * The frame's luma when it is to be judged, and whether it is the
+   * window's surface. Undecodable either side: not judged, and the frame
+   * goes on to the recorder, which counts a frame it cannot read.
+   */
+  const surfaceFrame = (
+    data: string,
+    paintedMs: number,
+  ): { crop: boolean; blocks?: LumaBlocks | null } => {
+    watchFrom(paintedMs);
+    if (!watched || lastKept === null) return { crop: false };
+    if (
+      watchedFromMs !== null &&
+      paintedMs > watchedFromMs + SURFACE_CROP_WINDOW_MS
+    )
+      return { crop: false };
+    const bytes = decoded(data);
+    if (bytes === null) return { crop: false };
+    if (lastKept.blocks === undefined) {
+      const kept = decoded(lastKept.data);
+      lastKept.blocks = kept === null ? null : lumaBlocks(kept);
+    }
+    const blocks = lumaBlocks(bytes);
+    if (blocks === null || lastKept.blocks === null) return { crop: false };
+    // How much more the still draws the page than this frame does.
+    const factor = (stillScale * viewport.width) / jpegSize(bytes).width;
+    return { crop: surfaceCrop(blocks, lastKept.blocks, factor), blocks };
+  };
+  /** Refused: counted, and said as its own `surfaceMismatch` at the instant
+   *  it was painted. One stretch from the first to the last would read as
+   *  unkept motion between them, and the plan's idle there would be lost. */
+  const refuseSurface = (paintedMs: number): void => {
+    const ms = Math.round(paintedMs - started);
+    surfaceCrops.push(ms);
+    degradations.push(
+      degradation(
+        "surfaceMismatch",
+        ms,
+        ms,
+        "refused a screencast frame of the window's unscaled surface (the page's top-left corner magnified, at the page's size), " +
+          `painted at ${ms} ms`,
+      ),
+    );
+  };
+
   // A device's metrics are re-sent whole, `mobile: true` included: a literal
   // here turned a phone into a desktop on exactly the path that only runs
   // when something has already gone wrong (spec 2026-10-10 §1).
   const applyMetrics = async (): Promise<void> => {
-    await cdp.send(
-      "Emulation.setDeviceMetricsOverride",
-      device === null
-        ? { ...desktopMetrics(viewport), deviceScaleFactor: stillScale }
-        : deviceMetrics(device),
+    await watching(() =>
+      cdp.send(
+        "Emulation.setDeviceMetricsOverride",
+        device === null
+          ? { ...desktopMetrics(viewport), deviceScaleFactor: stillScale }
+          : deviceMetrics(device),
+      ),
     );
   };
 
@@ -1345,10 +1462,12 @@ export async function runWalk(
       return;
     }
     const reply = await gate.capture(() =>
-      cdp.send("Page.captureScreenshot", {
-        format: "jpeg",
-        quality: KEYFRAME_QUALITY,
-      }),
+      watching(() =>
+        cdp.send("Page.captureScreenshot", {
+          format: "jpeg",
+          quality: KEYFRAME_QUALITY,
+        }),
+      ),
     );
     captureEndedMs = at();
     if (sealed) return;
@@ -1960,10 +2079,12 @@ export async function runWalk(
           ) {
             throw new Error("the capture hold answered with nothing readable");
           }
-          const shot = await screening.cdp.send("Page.captureScreenshot", {
-            format: "png",
-            clip: { x, y, width, height, scale: 1 / dpr },
-          });
+          const shot = await watching(() =>
+            screening.cdp.send("Page.captureScreenshot", {
+              format: "png",
+              clip: { x, y, width, height, scale: 1 / dpr },
+            }),
+          );
           captureEndedMs = at();
           taken = {
             bytes: decodeBase64(String(shot.data ?? "")),
@@ -2190,15 +2311,26 @@ export async function runWalk(
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
     const data = String(params.data ?? "");
+    const stamp = (params.metadata as { timestamp?: unknown } | undefined)
+      ?.timestamp;
     if (continuous && !filming) {
       pageFrames.seen(data);
+      lastKept = { data };
+      if (typeof stamp === "number") watchFrom(stamp * 1000);
       return;
     }
     const arrived = clock.now();
-    const stamp = (params.metadata as { timestamp?: unknown } | undefined)
-      ?.timestamp;
     const painted = typeof stamp === "number" ? stamp * 1000 : arrived;
     if (pageFrames.dropping(data, painted)) return;
+    const judged = surfaceFrame(data, painted);
+    if (judged.crop) {
+      refuseSurface(painted);
+      return;
+    }
+    lastKept = {
+      data,
+      ...(judged.blocks === undefined ? {} : { blocks: judged.blocks }),
+    };
     pageFrames.seen(data);
     const seen = { data: String(params.data ?? ""), atMs: arrived - started };
     priorFrame = newestFrame;
@@ -4484,6 +4616,7 @@ export async function runWalk(
     degradations,
     unconfirmedClicks,
     ignoredDrags,
+    surfaceCrops,
     dialogs: dialogs.answered(),
     storageRefused,
     hoverSensitive,
