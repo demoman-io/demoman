@@ -19,6 +19,10 @@ on:
       - ".github/workflows/ci-ts.yml"
       - ".github/actions/**"
   pull_request:
+  # The merge queue tests each PR merged onto main before it lands; its run
+  # reports the same required gates. changes.sh reads it as not a pull
+  # request, so every product job runs.
+  merge_group:
 
 # A newer push to a pull request replaces the run in flight: nobody reads
 # the result of a commit that is no longer its head. Not on main: there each

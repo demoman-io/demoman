@@ -25,6 +25,10 @@ on:
       - ".github/workflows/linux.yml"
       - ".github/actions/**"
   pull_request:
+  # The merge queue tests each PR merged onto main before it lands; its run
+  # reports the same required gates. changes.sh reads it as not a pull
+  # request, so every product job runs.
+  merge_group:
   workflow_dispatch:
 
 concurrency:
