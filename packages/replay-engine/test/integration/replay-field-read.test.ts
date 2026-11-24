@@ -30,6 +30,9 @@ type Result = Awaited<ReturnType<typeof runAuthored>>;
 async function runTypes(
   steps: DemoScript["steps"],
   then: (result: Result, page: import("playwright").Page) => Promise<void>,
+  /** Recorded continuously, with a room policy: each act's end is stamped
+   *  on its marker. */
+  continuous = false,
 ): Promise<void> {
   await withReplayBrowser(
     async ({ cdp, page }) => {
@@ -82,6 +85,20 @@ async function runTypes(
         viewport: { width: 1024, height: 640 },
         startingBranding: BRANDING_DEFAULTS,
         cameraFor: () => ({ camera: [], zoomsSkipped: [] }),
+        // Continuous, with a room policy that zooms nothing: the walk then
+        // stamps each act's end on its marker (`pendingAct`).
+        ...(continuous
+          ? {
+              recording: "continuous" as const,
+              roomFor: () => ({
+                neededMs: () => 0,
+                returnShortMs: () => 0,
+                arrives: () => "return" as const,
+                zooms: () => false,
+                settledAfterMs: (heldUntilMs: number) => heldUntilMs,
+              }),
+            }
+          : {}),
       });
       expect(result.reason, String(result.reason)).toBeNull();
       await then(result, page);
@@ -175,6 +192,45 @@ describe("a field whose last key is never seen painted", () => {
           unconfirmed: "the page drew no frame within 1000 ms of the last key",
         });
       },
+    );
+  });
+});
+
+describe("a field whose last key paints late", () => {
+  // DEM-173, and DEM-253's guard: the type's act ends only once the page
+  // has drawn the frames after the last key; this field's second one comes
+  // 600 ms late. Read off the act's
+  // own end, not the film, so a starved screencast cannot fake it
+  // (unhurried-beats skips on that). Red if the walk stops waiting for the
+  // frames (`lastKeyPainted`): the act then ends at the key.
+  it("ends the type's act after the page drew the frames after the last key", async () => {
+    await runTypes(
+      [
+        { do: "type", into: { stableId: "plain" }, text: "a" },
+        { do: "type", into: { stableId: "slowpaint" }, text: "a" },
+      ],
+      async (result, page) => {
+        // The premise: both keys went in.
+        expect(await page.inputValue("#plain")).toBe("a");
+        expect(await page.inputValue("#slowpaint")).toBe("a");
+        const acted = [0, 1].map((i) => {
+          const id = result.steps[i]?.actionId;
+          const m = result.bundle?.markers.find((x) => x.actionId === id);
+          return (m?.actEndSourceTimeMs ?? Number.NaN) - (m?.sourceTimeMs ?? 0);
+        });
+        const said = JSON.stringify({ acted, markers: result.bundle?.markers });
+        // The same one-key type, on a plain field and on the slow one: the
+        // focus, the key and the read are alike, so the difference is the
+        // wait for the slow field's frames: about its 600 ms with the wait,
+        // and none without it (at a 300 ms delay, 2026-11-24: 297 ms with,
+        // -50 without). 450 sits clear of both on a slow machine.
+        expect(acted.every(Number.isFinite), said).toBe(true);
+        expect((acted[1] ?? 0) - (acted[0] ?? 0), said).toBeGreaterThanOrEqual(
+          450,
+        );
+        expect(result.steps[1]?.lastKeyPaint, said).toBeUndefined();
+      },
+      true,
     );
   });
 });

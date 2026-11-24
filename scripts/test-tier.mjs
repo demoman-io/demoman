@@ -102,8 +102,9 @@ export function testWorkers(weight, env = process.env) {
  * The retry forgives the run, not the reason. A test that passed on its
  * retry, or skipped itself with a note (a premise the machine was too slow
  * to set up), is one `::warning` annotation on the run's page. A real race
- * still shows: `unhurried-beats`' late last key failed 1 in 5, and a
- * retry fails twice in a row about 1 in 25.
+ * still shows: `unhurried-beats`' late last key failed 1 in 5 before it
+ * learned to say a starved screencast (DEM-253), and a retry fails twice
+ * in a row about 1 in 25.
  *
  * Off CI nothing changes: a local failure is the one to look at.
  *
