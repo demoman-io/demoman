@@ -122,13 +122,14 @@ async function filmOnce(args: {
   if (snap.landedElsewhere === true)
     say(`${who}: the snapshot landed on ${snap.landedUrl}`);
   const t0 = Date.now();
-  const runInto = async (video: Record<string, unknown>) =>
+  const runInto = async (flow: Record<string, unknown>) =>
     settle(
       mcp,
       answer<RunAnswer & { holder?: { id: string } }>(
         await mcp.callTool({
           name: "run",
-          arguments: { script: script.script, video },
+          // `video` was renamed `flow` in the run tool; the old key is refused.
+          arguments: { script: script.script, flow },
         }),
       ),
       ["stillRunning", "running", "queued"],
@@ -139,6 +140,13 @@ async function filmOnce(args: {
   let report = await runInto({ new: script.name, confirmedNew: true });
   if (report.reason === "nameTaken" && report.holder !== undefined) {
     report = await runInto({ id: report.holder.id });
+  }
+  // Arguments the run tool refuses are the harness's own fault, and every
+  // later run would be refused the same way: stop here and say why.
+  if (report.reason === "invalidArgs") {
+    throw new Error(
+      `${who}: the run tool refused this harness's arguments — ${outcomeOf(report)}`,
+    );
   }
   const runMs = Date.now() - t0;
   // The raw report, beside the films: the table keeps the reason, this
