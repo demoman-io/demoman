@@ -9,6 +9,7 @@ import { HELD_FRAME_MS, STEP_REQUEST_CAP_MS } from "@demoman/replay-engine";
 import type { FilmReport } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listenOnLoopback } from "../src/loopback.js";
+import { type Arrival, arrivals } from "./arrivals.js";
 import {
   greyDiff,
   NOISE,
@@ -376,23 +377,34 @@ describe("a held recording that waits on its server", () => {
   let slowHeldMs = 0;
   /** The server's side of each one's answer (`streams`). */
   const served = new Map<Recorded, (typeof streams)[number] | undefined>();
+  /** When each one's answer data reached Demoman (`arrivals.ts`), on the
+   *  server's clock (`performance.now()`). */
+  const arrived = new Map<Recorded, Arrival[]>();
+  const answerArrivals = (from: number) =>
+    arrivals()
+      .slice(from)
+      .filter((a) => a.url.endsWith("/answer"));
 
   beforeAll(async () => {
     const from = streams.length;
     const normalBefore = heldByLagMs();
+    const normalArrivals = arrivals().length;
     normal = await record(home, `${url}/`, ASK, {}, undefined, FAR_PIN);
     normalHeldMs = heldByLagMs() - normalBefore;
     served.set(
       normal,
       streams.length === from + 1 ? streams.at(-1) : undefined,
     );
+    arrived.set(normal, answerArrivals(normalArrivals));
     const heldBefore = heldByLagMs();
+    const slowedArrivals = arrivals().length;
     slowed = await record(home, `${url}/`, ASK, {}, 40, FAR_PIN);
     slowHeldMs = heldByLagMs() - heldBefore;
     served.set(
       slowed,
       streams.length === from + 2 ? streams.at(-1) : undefined,
     );
+    arrived.set(slowed, answerArrivals(slowedArrivals));
   }, STREAMS_MS);
 
   // Spec test 3. Red when the stream is played on the held grid instead of
@@ -419,6 +431,14 @@ describe("a held recording that waits on its server", () => {
           network: r.bundle.networkSpans,
           // The server's chunks, from when it was asked.
           sent: sent.map((t) => t - (server?.askedAt ?? Number.NaN)),
+          // And when each reached Demoman, from the same moment.
+          arrived: (arrived.get(r) ?? []).map(
+            (a) => a.at - (server?.askedAt ?? Number.NaN),
+          ),
+          arrivedBytes: (arrived.get(r) ?? []).reduce((n, a) => n + a.bytes, 0),
+          answerRequests: new Set(
+            (arrived.get(r) ?? []).map((a) => a.requestId),
+          ).size,
         };
       }),
     );
@@ -448,31 +468,45 @@ describe("a held recording that waits on its server", () => {
       expect(s.states[0], said).toBe(0);
       expect(s.states.at(-1), said).toBe(CHUNKS);
       expect(s.states.length, said).toBeGreaterThanOrEqual(6);
-      // Within a frame, or the held frame after: the page can run a chunk's
-      // script in the grant after it arrived, at the first chunk as at the
-      // last (the check below allows it from the wait's start). Measured
-      // against the server's own times, the first chunk showed 44 ms after
-      // it was sent, a frame being 33 ms (2026-11-19); against the 1800 ms
-      // it was told, that held frame had been hidden in the send's lag.
+      // Premise: Demoman heard all of the one answer's data arrive, from
+      // its first byte (each chunk is one byte; chunks that came together
+      // share an event). Those times are real ones, not the grants': on
+      // the slowed run, frames 500 ms apart and every command held 40 ms,
+      // each chunk was heard 1-5 ms after it was sent (2026-11-24), so a
+      // held clock that took data late would still be red against them.
+      expect(s.answerRequests, said).toBe(1);
+      expect(s.arrivedBytes, said).toBe(CHUNKS);
+      const firstArrived = s.arrived[0] ?? Number.NaN;
+      const lastArrived = s.arrived.at(-1) ?? Number.NaN;
+      // Within a frame, or the held frame after, of when the data ARRIVED:
+      // the held clock follows arrival, which is all a page on that network
+      // would have seen; when the server sent it is a premise above. The
+      // page can run a chunk's script in the grant after it arrived, at the
+      // first chunk as at the last. Against send times this went red when a
+      // loaded runner delivered the first chunk 140 ms late (DEM-235, PR
+      // #142's ubuntu). The bound is the one it had: each end of the
+      // stretch shows in the first frame taken after its data arrived, or
+      // the held frame after, on the same machine and the same clock as the
+      // arrival, so no delivery jitter can move the two apart.
       expect(
-        Math.abs(s.last - s.first - (lastSent - firstSent)),
+        Math.abs(s.last - s.first - (lastArrived - firstArrived)),
         said,
       ).toBeLessThanOrEqual(s.frameMs + HELD_FRAME_MS);
       // And from where the wait began: the last chunk shows as long after it
-      // as the server sent it after being asked, within a frame, or the held
-      // frame after:
+      // as its data arrived after the server was asked, within a frame, or
+      // the held frame after:
       // the page can run the last chunk's script in the grant after the
       // wait ends (44 ms here, 2 runs of about 12, 2026-11-16; the next
       // test allows the same). The stretch lasts no longer than the stream
       // and a frame either side.
       const start = s.stretch?.startMs ?? Number.NaN;
-      expect(Math.abs(s.last - start - lastSent), said).toBeLessThanOrEqual(
+      expect(Math.abs(s.last - start - lastArrived), said).toBeLessThanOrEqual(
         s.frameMs + HELD_FRAME_MS,
       );
       expect(
         (s.stretch?.endMs ?? Number.NaN) - start,
         said,
-      ).toBeLessThanOrEqual(lastSent + 2 * s.frameMs);
+      ).toBeLessThanOrEqual(lastArrived + 2 * s.frameMs);
     }
   });
 
