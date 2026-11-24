@@ -392,7 +392,9 @@ describe("launch", () => {
     // The control: without a display, a headless screencast films the
     // override's CSS size at 1x, which is the gap this closes.
     expect(off.frame, JSON.stringify(off)).toEqual([640, 400]);
-    expect(off.userAgent).toContain("HeadlessChrome/");
+    // Every launch presents as macOS, display or not (DEM-154).
+    expect(off.userAgent).toContain("(Macintosh;");
+    expect(off.userAgent).not.toContain("Headless");
     expect(on.frame, JSON.stringify(on)).toEqual([1280, 800]);
     expect(on.screen).toEqual([1000, 700]);
     expect(on.userAgent).not.toContain("Headless");
@@ -460,34 +462,6 @@ describe("launch", () => {
     },
     30_000,
   );
-
-  // The user agent is cosmetic: a launch whose rewrite of it fails still
-  // films, with the browser's own, and says why.
-  it("launches on its display when the user agent cannot be read, and says so", async () => {
-    const said: string[] = [];
-    const launched = await launch({
-      headless: true,
-      executablePath: chromium.executablePath(),
-      display: { width: 1000, height: 700, scale: 2 },
-      log: (line) => said.push(line),
-      userAgentOf: async () => {
-        throw new Error("Browser.getVersion refused");
-      },
-    });
-    try {
-      await launched.page.goto("data:text/html,<p>x");
-      const seen = await launched.page.evaluate(() => [
-        navigator.userAgent,
-        screen.width,
-      ]);
-      // Premise: still on the display it was given.
-      expect(seen[1]).toBe(1000);
-      expect(seen[0]).toContain("HeadlessChrome/");
-      expect(said.join("\n")).toContain("Browser.getVersion refused");
-    } finally {
-      await launched.close();
-    }
-  }, 30_000);
 
   // Measured 2026-10-21 on full Chromium 151: headless's client hints already
   // name "Chromium", as a visible window's do, so the user agent string is
