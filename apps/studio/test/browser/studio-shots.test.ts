@@ -423,6 +423,35 @@ async function phonePage(browser: Browser, studio: Studio): Promise<Page> {
   return phone.newPage();
 }
 
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * `selector`'s box once it reads the same twice running. Every render
+ * replaces `#timeline` whole, so a box read once answers null for a node
+ * just detached (DEM-152, DEM-251), and a late render that rescales the
+ * lane can move it between the read and the pointer.
+ */
+async function steadyBox(page: Page, selector: string): Promise<Box> {
+  let seen: Box | null = null;
+  return vi.waitFor(
+    async () => {
+      const box = await page.locator(selector).boundingBox({ timeout: 1_000 });
+      const before = seen;
+      seen = box;
+      if (box === null || box.width === 0) {
+        throw new Error(`${selector}'s box is ${JSON.stringify(box)}`);
+      }
+      if (JSON.stringify(box) !== JSON.stringify(before)) {
+        throw new Error(
+          `${selector}'s box moved: ${JSON.stringify(before)} then ${JSON.stringify(box)}`,
+        );
+      }
+      return box;
+    },
+    { timeout: PAINT_MS, interval: 100 },
+  );
+}
+
 /**
  * A timeline handle as the pointer finds it (DEM-215): its box, whether
  * the point at its middle is the handle and what covers it if not, its
@@ -971,35 +1000,11 @@ describe("the Studio's screenshot set", () => {
       await sizeWindow(context, page, 1440, 900);
       await openPage(page, studio, "editor", editorTake, thumbs);
       const zoomLane = '[data-track="zoom"]';
-      // Waited for, not read once (DEM-152): every render replaces
-      // `#timeline` whole, so a render landing between the locator's match
-      // and its box read answers null for a node just detached. A slow
-      // runner moved the editor's late renders past `#preview`'s paint.
-      // And the same box twice running, so a late render that rescales
-      // the lane cannot move it between this read and the click (review).
-      type Box = { x: number; y: number; width: number; height: number };
+      // Waited for, not read once (DEM-152, `steadyBox`). A slow runner
+      // moved the editor's late renders past `#preview`'s paint.
       let first: Box;
-      let seen: Box | null = null;
       try {
-        first = await vi.waitFor(
-          async () => {
-            const box = await page
-              .locator(`${zoomLane} [data-segment]`)
-              .boundingBox({ timeout: 1_000 });
-            const before = seen;
-            seen = box;
-            if (box === null || box.width === 0) {
-              throw new Error(`the segment's box is ${JSON.stringify(box)}`);
-            }
-            if (JSON.stringify(box) !== JSON.stringify(before)) {
-              throw new Error(
-                `the segment's box moved: ${JSON.stringify(before)} then ${JSON.stringify(box)}`,
-              );
-            }
-            return box;
-          },
-          { timeout: PAINT_MS, interval: 100 },
-        );
+        first = await steadyBox(page, `${zoomLane} [data-segment]`);
       } catch (error) {
         const missing = join(SHOTS, "editor-zoom-missing-1440x900-dark.png");
         await page.screenshot({ path: missing });
@@ -6192,10 +6197,9 @@ describe("the Studio's screenshot set", () => {
           );
         }
         const edge = '.piece-wrap:last-child > [data-edge="end"]';
-        const last = await page
-          .locator(".piece-wrap:last-child > .piece")
-          .boundingBox();
-        if (last === null) throw new Error("the last piece has no box");
+        // Waited for, not read once (DEM-251): a render landing after the
+        // count above detaches the piece it counted.
+        const last = await steadyBox(page, ".piece-wrap:last-child > .piece");
         await page.mouse.move(last.x + last.width / 2, last.y + 4);
         const grab = await vi.waitFor(
           async () => {
