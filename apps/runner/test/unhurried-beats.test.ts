@@ -16,6 +16,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
+import { keepOnFailure } from "./keep-on-failure.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 // Spec 2026-10-19 (unhurried beats), on the picture. The site's hero typed
@@ -184,6 +185,9 @@ describe("a typed field and a far click, filmed unhurried", () => {
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
         throw new Error(JSON.stringify(answer));
       }
+      // A red run keeps the film it read (DEM-253: the last key late).
+      const mp4 = answer.file.path;
+      keepOnFailure("unhurried-beats", () => [mp4]);
       const bytes = new Uint8Array(await readFile(answer.file.path));
       const read = await mp4FrameTimes(bytes);
       const frames = read.timesSec.map((t, i) => ({
