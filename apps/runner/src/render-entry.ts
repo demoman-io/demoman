@@ -23,7 +23,7 @@ import {
   type FrameBundle,
   type FrameImage,
   loadDialogFont,
-  planDialogs,
+  needsTextFont,
   type RenderTarget,
   SINK_TIMES_GLOBAL,
   type SinkTimes,
@@ -225,13 +225,14 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
       wallpaper = { ok: false, error: `${sent.name}: ${messageOf(error)}` };
     }
   }
-  // Not decoration: a card is never drawn in another face, so a take with
-  // one fails here, saying why, rather than draw it in a fallback.
-  if (planDialogs(scene).length > 0) {
+  // Not decoration: the video's text (a dialog card, a key pill, a ×2 tag)
+  // is never drawn in another face, so a take with any fails here, saying
+  // why, rather than draw it in a fallback.
+  if (needsTextFont(scene)) {
     const font = manifest.font;
     if ("error" in font) {
       throw new Error(
-        `the dialog card's font, ${DIALOG_FONT}, could not be had: ${font.error}`,
+        `the video's text font, ${DIALOG_FONT}, could not be had: ${font.error}`,
       );
     }
     await loadDialogFont(bytesOf(font.base64).slice());

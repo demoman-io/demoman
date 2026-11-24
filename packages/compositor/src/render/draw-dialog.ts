@@ -223,9 +223,10 @@ export function dialogFontLoaded(): boolean {
 }
 
 /**
- * Loads Geist for the card from its bytes, or from a CSS `url(...)`, and
- * adds it to this document's (or worker's) fonts. Rejects with a sentence
- * when it will not load: the card is never drawn in another face.
+ * Loads Geist for the video's text (the card, the key marks) from its bytes,
+ * or from a CSS `url(...)`, and adds it to this document's (or worker's)
+ * fonts. Rejects with a sentence when it will not load: the text is never
+ * drawn in another face.
  */
 export async function loadDialogFont(
   source: string | BufferSource,
@@ -233,7 +234,7 @@ export async function loadDialogFont(
   const faces = fontFaces();
   if (faces === undefined) {
     throw new Error(
-      `the dialog card's font, ${DIALOG_FONT}, cannot load here: this context has no font set`,
+      `the video's text font, ${DIALOG_FONT}, cannot load here: this context has no font set`,
     );
   }
   const face = new FontFace(DIALOG_FONT, source, { weight: "100 900" });
@@ -241,7 +242,7 @@ export async function loadDialogFont(
     await face.load();
   } catch (error) {
     throw new Error(
-      `the dialog card's font, ${DIALOG_FONT}, did not load (${error instanceof Error ? error.message : String(error)}); a card is never drawn in another face`,
+      `the video's text font, ${DIALOG_FONT}, did not load (${error instanceof Error ? error.message : String(error)}); its text is never drawn in another face`,
     );
   }
   faces.add(face);

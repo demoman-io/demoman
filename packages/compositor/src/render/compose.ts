@@ -1,5 +1,10 @@
 import { CURSOR_POLISH_DEFAULTS } from "@demoman/scene-schema";
 import type { Rect, Vec } from "../geometry.js";
+import {
+  MOUSE_MARK_MS,
+  MULTI_CLICK_GAP_MS,
+  markAlpha,
+} from "../plan/key-marks.js";
 import type { ResolvedPlan } from "../plan/resolve.js";
 import { cursorIdleAlpha, sampleCursor } from "../plan/resolve.js";
 import { toSourceMs } from "../plan/timeline.js";
@@ -18,6 +23,11 @@ import {
   PULSE_DURATION_MS,
 } from "./draw-cursor.js";
 import { drawDialogCard } from "./draw-dialog.js";
+import {
+  drawClickTag,
+  drawKeycapPill,
+  drawRightClickMouse,
+} from "./draw-keys.js";
 import {
   clipToFrame,
   contentScale,
@@ -395,12 +405,28 @@ export async function renderFrame(args: {
     // PRESS_DURATION_MS are viewer-time constants; measuring them against
     // `sourceMs` would hand their duration to the retimer, and a click almost
     // always lands in a compressed idle span — the pointer is dwelling on its
-    // target, so nothing marks that stretch as motion. `resolved.clickOutputMs`
+    // target, so nothing marks that stretch as motion. `resolved.pulseOutputMs`
     // is pre-mapped through `toOutputMs` so this comparison is apples to
     // apples and 400ms of pulse is 400ms on screen wherever it falls.
-    for (const clickMs of resolved.clickOutputMs) {
+    for (const clickMs of resolved.pulseOutputMs) {
       const t = (outputTimeMs - clickMs) / PULSE_DURATION_MS;
       if (t >= 0 && t <= 1) drawClickPulse(ctx, at, uiScale, t);
+    }
+    // A multi-click's tag lasts as long as its ripples do.
+    for (const tag of resolved.clickTags) {
+      const span = (tag.count - 1) * MULTI_CLICK_GAP_MS + PULSE_DURATION_MS;
+      const alpha = markAlpha(
+        { startMs: tag.outputMs, endMs: tag.outputMs + span },
+        outputTimeMs,
+      );
+      if (alpha > 0) drawClickTag(ctx, at, tag.count, uiScale, alpha);
+    }
+    for (const clickMs of resolved.rightClicks) {
+      const alpha = markAlpha(
+        { startMs: clickMs, endMs: clickMs + MOUSE_MARK_MS },
+        outputTimeMs,
+      );
+      if (alpha > 0) drawRightClickMouse(ctx, at, uiScale, alpha);
     }
 
     drawCursor(
@@ -410,7 +436,7 @@ export async function renderFrame(args: {
       {
         press: cursorPressScale(
           outputTimeMs,
-          resolved.clickOutputMs,
+          resolved.pulseOutputMs,
           look.clickBounce ?? CURSOR_POLISH_DEFAULTS.clickBounce,
           resolved.holdOutputMs,
         ),
@@ -449,4 +475,25 @@ export async function renderFrame(args: {
   args.onStage?.("cursor", performance.now() - cursorStartedAt);
 
   ctx.restore();
+
+  // The key pill last, in screen space: the camera never crops it, and it
+  // shows the keys whether or not the pointer is drawn. Ranges never
+  // overlap (`planKeyMarks`), so at most one is up.
+  const pill = resolved.keycaps.find(
+    (p) => outputTimeMs >= p.range.startMs && outputTimeMs < p.range.endMs,
+  );
+  if (pill) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    stage("keys", () =>
+      drawKeycapPill(
+        ctx,
+        pill.caps,
+        pill.suffix,
+        target,
+        markAlpha(pill.range, outputTimeMs),
+      ),
+    );
+    ctx.restore();
+  }
 }

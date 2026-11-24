@@ -176,7 +176,7 @@ describe("the Auto frame at padding 0, through renderFrame", () => {
           }),
         ],
         cursorLook: { ...resolved.cursorLook, hidden: true },
-        clickOutputMs: [],
+        pulseOutputMs: [],
       },
       target,
       presentation,

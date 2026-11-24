@@ -25,6 +25,7 @@ import {
 } from "./cursor-spring.js";
 import { retimeAlongRoute } from "./cursor-timing.js";
 import { DIALOG_PRESS_MS } from "./dialogs.js";
+import { type KeyMarks, planKeyMarks } from "./key-marks.js";
 import { leaveThroughEdges } from "./off-page.js";
 import { planScene } from "./plan.js";
 import {
@@ -101,6 +102,20 @@ export interface ResolvedPlan {
    * four frames — 67ms of screen time, a flicker.
    */
   clickOutputMs: number[];
+  /**
+   * Where the click ripple and the pointer's press are drawn, in output ms
+   * (`planKeyMarks`): `clickOutputMs` with a multi-click's later ripples
+   * added, and without a right-click or a press from schema 17 on, which
+   * draw a mouse or a key pill instead. `clickOutputMs` keeps its meaning
+   * for the screens and the pointer's rests.
+   */
+  pulseOutputMs: KeyMarks["pulseOutputMs"];
+  /** The key pills, in output order, never overlapping. */
+  keycaps: KeyMarks["keycaps"];
+  /** Each double or triple click's ×2/×3 tag, at its first ripple. */
+  clickTags: KeyMarks["clickTags"];
+  /** Each right-click, in output ms: a mouse by the pointer, no ripple. */
+  rightClicks: KeyMarks["rightClicks"];
   /** Each drag's held button, in output time (as `clickOutputMs`): the
    *  cursor is drawn pressed from `startMs` to `endMs`. */
   holdOutputMs: { startMs: number; endMs: number }[];
@@ -1016,7 +1031,8 @@ export function resolvePlan(
   // capture: the author may have tabbed in, and a click they made is a step
   // of its own.
   // A drag presses at its marker too; its release is in `heldPresses`. A key
-  // press pulses where the cursor rests.
+  // press counts here too, for the screens and the rests; it ripples only on
+  // a take from before schema 17 (`planKeyMarks`).
   const clickKinds = new Set(
     bundle.source === "replay" ? ["click", "type", "drag", "press"] : ["click"],
   );
@@ -1029,6 +1045,14 @@ export function resolvePlan(
     .filter((m) => clickActionIds.has(m.actionId))
     .map((m) => toOutputMs(timeline, m.sourceTimeMs))
     .sort((a, b) => a - b);
+  const keyMarks = planKeyMarks(
+    scene?.actions ?? [],
+    bundle.markers.map((m) => ({
+      actionId: m.actionId,
+      outputMs: toOutputMs(timeline, m.sourceTimeMs),
+    })),
+    clickKinds,
+  );
   const touch = scene?.meta.capture.device?.touch === true;
   const taps = touch
     ? bundle.markers
@@ -1114,6 +1138,7 @@ export function resolvePlan(
     cameraSegments: camera.segments,
     cursor: bridged,
     clickOutputMs,
+    ...keyMarks,
     holdOutputMs,
     touch,
     taps,

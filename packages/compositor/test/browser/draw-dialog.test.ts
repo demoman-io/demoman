@@ -243,7 +243,7 @@ describe("drawDialogCard", () => {
 
   it("says why a font that will not load did not", async () => {
     await expect(loadDialogFont(new Uint8Array([1, 2, 3, 4]))).rejects.toThrow(
-      /the dialog card's font, Geist, did not load/,
+      /the video's text font, Geist, did not load/,
     );
   });
 });
