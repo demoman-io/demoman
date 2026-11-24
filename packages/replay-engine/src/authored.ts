@@ -51,7 +51,7 @@ import {
   type DragSpot,
   deviceFor,
   type FailureReasonName,
-  PRESS_KEYS,
+  parseKeyCombo,
   type SceneAction,
   type SceneAnchor,
   type SceneAspect,
@@ -522,7 +522,16 @@ function synthesize(
 ): SceneAction {
   // A press names no element: its null anchor is typed here, not cast.
   if (step.do === "press") {
-    return { ...ids, kind: "press", key: step.key, anchorId: null };
+    const combo = parseKeyCombo(step.key);
+    if (!combo.ok) throw new Error(`synthesize: ${combo.message}`);
+    // `modifiers` on every press, `[]` too: its presence says schema 17.
+    return {
+      ...ids,
+      kind: "press",
+      key: combo.key,
+      modifiers: combo.modifiers,
+      anchorId: null,
+    };
   }
   if (ids.anchorId === null) {
     throw new Error(`synthesize: a ${step.do} step needs an anchor`);
@@ -806,11 +815,9 @@ export function createAuthoredRun(
           continue;
         }
 
-        if (
-          step.do === "press" &&
-          !(PRESS_KEYS as readonly string[]).includes(step.key)
-        ) {
-          // A combo or a key outside PRESS_KEYS: Task 3 of the DEM-154/155 plan replaces this stop with the real verb.
+        // The script door parses a press's key; a caller that skipped it
+        // reaches here with text no key means, and the run says so.
+        if (step.do === "press" && !parseKeyCombo(step.key).ok) {
           stop = "unperformableStep";
           return;
         }

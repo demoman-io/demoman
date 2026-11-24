@@ -782,8 +782,29 @@ describe("the authored source and its assembler", () => {
     expect(driven.run.actions).toHaveLength(0);
   });
 
-  it.each(["Mod+K", "F5"])("stops on a press of %s", async (key) => {
-    const driven = await drive(script([{ do: "press", key } as ScriptStep]));
+  it.each([
+    ["Mod+K", "K", ["Mod"]],
+    ["F5", "F5", []],
+    ["Shift+Mod+k", "K", ["Shift", "Mod"]],
+  ])(
+    "performs a press of %s, recorded with its modifiers",
+    async (text, key, modifiers) => {
+      const driven = await drive(
+        script([{ do: "press", key: text } as ScriptStep]),
+      );
+      expect(driven.run.stop()).toBeNull();
+      expect(driven.run.actions[0]).toMatchObject({
+        kind: "press",
+        key,
+        modifiers,
+      });
+    },
+  );
+
+  it("stops on a press whose key no parse accepts, instead of throwing", async () => {
+    const driven = await drive(
+      script([{ do: "press", key: "Mod+" } as ScriptStep]),
+    );
     expect(driven.run.stop()).toBe("unperformableStep");
     expect(driven.run.actions).toHaveLength(0);
   });

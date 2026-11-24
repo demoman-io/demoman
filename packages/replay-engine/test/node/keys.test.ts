@@ -1,12 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { pressKey } from "../../src/keys.js";
+import type { Modifier } from "@demoman/scene-schema";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  holdModifiers,
+  keyEventOf,
+  macCommands,
+  pressCombo,
+} from "../../src/keys.js";
 import type { CdpSession } from "../../src/types.js";
 
-/** Every key event a press sends. */
-async function sent(
-  key: Parameters<typeof pressKey>[1],
-  mac: boolean,
-): Promise<Record<string, unknown>[]> {
+function recorder() {
   const calls: Record<string, unknown>[] = [];
   const cdp = {
     send: async (_method: string, params?: Record<string, unknown>) => {
@@ -14,41 +16,169 @@ async function sent(
       return {};
     },
   } as unknown as CdpSession;
-  await pressKey(cdp, key, mac);
+  return { calls, cdp };
+}
+
+/** Every key event a press sends. */
+async function sent(
+  modifiers: Modifier[],
+  key: string,
+): Promise<Record<string, unknown>[]> {
+  const { calls, cdp } = recorder();
+  await pressCombo(cdp, modifiers, key);
   return calls;
 }
 
-describe("pressKey's editor commands", () => {
-  // Playwright's table (`macEditingCommands`), the same strings it sends:
-  // on macOS a synthetic key event edits a field only with its command.
-  it.each([
-    ["Backspace", "deleteBackward"],
-    ["Delete", "deleteForward"],
-    ["ArrowLeft", "moveLeft"],
-    ["ArrowRight", "moveRight"],
-    ["ArrowUp", "moveUp"],
-    ["ArrowDown", "moveDown"],
-    ["Escape", "cancelOperation"],
-  ] as const)(
-    "%s carries %s on macOS, on its keyDown only",
-    async (key, command) => {
-      const [down, up] = await sent(key, true);
-      expect(down?.commands).toEqual([command]);
-      expect(up?.type).toBe("keyUp");
-      expect(up && "commands" in up).toBe(false);
-    },
-  );
+afterEach(() => vi.unstubAllGlobals());
 
-  it("Enter, Tab and Space carry none on macOS: their text does the work", async () => {
-    for (const key of ["Enter", "Tab", "Space"] as const) {
-      const [down] = await sent(key, true);
-      expect(down && "commands" in down, key).toBe(false);
-    }
+describe("pressCombo", () => {
+  it("Mod+Shift+K goes down modifier by modifier, presses K with no text, and lifts in reverse", async () => {
+    const calls = await sent(["Mod", "Shift"], "K");
+    expect(calls).toEqual([
+      {
+        type: "rawKeyDown",
+        key: "Meta",
+        code: "MetaLeft",
+        windowsVirtualKeyCode: 91,
+        modifiers: 4,
+      },
+      {
+        type: "rawKeyDown",
+        key: "Shift",
+        code: "ShiftLeft",
+        windowsVirtualKeyCode: 16,
+        modifiers: 12,
+      },
+      {
+        type: "rawKeyDown",
+        key: "K",
+        code: "KeyK",
+        windowsVirtualKeyCode: 75,
+        modifiers: 12,
+      },
+      {
+        type: "keyUp",
+        key: "K",
+        code: "KeyK",
+        windowsVirtualKeyCode: 75,
+        modifiers: 12,
+      },
+      {
+        type: "keyUp",
+        key: "Shift",
+        code: "ShiftLeft",
+        windowsVirtualKeyCode: 16,
+        modifiers: 4,
+      },
+      {
+        type: "keyUp",
+        key: "Meta",
+        code: "MetaLeft",
+        windowsVirtualKeyCode: 91,
+        modifiers: 0,
+      },
+    ]);
   });
 
-  it("no key carries a command off macOS", async () => {
-    const [down] = await sent("Backspace", false);
-    expect(down?.type).toBe("rawKeyDown");
+  it.each([
+    ["A", "selectAll"],
+    ["Z", "undo"],
+  ])("Mod+%s carries [%s] on its keyDown only", async (key, command) => {
+    const calls = await sent(["Mod"], key);
+    const down = calls.find(
+      (c) => c.code === `Key${key}` && c.type !== "keyUp",
+    );
+    const up = calls.find((c) => c.code === `Key${key}` && c.type === "keyUp");
+    expect(down?.commands).toEqual([command]);
+    expect(up && "commands" in up).toBe(false);
+  });
+
+  it("Enter carries no command and types a carriage return, on any host", async () => {
+    vi.stubGlobal("process", { ...process, platform: "linux" });
+    const [down] = await sent([], "Enter");
+    expect(down?.text).toBe("\r");
     expect(down && "commands" in down).toBe(false);
+  });
+
+  it("ArrowDown carries moveDown on a linux host", async () => {
+    vi.stubGlobal("process", { ...process, platform: "linux" });
+    const [down] = await sent([], "ArrowDown");
+    expect(down?.commands).toEqual(["moveDown"]);
+  });
+
+  it("? presses Slash, 191, typing ?, with no modifiers", async () => {
+    const [down] = await sent([], "?");
+    expect(down).toMatchObject({
+      type: "keyDown",
+      key: "?",
+      code: "Slash",
+      windowsVirtualKeyCode: 191,
+      text: "?",
+      modifiers: 0,
+    });
+  });
+
+  it("Shift+K types K", async () => {
+    const calls = await sent(["Shift"], "K");
+    const down = calls.find((c) => c.code === "KeyK");
+    expect(down).toMatchObject({ key: "K", text: "K", modifiers: 8 });
+  });
+
+  it("an unshifted letter is lowercase", () => {
+    expect(keyEventOf("K", false)).toMatchObject({ key: "k", text: "k" });
+  });
+});
+
+describe("keyEventOf", () => {
+  it.each([
+    ["5", "Digit5", 53],
+    ["%", "Digit5", 53],
+    [";", "Semicolon", 186],
+    ["+", "Equal", 187],
+    ["~", "Backquote", 192],
+    ['"', "Quote", 222],
+    ["F1", "F1", 112],
+    ["F12", "F12", 123],
+    ["Home", "Home", 36],
+    ["PageDown", "PageDown", 34],
+  ])("%s is %s, VK %i", (key, code, vk) => {
+    expect(keyEventOf(key, false)).toMatchObject({
+      code,
+      windowsVirtualKeyCode: vk,
+    });
+  });
+});
+
+describe("macCommands", () => {
+  it("has no command for a key whose text does the work", () => {
+    expect(macCommands([], "Enter")).toBeUndefined();
+  });
+  it("keys on Shift, Control, Alt, Meta whatever order they were named", () => {
+    expect(macCommands(["Mod", "Shift"], "KeyZ")).toEqual(["redo"]);
+    expect(macCommands(["Shift", "Ctrl"], "ArrowLeft")).toEqual([
+      "moveToLeftEndOfLineAndModifySelection",
+    ]);
+  });
+  it("carries a two-command entry whole", () => {
+    expect(macCommands(["Alt"], "ArrowUp")).toEqual([
+      "moveBackward",
+      "moveToBeginningOfParagraph",
+    ]);
+  });
+});
+
+describe("holdModifiers", () => {
+  it("presses down in order and lifts in reverse with the mask shrinking", async () => {
+    const { calls, cdp } = recorder();
+    const release = await holdModifiers(cdp, ["Ctrl", "Alt"]);
+    expect(calls.map((c) => [c.type, c.key, c.modifiers])).toEqual([
+      ["rawKeyDown", "Control", 2],
+      ["rawKeyDown", "Alt", 3],
+    ]);
+    await release();
+    expect(calls.slice(2).map((c) => [c.type, c.key, c.modifiers])).toEqual([
+      ["keyUp", "Alt", 2],
+      ["keyUp", "Control", 0],
+    ]);
   });
 });

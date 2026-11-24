@@ -113,7 +113,7 @@ import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
 import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
-import { pressKey } from "./keys.js";
+import { pressCombo } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import { createNetworkWatch, type NetworkWatch } from "./network-watch.js";
 import type { OcclusionGuard } from "./occlusion.js";
@@ -3789,7 +3789,9 @@ export async function runWalk(
         await stepStill(keyAction.id);
         if (armDialogs(step, keyAction.id)) break;
         if (!continuous) recorder?.open();
-        await gate.section(() => pressKey(cdp, keyAction.key));
+        await gate.section(() =>
+          pressCombo(cdp, keyAction.modifiers ?? [], keyAction.key),
+        );
         const keyDialogs = dialogs.seen();
         if (!continuous) {
           await recorder?.close();
@@ -4727,10 +4729,13 @@ async function performVerb(
       // Not for a contenteditable host: its contents are the document, and
       // its text is what the author typed at the caret — see the schema.
       if (!action.host) {
+        // Meta+A, what a Mac page expects: Ctrl+A means line start there.
         await cdp.send("Input.dispatchKeyEvent", {
           type: "rawKeyDown",
+          key: "a",
+          code: "KeyA",
           windowsVirtualKeyCode: 65,
-          modifiers: 2,
+          modifiers: 4,
           commands: ["selectAll"],
         });
       }
@@ -4792,7 +4797,7 @@ async function performVerb(
       throw new Error("performVerb: a drag is performed by performDrag");
     case "press":
       // Never reaches here: the loop presses a key before it locates anything.
-      throw new Error("performVerb: a press is performed by pressKey");
+      throw new Error("performVerb: a press is performed by pressCombo");
     default: {
       const unknown: never = action;
       throw new Error(`performVerb: no verb for ${JSON.stringify(unknown)}`);
