@@ -41,6 +41,7 @@ that flow.
 | `about` | Who the account is and what data it has, so an agent picks the right one |
 | `checkUrl` | A path behind the login. Signed out it lands on the sign-in page; signed in it shows no password field |
 | `signIn` | The steps that sign in, as a DemoScript's steps, starting with `goto` |
+| `files` | Optional, at most 20. The repo paths that make the account, such as its seed script and a dev-only sign-in route, given from the repo's root. `setup --ci` adds any that are not committed to its pull request, so its check and CI have them. It stops on one that is missing or that git ignores. Demoman 0.9.9 and earlier refuse a file that has it |
 
 ## Secrets
 

@@ -48,6 +48,57 @@ describe("parseAccounts", () => {
     expect(r.file.dir).toBe("/p/.demoman");
   });
 
+  // DEM-240. Red if an account's files are dropped, kept unnormalized, or a
+  // path outside the repo (or into .git) is taken: setup would read and
+  // commit it.
+  it("reads an account's files as repo paths, and refuses one outside the repo", () => {
+    const withFiles = (files: unknown) =>
+      good({
+        sites: {
+          [ORIGIN]: { accounts: { seller: { ...seller, files } } },
+        },
+      });
+    const r = parseAccounts(
+      "/p/.demoman/accounts.json",
+      withFiles([
+        "./db/seeds/demo.rb",
+        "lib\\dev_route.ex",
+        "db/seeds/demo.rb",
+      ]),
+    );
+    if (!r.ok) throw new Error(r.detail);
+    expect(r.file.sites.get(ORIGIN)?.accounts.get("seller")?.files).toEqual([
+      "db/seeds/demo.rb",
+      "lib/dev_route.ex",
+    ]);
+    // Listed as none is not the same as never listed.
+    const none = parseAccounts("/p/.demoman/accounts.json", withFiles([]));
+    if (!none.ok) throw new Error(none.detail);
+    expect(none.file.sites.get(ORIGIN)?.accounts.get("seller")?.files).toEqual(
+      [],
+    );
+    for (const bad of [
+      "/etc/passwd",
+      "../other/seed.rb",
+      "a/../../x",
+      "C:/x",
+      ".git/config",
+      ".",
+    ]) {
+      const no = parseAccounts("/p/.demoman/accounts.json", withFiles([bad]));
+      expect(no, bad).toMatchObject({
+        ok: false,
+        field: `sites.${ORIGIN}.accounts.seller.files.0`,
+      });
+    }
+    expect(
+      parseAccounts(
+        "/p/.demoman/accounts.json",
+        withFiles(Array.from({ length: 21 }, (_, i) => `f${i}`)),
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
   it.each([
     ["a newer version", good({ accountsVersion: 2 }), "accountsVersion"],
     ["an unknown key", good({ extra: 1 }), "extra"],

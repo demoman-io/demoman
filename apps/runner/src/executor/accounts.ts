@@ -6,7 +6,7 @@
 // never here: `{secret:NAME}` names them (secrets-env.ts).
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { unreadVersion } from "@demoman/run-core";
 import {
   ACCOUNT_NAME,
@@ -23,6 +23,9 @@ export const ACCOUNTS_VERSION = 1;
 export const ACCOUNTS_PATH = join(".demoman", "accounts.json");
 const SECRET_REF = /\{secret:([^}]*)\}/g;
 const SECRET_NAME = /^[A-Z0-9_]+$/;
+/** An account's `files`: the repo paths that make it (its seed, its
+ *  dev-only sign-in route), which setup carries into CI (DEM-240). */
+const ACCOUNT_FILES_MAX = 20;
 
 const StepSchema = z.discriminatedUnion("do", [
   z.object({ do: z.literal("goto"), url: z.string().min(1) }).strict(),
@@ -51,6 +54,7 @@ const AccountSchema = z
     about: z.string().trim().min(1),
     checkUrl: z.string().min(1),
     signIn: z.array(StepSchema).min(1),
+    files: z.array(z.string().min(1)).max(ACCOUNT_FILES_MAX).optional(),
   })
   .strict();
 const FileSchema = z
@@ -80,6 +84,9 @@ export interface Account {
   about: string;
   checkUrl: string;
   signIn: SignInStep[];
+  /** Repo paths from the repo's root (DEM-240). Not part of
+   *  accountDefinition: listing them keeps a saved session this account's. */
+  files?: string[];
 }
 /**
  * What an account signs in with — its checkUrl and steps — as a short hash,
@@ -256,7 +263,31 @@ export function parseAccounts(
         }
         signIn.push(step);
       }
-      accounts.set(name, { name, about: a.about, checkUrl, signIn });
+      const files: string[] = [];
+      for (const [i, f] of (a.files ?? []).entries()) {
+        const path = posix.normalize(f.replaceAll("\\", "/"));
+        const top = path.split("/")[0];
+        if (
+          posix.isAbsolute(path) ||
+          /^[A-Za-z]:/.test(path) ||
+          top === "." ||
+          top === ".." ||
+          top === ".git"
+        ) {
+          return no(
+            `${at}.files.${i}`,
+            `"${f}" is not a file in the repo: give its path from the repo's root, like db/seeds/demo.rb`,
+          );
+        }
+        if (!files.includes(path)) files.push(path);
+      }
+      accounts.set(name, {
+        name,
+        about: a.about,
+        checkUrl,
+        signIn,
+        ...(a.files === undefined ? {} : { files }),
+      });
     }
     const defaultAccount = entry.default ?? null;
     if (defaultAccount !== null && !accounts.has(defaultAccount)) {

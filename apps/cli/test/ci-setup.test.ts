@@ -183,6 +183,8 @@ function fakes(
     detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
     /** `git rev-parse <ref>`'s answers; absent refs fail. */
     tips?: Record<string, string>;
+    /** Paths `git check-ignore` matches. */
+    ignored?: string[];
   } = {},
 ) {
   const calls: string[] = [];
@@ -216,6 +218,12 @@ function fakes(
         ? { code: 128, stdout: "", stderr: "fatal: path does not exist" }
         : { code: 0, stdout: text, stderr: "" };
     }
+    if (args[0] === "check-ignore")
+      return {
+        code: o.ignored?.includes(args.at(-1) as string) ? 0 : 1,
+        stdout: "",
+        stderr: "",
+      };
     return { code: 1, stdout: "", stderr: "unexpected" };
   };
   const deps: CiDeps = {
@@ -1359,6 +1367,136 @@ describe("planCiSetup's plan", () => {
     expect((await okPlan(await repo(), fakes())).files).not.toContain(
       ".demoman/accounts.json",
     );
+  });
+
+  // DEM-240: an account's seed and sign-in route, never committed, are not
+  // in the check's clean checkout, so the account does not exist there.
+  const withFiles = (files?: string[]) =>
+    JSON.stringify({
+      accountsVersion: 1,
+      sites: {
+        "http://localhost:3000": {
+          accounts: {
+            seller: {
+              about: "a seller",
+              checkUrl: "/",
+              signIn: [{ do: "goto", url: "/dev/sign-in-as/seller" }],
+              ...(files === undefined ? {} : { files }),
+            },
+          },
+        },
+      },
+    });
+  // Red if a listed file is not carried into the check and the pull
+  // request, or is carried when committed as is.
+  it("carries an account's listed files unless committed as is", async () => {
+    const root = await repo();
+    await writeFile(
+      join(root, ".demoman", "accounts.json"),
+      withFiles(["db/seeds/demo.rb"]),
+    );
+    await mkdir(join(root, "db", "seeds"), { recursive: true });
+    await writeFile(join(root, "db", "seeds", "demo.rb"), "seed!\n");
+    const f = fakes();
+    const p = await okPlan(root, f);
+    expect(p.files).toContain("db/seeds/demo.rb");
+    expect(f.seen.verify?.[0].files.map((x) => x.path)).toContain(
+      "db/seeds/demo.rb",
+    );
+    const committed = fakes({
+      head: {
+        "HEAD:db/seeds/demo.rb": "seed!\n",
+        "origin/trunk:db/seeds/demo.rb": "seed!\n",
+      },
+    });
+    expect((await okPlan(root, committed)).files).not.toContain(
+      "db/seeds/demo.rb",
+    );
+  });
+
+  // Red if a listed file that is missing, or that git ignores (it could
+  // hold a password), goes on without a stop naming the account and path.
+  it("stops on an account's listed file that is missing or ignored", async () => {
+    const root = await repo();
+    await writeFile(
+      join(root, ".demoman", "accounts.json"),
+      withFiles(["db/seeds/demo.rb"]),
+    );
+    const missing = await plan(root, fakes());
+    expect(missing).toMatchObject({
+      reason: "filesUnreadable",
+      detail: expect.stringContaining(
+        "account seller on http://localhost:3000 lists db/seeds/demo.rb in its files (.demoman/accounts.json), and it is not there",
+      ),
+    });
+    await mkdir(join(root, "db", "seeds"), { recursive: true });
+    await writeFile(join(root, "db", "seeds", "demo.rb"), "seed!\n");
+    const f = fakes({ ignored: ["db/seeds/demo.rb"] });
+    expect(await plan(root, f)).toMatchObject({
+      reason: "filesUnreadable",
+      detail: expect.stringContaining("git ignores it"),
+    });
+    expect(f.calls).not.toContain("verifySetup");
+  });
+
+  // Red if a check that fails signing in as an account with no files does
+  // not say the clean checkout may lack its seed or route.
+  it("says an account with no files may be missing its seed when the check fails on it", async () => {
+    const root = await repo();
+    await writeFile(join(root, ".demoman", "accounts.json"), withFiles());
+    const failed = (detail: string) =>
+      fakes({
+        verified: {
+          passed: false,
+          step: "refresh",
+          reason: "refreshFailed",
+          detail,
+          tail: "",
+        },
+      });
+    const hint = "the files that make account seller (a seed, a sign-in route)";
+    expect(
+      await plan(
+        root,
+        failed(
+          "signing in as seller on http://localhost:3000: its element never appeared",
+        ),
+      ),
+    ).toMatchObject({ detail: expect.stringContaining(hint) });
+    // The trial's own stop (account-files-trial.sh, 2026-11-24).
+    expect(
+      await plan(
+        root,
+        failed(
+          "signInFailed: the steps for seller ran, but http://localhost:3000/dashboard.html (checkUrl) still lands on http://localhost:3000/login.html: they did not sign in",
+        ),
+      ),
+    ).toMatchObject({ detail: expect.stringContaining(hint) });
+    expect(
+      await plan(
+        root,
+        failed(
+          "`bin/reset` exited with code 1; fix the reset command in .demoman/app.json",
+        ),
+      ),
+    ).toMatchObject({ detail: expect.stringContaining(hint) });
+    // Premise: another failure, another account whose name starts the same,
+    // or an account that lists its files, says nothing of them.
+    expect(await plan(root, failed("the page never loaded"))).not.toMatchObject(
+      { detail: expect.stringContaining(hint) },
+    );
+    expect(
+      await plan(root, failed("the steps for seller-2 ran, but …")),
+    ).not.toMatchObject({ detail: expect.stringContaining(hint) });
+    await writeFile(join(root, ".demoman", "accounts.json"), withFiles([]));
+    expect(
+      await plan(
+        root,
+        failed(
+          "signing in as seller on http://localhost:3000: its element never appeared",
+        ),
+      ),
+    ).not.toMatchObject({ detail: expect.stringContaining(hint) });
   });
 
   // Red when the secrets.env ignore line stays behind in the person's
