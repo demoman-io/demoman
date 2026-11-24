@@ -575,6 +575,64 @@ describe("RunReport", () => {
     expect(line.split("surfaceMismatch")).toHaveLength(2);
   });
 
+  // DEM-278: a visible window with its screen locked recorded no motion and
+  // read "Complete: the video matches every step", word for word like a run
+  // that moved. Red if such a run's line does not say it is stills only, or
+  // if a held run, one that names no clock (it stopped before its stage), a
+  // run that recorded motion, or one whose steps only paused, says it.
+  it("says a real-time run that acted and recorded no motion is stills only", () => {
+    const n = 2;
+    const script = scriptOf(n);
+    const report = buildRunReport({
+      ...NOT_CHECKED,
+      run: baseRun(),
+      walk: completeWalk(n),
+      steps: Array.from({ length: n }, (_, i) => authoredStep(i + 1)),
+      scene: sceneOf(n),
+      madeFrom: madeFromFor(script),
+    });
+    const real = { clock: "real" as const, why: "a visible window" };
+    const held = {
+      clock: "held" as const,
+      frameRate: 30 as const,
+      from: "default" as const,
+    };
+    const lineOf = (
+      spans: number,
+      recording: typeof real | typeof held | undefined,
+      steps = report.steps,
+    ) =>
+      verdictLine({
+        ...report,
+        steps,
+        run: { ...report.run, recording },
+        frames: { ...report.frames, spans },
+      });
+    // Premise: the steps act, and the run matched.
+    expect(report.verdict.kind).toBe("matches");
+    expect(report.steps.some((st) => st.intent.do !== "pause")).toBe(true);
+    const said = /no motion was recorded: the video is its stills only/;
+    const line = lineOf(0, real);
+    expect(line, line).toMatch(/^Complete: the video matches every step/);
+    expect(line, line).toContain("But not everything was kept:");
+    expect(line, line).toMatch(said);
+    expect(line, line).toContain("either the page did not move");
+    expect(line, line).toContain("a locked screen");
+    expect(lineOf(0, held)).not.toMatch(said);
+    expect(lineOf(0, undefined)).not.toMatch(said);
+    expect(lineOf(2, real)).not.toMatch(said);
+    expect(
+      lineOf(
+        0,
+        real,
+        report.steps.map((st) => ({
+          ...st,
+          intent: { do: "pause", ms: 100 } as typeof st.intent,
+        })),
+      ),
+    ).not.toMatch(said);
+  });
+
   // Red when a screen refresh cannot compare is said as frames lost: the
   // video is intact, and "not everything was kept" sent readers after
   // nothing (close review 4). The control beside it: a real loss in the same

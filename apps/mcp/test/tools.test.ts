@@ -8,6 +8,7 @@ import {
   type Outcome,
   RUN_TOOL_CAP_MS,
 } from "@demoman/agent-bridge";
+import { type RunReport, verdictLine } from "@demoman/run-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -1079,6 +1080,48 @@ describe("demoman-mcp's tools", () => {
       '  "summary": "Complete: the video matches every step.",',
     );
     expect(textOf(result)).toMatchObject({ outcome: "complete" });
+  });
+
+  // DEM-278: the run answer's summary is what the recipe has an agent hand
+  // the user word for word. A real-time run that acted and recorded no
+  // motion (a visible window with its screen locked) must say it there, on
+  // the line the folded view shows. That the executor's `summary` is
+  // run-core's `verdictLine(report)` is asserted in the runner's
+  // executor.test.ts ("The run page's own line"); this runs that function on
+  // such a report through the run tool. Red if the sentence is not in the
+  // summary's line.
+  it("says a stills-only real-time run in the summary the user is handed", async () => {
+    const report = {
+      run: {
+        id: "run-1",
+        script: { name: "Locked" },
+        recording: { clock: "real", why: "a visible window" },
+      },
+      outcome: "complete",
+      verdict: { kind: "matches" },
+      steps: [{ index: 0, intent: { do: "click" } }],
+      frames: {
+        spans: 0,
+        keyframes: 3,
+        degradations: [],
+        storageRefused: false,
+        shrunkSpans: 0,
+      },
+    } as unknown as RunReport;
+    const summary = verdictLine(report);
+    const { client } = await connect({
+      run: async () => ({ ok: true, value: { ...report, summary } }),
+    });
+    const result = await client.callTool({
+      name: "run",
+      arguments: { script: {} },
+    });
+    const line =
+      (result.content as Array<{ text: string }>)[0]?.text.split("\n")[1] ?? "";
+    expect(line, line).toContain('"summary": "Complete: the video matches');
+    expect(line, line).toContain(
+      "no motion was recorded: the video is its stills only",
+    );
   });
 
   // Red without the watch: report waits up to 40 s with nothing on screen.

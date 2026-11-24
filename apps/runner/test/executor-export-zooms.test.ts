@@ -243,8 +243,11 @@ describe("a 9:16 export of a take whose zooms do not all play as asked", () => {
 
       // Red if any of the four reaches the sentence: they are Demoman's own
       // framing calls, kept above for an agent that asks (author, 2026-10-20).
+      // This fixture's clicks change no pixel, and it records in real time,
+      // so the sentence also says the video is its stills only (DEM-278):
+      // the one clause it may carry.
       expect(answer.summary, said).toMatch(
-        /^Saved .*\(1080×1920, 60 fps, [\d.]+ [KM]B\)\.$/,
+        /^Saved .*\(1080×1920, 60 fps, [\d.]+ [KM]B\)(, but no motion was recorded: the video is its stills only \([^)]*\))?\.$/,
       );
     },
     VERTICAL_EXPORT_MS,
