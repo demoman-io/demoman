@@ -1,4 +1,5 @@
 // apps/studio/pages/src/platform/types.ts
+import type { KeepFootage } from "@demoman/run-core";
 import type { LogoLoad } from "@demoman/run-core/render";
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
@@ -7,6 +8,7 @@ import type {
   CiPlanBody,
   CiStarted,
   CiState,
+  ExpiryAnswer,
   ExportQualityChoice,
   LibraryViewChoice,
   PullRequestsChoice,
@@ -134,6 +136,19 @@ export interface Platform {
     write(
       folder: string | null,
     ): Promise<{ saved: string | null; replaced?: string }>;
+  };
+  /**
+   * How long old footage is kept (DEM-179). With `unreadable` the value is
+   * null (expiry removes nothing until it reads) and the page says why.
+   */
+  keepFootage: {
+    read(): Promise<{ value: KeepFootage | null; unreadable?: string }>;
+    /** `replaced` as for `pullRequests.write`. */
+    write(value: KeepFootage): Promise<{ replaced?: string }>;
+  };
+  /** What expiry last removed, and when it last ran (DEM-179). */
+  expiry: {
+    read(): Promise<ExpiryAnswer>;
   };
   /**
    * The Library's layout and sort, kept by the studio in settings.json. With

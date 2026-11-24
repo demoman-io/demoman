@@ -157,6 +157,13 @@ vi.mock("#platform", async (importOriginal) => {
       }),
       write: async () => ({ saved: null }),
     },
+    keepFootage: {
+      read: async () => ({ value: "30d" as const }),
+      write: async () => ({}),
+    },
+    expiry: {
+      read: async () => ({ lastRanAt: null, lastRemoval: null }),
+    },
     libraryView: {
       read: async () => ({ view: DEFAULT_LIBRARY_VIEW }),
       write: async () => ({}),

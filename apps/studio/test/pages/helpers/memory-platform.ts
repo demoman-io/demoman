@@ -349,6 +349,18 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
         saved: null,
       })),
     },
+    keepFootage: {
+      read: member("keepFootage", "read", async () => ({
+        value: "30d" as const,
+      })),
+      write: member("keepFootage", "write", async () => ({})),
+    },
+    expiry: {
+      read: member("expiry", "read", async () => ({
+        lastRanAt: null,
+        lastRemoval: null,
+      })),
+    },
     libraryView: {
       read: member("libraryView", "read", async () => ({
         view: seed.libraryView ?? DEFAULT_LIBRARY_VIEW,

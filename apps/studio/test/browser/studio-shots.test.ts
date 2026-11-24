@@ -4961,6 +4961,174 @@ describe("the Studio's screenshot set", () => {
   // inside it; the home is then made read-only, so the studio's own write
   // is what refuses. Two shots, Details closed and open, each asserted on its paint,
   // then the button is pressed and has to open the take.
+  // DEM-179, the author's placement 1: the Storage figure opens a small
+  // panel with Keep footage and what the last cleanup removed (variant A).
+  it.runIf(process.platform === "darwin")(
+    "shoots the Storage panel: Keep footage and the videos the last cleanup removed, closed and opened, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-footage-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home);
+      await mkdir(SHOTS, { recursive: true });
+      // A cleanup that ran a minute ago (so the Studio's own start skips
+      // it) and once removed eight videos' footage.
+      const ranAt = new Date(Date.now() - 60_000).toISOString();
+      const names = [
+        "Checkout with a saved card",
+        "Invite a teammate",
+        "Onboarding tour",
+        "Export a monthly report",
+        "Search invoices",
+        "Connect Stripe",
+        "Dark mode toggle",
+        "Archive a project",
+      ];
+      const videos = names.map((name, i) => ({
+        videoId: `v${i}`,
+        name,
+        takeId: `t${i}`,
+        recordedAt: new Date(Date.UTC(2026, 9, 12 - i)).toISOString(),
+        bytes: (612 - i * 60) * 1_000_000,
+      }));
+      await mkdir(join(home, "videos"), { recursive: true });
+      await writeFile(
+        join(home, "videos", ".expiry.json"),
+        JSON.stringify({
+          lastRanAt: ranAt,
+          result: {
+            ranAt,
+            keepFootage: "30d",
+            expired: 0,
+            freedBytes: 0,
+            skippedLeased: 0,
+            skippedUnreadable: [],
+            removed: [],
+          },
+          lastRemoval: {
+            at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+            videos,
+            more: 0,
+            bytes: videos.reduce((n, v) => n + v.bytes, 0),
+          },
+        }),
+      );
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, opened.text).toBe(200);
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      await sizeWindow(context, page, 1440, 900);
+      await openPage(page, studio, "library", editorTake, new Set());
+
+      await page.locator("[data-library-total]").click();
+      const panel = page.locator("[data-footage-panel]");
+      await panel.locator("[data-removed-list] li").first().waitFor();
+      // The chevron turns as it opens: shot once nothing is moving.
+      await page.waitForFunction(() =>
+        document.getAnimations().every((a) => a.playState !== "running"),
+      );
+      const painted = async () =>
+        page.evaluate(() => {
+          const p = document.querySelector("[data-footage-panel]");
+          if (p === null) return null;
+          const r = p.getBoundingClientRect();
+          return {
+            open: p.matches(":popover-open"),
+            onScreen:
+              r.width > 200 &&
+              r.top >= 0 &&
+              r.bottom <= window.innerHeight &&
+              r.right <= window.innerWidth,
+            used: p.querySelector("[data-footage-used]")?.textContent,
+            checked: [...p.querySelectorAll("[data-keep-footage]")]
+              .filter((b) => b.getAttribute("aria-checked") === "true")
+              .map((b) => b.textContent),
+            hint: p.querySelector("[data-keep-hint]")?.textContent,
+            rows: [...p.querySelectorAll("[data-removed-list] li .name")].map(
+              (n) => n.textContent,
+            ),
+            more: p.querySelector("[data-removed-more]")?.textContent,
+          };
+        });
+      const closed = await painted();
+      expect(
+        closed,
+        `the Storage panel: ${JSON.stringify(closed)}`,
+      ).toMatchObject({
+        open: true,
+        onScreen: true,
+        used: expect.stringMatching(/ of videos in the library$/),
+        checked: ["30 days"],
+        hint: expect.stringContaining("removed after this"),
+        rows: names.slice(0, 3),
+        more: "and 5 more",
+      });
+      const first = join(SHOTS, "library-storage-panel-1440x900-dark.png");
+      await page.screenshot({ path: first });
+
+      await panel.locator("[data-removed-more]").click();
+      const opened8 = await painted();
+      expect(opened8?.rows, JSON.stringify(opened8)).toEqual(names);
+      expect(opened8?.more).toBe("Show fewer");
+      expect(opened8?.onScreen, JSON.stringify(opened8)).toBe(true);
+      const second = join(
+        SHOTS,
+        "library-storage-panel-opened-1440x900-dark.png",
+      );
+      await page.screenshot({ path: second });
+
+      // Forever: the help line says nothing is removed (the author's rule).
+      await panel.locator('[data-keep-footage="forever"]').click();
+      await expect
+        .poll(async () => (await painted())?.checked)
+        .toEqual(["Forever"]);
+      const forever = await painted();
+      expect(forever?.hint, JSON.stringify(forever)).not.toMatch(/removed/i);
+      const kept = await api(studio, "/api/settings/keep-footage");
+      expect(kept.json()).toEqual({ keepFootage: "forever" });
+      await page.screenshot({
+        path: join(SHOTS, "library-storage-panel-forever-1440x900-dark.png"),
+      });
+
+      // Review of DEM-179: the last cleanup ran under Forever and removed
+      // nothing; picking 30 days must not say a 30-day check found nothing.
+      await writeFile(
+        join(home, "videos", ".expiry.json"),
+        JSON.stringify({
+          lastRanAt: ranAt,
+          result: {
+            ranAt,
+            keepFootage: "forever",
+            expired: 0,
+            freedBytes: 0,
+            skippedLeased: 0,
+            skippedUnreadable: [],
+            removed: [],
+          },
+        }),
+      );
+      await panel.locator('[data-keep-footage="30d"]').click();
+      const notChecked = panel.locator("[data-removed-empty]");
+      await notChecked.waitFor({ timeout: PAINT_MS });
+      expect(await notChecked.innerText()).toBe(
+        "Not checked at 30 days yet: the next cleanup runs when a recording starts or the Studio opens.",
+      );
+      await page.screenshot({
+        path: join(
+          SHOTS,
+          "library-storage-panel-not-checked-1440x900-dark.png",
+        ),
+      });
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+    },
+    120_000,
+  );
+
   it(
     "shoots Settings offering a take it did not open because a kit save failed",
     async () => {

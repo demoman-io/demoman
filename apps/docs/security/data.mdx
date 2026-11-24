@@ -30,14 +30,14 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 
 | Where | What |
 | --- | --- |
-| `~/.demoman/takes/` | Each video: its steps, including the text typed and how each target looked, the run's report, the video frames, your Studio edits, preview images and a list of its exports. Its frames and preview images are removed after 30 days (see below); the rest is kept until you delete it in the Studio or by hand. |
+| `~/.demoman/takes/` | Each video: its steps, including the text typed and how each target looked, the run's report, the video frames, your Studio edits, preview images and a list of its exports. Its frames and preview images are removed after 30 days unless you keep them longer (see below); the rest is kept until you delete it in the Studio or by hand. |
 | `~/.demoman/takes/<id>/video.json` | Which flow the video is in, and who made it: your OS user name, the repo's folder, `origin` remote URL (without any password or token in it), branch and commit, and your agent's name. Also when its footage was removed, and how many bytes that freed. |
 | `~/.demoman/videos/` | One file per flow: its id, name, repo and start page. `.expiry.json` holds the last cleanup's result; `.lock` exists only while a flow is made, renamed or given a video, or videos are being grouped into flows; it holds a file naming the process that holds it. |
 | `~/.demoman/sessions/` | A saved sign-in per site: cookies and the page's stored data, readable by you only. Demoman refuses a file other users can read. |
 | `~/.demoman/update-check.json` | When npm was last asked about a newer version, and its answer. |
 | `~/.demoman/kits.json` | Your brand kits, saved by the Studio. A reset keeps the old file beside it first. |
 | `~/.demoman/assets/` | Logos you add to a brand kit. |
-| `~/.demoman/settings.json` | The Studio's settings: theme, export quality and the pull-request video setting. |
+| `~/.demoman/settings.json` | The Studio's settings: theme, export quality, the pull-request video setting and how long footage is kept. |
 | `~/.demoman/studio.json` | While the Studio runs: its port and the secret its pages use, readable by you only. Removed when it stops. `~/.demoman/studio.start.lock` exists only while the Studio starts. |
 | `~/.demoman/studio.log` | The Studio's log. The one before it is kept as `~/.demoman/studio.log.1`. |
 | `~/.demoman/profiles/studio` | The Studio window's own browser profile, kept between starts. It opens only the Studio's pages, and no saved sign-in is loaded into it. |
@@ -47,7 +47,7 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 
 Each video is what one run of a flow records. A run also stores its repo's commit in the video.
 
-Old videos' footage is removed on its own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each video over 30 days old. It keeps a flow's current video, any video you edited in the Studio, the video your newest export was made from, and any video that could not be recorded again. The video's steps, report and list of exports stay, and your exported files are never touched. A video whose footage was removed can be recorded again from its flow. `status` says what the last cleanup did.
+Old videos' footage is removed on its own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each video older than your Keep footage setting: 30 days, 90 days or Forever, 30 days unless you change it. Forever removes nothing, and so does a setting Demoman cannot read, which `status` then names. It keeps a flow's current video, any video you edited in the Studio, the video your newest export was made from, and any video that could not be recorded again. The video's steps, report and list of exports stay, and your exported files are never touched. A video whose footage was removed can be recorded again from its flow. `status` says what the last cleanup did, and names each video whose footage it removed.
 
 Every MP4, GIF and PNG Demoman exports carries its flow's id and its video's id inside the file. Anyone you send the file to can read them; they name nothing else. Your agent uses them to find the flow a file came from.
 

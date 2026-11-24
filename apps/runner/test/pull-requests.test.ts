@@ -179,12 +179,14 @@ describe("readUserSettings", () => {
       exportQuality: "high",
       pullRequests: null,
       exportFolder: null,
+      keepFootage: "30d",
     });
     await writeFile(userFile(home), JSON.stringify({ theme: "dark" }));
     expect(await readUserSettings(home)).toEqual({
       exportQuality: "high",
       pullRequests: null,
       exportFolder: null,
+      keepFootage: "30d",
     });
   });
   it.each(["[]", "null", "5", '"x"'])(

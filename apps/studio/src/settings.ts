@@ -3,7 +3,9 @@ import { join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
   isExportQuality,
+  isKeepFootage,
   isPullRequestsValue,
+  KEEP_FOOTAGE_VALUES,
 } from "@demoman/run-core";
 import { isExportFolder, takePidLock } from "@demoman/runner/studio";
 import {
@@ -28,6 +30,7 @@ export type SettingKey =
   | "pullRequests"
   | "exportQuality"
   | "exportFolder"
+  | "keepFootage"
   | "libraryView";
 
 export const settingsPath = (home: string): string =>
@@ -84,6 +87,12 @@ async function writeSettingNow(
       detail: `${JSON.stringify(value)} is not a folder's full path — give one that starts with / or ~/.`,
     };
   }
+  if (key === "keepFootage" && !isKeepFootage(value)) {
+    return {
+      reason: "keepFootageInvalid",
+      detail: `"${String(value)}" is not a choice — choose ${KEEP_FOOTAGE_VALUES.join(", ")}.`,
+    };
+  }
   if (key === "libraryView" && !isLibraryViewChoice(value)) {
     return {
       reason: "libraryViewInvalid",
@@ -96,9 +105,11 @@ async function writeSettingNow(
       ? "The Export quality setting"
       : key === "exportFolder"
         ? "The Export folder setting"
-        : key === "libraryView"
-          ? "The Library view setting"
-          : "The Pull requests setting";
+        : key === "keepFootage"
+          ? "The Keep footage setting"
+          : key === "libraryView"
+            ? "The Library view setting"
+            : "The Pull requests setting";
   // Across processes too (DEM-87): setup saving pullRequests beside a Studio
   // saving libraryView each kept the file it read, dropping the other's key.
   const lock = `${path}.lock`;

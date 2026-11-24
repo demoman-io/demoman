@@ -802,6 +802,28 @@ const lengths = createLengthCache();
 const lengthWaits: (() => void)[] = [];
 
 const actions: LibraryActions = {
+  /** The Storage panel (DEM-179): read when it opens, so a cleanup that ran
+   *  since is shown. Each read's failure is the panel's to say. */
+  footage: {
+    async read() {
+      const [keep, expiry] = await Promise.all([
+        platform.keepFootage.read(),
+        platform.expiry.read(),
+      ]);
+      return {
+        keep: keep.value,
+        ...(keep.unreadable === undefined
+          ? {}
+          : { keepUnreadable: keep.unreadable }),
+        expiry,
+      };
+    },
+    async setKeep(value) {
+      const done = await platform.keepFootage.write(value);
+      // A settings file that was not JSON was replaced: said on the page.
+      if (done.replaced !== undefined) say(done.replaced, "warn");
+    },
+  },
   /** Kept for this session at once; a write that fails or replaced the
    *  settings file is said, and the view stays as chosen. */
   setView: (next) => {

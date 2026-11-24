@@ -1289,6 +1289,93 @@ describe("exportFolder", () => {
   });
 });
 
+// DEM-179: how long footage is kept, and what expiry last removed.
+describe("keepFootage and expiry", () => {
+  it("reads 30 days when unset, saves a choice keeping other keys, refuses others", async () => {
+    expect((await h.call(pathFor("keepFootageGet"))).json()).toEqual({
+      keepFootage: "30d",
+    });
+    await writeFile(join(home, "settings.json"), '{"exportQuality":"full"}');
+    const r = await h.call(pathFor("keepFootagePut"), {
+      method: "PUT",
+      body: JSON.stringify({ keepFootage: "forever" }),
+    });
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({ keepFootage: "forever" });
+    expect(
+      JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
+    ).toEqual({ exportQuality: "full", keepFootage: "forever" });
+    const bad = await h.call(pathFor("keepFootagePut"), {
+      method: "PUT",
+      body: JSON.stringify({ keepFootage: "always" }),
+    });
+    expect(bad.status).toBe(400);
+    expect((bad.json() as { reason: string }).reason).toBe(
+      "keepFootageInvalid",
+    );
+  });
+
+  // Red if a stored value it cannot use reads as 30 days with no word.
+  it("a stored value it cannot use reads null and says why", async () => {
+    await writeFile(join(home, "settings.json"), '{"keepFootage":"always"}');
+    const body = (await h.call(pathFor("keepFootageGet"))).json() as {
+      keepFootage: unknown;
+      unreadable: string;
+    };
+    expect(body.keepFootage).toBeNull();
+    expect(body.unreadable).toContain("keepFootage must be 30d, 90d, forever");
+  });
+
+  // Red if what expiry removed, or why it failed, never reaches the page.
+  it("answers what the last removal named, and a failure as a problem", async () => {
+    expect((await h.call(pathFor("expiryGet"))).json()).toEqual({
+      lastRanAt: null,
+      lastRemoval: null,
+    });
+    const removed = {
+      videoId: "v1",
+      name: "Checkout",
+      takeId: "t1",
+      recordedAt: "2026-10-12T00:00:00.000Z",
+      bytes: 612,
+    };
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(
+      join(home, "videos", ".expiry.json"),
+      JSON.stringify({
+        lastRanAt: "2026-11-23T10:00:00.000Z",
+        result: {
+          ranAt: "2026-11-23T10:00:00.000Z",
+          failed: "could not remove x",
+        },
+        lastRemoval: {
+          at: "2026-11-23T08:00:00.000Z",
+          videos: [removed],
+          more: 2,
+          bytes: 900,
+        },
+      }),
+    );
+    expect((await h.call(pathFor("expiryGet"))).json()).toEqual({
+      lastRanAt: "2026-11-23T10:00:00.000Z",
+      lastRemoval: {
+        at: "2026-11-23T08:00:00.000Z",
+        videos: [
+          {
+            videoId: "v1",
+            name: "Checkout",
+            recordedAt: "2026-10-12T00:00:00.000Z",
+            bytes: 612,
+          },
+        ],
+        more: 2,
+        bytes: 900,
+      },
+      problem: "could not remove x",
+    });
+  });
+});
+
 describe("reveal", () => {
   it("a path an outputs.json lists is shown", async () => {
     const file = join(home, "out.mp4");

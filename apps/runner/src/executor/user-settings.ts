@@ -3,10 +3,14 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
+  DEFAULT_KEEP_FOOTAGE,
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
   isExportQuality,
+  isKeepFootage,
   isPullRequestsValue,
+  KEEP_FOOTAGE_VALUES,
+  type KeepFootage,
   type PullRequestsValue,
 } from "@demoman/run-core";
 import { messageOf } from "../report.js";
@@ -24,6 +28,11 @@ export interface UserSettings {
    *  something unusable (then `problems.exportFolder` says why). Where an
    *  export lands is `exportFolderOf`'s answer. */
   exportFolder?: string | null;
+  /** How long old footage is kept (DEM-179). `DEFAULT_KEEP_FOOTAGE` when not
+   *  set; null when set to something unusable or the file will not read
+   *  (then `problems.keepFootage` says why), so expiry removes nothing on a
+   *  choice it cannot read. */
+  keepFootage?: KeepFootage | null;
   /** Why the file or a value could not be used, one sentence per key that
    *  could not. Absent when all is well. A file that will not read or parse
    *  names both keys. */
@@ -31,6 +40,7 @@ export interface UserSettings {
     exportQuality?: string;
     pullRequests?: string;
     exportFolder?: string;
+    keepFootage?: string;
   };
   /** Every sentence of `problems` in one, for a log. Absent when all is well. */
   unreadable?: string;
@@ -43,13 +53,15 @@ const settingsWith = (
   settings: Pick<
     UserSettings,
     "exportQuality" | "pullRequests" | "exportFolder"
-  >,
+  > &
+    Partial<Pick<UserSettings, "keepFootage">>,
   problems: NonNullable<UserSettings["problems"]>,
 ): UserSettings => {
   const said = [
     problems.exportQuality,
     problems.pullRequests,
     problems.exportFolder,
+    problems.keepFootage,
   ].filter((p): p is string => p !== undefined);
   if (said.length === 0) return settings;
   return { ...settings, problems, unreadable: [...new Set(said)].join("; ") };
@@ -68,6 +80,7 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
     exportQuality: DEFAULT_EXPORT_QUALITY,
     pullRequests: null,
     exportFolder: null,
+    keepFootage: DEFAULT_KEEP_FOOTAGE,
   } as const;
   let text: string;
   try {
@@ -76,11 +89,15 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults;
     const said = `${path} could not be read (${messageOf(error)})`;
     return {
-      ...settingsWith(defaults, {
-        exportQuality: said,
-        pullRequests: said,
-        exportFolder: said,
-      }),
+      ...settingsWith(
+        { ...defaults, keepFootage: null },
+        {
+          exportQuality: said,
+          pullRequests: said,
+          exportFolder: said,
+          keepFootage: said,
+        },
+      ),
       fileUnreadable: said,
     };
   }
@@ -89,11 +106,15 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   if ("unreadable" in raw) {
     // Not a JSON object at all: neither key is readable.
     return {
-      ...settingsWith(defaults, {
-        exportQuality: raw.unreadable,
-        pullRequests: raw.unreadable,
-        exportFolder: raw.unreadable,
-      }),
+      ...settingsWith(
+        { ...defaults, keepFootage: null },
+        {
+          exportQuality: raw.unreadable,
+          pullRequests: raw.unreadable,
+          exportFolder: raw.unreadable,
+          keepFootage: raw.unreadable,
+        },
+      ),
       fileUnreadable: raw.unreadable,
     };
   }
@@ -105,6 +126,8 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   // null is the Studio's "back to the default".
   const folderBad =
     folder !== undefined && folder !== null && !isExportFolder(folder);
+  const keep = raw.object.keepFootage;
+  const keepBad = keep !== undefined && !isKeepFootage(keep);
   return settingsWith(
     {
       exportQuality: isExportQuality(quality)
@@ -112,6 +135,11 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
         : DEFAULT_EXPORT_QUALITY,
       pullRequests: "unreadable" in pr ? null : pr.value,
       exportFolder: isExportFolder(folder) ? folder : null,
+      keepFootage: keepBad
+        ? null
+        : isKeepFootage(keep)
+          ? keep
+          : DEFAULT_KEEP_FOOTAGE,
     },
     {
       ...(qualityBad
@@ -123,6 +151,11 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
       ...(folderBad
         ? {
             exportFolder: `${path}: exportFolder must be an absolute path; got ${JSON.stringify(folder)}`,
+          }
+        : {}),
+      ...(keepBad
+        ? {
+            keepFootage: `${path}: keepFootage must be ${KEEP_FOOTAGE_VALUES.join(", ")}; got ${JSON.stringify(keep)}`,
           }
         : {}),
     },
