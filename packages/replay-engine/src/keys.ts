@@ -230,7 +230,7 @@ const MODIFIER_KEYS: Record<
   Alt: { key: "Alt", code: "AltLeft", vk: 18, bit: 1 },
 };
 
-const maskOf = (modifiers: readonly Modifier[]): number =>
+export const maskOf = (modifiers: readonly Modifier[]): number =>
   modifiers.reduce((mask, m) => mask | MODIFIER_KEYS[m].bit, 0);
 
 function modifierEvent(
@@ -271,22 +271,25 @@ export async function pressCombo(
   key: string,
 ): Promise<void> {
   const release = await holdModifiers(cdp, modifiers);
-  const { text, ...event } = keyEventOf(key, modifiers.includes("Shift"));
-  const mask = maskOf(modifiers);
-  // A chord is not typing: only no modifier, or Shift alone, prints.
-  const typed = mask === 0 || mask === 8 ? text : undefined;
-  const commands = macCommands(modifiers, event.code);
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: typed === undefined ? "rawKeyDown" : "keyDown",
-    ...event,
-    modifiers: mask,
-    ...(typed === undefined ? {} : { text: typed }),
-    ...(commands === undefined ? {} : { commands }),
-  });
-  await cdp.send("Input.dispatchKeyEvent", {
-    type: "keyUp",
-    ...event,
-    modifiers: mask,
-  });
-  await release();
+  try {
+    const { text, ...event } = keyEventOf(key, modifiers.includes("Shift"));
+    const mask = maskOf(modifiers);
+    // A chord is not typing: only no modifier, or Shift alone, prints.
+    const typed = mask === 0 || mask === 8 ? text : undefined;
+    const commands = macCommands(modifiers, event.code);
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: typed === undefined ? "rawKeyDown" : "keyDown",
+      ...event,
+      modifiers: mask,
+      ...(typed === undefined ? {} : { text: typed }),
+      ...(commands === undefined ? {} : { commands }),
+    });
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      ...event,
+      modifiers: mask,
+    });
+  } finally {
+    await release();
+  }
 }

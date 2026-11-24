@@ -129,6 +129,31 @@ describe("pressCombo", () => {
   });
 });
 
+describe("a dispatch that throws", () => {
+  it("still lifts the modifiers pressCombo put down", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const cdp = {
+      send: async (_method: string, params?: Record<string, unknown>) => {
+        calls.push(params ?? {});
+        // The modifiers' own events go through; the key's does not.
+        if (params?.code === "KeyK") throw new Error("session gone");
+        return {};
+      },
+    } as unknown as CdpSession;
+    await expect(pressCombo(cdp, ["Mod", "Shift"], "K")).rejects.toThrow(
+      "session gone",
+    );
+    // Premise: both modifiers went down before the throw.
+    expect(
+      calls.filter((c) => c.type === "rawKeyDown").map((c) => c.key),
+    ).toEqual(["Meta", "Shift", "K"]);
+    expect(calls.filter((c) => c.type === "keyUp").map((c) => c.key)).toEqual([
+      "Shift",
+      "Meta",
+    ]);
+  });
+});
+
 describe("keyEventOf", () => {
   it.each([
     ["5", "Digit5", 53],

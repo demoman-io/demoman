@@ -113,7 +113,7 @@ import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
 import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
-import { pressCombo } from "./keys.js";
+import { holdModifiers, maskOf, pressCombo } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import { createNetworkWatch, type NetworkWatch } from "./network-watch.js";
 import type { OcclusionGuard } from "./occlusion.js";
@@ -4674,10 +4674,20 @@ async function performVerb(
     return readClickProbe(cdp, probe, cursor, sightings);
   };
   const dispatchClick = async (): Promise<void> => {
+    // Only a `click` action carries these; a `type`'s focusing click is plain.
+    const how = action.kind === "click" ? action : null;
+    const modifiers = how?.modifiers ?? [];
+    const right = how?.button === "right";
+    const presses = how?.clicks ?? 1;
     if (touch) {
       // A phone has no mouse: a tap is what fires its touch handlers, and
       // Chrome synthesises the click from it as a real phone does (spec
-      // 2026-10-10 §3). The same point the mouse path aims at.
+      // 2026-10-10 §3). The same point the mouse path aims at. A tap cannot be
+      // a right, double or held click: said, never tapped once in silence.
+      if (right || presses !== 1 || modifiers.length > 0)
+        throw new Error(
+          "unperformableStep: a touch device cannot right-click, multi-click or hold a key",
+        );
       const point = {
         x: cursor.x,
         y: cursor.y,
@@ -4696,14 +4706,22 @@ async function performVerb(
       });
       return;
     }
-    for (const type of ["mousePressed", "mouseReleased"]) {
-      await cdp.send("Input.dispatchMouseEvent", {
-        type,
-        x: cursor.x,
-        y: cursor.y,
-        button: "left",
-        clickCount: 1,
-      });
+    const release = await holdModifiers(cdp, modifiers);
+    try {
+      for (let clickCount = 1; clickCount <= presses; clickCount++) {
+        for (const type of ["mousePressed", "mouseReleased"]) {
+          await cdp.send("Input.dispatchMouseEvent", {
+            type,
+            x: cursor.x,
+            y: cursor.y,
+            button: right ? "right" : "left",
+            clickCount,
+            modifiers: maskOf(modifiers),
+          });
+        }
+      }
+    } finally {
+      await release();
     }
   };
 

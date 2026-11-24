@@ -766,21 +766,52 @@ describe("the authored source and its assembler", () => {
     expect(driven.walk.completed).toBe(1);
   });
 
-  // Until Tasks 2 and 3 of the DEM-154/155 plan perform them, a step the door
-  // accepts but nothing performs must stop the run, not record a plain click.
   it.each([
+    ["right", { button: "right" }, { button: "right" }],
+    ["a double click", { clicks: 2 }, { clicks: 2 }],
+    ["a triple click", { clicks: 3 }, { clicks: 3 }],
+    [
+      "holding Shift+Mod",
+      { holding: "Mod+Shift" },
+      { modifiers: ["Shift", "Mod"] },
+    ],
+  ])(
+    "performs a click with %s and records it",
+    async (_name, extra, recorded) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive(script([loose]));
+      expect(driven.run.stop()).toBeNull();
+      expect(driven.run.actions[0]).toMatchObject({
+        kind: "click",
+        ...recorded,
+      });
+    },
+  );
+
+  it.each([
+    ["right", { button: "right" }],
     ["clicks", { clicks: 2 }],
     ["holding", { holding: "Shift" }],
-  ])("stops on a click carrying %s", async (_name, extra) => {
-    const loose = {
-      do: "click",
-      on: { role: "button", name: "Row" },
-      ...extra,
-    } as unknown as ScriptStep;
-    const driven = await drive(script([loose]));
-    expect(driven.run.stop()).toBe("unperformableStep");
-    expect(driven.run.actions).toHaveLength(0);
-  });
+  ])(
+    "stops on a touch click carrying %s instead of tapping once",
+    async (_name, extra) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive({
+        ...script([loose]),
+        device: "phone",
+      } as DemoScript);
+      expect(driven.run.stop()).toBe("unperformableStep");
+      expect(driven.run.actions).toHaveLength(0);
+    },
+  );
 
   it.each([
     ["Mod+K", "K", ["Mod"]],
@@ -1157,7 +1188,7 @@ describe("the authored source and its assembler", () => {
     const looseClick = {
       do: "click",
       on: { role: "button", name: "Row" },
-      button: "right",
+      button: "middle",
     } as unknown as ScriptStep;
     const authored = script([
       { do: "click", on: { role: "button", name: "Row" } },
