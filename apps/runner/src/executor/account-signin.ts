@@ -555,7 +555,8 @@ export async function signInAccount(
             lastLook = Date.now();
             const facts = await readLandingFacts(page, page.url()).catch(
               (error: unknown) => {
-                lastSeen = `the page could not be read (${messageOf(error)})`;
+                // Playwright's errors can name the page's address, token and all.
+                lastSeen = `the page could not be read (${messageOf(error).replace(/https?:\/\/\S+/g, (u) => scrubUrl(u))})`;
                 return null;
               },
             );

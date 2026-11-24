@@ -441,7 +441,14 @@ async function steadyBox(page: Page, selector: string): Promise<Box> {
       if (box === null || box.width === 0) {
         throw new Error(`${selector}'s box is ${JSON.stringify(box)}`);
       }
-      if (JSON.stringify(box) !== JSON.stringify(before)) {
+      // Within half a pixel: layout reports fractions that can differ in
+      // the last digits between two reads of an unmoved box.
+      const same =
+        before !== null &&
+        (["x", "y", "width", "height"] as const).every(
+          (k) => Math.abs(box[k] - before[k]) <= 0.5,
+        );
+      if (!same) {
         throw new Error(
           `${selector}'s box moved: ${JSON.stringify(before)} then ${JSON.stringify(box)}`,
         );
@@ -5148,6 +5155,15 @@ describe("the Studio's screenshot set", () => {
             dpr: devicePixelRatio,
             hoverNone: matchMedia("(hover: none)").matches,
             coarse: matchMedia("(pointer: coarse)").matches,
+            // Evidence only (DEM-247): on a starved macOS runner the editor
+            // once read hover and a fine pointer at the phone's size. These
+            // say whether touch emulation itself was lost on that page or
+            // only the media features, and which page it was.
+            touchPoints: navigator.maxTouchPoints,
+            anyHoverNone: matchMedia("(any-hover: none)").matches,
+            ontouchstart: "ontouchstart" in window,
+            visibility: document.visibilityState,
+            url: location.pathname + location.search,
             dark: matchMedia("(prefers-color-scheme: dark)").matches,
             theme: document.documentElement.dataset.theme ?? null,
             scheme: getComputedStyle(document.documentElement).colorScheme,

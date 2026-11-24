@@ -50,6 +50,50 @@ describe("pairSeams", () => {
     ]);
   });
 
+  // Red: fold by length alone (`< frameMs`). 1349.9 to 1362.4 is under a
+  // frame long but holds the frame at 1350, which the film shows still.
+  it("keeps a short idle that a frame of the film falls inside", () => {
+    const { runs } = pairSeams(
+      [
+        seg(1000, 1300, "idle"),
+        seg(1300, 1349.9, "motion"),
+        seg(1349.9, 1362.4, "idle"),
+        seg(1362.4, 1800, "motion"),
+        seg(1800, 2000, "idle"),
+      ],
+      1000,
+      2000,
+      FRAME_MS,
+    );
+    // Premise: the frame at 1350 ms (the 81st) falls inside the idle.
+    expect(81 * FRAME_MS).toBeGreaterThan(1349.9);
+    expect(81 * FRAME_MS).toBeLessThan(1362.4);
+    expect(runs.map((r) => r.kind)).toEqual([
+      "still",
+      "motion",
+      "still",
+      "motion",
+      "still",
+    ]);
+  });
+
+  // Red: drop the clip to the pair. An idle from 1000 to 1300 has only 185
+  // ms inside a pair that starts at 1115; counted whole, its room and its
+  // 100 ms reference would reach into the step before.
+  it("measures a run only inside the pair", () => {
+    const { runs } = pairSeams(
+      [seg(1000, 1300, "idle"), seg(1300, 1800, "motion")],
+      1115,
+      2000,
+      FRAME_MS,
+    );
+    expect(runs[0]).toEqual({
+      outStartMs: 1115,
+      outEndMs: 1300,
+      kind: "still",
+    });
+  });
+
   // macOS, PR #87 (job 135131814001): step 1's pair, 1062 to 1994. The
   // arrive the plan made 300 ms was filmed 114 ms, too short for the 100 ms
   // reference, so its seam does not count. That is the product's (DEM-273),

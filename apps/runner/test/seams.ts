@@ -22,18 +22,24 @@ export function pairSeams(
     if (g.outStartMs >= pairEnd) break;
     const kind = g.kind === "motion" ? "motion" : "still";
     const last = runs.at(-1);
-    if (last?.kind === kind) last.outEndMs = g.outEndMs;
-    else runs.push({ outStartMs: g.outStartMs, outEndMs: g.outEndMs, kind });
+    // Clipped to the pair: room outside it is another step's.
+    const outStartMs = Math.max(g.outStartMs, pairStart);
+    const outEndMs = Math.min(g.outEndMs, pairEnd);
+    if (last?.kind === kind) last.outEndMs = outEndMs;
+    else runs.push({ outStartMs, outEndMs, kind });
   }
-  // An idle shorter than a frame between two motion runs holds no frame of
-  // its own: the film moves straight through it. On ubuntu the journey
-  // opened with a 5 ms pointer sample, 12.5 ms of idle, then the rest of it,
-  // and neither seam that made qualified (DEM-190).
+  // An idle between two motion runs that no frame of the film falls inside
+  // shows nothing still: the film moves straight through it. On ubuntu the
+  // journey opened with a 5 ms pointer sample, 12.5 ms of idle, then the
+  // rest of it, and neither seam that made qualified (DEM-190). An idle that
+  // holds a frame tick, however short, stays an idle.
+  const holdsNoFrame = (g: Run) =>
+    Math.ceil(g.outStartMs / frameMs) * frameMs >= g.outEndMs;
   for (let i = 1; i + 1 < runs.length; ) {
     const [before, g, after] = runs.slice(i - 1, i + 2) as [Run, Run, Run];
     if (
       g.kind === "still" &&
-      g.outEndMs - g.outStartMs < frameMs &&
+      holdsNoFrame(g) &&
       before.kind === "motion" &&
       after.kind === "motion"
     ) {
