@@ -718,7 +718,9 @@ function authoredRegions(
  * Each beat is two stretches, split where the cursor set off for its step
  * (`approachSourceTimeMs`): from the step before's act end (its marker when
  * it has none, source 0 for the opening) to there plays `restMs`, from there
- * to the step `arriveMs`. A step whose approach scrolled
+ * to the step `arriveMs`, counted from where the cursor's travel began: idle
+ * between the approach and that is the machine's latency, and plays for 0
+ * (DEM-273). A step whose approach scrolled
  * (`scrollEndSourceTimeMs` with the beat's `afterScrollMs`) has a third: the
  * rest ends where the scroll did, and from there to the approach plays
  * `afterScrollMs`, the camera's room after the page moved. The idle after
@@ -770,6 +772,20 @@ function plannedIdleOf(
     return { regions, freezes, unplacedPaces: 0, unplacedBeatSteps };
   }
   const markerOf = new Map(bundle.markers.map((m) => [m.actionId, m]));
+  /** The cursor's travel, as the render reads it (screen px). */
+  const travel = cursorMotionSpans(
+    inScreenSpace(bundle, undefined).bundle.cursorSamples,
+  );
+  /** Where the cursor set off inside [fromMs, toMs]: the first travel that
+   *  starts there. Null with none, or with travel already under way at
+   *  `fromMs` (the set-off is not this stretch's). */
+  const setOffIn = (fromMs: number, toMs: number): number | null => {
+    const first = travel.find((t) => t.endMs > fromMs && t.startMs < toMs);
+    return first === undefined || first.startMs < fromMs ? null : first.startMs;
+  };
+  const removedAt = (t: number): boolean =>
+    insideCutClosed(cuts, t) ||
+    interruptions.some((s) => s.startMs <= t && t < s.endMs);
   /** False when the stretch's planned idle has nowhere to play. */
   const share = (
     srcStartMs: number,
@@ -848,7 +864,23 @@ function plannedIdleOf(
       scrollEnd === undefined || pace.afterScrollMs === undefined
         ? true
         : share(scrollEnd, approach, pace.afterScrollMs);
-    const arrive = share(approach, step.sourceTimeMs, pace.arriveMs);
+    // The arrive counts from where the cursor set off: idle before that is
+    // the machine's latency in starting the journey, which the plan does
+    // not have, and plays for 0 (DEM-273: 186 ms of it took 186 of a
+    // planned 300 on CI's macOS). With no travel there, travel already
+    // under way at the approach, or a set-off inside a removed stretch, or
+    // an arrive that cannot be placed from it, it counts from the approach
+    // as before.
+    const setOff = setOffIn(approach, step.sourceTimeMs);
+    const from =
+      setOff !== null && setOff > approach && !removedAt(setOff)
+        ? setOff
+        : approach;
+    let arrive = share(from, step.sourceTimeMs, pace.arriveMs);
+    if (from > approach) {
+      if (arrive) share(approach, from, 0);
+      else arrive = share(approach, step.sourceTimeMs, pace.arriveMs);
+    }
     if (!rest || !scroll || !arrive)
       unplacedBeatSteps.push(pace.beforeActionId);
   }

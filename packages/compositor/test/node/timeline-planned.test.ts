@@ -158,6 +158,67 @@ describe("planned idle", () => {
     expectWellFormed(b);
   });
 
+  // DEM-273: on a slow machine the journey's first motion comes after the
+  // approach marker (186 ms on CI's macOS), and that latency took a share of
+  // the arrive: 300 planned, 114 filmed after the cursor landed. Red if the
+  // arrive is shared from the approach marker rather than from the motion.
+  // Where the cursor set off is read from its own travel (`cursorSamples`,
+  // as the render reads it), not from any motion: page motion inside the
+  // latency (a spinner from the step before) is not the journey (review of
+  // DEM-273).
+  it.each([
+    ["", []],
+    [", with page motion inside the latency", [[80, 150]]],
+  ] as [string, [number, number][]][])(
+    "plays the planned arrive from where the cursor set off, and the latency before it for 0%s",
+    (_, pageMotion) => {
+      const LATENCY = 186;
+      const paced = pacedBundle(FAST);
+      const { at } = paced;
+      const approach = at.approach2 - LATENCY;
+      const span = (startMs: number, endMs: number, ref: string) => ({
+        startMs,
+        endMs,
+        byteLength: 0,
+        ref,
+        width: 1280,
+        height: 800,
+        fps: 60,
+      });
+      const bundle: FrameBundle = {
+        ...paced.bundle,
+        markers: paced.bundle.markers.map((m) =>
+          m.actionId === "s2" ? { ...m, approachSourceTimeMs: approach } : m,
+        ),
+        // Still until the journey, then across it.
+        cursorSamples: [
+          { sourceTimeMs: 0, x: 0, y: 0 },
+          { sourceTimeMs: at.approach2, x: 0, y: 0 },
+          { sourceTimeMs: at.approach2 + JOURNEY_MS, x: 300, y: 200 },
+        ],
+        motionSpans: [
+          ...paced.bundle.motionSpans,
+          ...pageMotion.map(([a, b], i) =>
+            span(approach + a, approach + b, `page${i}`),
+          ),
+        ].sort((x, y) => x.startMs - y.startMs),
+      };
+      // Premise: idle before the journey inside [approach, s2], and the
+      // arrive's idle after it.
+      const pageMs = pageMotion.reduce((n, [a, b]) => n + b - a, 0);
+      expect(idleSrc(bundle, approach, at.approach2)).toBe(LATENCY - pageMs);
+      expect(idleSrc(bundle, at.approach2 + JOURNEY_MS, at.s2)).toBe(
+        FAST.arrive,
+      );
+      const t = buildTimeline(plan, bundle);
+
+      expect(idleOut(t, bundle, approach, at.approach2)).toBeCloseTo(0, 6);
+      expect(idleOut(t, bundle, at.approach2, at.s2)).toBeCloseTo(300, 6);
+      expect(t.unplacedPaces).toBe(0);
+      expectWellFormed(t);
+    },
+  );
+
   it("freezes on the step for a planned stretch with no idle in it", () => {
     // Red if `share`'s `freezes.push` in `plannedIdleOf` goes.
     // The journey runs right up to s2: the arrive stretch holds no idle.
