@@ -758,12 +758,28 @@ describe("a held recording that waits on its server", () => {
         /timing run [^:]*:.*?\bwalk ([\d.]+)s/.exec(r.lines.join("\n"))?.[1],
       ) /
       (takeMs / 1000);
+    // When the pin first saw it playing.
+    const playing =
+      r.bundle.degradations.find(
+        (d) =>
+          d.note === "a playing video runs on its own clock: it was not held",
+      )?.startMs ?? Number.NaN;
+    // Chrome left the clip on 0.00 while it played, fully buffered short
+    // of playing (DEM-244's state; a clip at readyState 3 or 4 that stands
+    // still is the clock's fault, not a starved machine's).
+    const startStalls = r.bundle.degradations.filter((d) =>
+      /^a video stopped on one frame while playing \(at 0\.00 s of [\d.]+, readyState [012], buffered to [\d.]+ s, networkState \d\)$/.test(
+        d.note,
+      ),
+    );
+    const startStall = startStalls[0];
     const said = JSON.stringify({
-      notes,
+      said: r.bundle.degradations.map((d) => [d.startMs, d.note]),
       realPerTake,
       underwayAt,
       underwayRefused,
       takeMs,
+      playing,
       lastMoving,
       spans: r.bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
     });
@@ -773,21 +789,34 @@ describe("a held recording that waits on its server", () => {
     // there, and the report must say why, as in "own pace".
     if (underwayAt === null) {
       expect(realPerTake, said).toBeGreaterThanOrEqual(STARVED_REAL_PER_TAKE);
-      expect(
-        notes.filter((n) =>
-          n.startsWith("a video stopped on one frame while playing (at 0.00 s"),
-        ),
-        said,
-      ).toHaveLength(1);
+      expect(startStalls, said).toHaveLength(1);
+      return;
+    }
+    expect(notes, said).toContain(
+      "a playing video runs on its own clock: it was not held",
+    );
+    // DEM-263: CI's ubuntu starves it a step later. Chrome stood the clip on
+    // 0.00 for half a second at its start, said, then got it under way, and
+    // the last-frame note never came (red on main 3 times; the Mac beside
+    // six CPU burners 7 of 10, and unloaded 0 of 10, 2026-11-23). That
+    // machine cannot supply this case's premise either, and the report said
+    // why, as above. Only on a machine far behind its frames.
+    if (startStall !== undefined && !notes.some((n) => PICTURE_AHEAD.test(n))) {
+      expect(realPerTake, said).toBeGreaterThanOrEqual(STARVED_REAL_PER_TAKE);
+      expect(startStalls, said).toHaveLength(1);
+      // The stall came before the clip played the half second `/underway`
+      // waits for: it played less than its length after the pin first saw
+      // it, so its currentTime, on the take's clock (1.33 s at 1.3 s in,
+      // 2026-11-23), never looped back to 0.00.
+      const clipMs =
+        Number(/ of ([\d.]+), readyState/.exec(startStall.note)?.[1]) * 1000;
+      expect(takeMs - playing, said).toBeLessThan(clipMs);
       return;
     }
     // Premise: it played, half a second of its currentTime and not only
     // its picture (a clip stuck at 0.00 flickers, which reads as motion:
     // CI, 2026-11-23), the machine slowed there, and its picture moved and
     // then stood still for the last half second or more of the take.
-    expect(notes, said).toContain(
-      "a playing video runs on its own clock: it was not held",
-    );
     expect(lastMoving, said).toBeGreaterThan(0);
     expect(takeMs - lastMoving, said).toBeGreaterThan(500);
     // Said, once, with where its picture stood and where its clock was.
