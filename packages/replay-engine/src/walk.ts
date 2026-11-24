@@ -1011,6 +1011,30 @@ export async function runWalk(
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
+  /** A wait step (`waitFor`, a load) counted since the last zoom (DEM-187,
+   *  ruled 2026-11-20: known waits go on the designed clock). */
+  let waitedSinceZoom = false;
+  /** Top-frame loads started by the steps counted so far: read when a step
+   *  is counted (`commitPlan`), after its settle, which waits out a load its
+   *  act started (a link, a submit, a fetch then `location.assign`). A load
+   *  is owned by the step it started in, not by when a server let it. */
+  let navsCounted = 0;
+  /** `navsCounted` when the last zoomed click or drag was decided, before
+   *  its act: loads its own step and later ones start count after it. */
+  let navsAtZoom = 0;
+  /** Whether a known wait came between the last zoom and now: a wait step,
+   *  or a load a step counted since started (`navsCounted`).
+   *  The page's wait is not on the designed clock, so the next zoomed click
+   *  returns through full frame with a whole return's room planned.
+   *  Decided from the script and from whether a load started, never from
+   *  how long either took, which a server sets. A `waitFor` met at once
+   *  counts too: the author accepted that pause (DEM-187, 2026-11-24).
+   *  shortcut: whether a click after a wait zooms at all is still the gap
+   *  rule's on the designed clock, which counts the wait as no time (the
+   *  walk's `room.zooms` and the take's `cameraFor` both ask it); upgrade
+   *  by handing both the wait, if a ruling wants a zoom there. */
+  const waitedSince = (): boolean =>
+    designedHeldUntil !== null && (waitedSinceZoom || navsCounted > navsAtZoom);
   /** Rest the plan added for the camera (room, a return's shortfall) to the
    *  steps counted so far: on `designed`, and taken out of the time a zoom
    *  is asked on, as the live walk takes out every room it waited. */
@@ -1081,10 +1105,14 @@ export async function runWalk(
     stepPlan = null;
     if (beats === undefined || plan === null) return;
     pausedSinceCounted = 0;
+    navsCounted = navigationsSeen;
     plannedBeats.push(plan.beat);
     designed = plan.markerMs + beats.actMs(action);
     designedRoom += plan.roomMs;
+    if (action.kind === "waitFor" && designedHeldUntil !== null)
+      waitedSinceZoom = true;
     if (plan.zoomed) {
+      waitedSinceZoom = false;
       designedZoom = {
         actionMs: plan.markerMs,
         arrivalMs: plan.markerMs + CAMERA_DEFAULTS.leadInMs,
@@ -3881,16 +3909,19 @@ export async function runWalk(
           // of the designed act end before it, which `designed` is.
           roomHere += await quietThenFinalize();
           if (plannedBeats.length > 0) {
+            // After a wait, a return's room, as before a first zoom.
             roomMs = room.neededMs({
-              heldUntilMs: designedHeldUntil,
+              heldUntilMs: waitedSince() ? null : designedHeldUntil,
               clickMs: unroomedMs,
             });
             planRoom(0);
           }
-          const arrives = room.arrives({
-            heldUntilMs: designedHeldUntil,
-            clickMs: designedAt(restMs),
-          });
+          const arrives = waitedSince()
+            ? "return"
+            : room.arrives({
+                heldUntilMs: designedHeldUntil,
+                clickMs: designedAt(restMs),
+              });
           // A return is the camera's record under a plan, so it is planned a
           // whole one with the policy's margin. Added rest only widens the
           // gap, so the answer stays "return".
@@ -3907,6 +3938,7 @@ export async function runWalk(
             scale,
             arrives,
           });
+          navsAtZoom = navsCounted;
           zoomedClick = dragPlan === null;
         } else if (zooms) {
           roomHere += await quietThenFinalize();

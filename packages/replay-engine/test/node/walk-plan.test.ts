@@ -526,6 +526,48 @@ describe("the walk plans its pauses", () => {
     expect(result.pacing?.beats[1]?.restMs, evidence).toBe(BASE);
   });
 
+  // DEM-187 (ruled 2026-11-20: known waits go on the designed clock). Red if
+  // a wait between two zoomed clicks leaves the second a pan: on the
+  // designed clock they are as close as the case above's, and only the
+  // wait, whose length the server sets, comes between them.
+  it("records a return, with its room, for a zoomed click after a wait", async () => {
+    const { result } = await run(
+      [click("a"), { do: "waitForLoad" }, click("b")],
+      { beats: RULES, zooms: () => true },
+    );
+    const evidence = evidenceOf(result);
+    const [first, wait, second] = [0, 1, 2].map(
+      (i) => markerOf(result, i).actionId as string,
+    );
+    // Premise: the wait was a step of its own, counted between the two.
+    expect(wait, evidence).not.toBe(first);
+    const beats = result.pacing?.beats ?? [];
+    expect(
+      beats.map((b) => b.beforeActionId),
+      evidence,
+    ).toEqual([first, wait, second]);
+    // Premise: a pause the wait's rest long puts the second click as far
+    // from the first on the designed clock, and there it pans.
+    const plain = await run(
+      [click("a"), { do: "pause", ms: BASE }, click("b")],
+      {
+        beats: RULES,
+        zooms: () => true,
+      },
+    );
+    const plainSecond = markerOf(plain.result, 1).actionId as string;
+    expect(beats[1]?.restMs, evidence).toBe(BASE);
+    expect(
+      plain.result.decided?.get(plainSecond),
+      evidenceOf(plain.result),
+    ).toMatchObject({ arrives: "pan" });
+    expect(result.decided?.get(second as string), evidence).toMatchObject({
+      arrives: "return",
+    });
+    // A return's room is planned into its rest, as for the first zoom.
+    expect(beats[2]?.restMs, evidence).toBeGreaterThan(BASE);
+  });
+
   // Code review, 2026-11-14. Red if the time a zoom is asked on keeps an
   // earlier step's room (`designedRoom`): the third click would read as
   // `NEEDED_MS` further from the second than it is, and zoom.
