@@ -292,6 +292,21 @@ describe("signInAccount", () => {
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
+  // DEM-81: when the 10 s wait does run out, its line says what the last
+  // look saw, so a slow run names which condition never came true. Red:
+  // drop `(last look: …)` from the line in account-signin.ts.
+  it("a client-side sign-in that keeps its form past the wait says what the wait last saw", async () => {
+    const { deps: d, logs } = deps();
+    await signInAccount(chosen(steps("/login-spa?hold=12000")), d);
+    const line =
+      logs.find((l) => l.includes("no page navigation followed")) ?? "";
+    // Premise: the wait ran out with the form still on screen.
+    expect(line, logs.join("\n")).not.toBe("");
+    expect(line).toMatch(
+      /\(last look: on \S+\/login-spa, begun on \S+\/login-spa, password field showing\)/,
+    );
+  }, 60_000); // 10 s of wait by design, then checkUrl
+
   // Review, finding 1. Red when a hidden password field alone ends the wait:
   // the form's own navigation comes a second later and checkUrl's visit would
   // cancel its post.
