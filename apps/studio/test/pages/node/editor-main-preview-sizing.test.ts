@@ -51,11 +51,20 @@ const detailCalls = vi.hoisted(() => [] as Array<RenderTarget | undefined>);
 
 /**
  * The draw's side of the compositor. `composeMs` makes a draw succeed and
- * cost something (see the transport lane's `drawCost` for why it spins);
+ * cost something, on the page clock below (the transport lane spins its
+ * `drawCost` instead: there the clock is the player's arithmetic under test);
  * `gate`, when set, holds the draw inside `renderFrame` until released;
  * `composedInto` is every bitmap a draw actually composed a frame into.
  */
 const draws = vi.hoisted(() => ({
+  /**
+   * The page's `performance.now()`. A draw moves it by exactly its cost and
+   * a pump by one frame, so the price the preview measures is the price this
+   * file set. Spun on the real clock, a 1 ms draw was priced at whatever the
+   * runner spent around it: on a loaded CI runner the play latched the floor
+   * and these cases read `expected 720 to be 1314` (DEM-262).
+   */
+  clockMs: 0,
   composeMs: 0,
   /** Spent first and reported as the `fetch` stage, as a still's decode is. */
   decodeMs: 0,
@@ -83,10 +92,7 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
         await draws.gate;
       }
       if (draws.decodeMs > 0) {
-        const decoded = performance.now() + draws.decodeMs;
-        while (performance.now() < decoded) {
-          // Spin.
-        }
+        draws.clockMs += draws.decodeMs;
         args.onStage?.("fetch", draws.decodeMs);
       }
       let cost = draws.composeMs;
@@ -94,10 +100,7 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
         draws.slowDraws -= 1;
         cost = draws.slowMs;
       }
-      const until = performance.now() + cost;
-      while (performance.now() < until) {
-        // Spin.
-      }
+      draws.clockMs += cost;
       draws.composedInto.add(
         (args.ctx as unknown as { canvas: unknown }).canvas,
       );
@@ -113,6 +116,18 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 
 const playButton = (): HTMLButtonElement =>
   document.querySelector("[data-transport-play]") as HTMLButtonElement;
+
+/**
+ * Premise beside every "reaches the parked height": the play is still
+ * running. A play that ended re-targets to the parked height too, and would
+ * pass with the re-solve removed.
+ */
+const expectStillPlaying = (): void => {
+  expect(
+    playButton().getAttribute("aria-label"),
+    "the play ended, so its height is the parked one whatever was solved",
+  ).toBe("Pause");
+};
 
 const pressKey = (key: string): void => {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -155,6 +170,7 @@ describe("editor main — preview sizing", () => {
   async function pump(): Promise<void> {
     const due = frames;
     frames = [];
+    draws.clockMs += 16;
     for (const fn of due) fn();
     await Promise.resolve();
     await Promise.resolve();
@@ -176,6 +192,8 @@ describe("editor main — preview sizing", () => {
     editorDom();
     composeCalls.length = 0;
     detailCalls.length = 0;
+    draws.clockMs = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => draws.clockMs);
     draws.composeMs = 0;
     draws.decodeMs = 0;
     draws.slowDraws = 0;
@@ -445,6 +463,7 @@ describe("editor main — preview sizing", () => {
       heights.add((composeCalls.at(-1) as RenderTarget).height);
     }
     // A cheap machine affords the parked size, and the play reaches it.
+    expectStillPlaying();
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
     // Once: the floor, then the solved height, and no flicker after it.
     expect([...heights].sort((a, b) => a - b)).toEqual([
@@ -475,6 +494,7 @@ describe("editor main — preview sizing", () => {
     expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
     draws.composeMs = 1;
     for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 3; i++) await pump();
+    expectStillPlaying();
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
   });
 
@@ -496,6 +516,7 @@ describe("editor main — preview sizing", () => {
     // Premise: the draws did wait on decode, far past the frame budget.
     expect(draws.decodeMs).toBeGreaterThan(PLAYBACK_BUDGET_MS);
     expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
+    expectStillPlaying();
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
   });
 
@@ -542,6 +563,7 @@ describe("editor main — preview sizing", () => {
     // Premise: the slow draws were drawn, and each was far past the budget.
     expect(draws.slowDraws).toBe(0);
     expect(draws.slowMs).toBeGreaterThan(PLAYBACK_BUDGET_MS);
+    expectStillPlaying();
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
   });
 

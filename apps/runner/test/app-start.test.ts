@@ -28,13 +28,16 @@ async function freePort(): Promise<number> {
   await new Promise<void>((r) => s.close(() => r()));
   return port;
 }
-async function canListen(port: number): Promise<boolean> {
+/** `true`, or the code the listen failed with: a premise that fails then
+ *  says whether the port was taken or the listen failed some other way
+ *  (EMFILE, an address family) — DEM-267. */
+async function canListen(port: number): Promise<true | string> {
   const s = createServer();
-  const ok = await new Promise<boolean>((r) => {
-    s.once("error", () => r(false));
+  const ok = await new Promise<true | string>((r) => {
+    s.once("error", (e: NodeJS.ErrnoException) => r(e.code ?? e.message));
     s.listen(port, () => r(true));
   });
-  if (ok) await new Promise<void>((r) => s.close(() => r()));
+  if (ok === true) await new Promise<void>((r) => s.close(() => r()));
   return ok;
 }
 function alive(pid: number): boolean {
@@ -117,7 +120,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "app-start-"));
   spawnSpy.calls.length = 0;
   // Premise of every case: nothing answers on the port before it starts.
-  expect(await canListen(port)).toBe(true);
+  expect(await canListen(port), `port ${port}`).toBe(true);
 });
 
 afterEach(async () => {
@@ -262,7 +265,7 @@ describe("startApp", () => {
       await new Promise<void>((r) => s.listen(port, r));
       servers.push(s);
       // Premise: the person's own server holds the port.
-      expect(await canListen(port)).toBe(false);
+      expect(await canListen(port)).toBe("EADDRINUSE");
     });
 
     it('mode "own" refuses appPortTaken naming the URL, and starts nothing', async () => {
@@ -356,7 +359,7 @@ describe("startApp", () => {
       const s = createServer(handler);
       await new Promise<void>((r) => s.listen(port, r));
       servers.push(s);
-      expect(await canListen(port)).toBe(false);
+      expect(await canListen(port)).toBe("EADDRINUSE");
     };
     const own = () =>
       startApp(app({ install: ["true"] }), opts(), { spawn: spawnSpy.fn });
@@ -395,10 +398,10 @@ describe("startApp", () => {
     expect(r.said).toBe(
       `started the app with \`${START}\` from .demoman/app.json`,
     );
-    expect(await canListen(port)).toBe(false);
+    expect(await canListen(port)).toBe("EADDRINUSE");
     expect(await r.stop()).toEqual([]);
     toStop.length = 0;
-    expect(await canListen(port)).toBe(true);
+    expect(await canListen(port), `port ${port}`).toBe(true);
     // A second stop answers the same: it stopped the process, which did not
     // exit by itself.
     expect(await r.stop()).toEqual([]);

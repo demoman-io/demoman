@@ -386,6 +386,39 @@ async function waitNamed(
   }
 }
 
+/**
+ * Resolves once the takes watch has heard a write. A recursive watch on
+ * macOS starts its FSEvents stream asynchronously, and a change made before
+ * the stream is live is never reported: DEM-245's red runs (`Sent since:
+ * []`, no watch error, nothing in 25 s) were the case's own writes landing
+ * first, and a watch made to start 3 s late gives the same failure. So a
+ * marker at the top of `takes/` (a listing change) is written until a takes
+ * event is sent, each write given longer than the 250 ms settle; then it is
+ * removed and its reports spent.
+ */
+async function watchLive(harness: Harness): Promise<void> {
+  const marker = join(home, "takes", ".watch-live");
+  const started = Date.now();
+  const before = harness.sent.length;
+  // A takes event, not any send: a kits event or a watchFailed is not this
+  // watch saying it is live.
+  const heard = () =>
+    harness.sent.slice(before).some((e) => e.type === "takes");
+  let writes = 0;
+  while (!heard()) {
+    if (Date.now() - started > SMOKE_MS)
+      throw new Error(
+        `the takes watch heard none of ${writes} marker writes in ${SMOKE_MS} ms on ${process.platform}. Unwatched: ${JSON.stringify(harness.feeds.unwatched())}. Log: ${JSON.stringify(harness.logs)}.`,
+      );
+    await writeFile(marker, String(writes++));
+    const wrote = Date.now();
+    while (!heard() && Date.now() - wrote < 500)
+      await new Promise((done) => setTimeout(done, 25));
+  }
+  await rm(marker);
+  await quiet(harness);
+}
+
 /** Resolves once the hub has sent nothing for `ms`: a late report of an
  *  earlier change (FSEvents can deliver one twice, apart) is spent before
  *  the next change is counted. */
@@ -413,6 +446,7 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
       h = await startStudio(home, { settleMs: 250 });
       const events = await h.stream();
       try {
+        await watchLive(h);
         const from = markOf(h, events);
         const started = Date.now();
         await seedTake(home, { id: "t1" });
@@ -424,7 +458,9 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
         events.close();
       }
     },
-    SMOKE_MS * 2,
+    // watchLive and its quiet, then one named wait: each bounded by
+    // SMOKE_MS, so a slow one fails with its own words, not vitest's.
+    SMOKE_MS * 4,
   );
 
   it(
@@ -433,6 +469,7 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
       h = await startStudio(home, { settleMs: 250 });
       const events = await h.stream();
       try {
+        await watchLive(h);
         // The runner's order: the folder and its frames first.
         const frames = join(home, "takes", "t1", "frames");
         const folder = markOf(h, events);
@@ -462,6 +499,7 @@ describe("the real fs.watch (smoke: facts that only grow)", () => {
         events.close();
       }
     },
-    SMOKE_MS * 4,
+    // watchLive and its quiet, then three named waits and two quiets.
+    SMOKE_MS * 8,
   );
 });
