@@ -158,6 +158,16 @@ describe("planKeyMarks", () => {
     expect(marks.clickTags).toEqual([]);
   });
 
+  it("a captured right-click keeps its ripple and draws no mouse", () => {
+    const marks = planKeyMarks(
+      [click("ctx", { button: "right" })],
+      [{ actionId: "ctx", outputMs: 2000 }],
+      new Set(["click"]),
+    );
+    expect(marks.pulseOutputMs).toEqual([2000]);
+    expect(marks.rightClicks).toEqual([]);
+  });
+
   it("a Shift-click has its ripple and a pill reading ⇧ + click", () => {
     const marks = planKeyMarks(
       [click("sh", { modifiers: ["Shift"] })],

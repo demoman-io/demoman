@@ -139,7 +139,10 @@ export function planKeyMarks(
       continue;
     }
     if (a.modifiers !== undefined) pill(m, capsOf(a.modifiers), "+ click");
-    if (a.button === "right") {
+    // Only a replay's right-click gets the mouse. A capture recorded `right`
+    // before schema 17 and drew a ripple, and a saved take renders as it
+    // did. A replay is the bundle whose presses ripple (`clickKinds`).
+    if (a.button === "right" && pulseKinds.has("press")) {
       rightClicks.push(m);
       continue;
     }
