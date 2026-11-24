@@ -22,6 +22,9 @@ import { installResolver } from "../src/page-agent.js";
 const lines: string[] = [];
 const log = (line: string) => void lines.push(line);
 const popupPlatforms: string[] = [];
+/** Every URL each new page's main frame was seen at, for the failure
+ *  message: Demoman's own pages (the mux's loopback page) are in here too. */
+const pageUrls: string[][] = [];
 let server: Server;
 let url: string;
 let home: string;
@@ -29,17 +32,33 @@ const session = createBrowserSession({
   headless: true,
   log,
   onLaunched: async ({ context }) => {
+    // Only a page that reaches the fixture's origin is the app's: Demoman's
+    // own pages start at about:blank and move to a loopback origin of their
+    // own (the mux), and reading one mid-navigation destroys the read.
     context.on("page", (popup) => {
+      const seen = [popup.url()];
+      pageUrls.push(seen);
+      popup.on("framenavigated", (frame) => {
+        if (frame === popup.mainFrame()) seen.push(frame.url());
+      });
+      const fixture = new URL(url).origin;
+      let reached = false;
       void popup
-        .waitForLoadState("domcontentloaded")
-        .then(() =>
-          popup.evaluate(
+        .waitForURL((at) => at.origin === fixture, {
+          waitUntil: "domcontentloaded",
+        })
+        .then(() => {
+          reached = true;
+          return popup.evaluate(
             () =>
               `${navigator.platform} ${location.search} ${navigator.userAgent}`,
-          ),
-        )
-        .then((seen) => popupPlatforms.push(seen))
-        .catch((error: unknown) => popupPlatforms.push(`unread: ${error}`));
+          );
+        })
+        .then((platform) => popupPlatforms.push(platform))
+        .catch((error: unknown) => {
+          // A page that closed before reaching the fixture was not the app's.
+          if (reached) popupPlatforms.push(`unread: ${error}`);
+        });
     });
     await installResolver(context);
     await installExecutorEntry(context);
@@ -68,6 +87,7 @@ afterAll(async () => {
 beforeEach(() => {
   lines.length = 0;
   popupPlatforms.length = 0;
+  pageUrls.length = 0;
 });
 
 const run = (steps: Record<string, unknown>[]) =>
@@ -116,7 +136,7 @@ describe("a run's pages present as macOS", () => {
       { do: "click", on: { stableId: "popup" } },
       { do: "pause", ms: 1000 },
     ]);
-    const said = JSON.stringify({ report, popupPlatforms, lines });
+    const said = JSON.stringify({ report, popupPlatforms, pageUrls, lines });
     expect(report.outcome, said).toBe("complete");
     // Premise: the click's popup (?popup) was opened and read. The engine may
     // open pages of its own in the context; every one reads MacIntel.

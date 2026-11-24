@@ -292,10 +292,7 @@ describe("clicks and keys, against a real page", () => {
   });
 
   // No selection offsets on these: coverage is the document's selection.
-  // Added here, not in the shared fixture: the runner's popup case
-  // (executor-inputs.test.ts) evaluates every page the context opens, Demoman's
-  // own mux page too, which goes from about:blank to its loopback origin. With
-  // these fields in inputs-app.html that read landed mid-navigation 3 of 3.
+  // Added on the page here: only these two cases need them.
   it.each([
     ["email", "sales@northwind.test", "ops@acme.test"],
     ["number", "4800", "125"],
