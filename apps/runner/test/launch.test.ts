@@ -14,6 +14,7 @@ import {
   killBrowser,
   launch,
   launchFailure,
+  macUserAgent,
   sandboxBlockers,
 } from "../src/launch.js";
 
@@ -577,6 +578,56 @@ describe("launch", () => {
     // Measured here (three repeated runs): ~82-86ms (one Chromium launch +
     // an already-closed browser, no page work). Same 30s floor, same reason.
   }, 30_000);
+});
+
+describe("the Mac platform script", () => {
+  // The host's own platform is hidden by overriding it over CDP, so these
+  // read the same on a Mac and on Linux.
+  const platformUnder = async (
+    userAgent: string,
+    platform: string,
+    plain = false,
+  ) => {
+    const launched = await launch({
+      headless: true,
+      executablePath: chromium.executablePath(),
+    });
+    try {
+      // The plain context has no init script: the premise's control.
+      const context = plain
+        ? await launched.browser.newContext()
+        : launched.context;
+      const page = plain ? await context.newPage() : launched.page;
+      const session = await context.newCDPSession(page);
+      await session.send("Emulation.setUserAgentOverride", {
+        userAgent,
+        platform,
+      });
+      await page.goto("data:text/html,<p>x");
+      await page.reload();
+      return await page.evaluate(() => navigator.platform);
+    } finally {
+      await launched.close();
+    }
+  };
+  const iPhone =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+  it("makes a Mac page say MacIntel even on another host", async () => {
+    const browser = await chromium.launch({
+      executablePath: chromium.executablePath(),
+    });
+    const mac = macUserAgent(browser.version());
+    await browser.close();
+    // Premise: without the init script (a plain context) the override reads
+    // as the host Linux, so the script is what changes it.
+    expect(await platformUnder(mac, "Linux x86_64", true)).toBe("Linux x86_64");
+    expect(await platformUnder(mac, "Linux x86_64")).toBe("MacIntel");
+  }, 60_000);
+
+  it("keeps a non-Mac user agent's own platform", async () => {
+    expect(await platformUnder(iPhone, "iPhone")).toBe("iPhone");
+  }, 60_000);
 });
 
 describe("killBrowser", () => {
