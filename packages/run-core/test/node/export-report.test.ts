@@ -2,6 +2,7 @@ import {
   CAMERA_DEFAULTS,
   type CameraKey,
   clampToSourceDetail,
+  type FrameBundle,
   type Timeline,
 } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -20,6 +21,7 @@ import {
   zoomWarnings,
 } from "../../src/export/report.js";
 import type { RenderedFile } from "../../src/export/target.js";
+import { stillsOnlyTake } from "../../src/replay/report.js";
 
 const FILE: RenderedFile = {
   ref: "take-1:2026:demo.mp4",
@@ -253,6 +255,68 @@ describe("exportVerdict, the size of an MP4", () => {
   // A door that never sets videoSize: its summary is today's.
   it("no videoSize, no size", () => {
     expect(exportVerdict(saved())).toBe("Saved /x.mp4 (1920×1080, 60 fps).");
+  });
+
+  // DEM-278: a locked screen's take exported as "Saved", 13.5 MB of stills,
+  // and nothing said it had no motion. Red if `warnings.stillsOnly` does not
+  // reach the sentence, or says it when unset.
+  it("says a stills-only take's video is its stills only", () => {
+    const report = saved() as Extract<ExportReport, { outcome: "saved" }>;
+    const stills: ExportReport = {
+      ...report,
+      warnings: { ...report.warnings, stillsOnly: true },
+    };
+    expect(exportVerdict(stills)).toMatch(
+      /^Saved \/x\.mp4 \(1920×1080, 60 fps\).*no motion was recorded: the video is its stills only/,
+    );
+    expect(exportVerdict(report)).not.toContain("stills only");
+  });
+});
+
+// DEM-278: what export sets `warnings.stillsOnly` from, the run's rule on a
+// take. Red if a real-time take that acted and kept no motion is not judged
+// stills only, or if a held take, one with motion, one with no step, or a
+// sampled replay (not real time) is.
+describe("stillsOnlyTake", () => {
+  const realTime = {
+    source: "capture" as const,
+    motionSpans: [] as FrameBundle["motionSpans"],
+  };
+  const acted = { actions: [{ kind: "click" }] };
+  it("judges a real-time take that acted and kept no motion stills only", () => {
+    expect(stillsOnlyTake(realTime, acted)).toBe(true);
+    expect(
+      stillsOnlyTake(
+        { source: "replay", timing: "real", motionSpans: [] },
+        acted,
+      ),
+    ).toBe(true);
+  });
+  it("does not judge a held take, one with motion, one with no step, or a sampled replay", () => {
+    expect(stillsOnlyTake({ ...realTime, clock: "held" }, acted)).toBe(false);
+    expect(
+      stillsOnlyTake(
+        {
+          ...realTime,
+          motionSpans: [
+            {
+              startMs: 0,
+              endMs: 100,
+              byteLength: 1,
+              ref: "m0",
+              width: 2,
+              height: 2,
+              fps: 30,
+            },
+          ],
+        },
+        acted,
+      ),
+    ).toBe(false);
+    expect(stillsOnlyTake(realTime, { actions: [] })).toBe(false);
+    expect(stillsOnlyTake({ source: "replay", motionSpans: [] }, acted)).toBe(
+      false,
+    );
   });
 });
 

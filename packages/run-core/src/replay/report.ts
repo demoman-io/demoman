@@ -2,6 +2,8 @@ import {
   CAMERA_DEFAULTS,
   type Degradation,
   type FrameBundle,
+  isHeld,
+  isRealTime,
   type MadeFromStep,
 } from "@demoman/compositor";
 import {
@@ -1304,6 +1306,52 @@ function lookClause(report: RunReport): string {
     .join("");
 }
 
+/** What a stills-only video is called, wherever it is said. */
+export const STILLS_ONLY =
+  "no motion was recorded: the video is its stills only";
+
+/**
+ * Whether a run's video is its stills only: it recorded no motion span
+ * though a step acted, in real time. There it cannot tell a page that did
+ * not move from a screencast that got no frames (a locked screen, a
+ * sleeping display, a hidden window or a busy machine: DEM-55, DEM-278), so
+ * the sentence names both; DEM-279 would tell them apart. A held run takes every frame on its clock, and a frame
+ * it cannot take or encode stops the run or is said, so no spans there is a
+ * page that did not move (DEM-238). A run that names no clock stopped before
+ * its stage was prepared (`run.recording`): it recorded nothing, and its
+ * outcome says why. The one rule the run's summary and refresh's verdict
+ * read; `stillsOnlyTake` is the same rule on a take, for export.
+ */
+export function stillsOnly(r: {
+  run?: { recording?: { clock: "held" | "real" } };
+  steps?: readonly { intent?: { do?: string } }[];
+  frames?: { spans?: number };
+}): boolean {
+  return (
+    r.frames?.spans === 0 &&
+    (r.steps ?? []).some((st) => st.intent?.do !== "pause") &&
+    r.run?.recording?.clock === "real"
+  );
+}
+
+/**
+ * `stillsOnly` asked of a take (its bundle and scene), for a door that has
+ * no run report: export. Real time, no motion span, a step that acted (a
+ * scene's actions are its steps less the pauses). Bundles before held and
+ * a sampled replay are not real time (`isRealTime`), and are not judged.
+ */
+export function stillsOnlyTake(
+  bundle: Pick<FrameBundle, "source" | "timing" | "clock" | "motionSpans">,
+  scene: { actions: readonly unknown[] },
+): boolean {
+  return (
+    isRealTime(bundle) &&
+    !isHeld(bundle) &&
+    bundle.motionSpans.length === 0 &&
+    scene.actions.length > 0
+  );
+}
+
 /**
  * The frames' half of the verdict: what the film did not keep. Empty when
  * everything was kept, so a clean run's line is unchanged.
@@ -1325,6 +1373,13 @@ function framesClause(report: RunReport): string {
   );
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
+  }
+  // DEM-278: a visible window with its screen locked recorded no motion and
+  // read "Complete: the video matches every step".
+  if (stillsOnly(report)) {
+    said.push(
+      `${STILLS_ONLY} (recorded in real time: either the page did not move, or the screen sent no frames, as a locked screen, a sleeping display or a hidden window)`,
+    );
   }
   return said.length === 0
     ? ""

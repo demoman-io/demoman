@@ -69,27 +69,21 @@ describe("runVerdict", () => {
     expect(got.kind).toBe("failed");
   });
   // DEM-238 (ruled 2026-11-24): the stills-only rule is the real-time
-  // recorder's starved screencast. Red if a held run that recorded no
-  // motion is called degraded (a static page, on any machine), or if a
-  // real-time one, or one that predates held and names no clock, stops being.
-  it.each([
-    ["in real time", { recording: { clock: "real", why: "asked" } }],
-    ["with no clock named (before held)", {}],
-  ])(
-    "calls a run that recorded no motion for its acting steps %s degraded",
-    (_, run) => {
-      expect(
-        verdictOf({
-          run,
-          steps: acting,
-          frames: { spans: 0, degradations: [] },
-        }),
-      ).toEqual({
-        kind: "degraded",
-        problems: ["no motion was recorded: the video is its stills only"],
-      });
-    },
-  );
+  // recorder's starved screencast (run-core `stillsOnly`). Red if a held run
+  // that recorded no motion is called degraded (a static page, on any
+  // machine), or if a real-time one stops being.
+  it("calls a run that recorded no motion for its acting steps in real time degraded", () => {
+    expect(
+      verdictOf({
+        run: { recording: { clock: "real", why: "asked" } },
+        steps: acting,
+        frames: { spans: 0, degradations: [] },
+      }),
+    ).toEqual({
+      kind: "degraded",
+      problems: ["no motion was recorded: the video is its stills only"],
+    });
+  });
   it("calls a held run that recorded no motion for its acting steps clean", () => {
     expect(
       verdictOf({

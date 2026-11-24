@@ -35,6 +35,7 @@ import {
   sceneDigest,
   sceneLabel,
   stillsFolder,
+  stillsOnlyTake,
   targetCheckOf,
   targetFor,
   type WallpaperWarning,
@@ -865,6 +866,8 @@ async function exportLeased(a: {
       // wider than its target when it can.
       target: rendered.rendered,
       ...warnings,
+      // The run's own rule, read off the take (DEM-278).
+      ...(stillsOnlyTake(bundle, scene) ? { stillsOnly: true as const } : {}),
       ...tagger.untagged,
       ...tagger.taggedWithoutCommit,
       // Said as the render found them; refresh compares the take's page

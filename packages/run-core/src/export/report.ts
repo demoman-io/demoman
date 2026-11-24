@@ -8,6 +8,7 @@ import type {
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import { ZOOM_FLOOR_SCALE } from "../auto-zoom.js";
 import type { EditedStep, TargetCheck } from "../refilm/edited.js";
+import { STILLS_ONLY } from "../replay/report.js";
 import type {
   ExportQuality,
   FileType,
@@ -206,6 +207,10 @@ export interface ExportWarnings {
    *  leaves every one behind (`notCarried`), so an edited take's
    *  summary says so. Absent: this door does not count them. */
   masks?: number;
+  /** The take recorded no motion though a step acted, in real time
+   *  (`stillsOnly`, DEM-278): the video is its stills only. Absent: it has
+   *  motion, was held, or this door does not say. */
+  stillsOnly?: true;
   /** The video the take is a version of, which an edited take's summary
    *  names as the re-record (`run({ video: { id } })`). null: the take is
    *  in no video. Absent: this door does not say. */
@@ -425,6 +430,8 @@ export function reportForSave(args: {
   targetCheck?: TargetCheck;
   /** See `warnings.masks`: `scene.edits.masks.length`. */
   masks?: number;
+  /** See `warnings.stillsOnly`. */
+  stillsOnly?: true;
   /** See `warnings.videoId`. */
   videoId?: string | null;
   /** See `warnings.gifSize`. */
@@ -508,6 +515,7 @@ function warningsOf(
     editedSinceRecorded?: EditedStep[];
     targetCheck?: TargetCheck;
     masks?: number;
+    stillsOnly?: true;
     videoId?: string | null;
     gifSize?: GifSize;
     videoSize?: VideoSize;
@@ -537,6 +545,7 @@ function warningsOf(
       ? {}
       : { targetCheck: args.targetCheck }),
     ...(args.masks === undefined ? {} : { masks: args.masks }),
+    ...(args.stillsOnly === undefined ? {} : { stillsOnly: true as const }),
     ...(args.videoId === undefined ? {} : { videoId: args.videoId }),
     ...(args.gifSize === undefined ? {} : { gifSize: args.gifSize }),
     ...(args.videoSize === undefined ? {} : { videoSize: args.videoSize }),
@@ -818,6 +827,12 @@ export function exportCaveats(
       : [
           `it is ${videoSize.quality} quality, not your Export quality setting, which could not be read (${videoSize.settingUnreadable.replace(/\.$/, "")})`,
         ]),
+    // DEM-278: a stills-only take exported as if it moved, unsaid.
+    ...(report.warnings.stillsOnly === true
+      ? [
+          `${STILLS_ONLY} (recorded in real time: either the page did not move, or the screen sent no frames, as a locked screen, a sleeping display or a hidden window)`,
+        ]
+      : []),
     ...(logo === null ? [] : [`the logo is missing (${logo})`]),
     // A whole sentence, said as a clause.
     ...(wallpaperWarning === undefined
