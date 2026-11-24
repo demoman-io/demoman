@@ -98,12 +98,12 @@ The file, with one account:
 
 - Sites are keyed by origin. An account name is lower-case letters,
   digits, `-` and `_`, at most 64: `seller`. `signIn` uses the script's steps and targets
-  (`type` names its field with `into`; copy targets from a `snapshot` of the
-  login page) plus `goto`, which must be the first step. `checkUrl` is
-  required: a path on the origin behind the login, which a browser signed
-  in to nothing cannot open (it redirects to sign-in, or shows a
-  password form) and which shows no password field once signed in. Demoman
-  opens it signed out first; where it lands is the sign-in page. `about` names who the account is and what data it has.
+  (`type` names its field with `into`; copy targets from a login-page
+  `snapshot`) plus `goto`, which must come first. `checkUrl` is
+  required: a path on the origin behind the login, which a signed-out
+  browser cannot open (it redirects, or shows a password
+  form) and which shows no password field once signed in. Demoman
+  opens it signed out first; where it lands is the sign-in page. `about`: who it is and what data it has. `files`: repo paths you wrote for it (seed, sign-in route); setup carries them.
 - `{secret:NAME}` goes in a `signIn` step's `text`, `NAME` being
   `[A-Z0-9_]+`, not ending in `_ORIGIN`. Demoman reads
   `DEMOMAN_SECRET_NAME` from the environment, else `.demoman/secrets.env`

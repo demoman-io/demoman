@@ -1,7 +1,15 @@
 // One plan for CI setup, checked from a clean checkout before anything is
 // written; then the secrets, the Actions setting, the setup pull request and
 // its run. Both doors (the terminal and the MCP `ci` tool) call these two.
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import {
   APP_FILE,
@@ -21,6 +29,7 @@ import {
   type AppSource,
   appOriginMismatch,
   type detectApp,
+  findAccounts,
   type GitRunner,
   readKeptFlows,
   SECRET_MIN_LENGTH,
@@ -262,6 +271,9 @@ export type CiPlan = {
 type SetupFiles = Array<{
   path: string;
   text: string | Uint8Array;
+  /** 0o755 for a file the working tree has executable (a seed script):
+   *  written so in the check and the pull request. */
+  mode?: number;
   /** Lines the PR adds to the base's own file as it is then, unless the
    *  base already ignores what they ignore; `text` is the plan's copy. */
   appendToBase?: string;
@@ -401,6 +413,36 @@ async function draftLeft(
   }
   const from = "file" in app.source ? ` from ${app.source.file}` : "";
   return `; the check used a drafted ${APP_FILE}${from}, now written to the working tree uncommitted`;
+}
+
+/** A failed sign-in as an account that lists no files: the clean checkout
+ *  may lack its seed or sign-in route, never committed (DEM-240). */
+function unlistedSaid(
+  unlisted: { name: string; origin: string }[],
+  check: { step: string; detail: string },
+  /** The started app's URL: a failed reset is one of its accounts'. */
+  appUrl: string | null,
+): string {
+  // A failed sign-in names its account (account-signin.ts); a failed reset
+  // (app-start.ts) may be any account's seed. Both in their own words.
+  const names =
+    check.step !== "refresh"
+      ? []
+      : check.detail.includes("fix the reset command in")
+        ? unlisted
+            .filter((u) => u.origin === originOf(appUrl))
+            .map((u) => u.name)
+        : unlisted
+            // "signing in as seller on …", "the steps for seller ran, …"
+            // (an account name is [a-z0-9_-]).
+            .filter((u) =>
+              new RegExp(`\\b(?:as|for) ${u.name}(?=[ :)])`).test(check.detail),
+            )
+            .map((u) => u.name);
+  if (names.length === 0) return "";
+  const which =
+    names.length === 1 ? `account ${names[0]}` : `accounts ${list(names)}`;
+  return `; the check runs from a clean checkout, so the files that make ${which} (a seed, a sign-in route) must be committed, or listed in the account's files in ${ACCOUNTS_FILE} for setup to carry`;
 }
 
 const ACCOUNTS_FILE = ".demoman/accounts.json";
@@ -880,11 +922,66 @@ async function makePlan(
   const accounts = await readFile(join(root, ACCOUNTS_FILE), "utf8").catch(
     () => null,
   );
+  // Each account with no files, as a failed sign-in names it.
+  let unlisted: { name: string; origin: string }[] = [];
   if (accounts !== null) {
     for (const ref of ["HEAD", base]) {
       if ((await shown(deps.git, root, ref, ACCOUNTS_FILE)) !== accounts) {
         files.push(ACCOUNTS_FILE);
         break;
+      }
+    }
+    // The files that make each account (its seed, its sign-in route), as
+    // the agent listed them: the clean checkout has only what is committed
+    // (DEM-240). An unreadable accounts.json was refused with the flows.
+    const found = await findAccounts(root);
+    const all =
+      found.kind === "found"
+        ? [...found.file.sites.values()].flatMap((site) =>
+            [...site.accounts.values()].map((a) => ({ site, a })),
+          )
+        : [];
+    unlisted = all.flatMap(({ site, a }) =>
+      a.files === undefined ? [{ name: a.name, origin: site.origin }] : [],
+    );
+    const listed = all.flatMap(({ site, a }) =>
+      (a.files ?? []).map((path) => ({ path, site, a })),
+    );
+    let rootReal: string | undefined;
+    for (const { path, site, a } of listed) {
+      if (files.includes(path)) continue;
+      const text = await readFile(join(root, path), "utf8").catch(
+        (e: NodeJS.ErrnoException) => e,
+      );
+      if (typeof text !== "string")
+        return stop(
+          "filesUnreadable",
+          `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and it ${text.code === "ENOENT" ? "is not there" : `could not be read (${messageOf(text)})`}; restore it or remove it from the account's files, then run setup again`,
+        );
+      // The file itself, in the repo: a link (or a folder that is one) could
+      // carry a file from anywhere into the pull request.
+      const real = await realpath(join(root, path)).catch(() => null);
+      rootReal ??= await realpath(root);
+      if (real !== join(rootReal, path))
+        return stop(
+          "filesUnreadable",
+          `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and it resolves to ${real ?? "nothing"}, not to a file of its own in the repo; list the file itself, then run setup again`,
+        );
+      // An ignored file (secrets.env, a local .env) never goes into a pull
+      // request, and one git cannot judge is not taken for one it keeps.
+      const ignored = await deps.git(["check-ignore", "-q", "--", path], root);
+      if (ignored.code !== 1)
+        return stop(
+          "filesUnreadable",
+          ignored.code === 0
+            ? `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and git ignores it, so setup will not commit it; remove it from the account's files (a value it holds goes in a secret), then run setup again`
+            : `account ${a.name} on ${site.origin} lists ${path} in its files (${ACCOUNTS_FILE}), and git could not say whether it ignores it (${ignored.stderr.trim() || `exit ${ignored.code}`}); fix that, then run setup again`,
+        );
+      for (const ref of ["HEAD", base]) {
+        if ((await shown(deps.git, root, ref, path)) !== text) {
+          files.push(path);
+          break;
+        }
       }
     }
   }
@@ -956,7 +1053,7 @@ async function makePlan(
       ? stop(check.reason, `${hide(check.detail)}; nothing was written`)
       : stop(
           check.reason,
-          `the check failed on its ${check.step} step: ${hide(check.detail)}${await draftLeft(root, check.step, app)}`,
+          `the check failed on its ${check.step} step: ${hide(check.detail)}${await draftLeft(root, check.step, app)}${unlistedSaid(unlisted, check, app?.spec.url ?? null)}`,
           { step: check.step, tail: hide(check.tail) },
         );
   const checked: CiPlan["check"] =
@@ -1077,7 +1174,10 @@ async function fileTexts(
       files.push({ path, text: app.text });
     else {
       try {
-        files.push({ path, text: await readFile(join(root, path)) });
+        const text = await readFile(join(root, path));
+        // Git keeps one bit of a file's mode: executable or not.
+        const exec = ((await stat(join(root, path))).mode & 0o111) !== 0;
+        files.push({ path, text, ...(exec ? { mode: 0o755 } : {}) });
       } catch (e) {
         return {
           failed: `${path} could not be read (${messageOf(e)}), so nothing was done; check it is there, then run setup again`,

@@ -6,7 +6,7 @@
 // flow into a throwaway library, and say pass or fail with what failed. The
 // person's checkout, its ignored files and its uncommitted edits are never
 // read: the check sees what CI will.
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { APP_FILE, type AppSpec, messageOf } from "@demoman/run-core";
@@ -60,7 +60,7 @@ const STOPPED = Symbol("stopped");
 export async function verifySetup(
   a: {
     root: string;
-    files: Array<{ path: string; text: string | Uint8Array }>;
+    files: Array<{ path: string; text: string | Uint8Array; mode?: number }>;
     flow?: string;
     target: VerifyTarget;
     secrets: Record<string, string>;
@@ -134,6 +134,7 @@ export async function verifySetup(
         );
       await mkdir(dirname(to), { recursive: true });
       await writeFile(to, f.text);
+      if (f.mode !== undefined) await chmod(to, f.mode);
     }
     if (signal?.aborted) return stop();
 

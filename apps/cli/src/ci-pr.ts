@@ -1,7 +1,14 @@
 // The setup pull request, built in a detached temporary worktree and pushed
 // to the branch on the repo's remote, so the person's checkout, branches, index and
 // default branch are never touched.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import type { GitRunner } from "@demoman/runner/package";
@@ -31,6 +38,8 @@ export async function openSetupPr(
       path: string;
       text: string | Uint8Array;
       appendToBase?: string;
+      /** chmod'ed after writing, so `git add` records the exec bit. */
+      mode?: number;
     }>;
     body: string;
     /** Defaults to SETUP_BRANCH / SETUP_TITLE. */
@@ -92,6 +101,7 @@ export async function openSetupPr(
           continue;
         }
         await writeFile(p, f.text);
+        if (f.mode !== undefined) await chmod(p, f.mode);
       }
     } catch (e) {
       return {
