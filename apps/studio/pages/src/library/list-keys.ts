@@ -4,7 +4,7 @@
 // (https://www.w3.org/WAI/ARIA/apg/patterns/treegrid/) with the Mac's keys
 // (spec 2026-10-31-library-list-view §4.3). Rows take focus until → moves
 // into their cells; one Tab stop enters the grid and the next leaves it.
-import { flowsOnScreen, openRename, setExpanded } from "./list";
+import { flowsOnScreen, openRename, setExpanded } from "./list-dom";
 import type { LibraryActions } from "./view";
 
 /** How long a pause ends a type-ahead search. */

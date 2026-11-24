@@ -55,6 +55,7 @@ import {
 } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill, refreshCursorRules } from "./agent-skill.js";
+import { ciSetup } from "./ci-command.js";
 import { allowActionPullRequests, readGithub } from "./ci-github.js";
 import { openSetupPr } from "./ci-pr.js";
 import {
@@ -67,7 +68,6 @@ import {
 import type { CiDeps } from "./ci-setup.js";
 import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
-import { ciSetup } from "./ci-workflow.js";
 import { deliver, offBase } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";

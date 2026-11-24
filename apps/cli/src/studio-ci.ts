@@ -12,6 +12,7 @@ import type {
   CiStopWire,
   StudioCi,
 } from "@demoman/studio";
+import { watchedLines } from "./ci-command.js";
 import type { SecretValues } from "./ci-secrets.js";
 import {
   applyCiSetup,
@@ -24,7 +25,6 @@ import {
   redact,
 } from "./ci-setup.js";
 import { runOf } from "./ci-tool.js";
-import { watchedLines } from "./ci-workflow.js";
 
 export function createStudioCi(io: {
   /** Everything the plan reads and does; `progress` is the watch's. */

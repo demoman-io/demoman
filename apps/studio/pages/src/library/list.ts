@@ -10,6 +10,13 @@ import type {
 } from "@demoman/studio-protocol";
 import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
+import {
+  flowsOnScreen,
+  openRename,
+  refold,
+  renamers,
+  setExpanded,
+} from "./list-dom";
 import { attachListKeys } from "./list-keys";
 import {
   firstClickDescending,
@@ -21,6 +28,19 @@ import {
   type Where,
   whereFor,
 } from "./list-model";
+import {
+  cardButtons,
+  commitSpan,
+  el,
+  expiredLine,
+  exportsList,
+  matchWhy,
+  nameField,
+  sectionId,
+  statusKey,
+  tags,
+  versionButtons,
+} from "./row-parts";
 import type { Why } from "./search";
 import type {
   LibraryCard,
@@ -29,20 +49,9 @@ import type {
   VideoGroup,
 } from "./state";
 import { cardsOf, formatBytes } from "./state";
-import {
-  cardButtons,
-  commitSpan,
-  el,
-  expiredLine,
-  exportsList,
-  type LibraryActions,
-  matchWhy,
-  nameField,
-  sectionId,
-  statusKey,
-  tags,
-  versionButtons,
-} from "./view";
+import type { LibraryActions } from "./view";
+
+export { flowsOnScreen, openRename, setExpanded } from "./list-dom";
 
 /** Whether a video's footage is on this machine, and if not why: one state
  *  drawn one way whatever the cause (§2.4). Expired is the only cause
@@ -196,14 +205,6 @@ function rowMenu(
   }
   return [more, menu];
 }
-
-/** Each flow row's rename, and each take's in no flow: what Enter on the
- *  name cell and the row's Rename button open (§4.6). */
-const renamers = new WeakMap<HTMLElement, () => void>();
-
-/** Swaps the row's name field in, focused, if the row has one and it is
- *  not open already. */
-export const openRename = (row: HTMLElement): void => renamers.get(row)?.();
 
 function renameButton(label: string): HTMLElement {
   const rename = el("button", {
@@ -524,58 +525,6 @@ export function renderList(
   list.append(grid);
   return grid;
 }
-
-/** Hides every row under a closed row and shows the rest, from each row's
- *  `aria-expanded`, in place: a redraw would cost focus and scroll. */
-function refold(grid: HTMLElement): void {
-  // shown[n]: whether the last row at level n shows its children.
-  const shown: boolean[] = [];
-  for (const row of grid.querySelectorAll<HTMLElement>(
-    "[role=row][data-key]",
-  )) {
-    const level = Number(row.getAttribute("aria-level"));
-    row.hidden = level > 1 && shown[level - 1] !== true;
-    shown[level] = !row.hidden && row.getAttribute("aria-expanded") !== "false";
-    const leads = row.querySelectorAll<HTMLElement>(
-      ":scope > [data-status] > [data-lead-status]",
-    );
-    if (leads.length > 0) {
-      // Said on the video rows while the flow is open (`entryRow`); the line
-      // goes, and the row's description with it, when nothing else is on it.
-      for (const lead of leads) {
-        lead.hidden = row.getAttribute("aria-expanded") === "true";
-      }
-      const line = leads[0]?.parentElement as HTMLElement;
-      line.hidden = [...line.children].every((c) => (c as HTMLElement).hidden);
-      if (line.hidden) row.removeAttribute("aria-describedby");
-      else row.setAttribute("aria-describedby", line.id);
-    }
-  }
-}
-
-/** Opens or closes a heading or flow row, and shows or hides its rows. */
-export function setExpanded(row: HTMLElement, open: boolean): void {
-  row.setAttribute("aria-expanded", String(open));
-  const grid = row.closest<HTMLElement>("[data-list]");
-  if (grid === null) return;
-  const videos = [...grid.querySelectorAll<HTMLElement>("[data-video-row]")];
-  const was = videos.map((v) => v.hidden);
-  refold(grid);
-  // The videos this fold brought on screen fade in (§4.7); a redraw's rows
-  // never carry the mark, so a redraw never fades. Cleared at the next fold.
-  for (const [i, v] of videos.entries()) {
-    v.toggleAttribute("data-opening", was[i] === true && !v.hidden);
-  }
-}
-
-/** The flows on screen, in page order: what a Shift-click or Shift+arrow
- *  ranges over, and what Cmd+A ticks. */
-export const flowsOnScreen = (grid: HTMLElement): string[] =>
-  [
-    ...grid.querySelectorAll<HTMLElement>(
-      "[role=row][data-flow]:not([hidden])",
-    ),
-  ].map((r) => r.dataset.flow as string);
 
 /**
  * A click opens, as a card's does (§4.2), with the card's exceptions

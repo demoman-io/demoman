@@ -13,15 +13,13 @@ import { type AppSpec, serializeApp } from "@demoman/run-core";
 import type { Verified } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { type CiAsk, type CiIo, ciSetup } from "../src/ci-command.js";
 import type { GithubFacts } from "../src/ci-github.js";
 import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
 import { type CiDeps, checkQuestion } from "../src/ci-setup.js";
 import type { Watched } from "../src/ci-watch.js";
 import {
-  type CiAsk,
-  type CiIo,
   type CiOptions,
-  ciSetup,
   expr,
   foundWorkflow,
   ciWorkflow as workflow,

@@ -45,8 +45,8 @@ import {
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
 import { chromium } from "playwright";
+import type { CiAsk } from "./ci-command.js";
 import { defaultTrigger } from "./ci-setup.js";
-import type { CiAsk } from "./ci-workflow.js";
 import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the

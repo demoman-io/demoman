@@ -89,6 +89,11 @@ jobs:
         run: pnpm typecheck
       - name: The root scripts' own tests
         run: node --test 'scripts/*.test.mjs'
+      # Two files that import each other at runtime, or a package importing
+      # an app (DEM-199, DEM-200). It reads the source through TypeScript's
+      # own transpile, and fails when it reads too few files to mean anything.
+      - name: No runtime import cycles
+        run: node scripts/no-cycles.mjs
       # The runner's shards exclude every refresh part, so a part missing
       # from the refresh job's matrix would never run, and nothing would say.
       - name: Every refresh part has a job
