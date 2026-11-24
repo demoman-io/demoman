@@ -501,6 +501,171 @@ describe("the packed install", () => {
     }
   });
 
+  // DEM-218: setup from the packed install, the way a user gets it, against
+  // every agent it supports, each a fake CLI (fake-agent.mjs) that logs what
+  // it was asked and keeps what setup added. Setup has to connect all four
+  // and write each one's file under HOME; run again, it has to take each
+  // update path and keep the four connected. Red when the bundle drops an
+  // agent's wiring, takes an install for an update (measured: `plugin
+  // install` on the second run fails it), or asks an agent something it
+  // would not answer (the fake writes it to .fake-agents.unexpected).
+  // The fakes write what the real CLIs write on install (enabledPlugins,
+  // Codex's plugin table): setup with no terminal connects no new agent on
+  // a later run and reads "connected" from those files, so a fake that
+  // skipped them would turn the update path into "not changed".
+  // Skipped, with the reason, where Demoman does not record; the case above
+  // asserts that refusal.
+  it.skipIf(!recorderPlatform(process.platform, process.arch).ok)(
+    "connects Claude Code, Codex, Cursor and OpenCode from the packed install, then updates them on a second run",
+    async () => {
+      const bin = await mkdtemp(join(tmpdir(), "demoman-agents-path-"));
+      const agentsHome = await mkdtemp(join(tmpdir(), "demoman-agents-home-"));
+      const fake = fileURLToPath(new URL("./fake-agent.mjs", import.meta.url));
+      try {
+        await symlink(process.execPath, join(bin, "node"));
+        for (const agent of ["claude", "codex", "agent", "opencode", "npx"]) {
+          writeFileSync(
+            join(bin, agent),
+            `#!/bin/sh\nexec "${process.execPath}" "${fake}" ${agent} "$@"\n`,
+            { mode: 0o755 },
+          );
+        }
+        const {
+          CLAUDE_CONFIG_DIR: _c,
+          CODEX_HOME: _x,
+          XDG_CONFIG_HOME: _g,
+          ...outer
+        } = process.env;
+        const env = {
+          ...outer,
+          PATH: bin,
+          HOME: agentsHome,
+          PLAYWRIGHT_BROWSERS_PATH: dirname(fullChromiumDir()),
+          FAKE_DEMOMAN_VERSION: VERSION,
+        };
+        const lines = (file: string): string[] =>
+          existsSync(join(agentsHome, file))
+            ? readFileSync(join(agentsHome, file), "utf8")
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+            : [];
+        const calls = () => lines(".fake-agents.log");
+        const unexpected = () => lines(".fake-agents.unexpected");
+        /** How many keys named `demoman` a JSON file holds, at any depth. */
+        const entries = (file: string): number => {
+          const count = (v: unknown): number =>
+            v !== null && typeof v === "object"
+              ? Object.entries(v).reduce(
+                  (n, [k, w]) => n + (k === "demoman" ? 1 : 0) + count(w),
+                  0,
+                )
+              : 0;
+          return count(
+            JSON.parse(readFileSync(join(agentsHome, file), "utf8")),
+          );
+        };
+        const setup = () =>
+          spawnSync(process.execPath, [packed.bin, "setup"], {
+            encoding: "utf8",
+            env,
+          });
+
+        const first = setup();
+        const said = () =>
+          `${first.stdout}\n${first.stderr}\ncalls: ${calls().join(" | ")}`;
+        expect(unexpected(), said()).toEqual([]);
+        expect(first.status, said()).toBe(0);
+        expect(first.stdout, said()).toContain("warm start: done");
+        expect(first.stdout, said()).toContain(
+          `Claude Code: the demoman plugin is installed (${VERSION})`,
+        );
+        expect(first.stdout, said()).toContain(
+          `Codex: the demoman plugin is installed (${VERSION})`,
+        );
+        expect(first.stdout, said()).toContain("Cursor: Demoman is connected");
+        expect(first.stdout, said()).toContain(
+          "OpenCode: Demoman is connected",
+        );
+        // What each agent keeps, under the throwaway HOME.
+        for (const file of [
+          ".codex/config.toml",
+          ".cursor/mcp.json",
+          ".config/opencode/opencode.json",
+        ]) {
+          expect(existsSync(join(agentsHome, file)), `${file}: ${said()}`).toBe(
+            true,
+          );
+        }
+        expect(calls(), said()).toEqual(
+          expect.arrayContaining([
+            JSON.stringify(["claude", "plugin", "install", "demoman@demoman"]),
+            JSON.stringify([
+              "codex",
+              "plugin",
+              "add",
+              "demoman@demoman",
+              "--json",
+            ]),
+          ]),
+        );
+
+        // Again, as after an upgrade: every agent already has Demoman.
+        const before = calls().length;
+        const second = setup();
+        const again = calls().slice(before);
+        const saidAgain = `${second.stdout}\n${second.stderr}\ncalls: ${again.join(" | ")}`;
+        expect(unexpected(), saidAgain).toEqual([]);
+        expect(second.status, saidAgain).toBe(0);
+        expect(second.stdout, saidAgain).toContain("warm start: done");
+        for (const connected of [
+          `Claude Code: the demoman plugin is installed (${VERSION})`,
+          `Codex: the demoman plugin is installed (${VERSION})`,
+          "Cursor: Demoman is connected",
+          "OpenCode: Demoman is connected",
+        ])
+          expect(second.stdout, saidAgain).toContain(connected);
+        // Each file setup writes still holds one entry: updated in place, not
+        // added beside the first or refused as someone else's.
+        for (const file of [
+          ".cursor/mcp.json",
+          ".config/opencode/opencode.json",
+        ])
+          expect(entries(file), `${file}: ${saidAgain}`).toBe(1);
+        expect(again, saidAgain).toEqual(
+          expect.arrayContaining([
+            JSON.stringify([
+              "claude",
+              "plugin",
+              "marketplace",
+              "update",
+              "demoman",
+            ]),
+            JSON.stringify(["claude", "plugin", "update", "demoman@demoman"]),
+            JSON.stringify([
+              "codex",
+              "plugin",
+              "marketplace",
+              "upgrade",
+              "demoman",
+              "--json",
+            ]),
+          ]),
+        );
+        // An update is not an add made again.
+        expect(again, saidAgain).not.toContain(
+          JSON.stringify(["claude", "plugin", "install", "demoman@demoman"]),
+        );
+      } finally {
+        await rm(bin, { recursive: true, force: true });
+        await rm(agentsHome, { recursive: true, force: true });
+      }
+    },
+    // Two setups: 1.7 s on an M-series Mac. On Linux each also launches
+    // Chromium headless (browserLaunches), on a runner about 5x slower.
+    120_000,
+  );
+
   it("signin --account with no name prints usage and exits 2", () => {
     const r = spawnSync(process.execPath, [packed.bin, "signin", "--account"], {
       encoding: "utf8",

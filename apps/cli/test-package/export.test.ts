@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { LOGO_SVG, serveFixtureApp } from "../../runner/test/fixture.js";
 import { sampleMp4 } from "../../runner/test/mp4-probe.js";
 import { connect, installPacked, text } from "../test/packed-install.js";
+import { watchExternalBrowser } from "./external-browser.js";
 
 const GREEN: [number, number, number] = [0, 200, 83];
 // The fixture's invoice panel (#111827), which "Place order" slides in.
@@ -13,8 +14,10 @@ const PANEL: [number, number, number] = [17, 24, 39];
 let packed: Awaited<ReturnType<typeof installPacked>>;
 let app: Awaited<ReturnType<typeof serveFixtureApp>>;
 let home: string;
+let openers: Awaited<ReturnType<typeof watchExternalBrowser>>;
 beforeAll(async () => {
   packed = await installPacked();
+  openers = await watchExternalBrowser();
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-package-"));
   await writeFile(join(home, "acme.svg"), LOGO_SVG);
@@ -23,6 +26,7 @@ afterAll(async () => {
   app?.close();
   await packed?.cleanup();
   await rm(home, { recursive: true, force: true });
+  await openers?.cleanup();
 });
 
 type Client = Awaited<ReturnType<typeof connect>>;
@@ -58,7 +62,7 @@ it("runs and exports the fixture take from the packed install, and the film show
   const c = await connect(
     process.execPath,
     [packed.bin, "mcp", "--out-dir", join(home, "out")],
-    { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1" },
+    { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1", ...openers.env },
   );
   try {
     const run = await finished(c, "run", {
@@ -120,6 +124,9 @@ it("runs and exports the fixture take from the packed install, and the film show
     expect(panelMost, JSON.stringify(counts)).toBeGreaterThan(
       panelFirst * 4 + 500,
     );
+    // Run and export opened nothing in the person's own browser or desktop
+    // (DEM-218). Red: an export that `open`s its file or a link.
+    expect(await openers.calls()).toEqual([]);
   } finally {
     await c.close();
   }
