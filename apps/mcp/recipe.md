@@ -430,7 +430,7 @@ Studio exports go to the Export folder (Settings).
   `scrollTo`, `waitFor` (`until`: `visible` | `hidden`; `opacity: 0` or
   `visibility: hidden` is hidden), `waitForLoad`, `pause` (`ms`), `press` (`key`: `Enter` | `Tab` | `Escape` |
   `Backspace` | `Delete` | `ArrowUp` | `ArrowDown` | `ArrowLeft` | `ArrowRight` |
-  `Space` | `Home` | `End` | `PageUp` | `PageDown` | `F1`-`F12` | one character, after modifiers `Mod` | `Shift` | `Alt` | `Ctrl` joined by `+`, as `"Mod+Shift+K"`. Every page presents as a Mac: `Mod` is ⌘; a snapshot target reads "⌘K", not "Ctrl K". `Mod+C`/`Mod+V`/`Mod+X` reach the page's own shortcuts, never the clipboard. Names no element, goes to whatever holds focus), and `drag` (`from: { on, at? }`, `to`
+  `Space` | `Home` | `End` | `PageUp` | `PageDown` | `F1`-`F12` | one character, after modifiers `Mod` | `Shift` | `Alt` | `Ctrl` joined by `+`, as `"Mod+Shift+K"`. Every page presents as a Mac: `Mod` is ⌘; a target reads "⌘K". `Mod+C`/`Mod+V`/`Mod+X` reach the page's own shortcuts, never the clipboard. Names no element, goes to whatever holds focus), and `drag` (`from: { on, at? }`, `to`
   the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1). An unknown key is refused and named.
 - `trim`: `{ "start"?: { "ms", "step"? }, "end"?: { "ms", "step"?, "after"? } }`, the video kept before the first and after the last shown step. `step` is 1-based, not a `pause`; `after` is `"zoomOut"` (default) or `"action"`. To end every video right after its last step, give every script `"trim": { "end": { "ms": 0 } }`.
 - A `click` or `drag` takes `zoom`: `false` for none, or `{ "scale": 1.5 }` (over 1, at most 2.5).
