@@ -23,6 +23,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { installResolver } from "../src/page-agent.js";
 import { lagCdp } from "./lag.js";
+import { motionKeptAfter } from "./starved.js";
 
 // Spec 2026-10-19 (unhurried beats), through the CLI executor in a real
 // browser: each acting step's marker records when its act ended. The camera
@@ -473,10 +474,9 @@ describe("unhurried beats through the executor", () => {
       .filter((m) => m.startMs >= actEnd && m.startMs < next)
       .map((m) => m.startMs);
     // Kept motion running across the act's end: then the act did not end
-    // at a gap, and an early end is the settle's own.
-    const across = bundle.motionSpans.some(
-      (m) => m.startMs < actEnd && m.endMs > actEnd,
-    );
+    // at a gap, and an early end is the settle's own. Net of the span's
+    // close, which always reaches past an act that ended at a gap.
+    const across = motionKeptAfter(bundle.motionSpans, actEnd);
     // Motion the recorder itself did not keep, inside this step's window
     // (the compositor's own test of it): a gap that explains is not the
     // screencast's.
