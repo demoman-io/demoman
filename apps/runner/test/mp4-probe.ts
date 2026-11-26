@@ -47,7 +47,12 @@ function decodeProbeBundle(): Promise<string> {
  */
 export async function sampleMp4(
   bytes: Uint8Array,
-  req: { colors: Rgb[]; blockPoints?: Point[] },
+  req: {
+    colors: Rgb[];
+    blockPoints?: Point[];
+    rects?: Rect[];
+    atSecs?: number[];
+  },
 ): Promise<Mp4Sample> {
   const request = sampleRequest(req);
   const base64 = Buffer.from(bytes).toString("base64");
@@ -154,15 +159,18 @@ export async function sampleImage(
 function sampleRequest(req: {
   colors: Rgb[];
   blockPoints?: Point[];
+  rects?: Rect[];
+  atSecs?: number[];
 }): SampleRequest {
   return {
     spacingSec: 0.25,
+    ...(req.atSecs ? { atSecs: req.atSecs } : {}),
     blockPoints: req.blockPoints ?? [],
     blockFraction: 0.01,
     colors: req.colors,
     colorTolerance: 24,
     colorErode: req.colors.map(() => 0),
-    rects: [],
+    rects: req.rects ?? [],
     nearWhiteMin: 245,
   };
 }

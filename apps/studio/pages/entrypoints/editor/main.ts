@@ -10,6 +10,7 @@ import {
   LANDSCAPE_1080P,
   loadDialogFont,
   logoRasterHeight,
+  needsTextFont,
   type Presentation,
   planScene,
   type RenderTarget,
@@ -1665,9 +1666,10 @@ const scrubber = createScrubber({
       );
     }
     let decodeMs = 0;
-    // A dialog card is drawn in Geist only (DEM-161); one that will not
-    // load fails the draw with the reason, as any draw failure does.
-    if (drawing.resolved.dialogCards.length > 0) {
+    // The video's text (a dialog card, a key pill, a ×2 tag) is drawn in
+    // Geist only; a font that will not load fails the draw with the reason,
+    // as any draw failure does.
+    if (needsTextFont(snapshot.scene)) {
       // A load that failed is tried again on the next draw, not kept.
       dialogFont ??= loadDialogFont('url("/fonts/geist-variable.woff2")').catch(
         (error: unknown) => {

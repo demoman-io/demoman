@@ -528,7 +528,7 @@ describe("renderFrame", () => {
         // Isolate the arrow from the click pulse, which also scales with the
         // zoom and would otherwise add ink that has nothing to do with the
         // arrow under test.
-        clickOutputMs: [],
+        pulseOutputMs: [],
       };
     }
 
@@ -634,7 +634,7 @@ describe("renderFrame", () => {
         resolved: {
           ...resolved,
           cursor: cursor ? resolved.cursor : [],
-          clickOutputMs: [],
+          pulseOutputMs: [],
           holdOutputMs: holds,
         },
         target,
@@ -685,14 +685,14 @@ describe("renderFrame", () => {
     const presentation = derivePresentation(scene.branding, target, VIEWPORT);
     const frames = createProceduralFrameSource(bundle);
     const corner = { x: VIEWPORT.width - 1, y: VIEWPORT.height - 1 };
-    const draw = async (cursor: boolean, clickOutputMs: number[]) => {
+    const draw = async (cursor: boolean, pulseOutputMs: number[]) => {
       const canvas = new OffscreenCanvas(target.width, target.height);
       const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
       await renderFrame({
         resolved: {
           ...resolved,
           cursor: cursor ? [{ sourceTimeMs: 0, ...corner }] : [],
-          clickOutputMs,
+          pulseOutputMs,
         },
         target,
         presentation,
@@ -813,7 +813,7 @@ describe("the camera zooms the whole scene", () => {
       // Nothing but the scene itself: no pointer, no pulse, no overlays, so
       // a probe reads background, window or page and nothing else.
       cursorLook: { ...resolved.cursorLook, hidden: true },
-      clickOutputMs: [],
+      pulseOutputMs: [],
     };
   }
 
@@ -1121,7 +1121,7 @@ describe("click pulse on a retimed timeline", () => {
    * Counts frames, at the target's real fps, on which the ring puts ink
    * outside the pointer's own footprint.
    *
-   * The comparison render differs only in `clickOutputMs`, so every pixel that
+   * The comparison render differs only in `pulseOutputMs`, so every pixel that
    * moves is pulse or press. The exclusion box covers the arrow and its drop
    * shadow, which both extend down-right from the hotspot and never up-left,
    * so the press animation cannot be mistaken for the ring.
@@ -1130,9 +1130,9 @@ describe("click pulse on a retimed timeline", () => {
 
   async function framesShowingPulse(plan: ResolvedPlan): Promise<number> {
     const presentation = derivePresentation(scene.branding, target, VIEWPORT);
-    const noPulse: ResolvedPlan = { ...plan, clickOutputMs: [] };
+    const noPulse: ResolvedPlan = { ...plan, pulseOutputMs: [] };
     const step = 1000 / target.fps;
-    const clickOutMs = plan.clickOutputMs[0];
+    const clickOutMs = plan.pulseOutputMs[0];
     expect(clickOutMs).toBeDefined();
     if (clickOutMs === undefined) throw new Error("unreachable");
 
@@ -1462,7 +1462,7 @@ async function cursorInkCentroid(args: {
     const canvas = new OffscreenCanvas(target.width, target.height);
     const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
     await renderFrame({
-      resolved: { ...plan, cursor, clickOutputMs: [] },
+      resolved: { ...plan, cursor, pulseOutputMs: [] },
       target,
       presentation,
       frames: createProceduralFrameSource(bundle),
@@ -1853,7 +1853,7 @@ describe("the drawn cursor's size", () => {
       const canvas = new OffscreenCanvas(target.width, target.height);
       const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
       await renderFrame({
-        resolved: { ...resolved, cursor, clickOutputMs: [] },
+        resolved: { ...resolved, cursor, pulseOutputMs: [] },
         target,
         presentation,
         frames: createProceduralFrameSource(bundle),
@@ -1926,7 +1926,7 @@ describe("the authored cursor look", () => {
     await renderFrame({
       // `bare` is the baseline: the same frame with nothing the cursor block
       // would draw. Differencing against it counts exactly that block's ink.
-      resolved: bare ? { ...plan, cursor: [], clickOutputMs: [] } : plan,
+      resolved: bare ? { ...plan, cursor: [], pulseOutputMs: [] } : plan,
       target,
       presentation,
       frames: createProceduralFrameSource(dwelling),
@@ -1972,7 +1972,7 @@ describe("the authored cursor look", () => {
 
   // Derived, not hardcoded: if the fixture ever stops carrying a click, this
   // throws instead of silently composing somewhere the ring was never drawn.
-  const clickMs = resolvedBase.clickOutputMs[0];
+  const clickMs = resolvedBase.pulseOutputMs[0];
   if (clickMs === undefined) {
     throw new Error(
       "the fixture carries no click; the pulse assertions would be vacuous",
@@ -2205,7 +2205,7 @@ describe("the pointer's lean in a composed frame", () => {
     const canvas = new OffscreenCanvas(target.width, target.height);
     const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
     await renderFrame({
-      resolved: bare ? { ...plan, cursor: [], clickOutputMs: [] } : plan,
+      resolved: bare ? { ...plan, cursor: [], pulseOutputMs: [] } : plan,
       target,
       presentation,
       frames: createProceduralFrameSource(sweeping),

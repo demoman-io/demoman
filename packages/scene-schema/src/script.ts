@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceIdSchema } from "./device.js";
+import { DEVICES, DeviceIdSchema } from "./device.js";
 import {
   BRANDING_DEFAULTS,
   BrandingSchema,
@@ -9,6 +9,7 @@ import {
   PRESS_KEYS,
   type SceneCursor,
 } from "./document.js";
+import { parseHolding, parseKeyCombo } from "./keys.js";
 import { WALLPAPERS } from "./wallpapers.js";
 
 /**
@@ -114,6 +115,15 @@ export const SCRIPT_VERSION_EDITS = 8;
 export const SCRIPT_VERSION_INPUTS = 9;
 
 /**
+ * The first version with a key combo as a press's `key`, a `key` outside
+ * `PRESS_KEYS`, or a click's `button`, `clicks` or `holding` (2026-11-23).
+ * Step members are strict and `key` was an enum, so a build from before
+ * refuses these by name; the bump gives it the version sentence instead, by
+ * `SCRIPT_VERSION_KIT`'s reasoning.
+ */
+export const SCRIPT_VERSION_KEYS = 10;
+
+/**
  * The largest zoom a script may ask a click for. The camera clamps to
  * `CAMERA_DEFAULTS.maxScale` (2.5, in `@demoman/compositor`, which depends on
  * this package and so cannot be imported here); a higher ask would be clamped
@@ -184,13 +194,12 @@ export function targetStrategy(
  * readiness wait stamped at the moment its element appeared, breaking the
  * log's monotonicity) unreachable from this door.
  *
- * `click` names no BUTTON. The run dispatches a left button and nothing else
- * (`performVerb` in `@demoman/replay-engine`), so a field offering `middle`
- * and `right` promised two things no door performs — and the run's honest
- * choices were then to refuse the step or to record a left click the script
- * did not ask for. A field with one legal value is noise; when the walk learns
- * the other buttons, re-adding it is additive. The engine keeps a runtime
- * backstop (`unperformableStep`) for a caller that skipped this parse.
+ * `click` performs `right` (v10) and no other button. `left` is the default,
+ * so naming it is refused with that sentence; `middle` stays out because no
+ * door performs it, and a field promising it would leave the run to refuse
+ * the step or to record a click the script did not ask for. The engine keeps
+ * a runtime backstop (`unperformableStep`) for a caller that skipped this
+ * parse.
  *
  * `.strict()` on every member, for `ScriptTargetSchema`'s reason one level up:
  * without it an unknown key is STRIPPED in silence, so a script asking for
@@ -274,6 +283,27 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       dialog: DialogIntentSchema.optional().describe(
         'How to answer a dialog this click opens: "accept" (the default), "dismiss", or { text } for a prompt',
       ),
+      button: z
+        .string()
+        .refine((b) => b === "right", {
+          message: 'button takes "right" only; a click is left by default',
+        })
+        .optional()
+        .describe('"right" for a right-click; absent is a left click'),
+      clicks: z
+        .union([z.literal(2), z.literal(3)])
+        .optional()
+        .describe("2 for a double click, 3 for a triple click"),
+      holding: z
+        .string()
+        .superRefine((h, ctx) => {
+          const held = parseHolding(h);
+          if (!held.ok) ctx.addIssue({ code: "custom", message: held.message });
+        })
+        .optional()
+        .describe(
+          'Modifiers held through the click, like "Shift" or "Mod+Shift"',
+        ),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
        * it). How the recording layer pairs a run's step with the author's —
@@ -283,6 +313,16 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       recorded: RecordedSchema,
     })
     .strict()
+    .superRefine((step, ctx) => {
+      // A right-click is one click; saying both would leave the run to pick.
+      if (step.button !== undefined && step.clicks !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "a right-click takes no clicks",
+          path: ["clicks"],
+        });
+      }
+    })
     .describe("Click an element"),
   z
     .object({
@@ -363,7 +403,16 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
   z
     .object({
       do: z.literal("press"),
-      key: z.enum(PRESS_KEYS).describe("The key to press"),
+      key: z
+        .string()
+        .superRefine((k, ctx) => {
+          const combo = parseKeyCombo(k);
+          if (!combo.ok)
+            ctx.addIssue({ code: "custom", message: combo.message });
+        })
+        .describe(
+          'The key, after any modifiers joined by +: "Enter", "Mod+K", "Shift+Tab"',
+        ),
       recorded: RecordedSchema,
     })
     .strict()
@@ -492,6 +541,7 @@ const ScriptVersionSchema = z.literal([
   SCRIPT_VERSION_PRESS,
   SCRIPT_VERSION_EDITS,
   SCRIPT_VERSION_INPUTS,
+  SCRIPT_VERSION_KEYS,
 ]);
 export type ScriptVersion = z.infer<typeof ScriptVersionSchema>;
 
@@ -616,6 +666,29 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       path: ["look", "branding", "background", "id"],
     });
   }
+  script.steps.forEach((step, index) => {
+    if (step.do !== "click") return;
+    if (
+      script.device !== undefined &&
+      DEVICES[script.device].touch &&
+      (step.button !== undefined ||
+        step.clicks !== undefined ||
+        step.holding !== undefined)
+    ) {
+      const field =
+        step.clicks !== undefined
+          ? "clicks"
+          : step.button !== undefined
+            ? "button"
+            : "holding";
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "a phone or tablet has no mouse: button, clicks and holding need a desktop take",
+        path: ["steps", index, field],
+      });
+    }
+  });
   script.steps.forEach((step, index) => {
     if (step.do !== "drag") return;
     // A drag that goes nowhere is a click, and filming it as a drag would
@@ -753,6 +826,17 @@ export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
       script.steps.some((step) => step.do === "click" && step.dialog),
       SCRIPT_VERSION_INPUTS,
     ],
+    [
+      script.steps.some(
+        (step) =>
+          (step.do === "click" &&
+            (step.button !== undefined ||
+              step.clicks !== undefined ||
+              step.holding !== undefined)) ||
+          (step.do === "press" && needsKeys(step.key)),
+      ),
+      SCRIPT_VERSION_KEYS,
+    ],
   ];
   return rules
     .filter(([on]) => on)
@@ -766,6 +850,16 @@ export type DragFrom = z.infer<typeof DragFromSchema>;
 export type DragTo = z.infer<typeof DragToSchema>;
 export type ScriptStep = z.infer<typeof ScriptStepSchema>;
 export type DemoScript = z.infer<typeof DemoScriptSchema>;
+
+/** Whether a press's `key` is a combo or a key a version-7 build has no name for. */
+function needsKeys(key: string): boolean {
+  const combo = parseKeyCombo(key);
+  return (
+    combo.ok &&
+    (combo.modifiers.length > 0 ||
+      !(PRESS_KEYS as readonly string[]).includes(key))
+  );
+}
 
 /** Whether a cursor block names a key that needs `SCRIPT_VERSION_MOTION`. */
 export function cursorPolishNamed(cursor: SceneCursor | undefined): boolean {

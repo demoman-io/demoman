@@ -164,38 +164,24 @@ const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
 };
 export const HEADLESS_GPU_ARGS = GPU_ARGS_BY_PLATFORM[process.platform] ?? [];
 
-/** The browser's own user agent with `HeadlessChrome` said as `Chrome`. */
-async function visibleUserAgent(browser: Browser): Promise<string> {
-  const session = await browser.newBrowserCDPSession();
-  try {
-    const { userAgent } = (await session.send("Browser.getVersion")) as {
-      userAgent: string;
-    };
-    return userAgent.replace("HeadlessChrome/", "Chrome/");
-  } finally {
-    await session.detach();
-  }
+/**
+ * Chrome's reduced macOS user agent for this browser's major version. Every
+ * page Demoman opens presents as macOS (DEM-154), so a script's `Mod+K` and an
+ * app's "⌘K" agree on any host; Playwright derives the client hints'
+ * `userAgentData.platform: "macOS"` from it. It never says `HeadlessChrome`.
+ */
+export function macUserAgent(version: string): string {
+  const major = version.split(".")[0];
+  return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
 }
 
 /**
- * The visible user agent for the context, or none when it cannot be read: it
- * only renames `HeadlessChrome`, so a failure keeps the browser's own and
- * the launch goes on, said in the log.
+ * `navigator.platform` follows the host, not the user agent. Only where the
+ * user agent says Macintosh: a phone take's device user agent (`applyDevice`)
+ * keeps its own platform.
+ * shortcut: workers keep the host's navigator.platform; upgrade if an app reads it off the main thread
  */
-async function visibleUserAgentOr(
-  browser: Browser,
-  read: (browser: Browser) => Promise<string>,
-  log: ((line: string) => void) | undefined,
-): Promise<{ userAgent?: string }> {
-  try {
-    return { userAgent: await read(browser) };
-  } catch (error) {
-    log?.(
-      `the browser's user agent could not be read (${error instanceof Error ? error.message : String(error)}); pages see its own, which says HeadlessChrome`,
-    );
-    return {};
-  }
-}
+export const MAC_PLATFORM_SCRIPT = `if (/Macintosh/.test(navigator.userAgent)) Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel", configurable: true });`;
 
 /** Per executable, why it would not start with its sandbox in this process:
  *  later launches go straight without it instead of failing first again. */
@@ -403,8 +389,6 @@ export async function launch(options?: {
   /** Headless only: launched for recordings on a held clock (`HELD_FLAGS`).
    *  Every other launch is as it was. */
   held?: boolean;
-  /** Tests only: stands in for reading the browser's user agent. */
-  userAgentOf?: (browser: Browser) => Promise<string>;
 }): Promise<Launched> {
   const headless = options?.headless ?? true;
   const display = headless ? options?.display : undefined;
@@ -434,20 +418,15 @@ export async function launch(options?: {
     // 2 Task 5). The engine's own metrics override still sets the filmed
     // size. Headless keeps the fixed viewport the runner's lanes measure,
     // unless it was given a display to stand in for.
-    const context = await browser.newContext(
-      display !== undefined
-        ? {
-            viewport: null,
-            ...(await visibleUserAgentOr(
-              browser,
-              options?.userAgentOf ?? visibleUserAgent,
-              options?.log,
-            )),
-          }
+    const context = await browser.newContext({
+      userAgent: macUserAgent(browser.version()),
+      ...(display !== undefined
+        ? { viewport: null }
         : headless
           ? { viewport: CONTEXT_VIEWPORT, deviceScaleFactor: CONTEXT_DPR }
-          : { viewport: null },
-    );
+          : { viewport: null }),
+    });
+    await context.addInitScript(MAC_PLATFORM_SCRIPT);
     const page = await context.newPage();
     const session = await context.newCDPSession(page);
     const cdp = toCdpSession(session);

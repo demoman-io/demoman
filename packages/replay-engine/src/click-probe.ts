@@ -67,8 +67,16 @@ export const CLICK_MEASURE_TRIES = 5;
 /** Installed with `this` = the target element, and optionally the probe's
  *  token: given one, each event is also reported through
  *  `CLICK_SIGHTING_BINDING` when the page has it. Answers an object whose
- *  `read()` removes the listeners and says what they saw. */
-export const CLICK_PROBE_INSTALL = `function(token){
+ *  `read()` removes the listeners and says what they saw.
+ *
+ *  `quietMenu`, for a right-click: Chrome's own context menu is never in the
+ *  frames (spec 2026-11-21), and in a visible window it would sit open over
+ *  the page. A one-shot `contextmenu` listener on the window, bubble phase
+ *  and placed last, so it runs after the page's own handlers, prevents the
+ *  default only where none of them did: a page that draws its own menu is
+ *  untouched. A page handler that stops the event's propagation without
+ *  preventing it keeps Chrome's menu. */
+export const CLICK_PROBE_INSTALL = `function(token, quietMenu){
   const ${CLICK_PROBE_MARKER} = true;
   const doc = this.ownerDocument;
   const view = doc && doc.defaultView;
@@ -94,6 +102,11 @@ export const CLICK_PROBE_INSTALL = `function(token){
   view.addEventListener("pointerup", onUp, true);
   view.addEventListener("pointercancel", onCancel, true);
   view.addEventListener("drop", onDrop, true);
+  const onMenu = (e) => {
+    view.removeEventListener("contextmenu", onMenu);
+    if (!e.defaultPrevented) e.preventDefault();
+  };
+  if (quietMenu === true) view.addEventListener("contextmenu", onMenu);
   const target = this;
   return {
     measure() { own = rect(); },
@@ -102,6 +115,7 @@ export const CLICK_PROBE_INSTALL = `function(token){
       view.removeEventListener("pointerup", onUp, true);
       view.removeEventListener("pointercancel", onCancel, true);
       view.removeEventListener("drop", onDrop, true);
+      view.removeEventListener("contextmenu", onMenu);
       const root = target.getRootNode();
       const active = root && root.activeElement;
       // A label passes its click to its control, so a type aimed at the
@@ -490,6 +504,7 @@ export async function placeClickProbe(
   cdp: CdpSession,
   objectId: string,
   token: string | null = null,
+  quietMenu = false,
 ): Promise<ClickProbe> {
   let before = await boxOf(cdp, objectId);
   let probeId: string;
@@ -497,7 +512,7 @@ export async function placeClickProbe(
     const reply = await cdp.send("Runtime.callFunctionOn", {
       objectId,
       functionDeclaration: CLICK_PROBE_INSTALL,
-      arguments: token === null ? [] : [{ value: token }],
+      arguments: [{ value: token }, { value: quietMenu }],
       returnByValue: false,
     });
     const result = reply.result as { objectId?: unknown } | undefined;

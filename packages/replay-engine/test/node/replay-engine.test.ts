@@ -147,6 +147,14 @@ function deps(
 
 /** Everything the walk typed, its keys joined: a type goes in a key at a
  *  time, so no one `insertText` carries the value. */
+/** The `type` step's select of its field: a `callFunctionOn`, never a key. */
+const isFieldSelect = (c: {
+  method: string;
+  params: Record<string, unknown>;
+}): boolean =>
+  c.method === "Runtime.callFunctionOn" &&
+  String(c.params.functionDeclaration).includes('execCommand("selectAll")');
+
 function typedText(d: { cdp: CdpFake }): string {
   return d.cdp.calls
     .filter((c) => c.method === "Input.insertText")
@@ -457,12 +465,7 @@ describe("runReplay", () => {
     );
 
     expect(result.outcome).toBe("complete");
-    const selectAll = d.cdp.calls.filter(
-      (c) =>
-        c.method === "Input.dispatchKeyEvent" &&
-        (c.params.commands as string[] | undefined)?.includes("selectAll"),
-    );
-    expect(selectAll).toEqual([]);
+    expect(d.cdp.calls.filter(isFieldSelect)).toEqual([]);
     expect(typedText(d)).toBe("hi");
   });
 
@@ -487,12 +490,12 @@ describe("runReplay", () => {
       d,
     );
 
-    const selectAll = d.cdp.calls.filter(
-      (c) =>
-        c.method === "Input.dispatchKeyEvent" &&
-        (c.params.commands as string[] | undefined)?.includes("selectAll"),
+    expect(d.cdp.calls.filter(isFieldSelect)).toHaveLength(1);
+    // No key event selects it: an app's own ⌘A handler could catch one.
+    const keys = d.cdp.calls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
     );
-    expect(selectAll).toHaveLength(1);
+    expect(keys, JSON.stringify(keys)).toEqual([]);
   });
 
   it("a click at {x:0.25,y:0.5} sends its mouse events at that spot of the box", async () => {
@@ -647,10 +650,7 @@ describe("runReplay", () => {
         params?.type === "mouseReleased"
       )
         log.push("release");
-      if (
-        method === "Input.dispatchKeyEvent" &&
-        JSON.stringify(params?.commands) === '["selectAll"]'
-      )
+      if (isFieldSelect({ method, params: params ?? {} }))
         log.push("selectAll");
       return send(method, params);
     };
@@ -3429,6 +3429,31 @@ describe("a device take", () => {
     ).toMatchObject({ mobile: false });
   });
 
+  // A take whose click is a double, right or held one cannot be tapped:
+  // the walk stops by name before any input, never a bare throw.
+  it.each([
+    ["clicks", { clicks: 2 }],
+    ["button", { button: "right" }],
+    ["modifiers", { modifiers: ["Shift"] }],
+  ])(
+    "stops a touch click carrying %s with unperformableStep",
+    async (_name, extra) => {
+      const doc = phoneScene();
+      const scene = {
+        ...doc,
+        actions: doc.actions.map((a) =>
+          a.kind === "click" ? { ...a, ...extra } : a,
+        ),
+      } as SceneDocument;
+      const d = deps();
+      const result = await runReplay(scene, d);
+      expect(result.reason, JSON.stringify(result)).toBe("unperformableStep");
+      expect(
+        d.cdp.calls.filter((c) => c.method.startsWith("Input.dispatch")),
+      ).toEqual([]);
+    },
+  );
+
   // Review focus 3: a phone take rebuilds as taps, never as mouse presses.
   it("taps rather than clicks on a touch device", async () => {
     // The premise: the scene has a click to perform.
@@ -3733,11 +3758,7 @@ describe("a click the browser did not deliver", () => {
     return keys.length === 0 ? [] : [typedText(d)];
   };
   const selectedAll = (d: ReturnType<typeof deps>) =>
-    d.cdp.calls.some(
-      (c) =>
-        c.method === "Input.dispatchKeyEvent" &&
-        JSON.stringify(c.params.commands) === '["selectAll"]',
-    );
+    d.cdp.calls.some(isFieldSelect);
 
   // The press focuses a field on its own, so a stray release costs a type
   // nothing on screen: said, and the text goes in.

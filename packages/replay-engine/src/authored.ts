@@ -11,10 +11,11 @@
  * Two shapes of that rule are worth naming up front, because they are the ones
  * a reader will look for:
  *
- * - **A `click` records no `button`.** The script may ask for `middle` or
- *   `right`; `performVerb` dispatches a left button and nothing else. Copying
- *   the script's value into the document would claim a dispatch that did not
- *   happen, so the run refuses the step instead — `unperformableStep`.
+ * - **A `click` records the button it dispatched.** `performVerb` sends left
+ *   or right, and a `right`, `clicks` or `holding` in the script is carried
+ *   onto the action because it was performed. `middle` is not performed, so
+ *   the run refuses that step instead — `unperformableStep` — as it refuses
+ *   any of the three on a touch device, where a tap cannot be one.
  * - **A `hover` records no `signal`.** `MoveTo.signal` says how capture
  *   witnessed a hover changing the page. Nothing here witnessed that; the walk
  *   reports it separately, as `hoverSensitive`, from a repaint it measured.
@@ -51,6 +52,9 @@ import {
   type DragSpot,
   deviceFor,
   type FailureReasonName,
+  type Modifier,
+  parseHolding,
+  parseKeyCombo,
   type SceneAction,
   type SceneAnchor,
   type SceneAspect,
@@ -247,6 +251,10 @@ export interface AuthoredStep {
    *  step's end is the bound, so the camera may leave before the value
    *  shows (DEM-173). */
   lastKeyPaint?: { unconfirmed: string };
+  /** On a `type` whose field had text its select did not cover, so the
+   *  typed text went in beside it: that text, kept only when the typed text
+   *  is (never for a credential field). */
+  fieldNotCleared?: { before?: string; why?: string };
   /** On a click, type or press that opened JavaScript dialogs: each, as the
    *  run answered it (DEM-161). The action keeps the same list. */
   dialogs?: DialogRecord[];
@@ -507,6 +515,14 @@ function kindOf(step: ElementStep | PressStep): SceneAction["kind"] {
   }
 }
 
+/** A click's `holding`, as the modifiers the document records. */
+function heldOf(holding: string | undefined): { modifiers?: Modifier[] } {
+  if (holding === undefined) return {};
+  const held = parseHolding(holding);
+  if (!held.ok) throw new Error(`synthesize: ${held.message}`);
+  return { modifiers: held.modifiers };
+}
+
 /** A `SceneAction` of the step's own kind. No `rect`: it is assigned when the
  *  run measures one, and absent means the sighting had no rect. */
 function synthesize(
@@ -521,7 +537,16 @@ function synthesize(
 ): SceneAction {
   // A press names no element: its null anchor is typed here, not cast.
   if (step.do === "press") {
-    return { ...ids, kind: "press", key: step.key, anchorId: null };
+    const combo = parseKeyCombo(step.key);
+    if (!combo.ok) throw new Error(`synthesize: ${combo.message}`);
+    // `modifiers` on every press, `[]` too: its presence says schema 17.
+    return {
+      ...ids,
+      kind: "press",
+      key: combo.key,
+      modifiers: combo.modifiers,
+      anchorId: null,
+    };
   }
   if (ids.anchorId === null) {
     throw new Error(`synthesize: a ${step.do} step needs an anchor`);
@@ -529,8 +554,14 @@ function synthesize(
   const base = { ...ids, anchorId: ids.anchorId };
   switch (step.do) {
     case "click":
-      // `button` deliberately omitted — see this module's own docblock.
-      return { ...base, kind: "click", ...(step.at ? { at: step.at } : {}) };
+      return {
+        ...base,
+        kind: "click",
+        ...(step.at ? { at: step.at } : {}),
+        ...(step.button === undefined ? {} : { button: step.button }),
+        ...(step.clicks === undefined ? {} : { clicks: step.clicks }),
+        ...heldOf(step.holding),
+      };
     case "type":
       // `redacted: false` and a real `text`: an agent's value is a demo value
       // by construction, and there is no sensor here to have declined to read
@@ -635,6 +666,8 @@ export function createAuthoredRun(
   const zoomIntents = new Map<string, ZoomIntent>();
   const timings = new Map<string, StepTiming>();
   let stop: ReplayStopReason | null = null;
+  const touchDevice =
+    script.device !== undefined && deviceFor(script.device).touch;
 
   // The take's own time base: every stamp is a delta on the injected clock, so
   // the log ascends by construction and the first action lands near zero the
@@ -805,6 +838,13 @@ export function createAuthoredRun(
           continue;
         }
 
+        // The script door parses a press's key; a caller that skipped it
+        // reaches here with text no key means, and the run says so.
+        if (step.do === "press" && !parseKeyCombo(step.key).ok) {
+          stop = "unperformableStep";
+          return;
+        }
+
         if (step.do === "press") {
           // No element to resolve: the action goes out with no anchor, as a
           // navigation wait does. Performing it is Task 4's.
@@ -832,14 +872,33 @@ export function createAuthoredRun(
 
         if (step.do === "click") {
           // The backstop, because scripts arrive from an agent and this is the
-          // last line. `ScriptStepSchema` has no `button` and REFUSES one, so
-          // the only way a step reaches here carrying it is a caller that
-          // skipped the parse — and `performVerb` dispatches a left button and
-          // nothing else, so performing it as a left click and then recording
-          // whatever it asked for is the fabrication this door exists to
-          // avoid. Read off the runtime shape, since the type no longer has it.
+          // last line. `middle` is the one button nothing performs: recording
+          // it as a left click is the fabrication this door exists to avoid.
+          // Read off the runtime shape, since the script type has no `middle`.
           const button = (step as { button?: unknown }).button;
-          if (button !== undefined && button !== "left") {
+          if (button !== undefined && button !== "left" && button !== "right") {
+            stop = "unperformableStep";
+            return;
+          }
+          // So with a `holding` no modifier means, and a click count other
+          // than a double or a triple: never a bare throw, never five clicks.
+          if (
+            (step.holding !== undefined && !parseHolding(step.holding).ok) ||
+            (step.clicks !== undefined &&
+              (step.clicks as unknown) !== 2 &&
+              (step.clicks as unknown) !== 3)
+          ) {
+            stop = "unperformableStep";
+            return;
+          }
+          // A phone has no mouse: a tap cannot be a right, double or held
+          // click, and tapping once would record what did not happen.
+          if (
+            touchDevice &&
+            (button !== undefined ||
+              step.clicks !== undefined ||
+              step.holding !== undefined)
+          ) {
             stop = "unperformableStep";
             return;
           }
@@ -1160,6 +1219,17 @@ export function createAuthoredRun(
             ? {
                 onLastKeyUnpainted: (why: string) => {
                   record.lastKeyPaint = { unconfirmed: why };
+                },
+              }
+            : {}),
+          ...(step.do === "type"
+            ? {
+                onFieldNotCleared: (
+                  note: { before: string } | { why: string },
+                ) => {
+                  // A credential field's text is kept nowhere.
+                  record.fieldNotCleared =
+                    "why" in note || record.textHidden === null ? note : {};
                 },
               }
             : {}),

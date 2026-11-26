@@ -64,6 +64,13 @@ export {
   planDialogs,
 } from "./plan/dialogs.js";
 export {
+  capsOf,
+  type KeyCap,
+  type KeyGlyph,
+  needsTextFont,
+  type ResolvedKeycaps,
+} from "./plan/key-marks.js";
+export {
   MIN_SCREEN_MS,
   type ScreenMoment,
   type Screens,

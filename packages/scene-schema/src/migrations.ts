@@ -324,6 +324,11 @@ const steps: Record<number, MigrationStep> = {
   // Nothing in a v15 document changes; the bump makes an older build refuse a
   // take whose dialogs it would drop.
   15: (doc) => ({ ...doc, schemaVersion: 16 }),
+  // v16 -> v17 (2026-11-23): a press may carry `modifiers` and any key a combo
+  // names, a click `clicks` and `modifiers`. Nothing in a v16 document changes
+  // (a press without `modifiers` draws as it did); the bump makes an older
+  // build refuse a take whose keys it would not know.
+  16: (doc) => ({ ...doc, schemaVersion: 17 }),
 };
 
 /**

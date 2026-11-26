@@ -83,6 +83,15 @@ export {
 } from "./document.js";
 export { dragEndPoint, dragPoints, spotIn } from "./drag.js";
 export {
+  formatKeyCombo,
+  isKeyName,
+  KEY_NAMES,
+  MODIFIERS,
+  type Modifier,
+  parseHolding,
+  parseKeyCombo,
+} from "./keys.js";
+export {
   migrateHoldsToGaps,
   migrateToCurrent,
   SchemaVersionError,
@@ -109,6 +118,7 @@ export {
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_EDITS,
   SCRIPT_VERSION_INPUTS,
+  SCRIPT_VERSION_KEYS,
   SCRIPT_VERSION_KIT,
   SCRIPT_VERSION_MOTION,
   SCRIPT_VERSION_PRESS,

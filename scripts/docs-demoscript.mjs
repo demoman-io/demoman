@@ -22,6 +22,7 @@ export const RULES = [
   "`trim.start.step` and `trim.end.step` name a step that exists and is not a `pause`, and the start is not after the end.",
   "A `look.branding` wallpaper background names one of the built-in wallpapers.",
   "`look` names a `kit` or gives a `branding`, not both.",
+  "On a `device`, a click takes no `button`, `clicks` or `holding`: a phone or tablet has no mouse.",
 ];
 
 const def = (s) => s._zod.def;

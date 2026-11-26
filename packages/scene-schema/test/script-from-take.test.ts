@@ -157,7 +157,7 @@ describe("scriptFromTake", () => {
     buttonNotScriptable: () => {
       const doc = take();
       (doc.actions[1] as Extract<SceneAction, { kind: "click" }>).button =
-        "right";
+        "middle";
       return doc;
     },
     hostField: () => {

@@ -77,7 +77,7 @@ function clickAction(i: number): SceneDocument["actions"][number] {
  *  the same length would produce. */
 function sceneOf(steps: number): SceneDocument {
   return {
-    schemaVersion: 16,
+    schemaVersion: 17,
     meta: {
       id: "scene-run-report-fixture",
       name: "run report fixture",
@@ -1515,6 +1515,52 @@ describe("a typed field that does not hold its text", () => {
     expect(built.verdict.diverged[0]?.kind).toBe("fieldDoesNotHold");
     expect(line).toContain("a step typed");
     expect(line).not.toContain("step 0");
+  });
+
+  it("the verdict line names a type that could not clear its field first", () => {
+    const args = typedInto("Northwind4800", true);
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const report = buildRunReport({
+      ...args,
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, fieldNotCleared: { before: "Northwind" } } : s,
+      ),
+    });
+    // Premise: the field holds the typed text, so only the note can say it.
+    expect(report.verdict.kind).toBe("matches");
+    expect(report.steps[0]?.fieldNotCleared).toEqual({ before: "Northwind" });
+    expect(verdictLine(report)).toContain(
+      "Step 1 typed into a field it could not clear first (fieldNotCleared).",
+    );
+    // The PR says so too, with the line as its details.
+    expect(prVerdict(report)).toEqual({
+      clause: "matches all 3 steps, with notes",
+      details: verdictLine(report),
+    });
+    // Control: the same run without the note says nothing of it.
+    const plain = buildRunReport(args);
+    expect(verdictLine(plain)).not.toContain("fieldNotCleared");
+    expect(prVerdict(plain).clause).toBe("matches all 3 steps");
+  });
+
+  it("names the uncleared field on a run that stopped at a later step", () => {
+    const args = typedInto("Northwind4800", true);
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const report = buildRunReport({
+      ...args,
+      walk: { ...args.walk, reason: "unresolvedAnchor", completed: 1 },
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, fieldNotCleared: { before: "Northwind" } } : s,
+      ),
+    });
+    const line = verdictLine(report);
+    // Premise: the run stopped after the type, so the stop leads the line.
+    expect(report.outcome, line).toBe("stopped");
+    expect(line).toMatch(/^Stopped/);
+    expect(line).toContain(
+      "Step 1 typed into a field it could not clear first (fieldNotCleared).",
+    );
+    expect(prVerdict(report).details).toBe(line);
   });
 
   it("a field that holds its text leaves the verdict a match", () => {

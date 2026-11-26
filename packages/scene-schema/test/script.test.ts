@@ -59,7 +59,7 @@ describe("DemoScript", () => {
     const right = {
       ...ok,
       steps: [
-        { do: "click", on: { role: "button", name: "Row" }, button: "right" },
+        { do: "click", on: { role: "button", name: "Row" }, button: "left" },
       ],
     };
     const result = DemoScriptSchema.safeParse(right);
@@ -611,7 +611,7 @@ describe("click at a spot, and press", () => {
     expect(fields(withSteps([click, { do: "press", key: "Enter" }]))).toEqual(
       [],
     );
-    expect(fields(withSteps([{ do: "press", key: "F5" }]))).toContain(
+    expect(fields(withSteps([{ do: "press", key: "Hello" }]))).toContain(
       "steps.0.key",
     );
   });

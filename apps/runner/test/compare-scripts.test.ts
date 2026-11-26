@@ -9,7 +9,7 @@ const FIXTURES = join(import.meta.dirname, "fixtures");
 const places = { sample: "http://127.0.0.1:5000" };
 
 describe("film:compare's scripts", () => {
-  it("are the fifteen, and each is a valid DemoScript once its places are filled", () => {
+  it("are the sixteen, and each is a valid DemoScript once its places are filled", () => {
     const files = readdirSync(DIR)
       .filter((f) => f.endsWith(".json"))
       .sort();
@@ -21,13 +21,15 @@ describe("film:compare's scripts", () => {
     // zoom (2026-11-02); `same-document.json` an address change inside one
     // document (DEM-61, 2026-11-07). Five are input-coverage go/no-gos
     // (DEM-156, 158, 160, 161), against four fixture pages (the two
-    // native-select scripts share one).
+    // native-select scripts share one). `inputs.json` the key and click
+    // marks (DEM-154, 155), which executor-inputs-picture records.
     expect(files).toEqual([
       "actual.json",
       "button-run.json",
       "chatbot.json",
       "confirm-dialog.json",
       "excalidraw.json",
+      "inputs.json",
       "keydown-field.json",
       "native-select-click.json",
       "native-select-keys.json",
@@ -51,8 +53,9 @@ describe("film:compare's scripts", () => {
       served += 1;
       expect(existsSync(join(FIXTURES, page)), `${f}: ${page}`).toBe(true);
     }
-    // same-document.json and the five input go/no-gos: the check above ran.
-    expect(served).toBe(6);
+    // same-document.json, the five input go/no-gos and inputs.json: the
+    // check above ran.
+    expect(served).toBe(7);
   });
 
   it("fills {sample}", () => {

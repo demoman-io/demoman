@@ -122,13 +122,14 @@ async function filmOnce(args: {
   if (snap.landedElsewhere === true)
     say(`${who}: the snapshot landed on ${snap.landedUrl}`);
   const t0 = Date.now();
-  const runInto = async (video: Record<string, unknown>) =>
+  const runInto = async (flow: Record<string, unknown>) =>
     settle(
       mcp,
       answer<RunAnswer & { holder?: { id: string } }>(
         await mcp.callTool({
           name: "run",
-          arguments: { script: script.script, video },
+          // `video` was renamed `flow` in the run tool; the old key is refused.
+          arguments: { script: script.script, flow },
         }),
       ),
       ["stillRunning", "running", "queued"],
@@ -139,6 +140,13 @@ async function filmOnce(args: {
   let report = await runInto({ new: script.name, confirmedNew: true });
   if (report.reason === "nameTaken" && report.holder !== undefined) {
     report = await runInto({ id: report.holder.id });
+  }
+  // Arguments the run tool refuses are the harness's own fault, and every
+  // later run would be refused the same way: stop here and say why.
+  if (report.reason === "invalidArgs") {
+    throw new Error(
+      `${who}: the run tool refused this harness's arguments — ${outcomeOf(report)}`,
+    );
   }
   const runMs = Date.now() - t0;
   // The raw report, beside the films: the table keeps the reason, this
@@ -152,7 +160,8 @@ async function filmOnce(args: {
       `${who}: stopped (${report.stopped.reason}) ${stoppedWhere(at ?? {})}, at "${at?.label ?? "?"}" — ${report.stopped.detail ?? report.stopped.sentence ?? "no detail"}`,
     );
   }
-  const takeId = report.provenance?.takeId ?? null;
+  // The run report and `export` name a take `videoId` (it was `takeId`).
+  const takeId = report.provenance?.videoId ?? null;
   let exportMs: number | null = null;
   let exportOutcome: string | null = null;
   let exp: ExportAnswer | null = null;
@@ -162,7 +171,10 @@ async function filmOnce(args: {
     exp = await settle(
       mcp,
       answer<ExportAnswer>(
-        await mcp.callTool({ name: "export", arguments: { takeId } }),
+        await mcp.callTool({
+          name: "export",
+          arguments: { videoId: takeId },
+        }),
       ),
       ["stillRunning", "exporting", "queued"],
       900_000,

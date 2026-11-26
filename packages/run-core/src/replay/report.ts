@@ -116,6 +116,10 @@ export interface StepReport {
   /** A `type` whose last key the page was not seen to paint: why. The step
    *  ended at the bound, so the camera may leave before the value shows. */
   lastKeyPaint?: { unconfirmed: string };
+  /** A `type` whose field had text it could not select first, so the typed
+   *  text went in beside it: that text (`before`), absent for a credential;
+   *  or `why` the select could not say, when it threw. */
+  fieldNotCleared?: { before?: string; why?: string };
   /** A `waitForLoad` that was met: false when no load started since the
    *  previous step began — a note, not a divergence. */
   loadSeen?: boolean;
@@ -549,6 +553,9 @@ function toStepReport(step: AuthoredStep): StepReport {
     ...(step.lastKeyPaint === undefined
       ? {}
       : { lastKeyPaint: step.lastKeyPaint }),
+    ...(step.fieldNotCleared === undefined
+      ? {}
+      : { fieldNotCleared: step.fieldNotCleared }),
     ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }
@@ -1231,7 +1238,9 @@ function prClause(report: RunReport, clean: string): string {
     report.frames.degradations.some((k) => !SCREENS_ONLY.has(k)) ||
     report.frames.storageRefused ||
     (report.look?.brandKitError ?? null) !== null ||
-    (report.look?.wallpaperError ?? null) !== null;
+    (report.look?.wallpaperError ?? null) !== null ||
+    // A field typed into without being cleared may hold more than its text.
+    report.steps.some((s) => s.fieldNotCleared !== undefined);
   return noted ? `${clean}, with notes` : clean;
 }
 
@@ -1456,6 +1465,21 @@ function screensClause(report: RunReport, intact: boolean): string {
  *  Split the way `replayNotice`/`runNotice` are split, so the two clauses
  *  cannot be reordered by accident. */
 function runVerdictLine(report: RunReport): string {
+  // Last, after any outcome: a field typed into before a stop is in the
+  // video too, holding more than its text.
+  const uncleared = report.steps
+    .filter((s) => s.fieldNotCleared !== undefined)
+    .map(
+      (s) =>
+        `Step ${s.index + 1} typed into a field it could not clear first (fieldNotCleared).`,
+    );
+  const line = runLineBeforeNotes(report);
+  return uncleared.length === 0
+    ? line
+    : `${line.replace(/\.?$/, ".")} ${uncleared.join(" ")}`;
+}
+
+function runLineBeforeNotes(report: RunReport): string {
   const line = runOutcomeLine(report);
   // After the sentence, never instead of one: a stop or a refusal leads.
   const opening = report.opening;

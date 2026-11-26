@@ -113,7 +113,7 @@ import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
 import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
-import { pressKey } from "./keys.js";
+import { holdModifiers, maskOf, pressCombo, releaseKeeping } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import { createNetworkWatch, type NetworkWatch } from "./network-watch.js";
 import type { OcclusionGuard } from "./occlusion.js";
@@ -242,6 +242,14 @@ export interface WalkStep {
    */
   onLastKeyUnpainted?(why: string): void;
   /**
+   * Called for a `type` whose field had text that its select did not cover
+   * (`FIELD_SELECT`), with that text capped as a field read is (`before`):
+   * the typed text goes in beside it, not in its place. Or with `why`, when
+   * the select itself threw, so whether the field was cleared is unknown.
+   * The run goes on.
+   */
+  onFieldNotCleared?(note: { before: string } | { why: string }): void;
+  /**
    * How to answer a dialog this step's click opens (a script click's
    * `dialog`). Absent: OK. Armed from the click until the next click, type
    * or press arms, or the walk ends, so a confirm the page opens late (a
@@ -355,6 +363,28 @@ const FIELD_READ = `function () {
   return "value" in active && typeof active.value === "string"
     ? active.value
     : active.textContent ?? "";
+}`;
+
+/** Select all of the focused field, found through shadow roots as
+ *  `FIELD_READ` finds it: what `type` replaces. Its own select() where it has
+ *  one, else the editor's selectAll, the command ⌘A ran, with no key event.
+ *  Answers null when the selection covers the field's whole value (an empty
+ *  field is covered), else that value: the text the typing will not replace. */
+const FIELD_SELECT = `function () {
+  let active = document.activeElement;
+  while (active && active.shadowRoot && active.shadowRoot.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  if (active && typeof active.select === "function") active.select();
+  else document.execCommand("selectAll");
+  if (!active) return null;
+  const value = typeof active.value === "string" ? active.value : active.textContent ?? "";
+  if (value === "") return null;
+  // An email or number input has no selection offsets: the document's says.
+  const covered = typeof active.selectionStart === "number"
+    ? active.selectionStart === 0 && active.selectionEnd === value.length
+    : String(document.getSelection()) === value;
+  return covered ? null : value;
 }`;
 
 /** The longest value a report keeps of a field, so a contenteditable's whole
@@ -3789,7 +3819,9 @@ export async function runWalk(
         await stepStill(keyAction.id);
         if (armDialogs(step, keyAction.id)) break;
         if (!continuous) recorder?.open();
-        await gate.section(() => pressKey(cdp, keyAction.key));
+        await gate.section(() =>
+          pressCombo(cdp, keyAction.modifiers ?? [], keyAction.key),
+        );
         const keyDialogs = dialogs.seen();
         if (!continuous) {
           await recorder?.close();
@@ -3928,6 +3960,19 @@ export async function runWalk(
           break;
         }
         dragPlan = planned;
+      }
+      // A phone has no mouse: a tap cannot be a right, double or held click,
+      // and tapping once would record what did not happen. Stopped before
+      // anything is sent; a script's door stops it sooner (`authored.ts`).
+      if (
+        device?.touch === true &&
+        step.action.kind === "click" &&
+        (step.action.button === "right" ||
+          (step.action.clicks ?? 1) !== 1 ||
+          (step.action.modifiers?.length ?? 0) > 0)
+      ) {
+        reason = "unperformableStep";
+        break;
       }
 
       const segment = step.segment;
@@ -4201,6 +4246,7 @@ export async function runWalk(
                 clock.sleep,
                 step.onFieldRead,
                 step.onLastKeyUnpainted,
+                step.onFieldNotCleared,
               ),
         );
         const seen = dialogsOf(step);
@@ -4249,6 +4295,7 @@ export async function runWalk(
                 clock.sleep,
                 step.onFieldRead,
                 step.onLastKeyUnpainted,
+                step.onFieldNotCleared,
               ),
         );
         const seen = dialogsOf(step);
@@ -4653,6 +4700,7 @@ async function performVerb(
   sleep: (ms: number) => Promise<void>,
   onFieldRead?: WalkStep["onFieldRead"],
   onLastKeyUnpainted?: WalkStep["onLastKeyUnpainted"],
+  onFieldNotCleared?: WalkStep["onFieldNotCleared"],
 ): Promise<ClickVerdict | null> {
   // Every click is checked: the page is asked where the press and the
   // release arrived, against the point both were sent to (`click-probe.ts`).
@@ -4661,7 +4709,12 @@ async function performVerb(
   const click = async (): Promise<ClickVerdict> => {
     // The action's id names the probe's own reports (`ClickSightings`): one
     // probe per action, so one per id.
-    const probe = await placeClickProbe(cdp, objectId, action.id);
+    const probe = await placeClickProbe(
+      cdp,
+      objectId,
+      action.id,
+      action.kind === "click" && action.button === "right",
+    );
     try {
       await dispatchClick();
     } catch (error) {
@@ -4672,10 +4725,16 @@ async function performVerb(
     return readClickProbe(cdp, probe, cursor, sightings);
   };
   const dispatchClick = async (): Promise<void> => {
+    // Only a `click` action carries these; a `type`'s focusing click is plain.
+    const how = action.kind === "click" ? action : null;
+    const modifiers = how?.modifiers ?? [];
+    const right = how?.button === "right";
+    const presses = how?.clicks ?? 1;
     if (touch) {
       // A phone has no mouse: a tap is what fires its touch handlers, and
       // Chrome synthesises the click from it as a real phone does (spec
-      // 2026-10-10 §3). The same point the mouse path aims at.
+      // 2026-10-10 §3). The same point the mouse path aims at. A right,
+      // double or held click never reaches here: the walk stops it first.
       const point = {
         x: cursor.x,
         y: cursor.y,
@@ -4694,15 +4753,24 @@ async function performVerb(
       });
       return;
     }
-    for (const type of ["mousePressed", "mouseReleased"]) {
-      await cdp.send("Input.dispatchMouseEvent", {
-        type,
-        x: cursor.x,
-        y: cursor.y,
-        button: "left",
-        clickCount: 1,
-      });
+    const release = await holdModifiers(cdp, modifiers);
+    try {
+      for (let clickCount = 1; clickCount <= presses; clickCount++) {
+        for (const type of ["mousePressed", "mouseReleased"]) {
+          await cdp.send("Input.dispatchMouseEvent", {
+            type,
+            x: cursor.x,
+            y: cursor.y,
+            button: right ? "right" : "left",
+            clickCount,
+            modifiers: maskOf(modifiers),
+          });
+        }
+      }
+    } catch (error) {
+      await releaseKeeping(error, release);
     }
+    await release();
   };
 
   switch (action.kind) {
@@ -4727,12 +4795,30 @@ async function performVerb(
       // Not for a contenteditable host: its contents are the document, and
       // its text is what the author typed at the caret — see the schema.
       if (!action.host) {
-        await cdp.send("Input.dispatchKeyEvent", {
-          type: "rawKeyDown",
-          windowsVirtualKeyCode: 65,
-          modifiers: 2,
-          commands: ["selectAll"],
+        // The field's own select(), not a ⌘A: any keydown is something an
+        // app's shortcut handler can catch, and the text would append.
+        const reply = await cdp.send("Runtime.callFunctionOn", {
+          objectId,
+          functionDeclaration: FIELD_SELECT,
+          returnByValue: true,
         });
+        // Null is covered. A page that threw (CDP answers with it rather
+        // than rejecting) leaves no value, and is not known to be.
+        const thrown = reply.exceptionDetails as
+          | { text?: string; exception?: { description?: string } }
+          | undefined;
+        const before = (reply.result as { value?: unknown } | undefined)?.value;
+        if (thrown !== undefined)
+          onFieldNotCleared?.({
+            why: `selecting the field threw: ${thrown.exception?.description ?? thrown.text ?? "the page threw"}`,
+          });
+        else if (typeof before === "string")
+          onFieldNotCleared?.({
+            before:
+              before.length > FIELD_VALUE_MAX
+                ? `${before.slice(0, FIELD_VALUE_MAX)}…`
+                : before,
+          });
       }
       const typed = typeof text === "string" ? text : "";
       await typeKeys(typed, cdp, sleep);
@@ -4792,7 +4878,7 @@ async function performVerb(
       throw new Error("performVerb: a drag is performed by performDrag");
     case "press":
       // Never reaches here: the loop presses a key before it locates anything.
-      throw new Error("performVerb: a press is performed by pressKey");
+      throw new Error("performVerb: a press is performed by pressCombo");
     default: {
       const unknown: never = action;
       throw new Error(`performVerb: no verb for ${JSON.stringify(unknown)}`);

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inputs</title>
+    <style>
+      /* Every position a test reads has an explicit size: nothing here takes
+         its geometry from a glyph's advance width. */
+      body { font: 16px system-ui, sans-serif; margin: 0; }
+      [hidden] { display: none; }
+      #hint { position: absolute; left: 20px; top: 10px; width: 120px; height: 24px; }
+      #platform { position: absolute; left: 160px; top: 10px; width: 300px; height: 24px; }
+      #field { position: absolute; left: 20px; top: 44px; width: 240px; height: 28px; box-sizing: border-box; }
+      #popup { position: absolute; left: 280px; top: 44px; width: 120px; height: 28px; }
+      #items { position: absolute; left: 20px; top: 90px; width: 240px; user-select: none; }
+      #items > div { width: 240px; height: 32px; line-height: 32px; box-sizing: border-box; border-bottom: 1px solid #ccc; overflow: hidden; }
+      #items > div.selected { background: #cde; }
+      #items input.rename { width: 100%; height: 100%; box-sizing: border-box; margin: 0; }
+      #menu { position: fixed; width: 120px; height: 60px; background: #fff; border: 1px solid #888; z-index: 5; }
+      #palette { position: absolute; left: 280px; top: 90px; width: 200px; height: 60px; background: #eef; }
+      #plain { position: absolute; left: 280px; top: 170px; width: 120px; height: 32px; background: #eee; }
+      #shadowed { display: block; position: absolute; left: 420px; top: 44px; width: 200px; height: 28px; }
+      #stubborn { position: absolute; left: 640px; top: 44px; width: 200px; height: 28px; box-sizing: border-box; }
+      #log { position: absolute; left: 20px; top: 280px; width: 440px; height: 300px; margin: 0; overflow: auto; font: 12px monospace; }
+    </style>
+  </head>
+  <body>
+    <!-- DEM-154/155: one page that logs every key and mouse event it gets, so a
+         test can assert what the page received and not what the engine sent.
+         #log: one line per event. A key reads `type key` and a mouse event
+         `type button B detail D`, each followed by the modifiers held, named
+         (`meta shift alt ctrl`), in that order. The log covers keydown and
+         keyup on the document and mousedown, mouseup, click, dblclick and
+         contextmenu on #items and #plain. #plain has no menu of its own: its
+         `contextmenu` is logged, then, once the event is done,
+         `contextmenu settled defaultPrevented <bool>`, which says whether
+         anything (the walk's guard) kept Chrome's own menu shut.
+         #shadowed is a custom element whose real field, pre-filled, sits in
+         its shadow root. #stubborn, pre-filled, ignores select(): text
+         typed into it goes in beside what it holds. -->
+    <span id="hint"></span>
+    <span id="platform"></span>
+    <input id="field" value="Northwind" autocomplete="off" />
+    <button type="button" id="popup">Open popup</button>
+    <div id="items">
+      <div id="row1">Row 1</div>
+      <div id="row2">Row 2</div>
+      <div id="row3">Row 3</div>
+      <div id="row4">Row 4</div>
+      <div id="row5">Row 5</div>
+    </div>
+    <div id="plain">Plain</div>
+    <shadow-field id="shadowed"></shadow-field>
+    <input id="stubborn" value="Northwind" autocomplete="off" />
+    <div id="menu" hidden>Rename<br />Delete</div>
+    <div id="palette" hidden>Command palette</div>
+    <pre id="log"></pre>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const mac = /Mac/.test(navigator.platform);
+      $("hint").textContent = mac ? "⌘K" : "Ctrl K";
+      $("platform").textContent = `${navigator.platform} | ${navigator.userAgentData?.platform ?? ""}`;
+
+      const held = (e) =>
+        ["meta", "shift", "alt", "ctrl"]
+          .filter((m) => e[`${m}Key`])
+          .map((m) => ` ${m}`)
+          .join("");
+      const log = (line) => {
+        $("log").textContent += `${line}\n`;
+      };
+      for (const type of ["keydown", "keyup"])
+        document.addEventListener(type, (e) => log(`${type} ${e.key}${held(e)}`));
+      for (const id of ["items", "plain"])
+        for (const type of ["mousedown", "mouseup", "click", "dblclick", "contextmenu"])
+          $(id).addEventListener(type, (e) =>
+            log(`${type} button ${e.button} detail ${e.detail}${held(e)}`),
+          );
+      $("plain").addEventListener("contextmenu", (e) =>
+        setTimeout(() => log(`contextmenu settled defaultPrevented ${e.defaultPrevented}`)),
+      );
+      $("stubborn").select = () => undefined;
+      customElements.define(
+        "shadow-field",
+        class extends HTMLElement {
+          connectedCallback() {
+            const input = document.createElement("input");
+            input.setAttribute("value", "Northwind");
+            input.autocomplete = "off";
+            input.style.cssText = "width:100%;height:100%;box-sizing:border-box;margin:0";
+            this.attachShadow({ mode: "open" }).append(input);
+          }
+        },
+      );
+
+      document.addEventListener("keydown", (e) => {
+        if (e.metaKey && e.key === "k") {
+          e.preventDefault();
+          $("palette").hidden = false;
+        }
+      });
+
+      const rows = [...$("items").children];
+      let last = null;
+      $("items").addEventListener("click", (e) => {
+        const row = e.target.closest("#items > div");
+        if (!row) return;
+        const at = rows.indexOf(row);
+        const from = e.shiftKey && last !== null ? last : at;
+        for (const [i, r] of rows.entries())
+          r.classList.toggle("selected", i >= Math.min(from, at) && i <= Math.max(from, at));
+        if (!e.shiftKey) last = at;
+        $("menu").hidden = true;
+      });
+      $("items").addEventListener("dblclick", (e) => {
+        const row = e.target.closest("#items > div");
+        if (!row) return;
+        const input = document.createElement("input");
+        input.className = "rename";
+        input.value = row.textContent;
+        row.textContent = "";
+        row.append(input);
+      });
+      $("items").addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const menu = $("menu");
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        menu.hidden = false;
+      });
+      $("popup").addEventListener("click", () => {
+        window.open(`${location.pathname}?popup`, "_blank");
+      });
+      if (location.search === "?popup") document.title = "Popup";
+    </script>
+  </body>
+</html>

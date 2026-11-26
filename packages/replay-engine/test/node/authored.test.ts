@@ -766,6 +766,97 @@ describe("the authored source and its assembler", () => {
     expect(driven.walk.completed).toBe(1);
   });
 
+  it.each([
+    ["right", { button: "right" }, { button: "right" }],
+    ["a double click", { clicks: 2 }, { clicks: 2 }],
+    ["a triple click", { clicks: 3 }, { clicks: 3 }],
+    [
+      "holding Shift+Mod",
+      { holding: "Mod+Shift" },
+      { modifiers: ["Shift", "Mod"] },
+    ],
+  ])(
+    "performs a click with %s and records it",
+    async (_name, extra, recorded) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive(script([loose]));
+      expect(driven.run.stop()).toBeNull();
+      expect(driven.run.actions[0]).toMatchObject({
+        kind: "click",
+        ...recorded,
+      });
+    },
+  );
+
+  it.each([
+    ["right", { button: "right" }],
+    ["clicks", { clicks: 2 }],
+    ["holding", { holding: "Shift" }],
+  ])(
+    "stops on a touch click carrying %s instead of tapping once",
+    async (_name, extra) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive({
+        ...script([loose]),
+        device: "phone",
+      } as DemoScript);
+      expect(driven.run.stop()).toBe("unperformableStep");
+      expect(driven.run.actions).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ["Mod+K", "K", ["Mod"]],
+    ["F5", "F5", []],
+    ["Shift+Mod+k", "K", ["Shift", "Mod"]],
+  ])(
+    "performs a press of %s, recorded with its modifiers",
+    async (text, key, modifiers) => {
+      const driven = await drive(
+        script([{ do: "press", key: text } as ScriptStep]),
+      );
+      expect(driven.run.stop()).toBeNull();
+      expect(driven.run.actions[0]).toMatchObject({
+        kind: "press",
+        key,
+        modifiers,
+      });
+    },
+  );
+
+  it.each([
+    ["a holding no modifier means", { holding: "Cmd" }],
+    ["five clicks", { clicks: 5 }],
+  ])(
+    "stops on a click carrying %s, instead of throwing or clicking on",
+    async (_name, extra) => {
+      const loose = {
+        do: "click",
+        on: { role: "button", name: "Row" },
+        ...extra,
+      } as unknown as ScriptStep;
+      const driven = await drive(script([loose]));
+      expect(driven.run.stop()).toBe("unperformableStep");
+      expect(driven.run.actions).toHaveLength(0);
+    },
+  );
+
+  it("stops on a press whose key no parse accepts, instead of throwing", async () => {
+    const driven = await drive(
+      script([{ do: "press", key: "Mod+" } as ScriptStep]),
+    );
+    expect(driven.run.stop()).toBe("unperformableStep");
+    expect(driven.run.actions).toHaveLength(0);
+  });
+
   it("a click stops with unresolvedAnchor after 10 s when the target never comes", async () => {
     const driven = await drive(oneStepScript(), { captures: absent() });
 
@@ -1114,7 +1205,7 @@ describe("the authored source and its assembler", () => {
     const looseClick = {
       do: "click",
       on: { role: "button", name: "Row" },
-      button: "right",
+      button: "middle",
     } as unknown as ScriptStep;
     const authored = script([
       { do: "click", on: { role: "button", name: "Row" } },
