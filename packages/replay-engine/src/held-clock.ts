@@ -448,8 +448,9 @@ export interface HeldClock extends Clock {
    *  reported stretch), a connection still open is left, and real time that
    *  passes outside a wait is not credited to one. `since`: the wait's
    *  window on the page's clock (`now()` ms; none: no lower bound), whose
-   *  requests alone it follows; data on an older one during it is unpaced. Nested waits follow the earliest window among
-   *  them: an inner wait is part of the outer. */
+   *  requests alone it follows; data on an older one during it is unpaced.
+   *  Nested waits follow the earliest window among them: an inner wait is
+   *  part of the outer. */
   waiting<T>(run: () => Promise<T>, since?: number | null): Promise<T>;
   /** A page's `wallTime` (ms, its held clock) as `now()` ms. */
   pageOf(wallMs: number): number;

@@ -932,8 +932,8 @@ describe("createHeldClock", () => {
 
   // Waits nest (a step's settle holds the page's answers to
   // reads), and an inner one is part of the outer. Red if an inner wait's
-  // later window drops a request the outer still waits on, as it did for the
-  // settle.
+  // later window drops a request the outer still waits on, so the outer ends
+  // by the machine, not the server.
   it("follows the earliest window among nested waits", async () => {
     const { clock, log } = setup({ waits: false });
     await clock.hold(START);

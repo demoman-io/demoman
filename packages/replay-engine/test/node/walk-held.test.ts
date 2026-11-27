@@ -936,7 +936,7 @@ describe("the walk on a held clock", () => {
 
   // Every wait follows only what opened in its window, the step
   // settle's 6 s look-back; the opening's load has no lower bound. Red if a
-  // wait follows a request older than it.
+  // wait follows a request older than it, and ends by the server, not the page.
   it.each([
     [
       "a step's settle, a click's answer and a waitFor",
