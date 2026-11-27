@@ -260,8 +260,8 @@ function fillBar(
  * Runs `change`, the selection bar going in or out above `below`, and on a
  * scrolled page scrolls by however far that moved `below` in the window,
  * so what is ticked stays under the pointer. The list's scroll anchoring
- * did not hold: the ticked row moved 64px down, off a page's foot
- *. Where anchoring holds (the cards) it has moved the scroll
+ * did not hold: the ticked row moved 64px down, off a page's foot.
+ * Where anchoring holds (the cards) it has moved the scroll
  * already by the measure here, and this moves it by nothing.
  */
 function keepInPlace(below: Element | null, change: () => void): void {
@@ -978,8 +978,8 @@ function createHeader(withStorage: boolean, footage?: FootageActions): Header {
     foot,
   );
   storage.append(trigger, panel);
-  // Set up CI shares the title's line, and a long title gives way to it
-  //: a flex row, not a button laid over the band.
+  // Set up CI shares the title's line, and a long title gives way to it:
+  // a flex row, not a button laid over the band.
   const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
   const titleRow = el("div", { class: "title-row" });
   titleRow.append(title, ciSlot);
