@@ -1431,7 +1431,8 @@ describe("the line on an attached comment", () => {
           outcome: "stopped",
           stopped: {
             reason: "anchorNotRendered",
-            // As a report.json written before the script step was reported has it: no script step.
+            // As a report.json written before a stop named its script step
+            // has it: no script step.
             at: { index: 1, of: 3, label: "x" },
             sentence: "s",
             detail: "the page showed `Sign in` to @octocat",

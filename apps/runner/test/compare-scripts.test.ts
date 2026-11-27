@@ -20,7 +20,7 @@ describe("film:compare's scripts", () => {
     // (2026-10-22); `video-as-code.json` the script's trim and per-click
     // zoom (2026-11-02); `same-document.json` an address change inside one
     // document (2026-11-07). Five are input-coverage go/no-gos
-    // (select, drag, hover, dialog), against four fixture pages (the two
+    // (keydown, select, new tab, dialog), against four fixture pages (the two
     // native-select scripts share one). `inputs.json` the key and click
     // marks, which executor-inputs-picture records.
     expect(files).toEqual([

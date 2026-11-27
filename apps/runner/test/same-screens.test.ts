@@ -56,7 +56,7 @@ async function drawn(
         ctx.fillStyle = "#374151";
         ctx.font = "40px sans-serif";
         ctx.fillText("Invoices due this week", 80, 400);
-        // gray-500 on white, 12 px: the line that once read unchanged.
+        // gray-500 on white, 12 px: the line a changed clock once read as unchanged.
         const l = at as { x: number; y: number };
         ctx.fillStyle = "#6b7280";
         ctx.font = "12px sans-serif";
