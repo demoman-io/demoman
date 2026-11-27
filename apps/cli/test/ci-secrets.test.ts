@@ -190,7 +190,7 @@ describe("localValues", () => {
     expect(r.missing).toEqual(["OTHER"]);
   });
 
-  // DEM-104: read, and said, when other users can read it.
+  // Read, and said, when other users can read it.
   it("says when the secrets.env it read is open to other users", async () => {
     const root = await repo({});
     const path = join(root, ".demoman", "secrets.env");

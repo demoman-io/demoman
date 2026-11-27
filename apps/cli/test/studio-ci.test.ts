@@ -74,7 +74,7 @@ describe("the Studio's CI door", () => {
     expect(
       await stateOf({ reason: "githubUnreadable", detail: "gh timed out" }),
     ).toEqual({ kind: "unreadable", detail: "gh timed out" });
-    // No workflow text to place: set up, and the reason is kept (DEM-269).
+    // No workflow text to place: set up, and the reason is kept.
     expect(await stateOf(facts(true))).toEqual({
       kind: "setUp",
       unread: "GitHub sent no content for it",
@@ -82,7 +82,7 @@ describe("the Studio's CI door", () => {
     expect(await stateOf(facts(false))).toEqual({ kind: "notSetUp" });
   });
 
-  // DEM-269. Red if a set-up repo whose workflow an older release wrote is
+  // Red if a set-up repo whose workflow an older release wrote is
   // not offered the update, or one that cannot be read, names no release or
   // is this release's is.
   it("offers an update only for a workflow an older release wrote", async () => {
@@ -111,7 +111,7 @@ describe("the Studio's CI door", () => {
       update: { from: "0.9.8", to: "0.9.9", trigger: "daily", route: "main" },
     });
     expect(await stateOf(workflow("0.9.9", "pr"))).toEqual({ kind: "setUp" });
-    // Review of DEM-269: red if a newer workflow is offered a downgrade, or
+    // Found in review. Red if a newer workflow is offered a downgrade, or
     // a tag that is no release is compared as text.
     expect(await stateOf(workflow("0.9.10", "pr"))).toEqual({ kind: "setUp" });
     expect(await stateOf(workflow("latest", "pr"))).toMatchObject({
@@ -135,7 +135,7 @@ describe("the Studio's CI door", () => {
       kind: "setUp",
       unread: expect.stringContaining("names no"),
     });
-    // Review of DEM-269: never offered while its pull request is open.
+    // Found in review. Never offered while its pull request is open.
     const openPr = await createStudioCi({
       deps: () =>
         ({
@@ -147,7 +147,7 @@ describe("the Studio's CI door", () => {
           }),
         }) as unknown as Omit<CiDeps, "log" | "signal">,
     }).state(ROOT);
-    // Held back, and said (review of DEM-269).
+    // Held back, and said (found in review).
     expect(openPr).toEqual({
       kind: "setUp",
       unread:
@@ -178,7 +178,7 @@ describe("the Studio's CI door", () => {
     expect(releaseOlder("0.9.10", "0.9.9")).toBe(false);
     expect(releaseOlder("0.9.9", "0.9.9")).toBe(false);
     expect(releaseOlder("0.10.0-rc.1", "0.10.0")).toBe(true);
-    // Review of DEM-269: numbered pre-releases by number, not text.
+    // Found in review. Numbered pre-releases by number, not text.
     expect(releaseOlder("0.10.0-rc.9", "0.10.0-rc.10")).toBe(true);
     expect(releaseOlder("0.10.0-rc.10", "0.10.0-rc.9")).toBe(false);
     expect(releaseOlder("latest", "0.9.9")).toBeNull();

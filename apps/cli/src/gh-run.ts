@@ -11,7 +11,7 @@ export function realGh(cwd: string): Gh {
   return (args, o) =>
     new Promise((done) => {
       // gh starts git in `cwd` itself (pr create counts uncommitted
-      // changes): the guard has to travel in the environment (DEM-90).
+      // changes): the guard has to travel in the environment.
       const env = guardedGitEnv(process.env);
       const child = execFile("gh", args, { cwd, env }, (err, stdout, stderr) =>
         done({

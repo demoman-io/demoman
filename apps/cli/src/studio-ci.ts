@@ -110,7 +110,7 @@ export function createStudioCi(io: {
       const facts = await deps.readGithub(root);
       if (!("reason" in facts)) {
         if (!facts.workflowOnDefault) return { kind: "notSetUp" };
-        // DEM-269: an older release's workflow is offered an update, kept
+        // An older release's workflow is offered an update, kept
         // as it runs, unless its pull request is already open. One it cannot
         // place is still set up, and `unread` says why (the Studio logs it).
         const found =

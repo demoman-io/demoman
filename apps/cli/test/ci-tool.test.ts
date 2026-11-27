@@ -226,7 +226,7 @@ describe("the ci tool", () => {
     expect(t.calls.filter((c) => outward.includes(c))).toEqual([]);
   });
 
-  // DEM-99, red when the plan leaves the artifact to the agent's choice: the
+  // Red when the plan leaves the artifact to the agent's choice: the
   // fixture's flow delivers files, and a workflow without --out-dir fails it.
   it("turns the artifact on for a files flow the agent did not ask it for, and says why", async () => {
     const t = tool();
@@ -528,7 +528,7 @@ describe("the ci tool", () => {
     expect(t.calls).toEqual([]);
   });
 
-  // DEM-110: the check runs app.install and app.start through sh -c, and
+  // The check runs app.install and app.start through sh -c, and
   // the agent wrote them. The ci tool never starts them: the person does,
   // in the terminal. Red when the shipped door runs the check.
   describe("never starts the app's commands itself", () => {

@@ -35,7 +35,7 @@ describe("setup's questions, for real", () => {
     ).toBeNull();
   });
 
-  // DEM-109: red if a terminal shows nothing while a captured command runs,
+  // Red if a terminal shows nothing while a captured command runs,
   // or the line is left behind after it.
   it("in a terminal, says the command it waits on and clears it after", () => {
     // The command leaves a file: each write records whether it had run.
@@ -106,7 +106,7 @@ describe("setup's questions, for real", () => {
     }
   });
 
-  // DEM-103: "off" attaches only when asked (pull-requests.ts), never "never".
+  // "off" attaches only when asked (pull-requests.ts), never "never".
   it("says off attaches a video only when you ask", () => {
     expect(SETUP_HINTS.off).toBe(
       "Attach a video to a pull request only when you ask.",

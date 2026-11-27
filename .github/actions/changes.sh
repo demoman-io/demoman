@@ -28,7 +28,7 @@ if [ "$EVENT" = pull_request ]; then
   summary="$listed of the PR's $total files listed"
   # The files API stops at 3,000, and a push between the two reads moves
   # the count. A short list could read as touching no product path, so it
-  # runs everything instead (DEM-225).
+  # runs everything instead.
   if [ "$listed" != "$total" ]; then
     echo "::warning::the files API listed $listed of the PR's $total changed files (it stops at 3,000, or a push landed between the two reads), so every product job runs"
     product=true

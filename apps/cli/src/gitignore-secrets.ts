@@ -1,5 +1,5 @@
 // The setup PR carries the line that ignores .demoman/secrets.env, so a
-// teammate's clone ignores it too (DEM-62). Whether a .gitignore already
+// teammate's clone ignores it too. Whether a .gitignore already
 // ignores it is git's call, not a line match (review of #35, finding 7).
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

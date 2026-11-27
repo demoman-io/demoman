@@ -270,7 +270,7 @@ export const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
   ["opencode", "OpenCode"],
 ];
 
-/** "Claude Code, Codex, Cursor and OpenCode", from AGENT_FLAGS (DEM-94). */
+/** "Claude Code, Codex, Cursor and OpenCode", from AGENT_FLAGS. */
 const agentList = (): string => {
   return listed(AGENT_FLAGS.map(([, name]) => name));
 };
@@ -830,7 +830,7 @@ const codex: Wire = (d, asks) => {
   return result("partial");
 };
 /** Whether the Cursor app is installed, and each folder setup could not
- *  look in. On Linux (DEM-72): the .deb's and .rpm's folder, one unpacked
+ *  look in. On Linux: the .deb's and .rpm's folder, one unpacked
  *  under /opt, a Cursor AppImage in a usual folder, or a `cursor` command.
  *  Never ~/.cursor: setup writes that folder itself. The Linux app reads
  *  the same ~/.cursor/mcp.json. */

@@ -15,7 +15,7 @@ const OPENERS = [
 /**
  * Stands in for every way a flow could reach the person's own browser:
  * the system openers first on the PATH, and `$BROWSER`, each logging what
- * it was asked instead of opening it. DEM-218: an export once opened a tab
+ * it was asked instead of opening it. An export once opened a tab
  * in the author's everyday Chrome; Demoman's windows are Playwright's
  * Chromium and nothing else. `calls()` is every line one was asked.
  */

@@ -741,7 +741,7 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(result)).toMatchObject({ reason: "unknownRun" });
   });
 
-  // DEM-106. Red if the server keeps every call: id-2 would still answer.
+  // Red if the server keeps every call: id-2 would still answer.
   // Red if it lets go of one still going: id-1 would answer unknownRun.
   // Red if it lets go in start order: id-1, finishing last, would drop itself.
   it("keeps the last JOBS_KEPT finished calls, in the order they finished, and never one still going", async () => {
@@ -792,7 +792,7 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(await report("id-4"))).toEqual({ url: "id-4", targets: [] });
   });
 
-  // DEM-106, second review. Red if snapshots and runs share one budget: the
+  // Found in review. Red if snapshots and runs share one budget: the
   // run's id would be pushed out while the executor still holds its report.
   it("keeps a finished run's id past JOBS_KEPT later snapshots", async () => {
     const { client } = await connect(
@@ -1082,7 +1082,7 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(result)).toMatchObject({ outcome: "complete" });
   });
 
-  // DEM-278: the run answer's summary is what the recipe has an agent hand
+  // The run answer's summary is what the recipe has an agent hand
   // the user word for word. A real-time run that acted and recorded no
   // motion (a visible window with its screen locked) must say it there, on
   // the line the folded view shows. That the executor's `summary` is
@@ -1232,7 +1232,7 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
-  // DEM-144. Red: check the title with trim() — a lone zero-width space is
+  // Red: check the title with trim() — a lone zero-width space is
   // sent, and agentOf refuses the whole agent, valid name and all.
   it("leaves out a title with nothing visible, and keeps the name", async () => {
     const title = "\u200B";

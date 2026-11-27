@@ -100,7 +100,7 @@ const labelOf = (t: CiOptions["trigger"], branch: string): string =>
       }[t];
 
 /** The spec's order: deployment (one per environment), release, daily, push,
- *  then manual (DEM-248). */
+ *  then manual. */
 export function triggerOffers(f: GithubFacts): TriggerOffer[] {
   const offer = (
     trigger: CiOptions["trigger"],
@@ -173,7 +173,7 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
 }
 
 /** Environments setup did not look for, said beside the trigger question and
- *  in the plan rather than dropped (DEM-89); null when it looked at them all. */
+ *  in the plan rather than dropped; null when it looked at them all. */
 export function triggerNote(f: GithubFacts): string | null {
   const parts = [
     ...(f.unchecked === undefined
@@ -227,7 +227,7 @@ export type CiPlan = {
   offers: TriggerOffer[];
   route: "pr" | "main";
   /** Whether refresh writes the files flows to demoman-out and uploads it.
-   *  Decided here, once (DEM-99): the workflow reads it and never asks. */
+   *  Decided here, once: the workflow reads it and never asks. */
   artifact: boolean;
   /** The flows CI will refresh that deliver files, which need the
    *  artifact: the default branch's copy where it has one. */
@@ -251,7 +251,7 @@ export type CiPlan = {
   branch: typeof SETUP_BRANCH;
   title: string;
   /** The workflow is already on the default branch, and the pull request
-   *  replaces it (DEM-241): the release that wrote it, if it says, and this
+   *  replaces it: the release that wrote it, if it says, and this
    *  one. */
   update: { from: string | null; to: string } | null;
   /** Only when push is chosen. */
@@ -307,7 +307,7 @@ export type CiDeps = {
    *  on. `onBase`: the app.json is the default branch's own, which a review
    *  let in; an agent can commit locally, never there unreviewed. The ci
    *  tool always stops here for the person's terminal, its caller being an
-   *  agent; the terminal asks of any other app.json (DEM-110). */
+   *  agent; the terminal asks of any other app.json. */
   approveCheck?(app: AppSpec, onBase: boolean): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(
@@ -416,7 +416,7 @@ async function draftLeft(
 }
 
 /** A failed sign-in as an account that lists no files: the clean checkout
- *  may lack its seed or sign-in route, never committed (DEM-240). */
+ *  may lack its seed or sign-in route, never committed. */
 function unlistedSaid(
   unlisted: { name: string; origin: string }[],
   check: { step: string; detail: string },
@@ -555,7 +555,7 @@ async function makePlan(
     });
   let facts = await read(choices.trigger);
   if ("reason" in facts) return stop(facts.reason, facts.detail);
-  // DEM-241: a workflow already there is updated in the one pull request,
+  // A workflow already there is updated in the one pull request,
   // run as it runs now unless the door chose otherwise.
   let update: CiPlan["update"] = null;
   if (facts.workflowOnDefault) {
@@ -654,7 +654,7 @@ async function makePlan(
       "the repo has no repo flow for CI to refresh; add one with `npx demoman add`, then run setup again",
     );
 
-  // DEM-99: refresh delivers a files flow only into --out-dir, which the
+  // Refresh delivers a files flow only into --out-dir, which the
   // workflow gives with the artifact alone. Decided here, before anything
   // slow, from every copy CI may refresh: the working tree's (carried by the
   // pull request, or pushed later) and the base's (the pull request leaves
@@ -868,13 +868,13 @@ async function makePlan(
       "secretTooShort",
       `${list(short)} ${short.length === 1 ? "is" : "are"} shorter than ${SECRET_MIN_LENGTH} characters, which a run refuses; give longer values, then run setup again`,
     );
-  // DEM-129: secrets.env takes a secret's whole name, so the example is one
+  // A line of secrets.env takes a secret's whole name, so the example is one
   // of the missing names, never a prefix to add or drop.
   const eg =
     missing.find(
       (m) => m.for === "account" && !m.name.endsWith(SECRET_ORIGIN_SUFFIX),
     )?.name ?? `${SECRET_PREFIX}NAME`;
-  // DEM-241: GitHub never gives a value back, and the check records here.
+  // GitHub never gives a value back, and the check records here.
   const held = missing
     .filter((m) => existing.includes(m.name))
     .map((m) => m.name);
@@ -918,7 +918,7 @@ async function makePlan(
     }
   }
   // The flows' demo accounts sign in from this file in CI as here: proposed
-  // like app.json, unless committed as is (DEM-53). Passwords stay secrets.
+  // like app.json, unless committed as is. Passwords stay secrets.
   const accounts = await readFile(join(root, ACCOUNTS_FILE), "utf8").catch(
     () => null,
   );
@@ -932,8 +932,8 @@ async function makePlan(
       }
     }
     // The files that make each account (its seed, its sign-in route), as
-    // the agent listed them: the clean checkout has only what is committed
-    // (DEM-240). An unreadable accounts.json was refused with the flows.
+    // the agent listed them: the clean checkout has only what is committed.
+    // An unreadable accounts.json was refused with the flows.
     const found = await findAccounts(root);
     const all =
       found.kind === "found"
@@ -986,7 +986,7 @@ async function makePlan(
     }
   }
   // The secrets.env ignore line travels with the setup, or a teammate's
-  // clone would not ignore the file (DEM-62). The PR is built on the base,
+  // clone would not ignore the file. The PR is built on the base,
   // so the base decides, by git's reading of its patterns, and the PR adds
   // the line to the base's file as fetched when the PR is built, never the
   // working tree's or this plan's copy (reviews of #35). A base that cannot
@@ -1114,7 +1114,7 @@ export const checkCommands = (a: AppSpec): string[] => [
 
 /** Everything the check runs on this machine, as the person approves it.
  *  Each value is JSON-quoted: a newline in one cannot pass for the end of
- *  the question (DEM-110). */
+ *  the question. */
 export function checkQuestion(a: AppSpec): string[] {
   const q = JSON.stringify;
   const services = Object.entries(a.services);
@@ -1302,7 +1302,7 @@ export function planLines(p: CiPlan): string[] {
   ];
 }
 
-/** The setup pull request's description, as Markdown (DEM-58). Names each
+/** The setup pull request's description, as Markdown. Names each
  *  secret, never its value. */
 export function prBody(p: CiPlan): string {
   const said = planSaid(p);
@@ -1386,7 +1386,7 @@ export async function applyCiSetup(
 
   const { slug, defaultBranch } = plan.repo;
   // The Actions setting first: an organisation that forbids it stops the
-  // setup before any secret is set (DEM-54).
+  // setup before any secret is set.
   let setting: ActionsSetting | null = null;
   if (plan.route === "pr") {
     setting = await deps.allowActionPullRequests(slug);

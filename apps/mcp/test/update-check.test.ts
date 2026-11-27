@@ -53,7 +53,7 @@ describe("createUpdateCheck", () => {
       latest: "0.3.0",
       newer: true,
     });
-    // DEM-104: owner-only, like every other file in the home.
+    // Owner-only, like every other file in the home.
     expect((await stat(join(h, "update-check.json"))).mode & 0o777).toBe(0o600);
     t += DAY - 1;
     await check();
@@ -171,7 +171,7 @@ describe("createUpdateCheck", () => {
   });
 
   // Review Focus 4.
-  // DEM-104 review: writeFile's mode applies only on create, so a temp file
+  // Found in review: writeFile's mode applies only on create, so a temp file
   // a crash left behind (with this pid, reused) would carry its 0644 over.
   it("writes 0600 over a leftover temp file of another mode", async () => {
     const h = await home();

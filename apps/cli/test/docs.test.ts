@@ -19,8 +19,7 @@ const brand = (p: string) => new URL(`../../../brand/${p}`, import.meta.url);
 const repo = new URL("../../../", import.meta.url);
 /** Every `.ts` FILE under `dir`, relative to `root`. Files only: a failed
  *  browser test leaves a FOLDER named `<file>.test.ts` under
- *  `__screenshots__`, and reading it threw EISDIR from a test about docs
- *  (DEM-261). */
+ *  `__screenshots__`, and reading it threw EISDIR from a test about docs. */
 const tsFiles = (dir: string, root: URL = repo): string[] =>
   readdirSync(new URL(dir, root), { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && e.name.endsWith(".ts"))
@@ -28,7 +27,7 @@ const tsFiles = (dir: string, root: URL = repo): string[] =>
 
 describe("the source walk these guards read", () => {
   // Red: drop `e.isFile()` from `tsFiles`, and the folder is listed.
-  it("leaves out a folder named like a test file (DEM-261)", () => {
+  it("leaves out a folder named like a test file", () => {
     const root = mkdtempSync(join(tmpdir(), "docs-walk-"));
     try {
       mkdirSync(join(root, "src", "__screenshots__", "a.test.ts"), {
@@ -76,7 +75,7 @@ const MOVED: Array<[string, string]> = [
 // Every section anchor of the two old guides, read from their last versions
 // (`git show 1fcda6ed:apps/docs/guides/repo-flows.mdx`,
 // `git show 6f3c60d1^:apps/docs/guides/keep-videos-current.mdx`). Bookmarks
-// and old links carry these; old-anchors.js sends each on (DEM-96).
+// and old links carry these; old-anchors.js sends each on.
 const OLD_ANCHORS: Record<string, string[]> = {
   "guides/repo-flows": [
     "add-a-flow",

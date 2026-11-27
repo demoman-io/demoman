@@ -19,13 +19,13 @@ export type GithubFacts = {
   hasReleases: boolean;
   workflowOnDefault: boolean;
   /** The workflow on the default branch, as GitHub holds it: what an update
-   *  reads its trigger and route from (DEM-241). Absent when GitHub's answer
+   *  reads its trigger and route from. Absent when GitHub's answer
    *  carried no content. */
   workflowText?: string;
   /** Environments older deployments name that were not looked for, over the
-   *  by-name limit (DEM-89): said beside the trigger, with how to check one. */
+   *  by-name limit: said beside the trigger, with how to check one. */
   unchecked?: string[];
-  /** Deployments older than the newest this many were not read (DEM-89): an
+  /** Deployments older than the newest this many were not read: an
    *  environment only they name is in neither `deployments` nor `unchecked`. */
   olderUnread?: number;
   setupBranch: { pr: { number: number; url: string } | null } | null;
@@ -98,10 +98,10 @@ export async function readGithub(
   o: {
     git?: GitRunner;
     /** The environment setup was asked to trigger on: looked for past the
-     *  newest deployments when they hold none of it (DEM-89). */
+     *  newest deployments when they hold none of it. */
     environment?: string;
     /** Read older deployment pages for the environments they name: only
-     *  setup's trigger needs them (DEM-89). */
+     *  setup's trigger needs them. */
     older?: boolean;
   } = {},
 ): Promise<GithubFacts | GhUnusable | Unreadable> {
@@ -401,7 +401,7 @@ export async function allowActionPullRequests(
       };
     }
     // The repo's checkbox is greyed out while the organisation forbids it:
-    // the fix is the organisation's setting, by an owner (DEM-54).
+    // the fix is the organisation's setting, by an owner.
     if (/organi[sz]ation/i.test(msg)) {
       const org = `https://github.com/organizations/${slug.split("/")[0]}/settings/actions`;
       return {

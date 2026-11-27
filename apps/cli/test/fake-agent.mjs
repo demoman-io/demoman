@@ -1,4 +1,4 @@
-// The agents' CLIs as setup drives them (DEM-218), for a packed install's
+// The agents' CLIs as setup drives them, for a packed install's
 // setup to run against: `node fake-agent.mjs <agent> ...args`, through a
 // wrapper named after the agent. Each call is logged, one JSON array a
 // line, to $HOME/.fake-agents.log, and what setup added is kept in

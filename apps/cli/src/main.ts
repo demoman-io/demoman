@@ -318,7 +318,7 @@ async function studio(args: string[]): Promise<void> {
   }
   await runServe({
     home,
-    // No outDir: each export reads the user's Export folder (DEM-180).
+    // No outDir: each export reads the user's Export folder.
     pagesDir,
     version: VERSION,
     executablePath: fullChromiumPath(),
@@ -713,7 +713,7 @@ async function refresh(args: string[]): Promise<void> {
     (line) => fail(line),
   );
   // deliver would refuse this checkout after every flow was recorded: say so
-  // before recording (DEM-123).
+  // before recording.
   const target =
     route === "pr"
       ? await offBase(

@@ -63,7 +63,7 @@ describe("refreshLines", () => {
       code: 1,
     });
   });
-  // DEM-146 and 147: red when the fix or the kept folder is dropped from
+  // Red when the fix or the kept folder is dropped from
   // the line, or a failure the script did not cause is sent to the agent.
   it("ends a failed line with its fix and where its run was kept, when it has them", () => {
     const fix =

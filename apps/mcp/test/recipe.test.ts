@@ -153,14 +153,14 @@ describe("the recipe's examples and snapshot reading", () => {
   });
 
   // Red when an agent's hand-written accounts.json breaks the repo's own
-  // lint and turns the setup PR red (DEM-64).
+  // lint and turns the setup PR red.
   it("tells the agent to format hand-written .demoman files with the repo's formatter", () => {
     expect(recipe).toMatch(
       /`accounts\.json`, formatted as the repo's formatter writes it\s+\(its CI lints it\)/,
     );
   });
 
-  // Red when the agent is not told where an app's reset script goes (DEM-57).
+  // Red when the agent is not told where an app's reset script goes.
   it("names a reset script's place: reset in .demoman/app.json", () => {
     expect(recipe).toMatch(
       /reset\s+script goes in `\.demoman\/app\.json` as `reset`/,
@@ -399,7 +399,7 @@ describe("the CLI's recipe", () => {
     // tool takes no env file (a value never passes through the agent).
     // noCheckout: checkAddable's, the Studio's listing and button only; add (keepVideo) takes its checkout and never answers it.
     // videoChanged: keepVideo answers it only to a `pressed` version, which
-    // the Studio's Add passes and the `add` tool never does (DEM-140).
+    // the Studio's Add passes and the `add` tool never does.
     const TERMINAL_REASONS = [
       "videoChanged",
       "sameFlow",
@@ -561,7 +561,7 @@ describe("the CLI's recipe", () => {
     );
   });
 
-  // DEM-106: the recipe's count is the one the server keeps.
+  // The recipe's count is the one the server keeps.
   it("says how many finished calls report can still answer", () => {
     expect(RECIPE).toContain(`it keeps the last ${JOBS_KEPT} finished`);
   });

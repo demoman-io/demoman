@@ -194,7 +194,7 @@ describe("pkg/package.json", () => {
     });
   });
 
-  // DEM-121: @clack/prompts needs Node 20.12 and the package said 20, so on
+  // @clack/prompts needs Node 20.12 and the package said 20, so on
   // 20.0-20.11 every command died while loading, before any check of ours.
   it("runs on no Node that a dependency, direct or not, refuses", () => {
     const floors = NODE_FLOORS.map(([major, minor]) => `${major}.${minor}.0`);
@@ -514,7 +514,7 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
   });
 });
 
-// DEM-121: an import a Node lacks fails while the bundle links, before any
+// An import a Node lacks fails while the bundle links, before any
 // line of it runs, so the bin checks Node before it loads the bundle. A
 // preload stands in for the old Node; a stand-in cli.mjs beside a copy of the
 // bin says whether the bin loaded it.

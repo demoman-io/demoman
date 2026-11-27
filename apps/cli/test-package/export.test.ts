@@ -124,8 +124,8 @@ it("runs and exports the fixture take from the packed install, and the film show
     expect(panelMost, JSON.stringify(counts)).toBeGreaterThan(
       panelFirst * 4 + 500,
     );
-    // Run and export opened nothing in the person's own browser or desktop
-    // (DEM-218). Red: an export that `open`s its file or a link.
+    // Run and export opened nothing in the person's own browser or desktop.
+    // Red: an export that `open`s its file or a link.
     expect(await openers.calls()).toEqual([]);
   } finally {
     await c.close();
