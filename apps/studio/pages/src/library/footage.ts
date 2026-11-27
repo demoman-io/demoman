@@ -1,6 +1,6 @@
 // apps/studio/pages/src/library/footage.ts
 //
-// The Studio's Storage panel (DEM-179, the author's placement 1): what the
+// The Studio's Storage panel (the author's placement 1): what the
 // library's "Storage" figure opens. How long old footage is kept, and what
 // the last cleanup removed, named video by video (variant A). DOM only: the
 // page passes how to read and save.
@@ -209,7 +209,7 @@ export function footageBody(
       const days = r.keep === null ? null : keepFootageDays(r.keep);
       // "Checked" only for a pass that finished under the setting shown: a
       // failed one is said below, and one under another setting checked
-      // something else (review of DEM-179).
+      // something else.
       const checked =
         r.expiry.problem === undefined &&
         r.expiry.lastRanAt !== null &&

@@ -27,7 +27,7 @@ const RESET_BACKUP = /^kits\.json\.bak-(\d+)$/;
 const RUN_OWNED = /^[0-9a-f]{64}\.webp$/;
 
 /**
- * The upkeep's sweep of `<home>/assets` (DEM-136): removes a reset's kit
+ * The upkeep's sweep of `<home>/assets`: removes a reset's kit
  * backups past `BACKUP_KEEP_MS` but the newest, then each asset past
  * `ASSET_GRACE_MS` that no kit, backup or take names. A name is any
  * `assets/<file>` in those files' text, so a field this sweep does not know

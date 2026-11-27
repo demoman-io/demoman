@@ -121,7 +121,7 @@ export interface Platform {
     write(quality: ExportQualityChoice): Promise<{ replaced?: string }>;
   };
   /**
-   * Where the studio's exports are saved (DEM-180): `folder` is null when
+   * Where the studio's exports are saved: `folder` is null when
    * none is chosen, and exports land in `defaultFolder` (~/Downloads). With
    * `unreadable` the setting cannot be used, and the page says why.
    */
@@ -138,7 +138,7 @@ export interface Platform {
     ): Promise<{ saved: string | null; replaced?: string }>;
   };
   /**
-   * How long old footage is kept (DEM-179). With `unreadable` the value is
+   * How long old footage is kept. With `unreadable` the value is
    * null (expiry removes nothing until it reads) and the page says why.
    */
   keepFootage: {
@@ -146,7 +146,7 @@ export interface Platform {
     /** `replaced` as for `pullRequests.write`. */
     write(value: KeepFootage): Promise<{ replaced?: string }>;
   };
-  /** What expiry last removed, and when it last ran (DEM-179). */
+  /** What expiry last removed, and when it last ran. */
   expiry: {
     read(): Promise<ExpiryAnswer>;
   };

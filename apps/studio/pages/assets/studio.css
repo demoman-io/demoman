@@ -723,7 +723,7 @@
   color: var(--ink-4);
 }
 /* The library's sections, the cards' too, take the list's date-heading
-   label: the UI sans, not the mono capitals above (DEM-30). */
+   label: the UI sans, not the mono capitals above. */
 [data-studio] .library-content .section-head :is(h2, .section-count) {
   font-family: inherit;
   font-size: 12px;
@@ -1457,9 +1457,9 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   color: var(--ok);
 }
 
-/* Set up CI (DEM-52): at the end of the title band, on the title's line,
+/* Set up CI: at the end of the title band, on the title's line,
    32px in from the band's right edge. One row with the title, so a long
-   title shrinks to its ellipsis rather than running under it (DEM-77). */
+   title shrinks to its ellipsis rather than running under it. */
 [data-studio] .library {
   container-type: inline-size;
 }

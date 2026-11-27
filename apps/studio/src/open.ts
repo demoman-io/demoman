@@ -138,7 +138,7 @@ async function livePing(
     if (!answer.ok) {
       // Only a timeout is tried again: a studio that has only just started,
       // on a busy machine, can miss one ping, and calling it dead starts a
-      // second beside it (DEM-66). A refusal would say the same again.
+      // second beside it. A refusal would say the same again.
       if (answer.timedOut === true && tries > 1) continue;
       return { why: `its ping got ${answer.error}` };
     }
@@ -375,7 +375,7 @@ export async function openStudio(o: {
       state = await resolve();
       if (state === null) {
         // Only before a server starts: with no display here its window can
-        // never open, and it would linger for nothing (DEM-69). A live
+        // never open, and it would linger for nothing. A live
         // studio started on a display is still asked.
         const host = o.host ?? process;
         const noWindow = visibleWindowRefusal(host.platform, host.env);

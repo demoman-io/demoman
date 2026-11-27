@@ -110,7 +110,7 @@ async function writeSettingNow(
           : key === "libraryView"
             ? "The Library view setting"
             : "The Pull requests setting";
-  // Across processes too (DEM-87): setup saving pullRequests beside a Studio
+  // Across processes too: setup saving pullRequests beside a Studio
   // saving libraryView each kept the file it read, dropping the other's key.
   const lock = `${path}.lock`;
   try {

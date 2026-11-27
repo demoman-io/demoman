@@ -373,7 +373,7 @@ const GLYPHS = {
     "M15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
     "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
   ],
-  /** A wait in progress (DEM-80), turned by `.spinner`. Lucide
+  /** A wait in progress, turned by `.spinner`. Lucide
    *  `loader-circle`. */
   loaderCircle: ["M21 12a9 9 0 1 1-6.219-8.56"],
   /** A list row's menu on a touchscreen (2026-11-03). Lucide `ellipsis`,

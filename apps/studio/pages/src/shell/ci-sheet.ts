@@ -4,7 +4,7 @@ import { ciActions, ciSteps, ciStepsView, type RepoCiDoor } from "./ci-steps";
 import { showSheet } from "./sheet-dialog";
 
 /**
- * CI setup on its own (DEM-52): the add sheet's CI section in a dialog of
+ * CI setup on its own: the add sheet's CI section in a dialog of
  * its own, opened from beside a project's heading, with no flow being
  * added. Resolves with the pull request an apply opened, or null.
  */
@@ -13,7 +13,7 @@ export function openCiSheet(a: {
   /** The project's name, said under the title. */
   name: string;
   ci: RepoCiDoor;
-  /** Opened as Update CI (DEM-269): titled so before its own read lands. */
+  /** Opened as Update CI: titled so before its own read lands. */
   updating?: boolean;
 }): Promise<{ prOpened: string | null }> {
   const dialog = document.createElement("dialog");

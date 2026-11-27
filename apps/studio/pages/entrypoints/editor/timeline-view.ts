@@ -529,7 +529,7 @@ function armDrag(
     };
     // A touch the browser took for a pan: no gesture, and the drag ends
     // here, or a render held for its release waited for the next tap and
-    // that tap's pointerup dropped the drag where it landed (DEM-234).
+    // that tap's pointerup dropped the drag where it landed.
     const onCancel = (): void => {
       off();
       if (moved) preview?.end();
@@ -1173,7 +1173,7 @@ export const STEP_GLYPH: Readonly<Record<string, GlyphName>> = {
 };
 
 /** Per timeline root, the newest render that arrived while a drag was
- *  held, run when the pointer is released (DEM-234). */
+ *  held, run when the pointer is released. */
 const heldRenders = new WeakMap<HTMLElement, () => void>();
 
 export function renderTimeline(

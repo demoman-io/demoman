@@ -14,7 +14,7 @@ let typeAheadMs = TYPE_AHEAD_MS;
 
 /** Tests only: sets the pause that ends a search (null restores
  *  `TYPE_AHEAD_MS`), so a case that proves a click ends one does not
- *  depend on a real click landing within 500 ms (DEM-172: 669 ms on CI's
+ *  depend on a real click landing within 500 ms (669 ms on CI's
  *  macOS runner). */
 export function setTypeAheadMsForTests(ms: number | null): void {
   typeAheadMs = ms ?? TYPE_AHEAD_MS;
@@ -407,7 +407,7 @@ export function attachListKeys(
           if (!inCell) return false;
           // An open ⋯ menu is the innermost thing open: this Escape closes
           // it, as its light dismiss would had the preventDefault below
-          // not cancelled that (DEM-231).
+          // not cancelled that.
           const menu = row.querySelector<HTMLElement>(":popover-open");
           if (menu !== null) menu.hidePopover();
           else focusOn(row);

@@ -78,7 +78,7 @@ export function ciSteps(
   door: RepoCiDoor,
   root: string,
   onChange: () => void,
-  /** The Set up CI sheet offers an update of an older workflow (DEM-269);
+  /** The Set up CI sheet offers an update of an older workflow;
    *  the add sheet keeps its own pull request instead. */
   o: { offerUpdate?: boolean } = {},
 ) {
@@ -196,7 +196,7 @@ export function ciSteps(
           return;
         case "running":
           // An update's job is the CI sheet's: a sheet that offers no update
-          // (Add to repo) sees a set-up repo (review of DEM-269).
+          // (Add to repo) sees a set-up repo.
           if (ci.update !== undefined && o.offerUpdate !== true) {
             set({ k: "setUp" });
             return;
@@ -344,7 +344,7 @@ const statusPanel = (lines: string[]): HTMLElement => {
   return panel;
 };
 
-/** A wait the sheet is in (DEM-80): its words beside a turning spinner. */
+/** A wait the sheet is in: its words beside a turning spinner. */
 const waiting = (words: string, attr: string): HTMLElement => {
   const line = text("p", words, attr);
   line.className = "repo-line";
@@ -418,7 +418,7 @@ function appliedNodes(r: CiAppliedWire): HTMLElement[] {
   return out;
 }
 
-/** What the check proved, in words (the author, DEM-269): which flow the
+/** What the check proved, in words (the author): which flow the
  *  workflow recorded, from where, and how long it took; never the bare
  *  outcome word. */
 export const verdictOf = (
@@ -430,7 +430,7 @@ export const verdictOf = (
     : `Check passed: the ${update ? "updated " : ""}workflow recorded "${c.flow}" from a clean checkout in ${c.recordSeconds} s.`;
 
 /**
- * The author's layout D (DEM-269), for every sheet that shows CI steps: the
+ * The author's layout D, for every sheet that shows CI steps: the
  * next step as one full-width primary, and under it one quiet line of the
  * rest. `close` is the sheet's own way out: a quiet link while there is a
  * step to take (`quiet`, or none when the steps carry their own, as the add
@@ -500,7 +500,7 @@ export function ciStepsView(
   const nodes: HTMLElement[] = [];
   const acts: HTMLElement[] = [];
   let focus: HTMLElement | undefined;
-  // The author's layout D (DEM-269): the next step is the one primary;
+  // The author's layout D: the next step is the one primary;
   // the rest are quiet links (`ciActions` lays them out).
   const act = (
     word: string,
@@ -563,7 +563,7 @@ export function ciStepsView(
         "data-ci-check",
         () => void s.check({}),
       );
-      // Review of DEM-269: the add sheet's way out is Not now; a stop must
+      // The add sheet's way out is Not now; a stop must
       // not leave the check as the only button.
       notNow();
       break;
@@ -672,7 +672,7 @@ export function ciStepsView(
         nodes.push(wrap);
         focus ??= input;
       }
-      // The update's first step says what it is for (the author, DEM-269);
+      // The update's first step says what it is for (the author);
       // once a fresh plan is in, checking again is the quiet way back.
       const fresh = planned !== null && ci.k === "planned" && !ci.stale;
       act(

@@ -150,7 +150,7 @@ export const removedLine = (name: string): string =>
 
 /**
  * The sheet's behaviour without its dialog, so it can be driven without a
- * browser. It opens checking whether the flow can be added (DEM-47: the
+ * browser. It opens checking whether the flow can be added (the
  * listing no longer does), then the form. A plain `files` add with nothing
  * to say ends by itself (`autoClosed`); anything else stays on the last
  * step until `close`.
@@ -445,7 +445,7 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
   const form = document.createElement("form");
   form.addEventListener("submit", (event) => event.preventDefault());
   dialog.append(form);
-  /** Each Reveal's refusal, by path, said under its row (DEM-56). */
+  /** Each Reveal's refusal, by path, said under its row. */
   const revealErrors = new Map<string, string>();
   /** The repo's folders, read once when the list first opens; a failed
    *  read is asked again on the next open. */
@@ -518,7 +518,7 @@ function drawSheet(
     );
     line.setAttribute("role", "status");
     line.setAttribute("data-repo-line", "");
-    // DEM-80: a wait of several seconds that moves, so it reads as one.
+    // A wait of several seconds that moves, so it reads as one.
     line.prepend(spinner());
     parts.push(line);
     if (s.step === "checking") {
@@ -552,7 +552,7 @@ function drawSheet(
     });
     const count = `${s.written.length} file${s.written.length === 1 ? "" : "s"}`;
     if (opened !== null) {
-      // Finished (DEM-59): both parts fold to a checked line; Done alone.
+      // Finished: both parts fold to a checked line; Done alone.
       const fold = el("details", "repo-section");
       fold.setAttribute("data-repo-added", "");
       const summary = el("summary");
@@ -639,7 +639,7 @@ function selectorOf(n: HTMLElement): string {
 }
 
 /** Folder (with the repo's folders a click away), File name with its fixed
- *  `.mp4`, the Video toggle and its line, Quality (DEM-50). */
+ *  `.mp4`, the Video toggle and its line, Quality. */
 function formParts(
   model: Model,
   readFolders: () => Folders | null,
@@ -749,7 +749,7 @@ function formParts(
 }
 
 /** Each written file: what it is, its path, its Reveal, and a refused
- *  Reveal's words under it (DEM-49, DEM-56). */
+ *  Reveal's words under it. */
 function filesList(
   s: Extract<SheetState, { step: "last" }>,
   a: RepoSheetArgs,

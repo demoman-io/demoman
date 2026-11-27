@@ -231,7 +231,7 @@ export function createExportQueue(o: {
       fileType: body.fileType,
       ...(body.quality === undefined ? {} : { quality: body.quality }),
       jobId: randomUUID(),
-      // The revision checked above is the scene rendered (DEM-100).
+      // The revision checked above is the scene rendered.
       pinned: { scene: read.scene, notes: read.notes },
     };
     const position = waiting.length + (running === null ? 0 : 1);

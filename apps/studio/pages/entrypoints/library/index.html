@@ -161,7 +161,7 @@
         font-size: 13px;
         font-variant-numeric: tabular-nums;
       }
-      /* DEM-179: in the Studio the figure is the button that opens the
+      /* In the Studio the figure is the button that opens the
          Storage panel, quiet as the storage trigger is. */
       .total-trigger { align-items: center; color: var(--ink-muted); font-weight: 500; }
       .total-trigger:hover,
@@ -1020,7 +1020,7 @@
         gap: 2px;
       }
       /* Hover lifts a heading a step, short of the sorted one's ink, so a
-         pointer over it never reads as a sort (DEM-32). */
+         pointer over it never reads as a sort. */
       .library-list [data-list-head] [data-sort]:hover { color: var(--ink-muted); }
       .library-list [data-list-head] [aria-sort],
       .library-list [data-list-head] [aria-sort] [data-sort] { color: var(--ink); }
@@ -1076,8 +1076,7 @@
         text-overflow: ellipsis;
       }
       /* But a name as wide as its cell leaves its tag the glyph: a worded
-         tag's padding and icon, the glyph-only tag's square, and the gap
-         (DEM-34). */
+         tag's padding and icon, the glyph-only tag's square, and the gap. */
       .library-list [data-col="name"]:has(> .row-tags) > [data-name-text] {
         max-width: calc(100% - 20px - 8px);
       }
@@ -1146,7 +1145,7 @@
       }
       /* "Couldn't read" under the list: the date headings' label, with no
          chevron (it does not fold) — their room above, their line, their
-         sans. The Studio's sheet gives the cards' headings it too (DEM-30). */
+         sans. The Studio's sheet gives the cards' headings it too. */
       .library-list ~ [data-unreadable] { margin-top: 0; }
       .library-list ~ [data-unreadable] > .section-head {
         /* A date heading row: 14px above a 34px line. */

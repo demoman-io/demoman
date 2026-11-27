@@ -523,7 +523,7 @@ let lastDurationMs = 0;
 /** The last `render()`'s gesture, against its model. A drag dispatches
  *  through this rather than through the render that drew its handle: a
  *  refresh mid-drag renders a newer model, and the timeline holds that
- *  render until the release (DEM-234), so the drag's own closure is stale. */
+ *  render until the release, so the drag's own closure is stale. */
 let gestureNow: ((gesture: Gesture) => void) | null = null;
 /** The window of output time the timeline is showing. Null until the first
  *  draw fits one. */
@@ -3340,7 +3340,7 @@ async function refreshRepo(): Promise<void> {
   const id = listing.videoOf[sceneId]?.videoId;
   const video = listing.videos.find((v) => v.id === id);
   // No answer from the listing offers Add: the sheet checks, as the
-  // library's does (DEM-47).
+  // library's does.
   const next =
     id === undefined || video === undefined
       ? null

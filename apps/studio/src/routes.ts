@@ -175,7 +175,7 @@ export function revealFile(
 ): Promise<void> {
   if (platform === "darwin") return run("open", ["-R", path]);
   // shortcut: Windows has no xdg-open and is not supported yet; refused
-  // in words rather than as spawn ENOENT. Native Windows is DEM-85.
+  // in words rather than as spawn ENOENT.
   if (platform === "win32") {
     return Promise.reject(
       new Error("showing a file in its folder is not supported on Windows yet"),
@@ -292,7 +292,7 @@ export function createRoutes(o: {
   };
 
   // The asset sweep reads every take's scene, so it runs hourly, as expiry
-  // does; a skipped listing says the last sweep's rows again (DEM-136).
+  // does; a skipped listing says the last sweep's rows again.
   const sweepEvery = o.sweepEveryMs ?? 60 * 60_000;
   let lastSweep: { at: number; rows: UnreadableTake[] } | null = null;
   const swept = async (): Promise<UnreadableTake[]> => {
@@ -396,7 +396,7 @@ export function createRoutes(o: {
           reason: `old videos could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
         });
       }
-      // A flow or video left alone for a file that will not read (DEM-127):
+      // A flow or video left alone for a file that will not read:
       // the pass went on, and it keeps its frames until the file reads. A
       // pass the lock put off says its own, never the last one saved.
       for (const why of skippedOf("held" in expiry ? expiry : last)) {
@@ -498,7 +498,7 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        // Only the answer that needs no git (DEM-47: the whole check per
+        // Only the answer that needs no git (the whole check per
         // flow cost 3.6–5.6 s a listing). The sheet checks the flow it
         // opens for, through repoAddable.
         if (summary.kept === null) {

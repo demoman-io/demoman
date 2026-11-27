@@ -233,7 +233,7 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   // The studio makes the card's frame small itself (`folder.thumb`); it
   // refuses a take this page has not asked `bundles.active` for, and the
   // mounter's `bundle` port above always does first. When it cannot (no
-  // `sips` off macOS, DEM-86) or elsewhere, the page decodes the keyframe.
+  // `sips` off macOS) or elsewhere, the page decodes the keyframe.
   image: async (ref) => {
     const folder = platform.folder;
     if (folder === undefined || studioMakesNoPreviews) {
@@ -515,12 +515,12 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
 }
 
 /** The listing the page last painted: an add marks its flow In repo in it
- *  at once (DEM-59), before the next read says so. */
+ *  at once, before the next read says so. */
 let lastListing: FolderListing | null = null;
 
 /** Flows an add here marked In repo, as its answer said, until a read
  *  shows the mark: a read that began before the mark landed would
- *  otherwise paint the flow Not in repo again (DEM-59). */
+ *  otherwise paint the flow Not in repo again. */
 const markedHere = new Map<string, Kept>();
 type Kept = Extract<VideoSummary["kept"], { root: string }>;
 
@@ -578,12 +578,12 @@ const unperiod = (text: string): string => text.replace(/\.$/, "");
 async function addToRepo(id: string): Promise<void> {
   const can = addables[id];
   const flow = lastModel?.groups?.find((g) => g.video.id === id);
-  // No answer from the listing offers Add: the sheet checks (DEM-47).
+  // No answer from the listing offers Add: the sheet checks.
   if (addingNow.has(id) || can?.ok === false || flow === undefined) return;
   const key = statusKey("video", id);
   rowStatus.delete(key);
   addingNow.add(id);
-  // The row's button says so now; the sheet opens without a read (DEM-47).
+  // The row's button says so now; the sheet opens without a read.
   repaint();
   let added: RepoSheetResult["added"] = null;
   try {
@@ -603,7 +603,7 @@ async function addToRepo(id: string): Promise<void> {
   } finally {
     addingNow.delete(id);
   }
-  // In repo from the add's own answer (DEM-59); the read confirms it.
+  // In repo from the add's own answer; the read confirms it.
   if (added !== null) ciStates.delete(added.root);
   // Only an add the library marked: a failed mark's note says it will not
   // show In repo, and the read says what is true.
@@ -631,9 +631,9 @@ function rootOf(project: string): string | null {
   return null;
 }
 
-/** Set up CI beside a project's heading (DEM-52): offered for a project
+/** Set up CI beside a project's heading: offered for a project
  *  with a flow in the repo whose CI is anything but set up, or set up by an
- *  older release (Update CI, DEM-269). A state that will not read still
+ *  older release (Update CI). A state that will not read still
  *  offers it, and the sheet says why. */
 function ciSetupFor(p: Place): (() => void) | null {
   if (typeof p !== "object") return null;
@@ -652,13 +652,13 @@ function ciSetupFor(p: Place): (() => void) | null {
       .finally(paintCi);
     return null;
   }
-  // Set up: offered only to update an older release's workflow (DEM-269).
+  // Set up: offered only to update an older release's workflow.
   if (st === "reading" || (st.kind === "setUp" && !updatable(root)))
     return null;
   return () => void openCi(root, p.project);
 }
 
-/** Whether the repo's CI is set up by an older release (DEM-269): the one
+/** Whether the repo's CI is set up by an older release: the one
  *  test the heading's button and the sheet's title both read. */
 function updatable(root: string): boolean {
   const st = ciStates.get(root);
@@ -670,7 +670,7 @@ function updatable(root: string): boolean {
   );
 }
 
-/** Whether the heading's CI button is an update (DEM-269). */
+/** Whether the heading's CI button is an update. */
 function ciUpdating(p: Place): boolean {
   if (typeof p !== "object") return false;
   const root = rootOf(p.project);
@@ -825,7 +825,7 @@ const lengths = createLengthCache();
 const lengthWaits: (() => void)[] = [];
 
 const actions: LibraryActions = {
-  /** The Storage panel (DEM-179): read when it opens, so a cleanup that ran
+  /** The Storage panel: read when it opens, so a cleanup that ran
    *  since is shown. Each read's failure is the panel's to say. */
   footage: {
     async read() {

@@ -102,7 +102,7 @@ export function buildHandlers(o: {
   /** What an add renders with: the studio's own headless browser. */
   session: ExportDeps["session"];
   wallpapersDir: string;
-  /** Tests: a folder in place of the user's Export folder (DEM-180). */
+  /** Tests: a folder in place of the user's Export folder. */
   outDir?: string;
   /** Tests: stand-ins for the runner's add and remove. */
   keep?: typeof keepVideo;
@@ -151,7 +151,7 @@ export function buildHandlers(o: {
       log: o.log,
       version: o.version,
       // A CI apply watches its run for up to half an hour: work a newer
-      // version's open must not stop underneath it (DEM-126).
+      // version's open must not stop underneath it.
       queued: () => o.queue.size() + ci.running(),
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
@@ -262,7 +262,7 @@ export function buildHandlers(o: {
         o.tell?.(e);
       };
       // Said in studio.log too: with no window open, the event alone reaches
-      // nobody (DEM-125).
+      // nobody.
       const failed = (reason: string, detail: string) => {
         o.log(`studio: add ${jobId} failed (${reason}): ${detail}`);
         ended({ ...at, phase: "failed", reason, detail });
@@ -277,7 +277,7 @@ export function buildHandlers(o: {
                 deliver: add.deliver,
                 to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
                 // The version vetted as Add was pressed: keep adds that one,
-                // or refuses videoChanged (DEM-140).
+                // or refuses videoChanged.
                 pressed: { takeId: can.takeId, revision: can.revision },
               },
               {
@@ -312,7 +312,7 @@ export function buildHandlers(o: {
               file: answer.file,
               written: answer.written,
               // Only what a person acts on: the platform and screens notes
-              // are the terminal's (DEM-49, the author's ruling).
+              // are the terminal's (the author's ruling).
               notes: [answer.markNote, answer.scaleGuess].filter(
                 (n): n is string => n !== undefined,
               ),
@@ -461,7 +461,7 @@ export function buildHandlers(o: {
 
 export interface ServeOptions {
   home: string;
-  /** Tests: a folder in place of the user's Export folder (DEM-180). */
+  /** Tests: a folder in place of the user's Export folder. */
   outDir?: string;
   pagesDir: string;
   version: string;
