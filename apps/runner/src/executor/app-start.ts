@@ -34,10 +34,10 @@ export type AppStarted = {
   seconds: number;
   /** What it could not stop, by name; [] when all stopped. */
   stop(): Promise<string[]>;
-  /** Runs app.json's `reset`, if any, before a flow (DEM-57). */
+  /** Runs app.json's `reset`, if any, before a flow. */
   reset(): Promise<{ ok: true } | { ok: false; detail: string }>;
   /** app.json's `now` when the app was started here with it as
-   *  DEMOMAN_NOW; null when unset (DEM-79). A reused app is never pinned. */
+   *  DEMOMAN_NOW; null when unset. A reused app is never pinned. */
   pinnedNow: string | null;
 };
 export interface AppStartDeps {
@@ -154,7 +154,7 @@ export async function startApp(
   };
   const t0 = d.now();
   // Refused before anything runs: a future instant can make the app treat a
-  // fresh sign-in as expired, which would read as a sign-in fault (DEM-79).
+  // fresh sign-in as expired, which would read as a sign-in fault.
   if (app.now !== undefined && Date.parse(app.now) > t0)
     return {
       reason: "appNowInFuture",
@@ -203,7 +203,7 @@ export async function startApp(
   };
 
   // The app's own reset, before each flow: one flow's changes never show in
-  // the next (DEM-57). Run like an install command; nothing without one.
+  // the next. Run like an install command; nothing without one.
   const reset: AppStarted["reset"] = async () => {
     if (app.reset === undefined) return { ok: true };
     o.log(`resetting: \`${app.reset}\``);
@@ -246,7 +246,7 @@ export async function startApp(
   }
   if (o.mode === "reuse" && (await ready())) {
     // Recording it anyway would put real-date videos back over pinned ones,
-    // and the next CI refresh would flip them again (DEM-79).
+    // and the next CI refresh would flip them again.
     if (app.now !== undefined)
       return {
         reason: "appNowNotPinned",

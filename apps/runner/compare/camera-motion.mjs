@@ -4,7 +4,7 @@
 // With --take, first exports that take with <root>'s built runner, from a
 // copy in a throwaway home (the take store is never written), to --out.
 // Prints each frame's pan (px at 2560 wide; dx + = the picture moves right,
-// dy + = down) and the lines that answer DEM-254 and DEM-265:
+// dy + = down) and the lines that answer the drag camera and frame-rate questions:
 //   reversals x: <n> [times] the pan changing direction at 8 px/frame or more
 //   reversals y: <n> [times] the same, up and down
 //   repeats: <n> [times]     a frame identical to the one before, between two

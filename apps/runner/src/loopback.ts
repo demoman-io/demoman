@@ -52,8 +52,7 @@ export async function listenOnLoopback(server: Server): Promise<string> {
  * compare measurer). A port on 127.0.0.1 answers every account on this
  * machine and, through DNS rebinding, a page that names another host. So the
  * files sit under a random path segment only the server's own page is told
- * (`prefix`), and a request whose Host is not the server's own gets a 404
- * (DEM-114).
+ * (`prefix`), and a request whose Host is not the server's own gets a 404.
  */
 export function loopbackGuard(): {
   prefix: string;

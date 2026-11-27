@@ -301,7 +301,7 @@ export function createLibrary(
 
   /**
    * Before a write replaces `scene.json`, keeps what reading the one on disk
-   * said (DEM-115 review): a pre-0.7.3 mask's note is true of the take until
+   * said: a pre-0.7.3 mask's note is true of the take until
    * the author moves it, but a save writes the current schema, so no later
    * read migrates and says it. Kept in `migration-notes.json`, which every
    * read returns first. A scene that will not read has nothing to keep.

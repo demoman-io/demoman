@@ -1,4 +1,4 @@
-// Held-clock probe (2026-11-19, DEM-237): what the held clock's second read
+// Held-clock probe (2026-11-19): what the held clock's second read
 // can tell once a frame's read went unanswered.
 //   node apps/runner/compare/held-probe-unanswered.mjs
 // One line per case. The clock's sentence leans on these answers: a page

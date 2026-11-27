@@ -1,6 +1,6 @@
 // apps/runner/src/executor/pinned-clock.ts
 //
-// The page side of a pinned `now` (DEM-79, spec 2026-11-07-pinned-now): the
+// The page side of a pinned `now` (spec 2026-11-07-pinned-now): the
 // page's Date reads the real time shifted by one offset, so it starts at the
 // repo's instant and keeps running. Never frozen: a debounce that measures
 // with Date.now() (lodash's), and Demoman's own settle and scroll windows,

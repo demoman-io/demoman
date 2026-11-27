@@ -1,4 +1,4 @@
-// Held-clock probe (2026-11-24, DEM-237): does Chrome's paint holding hang
+// Held-clock probe (2026-11-24): does Chrome's paint holding hang
 // a held screenshot after a same-origin navigation?
 //   node apps/runner/compare/held-probe-paint-holding.mjs [rounds=10] [holding|noholding]
 // Both CI stops came early in a navigation on a page that answered script
@@ -129,7 +129,7 @@ try {
       for (let f = 1; f <= FRAMES; f++) {
         await grant(f * FRAME);
         const s = await shot();
-        // A refused capture (DEM-275's error) is neither an answer nor a hang.
+        // A refused capture (the "Unable to capture screenshot" error) is neither an answer nor a hang.
         if (s.e !== undefined) {
           refused++;
           line = `round ${round}: screenshot refused at ${Math.round(f * FRAME)} ms of page time (${s.e})`;

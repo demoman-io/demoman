@@ -26,7 +26,7 @@ export type GitRunner = (
 
 /** The filmed folder is the caller's choice: its config must not name a
  *  program git runs on its own account while Demoman only reads it (audit
- *  run 1, DEM-90). Demoman's git there reads and stages, never fetches or
+ *  run 1). Demoman's git there reads and stages, never fetches or
  *  commits, so of the programs a config can name only two run: fsmonitor,
  *  off here, and a clean filter, left on on purpose — git-lfs is one, and
  *  the tree filmed has to be the one git would commit. The CLI's fetch and
@@ -64,7 +64,7 @@ export const execGit: GitRunner = (args, cwd, env) =>
         return done({ code: err.code, stdout, stderr });
       }
       // A gone cwd also fails as "spawn git ENOENT", which reads as if git
-      // were missing (DEM-76): say which one is.
+      // were missing: say which one is.
       if (err.code !== "ENOENT") return fail(err);
       stat(cwd).then(
         () => fail(err),
@@ -244,7 +244,7 @@ async function treeOf(
     // user's own global or system config sets up (git-lfs's install) stay
     // as they are, so the tree is the one git would commit; any this
     // folder's config sets or changes go back to the user's own value, or
-    // off when there is none (DEM-113). Read as "every scope" against
+    // off when there is none. Read as "every scope" against
     // global and system: `--show-scope` needs git 2.26, and `--worktree`
     // refuses a repo with several worktrees.
     const filters = async (

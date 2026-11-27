@@ -9,7 +9,7 @@ import type { FontInput, WallpaperInput } from "../render.js";
 import { messageOf } from "../report.js";
 
 /**
- * Geist, the dialog card's one font (DEM-161): the Studio pages' own copy,
+ * Geist, the dialog card's one font: the Studio pages' own copy,
  * which sits beside the wallpapers in every install (`fonts/` next to
  * `wallpapers/`). Never throws; a font that cannot be read is a reason, and
  * the render fails on it only when the take has a card to draw.

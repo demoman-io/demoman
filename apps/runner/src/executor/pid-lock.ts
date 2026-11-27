@@ -53,8 +53,7 @@ async function deadHolder(path: string, held: string): Promise<boolean> {
 
 /**
  * The file at `path`, held across processes. Its text is `<pid> <token>`,
- * written whole and then linked into place, so it is never seen empty
- * (DEM-66). A lock whose pid is dead is broken; a live one is waited for, up
+ * written whole and then linked into place, so it is never seen empty. A lock whose pid is dead is broken; a live one is waited for, up
  * to `waitMs`. Release removes the lock only while it is still this one.
  */
 export async function takePidLock(

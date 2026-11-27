@@ -96,7 +96,7 @@ export const originAndPath = (raw: string): string => {
 const where = (raw: string): { host: string; path: string } => {
   try {
     const u = new URL(raw);
-    // The path reaches the run report: a token in it does not (DEM-130).
+    // The path reaches the run report: a token in it does not.
     return { host: u.host, path: new URL(scrubUrl(raw)).pathname };
   } catch {
     // An unparseable landed URL still gets a sentence: its raw text is the host.

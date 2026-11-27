@@ -100,7 +100,7 @@ export type KeepRefusal =
   | "videoChanged";
 
 /** The version an add was asked for (`checkAddable`'s answer): keep adds
- *  that one or refuses `videoChanged` (DEM-140). */
+ *  that one or refuses `videoChanged`. */
 export type KeepPressed = { takeId: string; revision: string };
 
 /** What a built kept file was made from. */
@@ -122,7 +122,7 @@ export type KeepAnswer =
       ok: true;
       file: string;
       /** The recipe this keep moved here, or null: one in the old
-       *  `.demoman/videos/`, or one under its pre-DEM-68 trimmed name (whose
+       *  `.demoman/videos/`, or one under its older trimmed name (whose
        *  receipt and screens were removed, rewritten under the new name). */
       moved: string | null;
       kept: KeptVideo;
@@ -227,10 +227,10 @@ export async function keepVideo(
   const fileRel = `${FLOWS_DIR}/${keptFileName(video.name)}`;
   // The same file in the old folder: moved here when this keep writes.
   const legacyRel = `${LEGACY_FLOWS_DIR}/${basename(fileRel)}`;
-  // The name it had before DEM-68, in either folder: moved here too, and its
+  // The name it had before names kept their small words, in either folder: moved here too, and its
   // receipt and screens with it, so the move lands in one commit.
   const trimmedName = `${normaliseName(video.name).replace(/ /g, "-") || "video"}.json`;
-  // Before DEM-132 cut a slug at 206 bytes, a "files" recipe of up to 209
+  // Before a slug was cut at 206 bytes, a "files" recipe of up to 209
   // wrote under its whole name: found there and moved, never refused.
   const uncutName = `${videoSlug(video.name, Number.POSITIVE_INFINITY)}.json`;
   let moveFrom: string | null = null;
@@ -269,7 +269,7 @@ export async function keepVideo(
       const at = await inRepo(asked);
       if (typeof at !== "string") return refuse("outsideRepo", at.outside);
       p = at;
-      // An agent names these paths (DEM-111): the rule the kept file's
+      // An agent names these paths: the rule the kept file's
       // reader holds them to, asked before anything renders.
       const why = outputPathRefusal(
         p,
@@ -364,7 +364,7 @@ export async function keepVideo(
         `${rel} already holds the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
       );
     }
-    // Names the library treats as one shared a file until DEM-68; they
+    // Names the library treats as one shared a file until names kept their small words; they
     // still may not share a repo, or refresh's `only` takes both.
     if (kept.flow !== video.id && sameName(kept.name, video.name)) {
       return refuse(
@@ -383,7 +383,7 @@ export async function keepVideo(
   }
 
   // A file already there is replaced only when it is this flow's own output
-  // or a video Demoman tagged: never source, a .env or a config (DEM-111).
+  // or a video Demoman tagged: never source, a .env or a config.
   if (deliver === "commit") {
     for (const p of paths) {
       if (ownBefore.has(p)) continue;
@@ -427,7 +427,7 @@ export async function keepVideo(
   );
   if (!made.ok) return refuse(made.reason, made.detail);
   // Every render below shows the scene the recipe was built from, not
-  // scene.json as it is when that render starts (DEM-140, as DEM-100).
+  // scene.json as it is when that render starts.
   const pinned: PinnedScene = {
     scene: made.read.scene,
     notes: made.read.notes,
@@ -762,7 +762,7 @@ export async function vetForAdd(
       cache.sessions = saved;
     }
     // Every loopback port shares the `localhost` file, so a sign-in made to
-    // another port is another local app's, not this flow's (DEM-46).
+    // another port is another local app's, not this flow's.
     const otherApp = (f: SessionFile) =>
       site === "localhost" &&
       portOf(f.startUrl) !== null &&
@@ -1662,7 +1662,7 @@ export async function repoPath(
     !isAbsolute(rel);
   if (inside) {
     // Where it really lands, links followed: a link into .git or .github
-    // is no way round the rule (DEM-111).
+    // is no way round the rule.
     const why = outputPathRefusal(
       relative(rootReal, real as string)
         .split(sep)

@@ -60,7 +60,7 @@ interface Nav {
   loaded: number;
   failed: number;
   /** The page's origin and path as the last acting step began: what a
-   *  client-side sign-in has moved away from (DEM-151). */
+   *  client-side sign-in has moved away from. */
   pathBefore: string;
 }
 
@@ -204,8 +204,7 @@ async function runSteps(
       nav.failed = 0;
     }
     // Read just before the last acting step dispatches, after its element
-    // was found: a navigation the step before set going has landed by then
-    // (review of DEM-151). Every signIn starts with a goto (accounts.ts),
+    // was found: a navigation the step before set going has landed by then. Every signIn starts with a goto (accounts.ts),
     // so the last acting step always exists and this is always set.
     const pathNow = () => {
       if (i === lastAction) nav.pathBefore = originAndPath(page.url());
@@ -247,7 +246,7 @@ async function runSteps(
             // resolves only there, so that is the field's frame. Never
             // `handle.ownerFrame()`: Playwright asks the page for
             // `ownerDocument.documentElement`, and a field whose getter
-            // answers an iframe of the site reads as that iframe (DEM-116).
+            // answers an iframe of the site reads as that iframe.
             const url = page.url();
             const here = URL.canParse(url) ? new URL(url).origin : null;
             if (here !== origin && /\{secret:/.test(step.text)) {
@@ -537,18 +536,17 @@ export async function signInAccount(
         // cancel a form still about to submit; wait for the navigation the
         // last step set going, bounded, and say so when none comes.
         const navUntil = Math.min(deadline, Date.now() + STEP_WAIT_MS);
-        // A client-side sign-in loads no document (DEM-60): it is done when
+        // A client-side sign-in loads no document: it is done when
         // the page has moved to another path AND no password field shows
         // (read as checkUrl's check reads it, every field, CSP-safe). Either
         // alone is not enough: a form can hide its field and navigate a
         // second later, or rewrite its query and still submit (review).
         // The path is the one the last step began on, not this moment's: a
         // page that moved before its click returned was already elsewhere
-        // here, and waited out the 10 s (DEM-151).
+        // here, and waited out the 10 s.
         let signedInPlace = false;
         let lastLook = 0;
-        // What the last look saw, for the line below when none is enough
-        // (DEM-81): the path, the field, or why the page would not read.
+        // What the last look saw, for the line below when none is enough: the path, the field, or why the page would not read.
         let lastSeen = "the page was never read";
         while (nav.documents === 0 && Date.now() < navUntil) {
           if (Date.now() - lastLook >= 250) {

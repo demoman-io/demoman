@@ -1,10 +1,10 @@
-// Held-clock probe (2026-11-17, DEM-204): why a video stops on a held clock
+// Held-clock probe (2026-11-17): why a video stops on a held clock
 // once its download is not server time. A muted autoplaying 10 s video,
 // served at about 80 KB/s (as compare/held-push.sh video), on a held page
 // played a frame at a time with a capture each and no real-time pacing, as
 // the clock does in designed time. Prints the video's state every 10 frames.
-// Measured 2026-11-17: it plays, so the recorder is what stops it (DEM-207).
-// DEM-207 (2026-11-19): what the recorder adds, one switch each, so the
+// Measured 2026-11-17: it plays, so the recorder is what stops it.
+// Added 2026-11-19: what the recorder adds, one switch each, so the
 // probe can bisect it: FLAGS=1 launches with the held recording's Chromium
 // switches (HELD_FLAGS), FLAGS=<one switch> with that one alone; PIN=1
 // installs the held frame script and runs the animation pin every frame, as
@@ -40,7 +40,7 @@ const PIN = Date.parse("2026-01-01T00:00:00Z");
 const FRAME = 1000 / 30;
 const FRAMES = 180;
 /** A call to the browser sometimes never answers while the video loads (3
- *  of 6 runs on 2026-11-17, not traced: DEM-207), so the run is bounded. */
+ *  of 6 runs on 2026-11-17, not traced), so the run is bounded. */
 const RUN_MS = 60_000;
 setTimeout(() => {
   console.log(
@@ -153,7 +153,7 @@ async function run() {
           "window.addVideo && !document.getElementById('v') && addVideo()",
       });
     }
-    // The picture, not currentTime: DEM-207 saw one stand still while the
+    // The picture, not currentTime: an earlier run saw one stand still while the
     // other moved. PNG, so a repeat is byte for byte.
     const shot = await s.send("Page.captureScreenshot", { format: "png" });
     const h = createHash("md5").update(shot.data).digest("hex");

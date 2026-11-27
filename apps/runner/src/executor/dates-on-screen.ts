@@ -1,6 +1,6 @@
 // apps/runner/src/executor/dates-on-screen.ts
 //
-// Whether a page showed dates that may follow today (DEM-79): the evidence
+// Whether a page showed dates that may follow today: the evidence
 // refresh needs before it says a replaced video's dates may be why. Small on
 // purpose: a miss costs only the note, and a false hit would put the note on
 // a video whose dates are not the cause.

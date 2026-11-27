@@ -56,7 +56,7 @@ const SETS = {
   ],
   "enable-gpu, SwiftShader": ["--enable-gpu", "--enable-unsafe-swiftshader"],
   // Without a GPU, two thirds of an export is "copying frames to the
-  // encoder" (DEM-43): maybe SwiftShader handing each frame back. These draw
+  // encoder": maybe SwiftShader handing each frame back. These draw
   // the canvas on the CPU from the start.
   "disable-gpu": ["--disable-gpu"],
   "no accelerated canvas": [

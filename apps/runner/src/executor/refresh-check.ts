@@ -108,7 +108,7 @@ export async function checkCurrent(
       say(`${kept.name}: recorded with no commit`);
       continue;
     }
-    // Committed text, not git's answer: it reaches a git argument (DEM-131).
+    // Committed text, not git's answer: it reaches a git argument.
     if (!/^[0-9a-f]{7,64}$/.test(code.commit)) {
       say(
         `${kept.name}: recorded with no commit (its receipt's commit is not a commit id)`,

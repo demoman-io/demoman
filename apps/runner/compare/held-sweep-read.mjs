@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Reads an export of `held-sweep.json` (record it with pacing-pairs.mjs) off
-// its decoded pixels, for lane A's held sweep (DEM-186, 191, 188):
+// its decoded pixels, for lane A's held sweep (opening freezes, short repaints, faint flickers):
 //
 //   node apps/runner/compare/held-sweep-read.mjs <video.mp4>...
 //
 // Prints one JSON line per video:
 // - `freezes`: every run of 200 ms or more in which the picture did not move.
 //   The fixture's stripes slide on every frame, so on its page any such run
-//   is a freeze the video added (DEM-186), not a still page.
-// - `greenMs`: the times the fixture's 40 ms green box shows (DEM-191, 188:
-//   a change too short to be a motion span). Empty means the video lost it.
+//   is a freeze the video added, not a still page.
+// - `greenMs`: the times the fixture's 40 ms green box shows
+//   (a change too short to be a motion span). Empty means the video lost it.
 // - `diff`: the median and the smallest frame-to-frame change outside
 //   freezes, so the freeze threshold can be read against the motion.
 // Needs ffmpeg and ffprobe on the PATH.

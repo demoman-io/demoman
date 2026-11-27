@@ -1,7 +1,6 @@
 // apps/runner/src/executor/closed-shadow.ts
 //
-// Whether a target a run could not find sits in a closed shadow root
-// (DEM-102). No run installs the resolver's shadow registry (the author's
+// Whether a target a run could not find sits in a closed shadow root. No run installs the resolver's shadow registry (the author's
 // decision, 2026-11-09: a known limitation for now), so such a target is
 // out of reach, and the run's stop says so only when the page shows it.
 // The page's own JS cannot see a closed root; the browser's DOM domain can.

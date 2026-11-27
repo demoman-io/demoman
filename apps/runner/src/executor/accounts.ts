@@ -24,7 +24,7 @@ export const ACCOUNTS_PATH = join(".demoman", "accounts.json");
 const SECRET_REF = /\{secret:([^}]*)\}/g;
 const SECRET_NAME = /^[A-Z0-9_]+$/;
 /** An account's `files`: the repo paths that make it (its seed, its
- *  dev-only sign-in route), which setup carries into CI (DEM-240). */
+ *  dev-only sign-in route), which setup carries into CI. */
 const ACCOUNT_FILES_MAX = 20;
 
 const StepSchema = z.discriminatedUnion("do", [
@@ -84,7 +84,7 @@ export interface Account {
   about: string;
   checkUrl: string;
   signIn: SignInStep[];
-  /** Repo paths from the repo's root (DEM-240). Not part of
+  /** Repo paths from the repo's root. Not part of
    *  accountDefinition: listing them keeps a saved session this account's. */
   files?: string[];
 }

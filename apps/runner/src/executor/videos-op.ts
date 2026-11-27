@@ -217,8 +217,7 @@ export async function matchesFor(
   const out: VideoSummary[] = [];
   const mine = await store.resolve(repo);
   // In a known repo, a flow of unknown repo counts only on the same site: it
-  // may be this repo's from before repos were tracked, or another app's
-  // (DEM-51, review of #35).
+  // may be this repo's from before repos were tracked, or another app's (review of #35).
   const site = originOf(startPage);
   const same = (v: VideoRecord) =>
     "key" in mine

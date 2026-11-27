@@ -72,7 +72,7 @@ export interface ExportDeps {
    *  `dist/studio/wallpapers`, the studio's `<pagesDir>/wallpapers`. */
   wallpapersDir: string;
   /** A folder the caller chose (`--out-dir`, a temporary one); absent: the
-   *  user's Export folder, read when the export starts (DEM-180). */
+   *  user's Export folder, read when the export starts. */
   outDir?: string;
   log: (line: string) => void;
   /** Tests only: sees the work page, so a case can close it mid-render. */
@@ -85,7 +85,7 @@ export interface ExportDeps {
   maxTier?: RenderTarget;
   /** The scene to render in place of the one on disk: the studio's queue
    *  read it when the export was queued, so an edit made while the job
-   *  waited does not reach it (DEM-100). */
+   *  waited does not reach it. */
   pinned?: PinnedScene;
 }
 
@@ -343,7 +343,7 @@ export async function exportTake(
     if (answer.outcome === "saved" && answer.fileType === "screens")
       return answer;
     // A settings file that would not read: the file went to ~/Downloads,
-    // and the answer says why it is not in a chosen folder (DEM-180).
+    // and the answer says why it is not in a chosen folder.
     const said =
       answer.outcome === "saved" && where.unread !== undefined
         ? withSummary({
@@ -866,7 +866,7 @@ async function exportLeased(a: {
       // wider than its target when it can.
       target: rendered.rendered,
       ...warnings,
-      // The run's own rule, read off the take (DEM-278).
+      // The run's own rule, read off the take.
       ...(stillsOnlyTake(bundle, scene) ? { stillsOnly: true as const } : {}),
       ...tagger.untagged,
       ...tagger.taggedWithoutCommit,

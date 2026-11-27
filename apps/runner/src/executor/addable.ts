@@ -75,7 +75,7 @@ export async function checkoutOf(
     why.push(`${root} is no longer this flow's repo`);
   }
   // The escape hatch: `demoman add` adds to the checkout it runs in.
-  // shortcut: POSIX single quotes, wrong for cmd.exe; upgrade with native Windows (DEM-85).
+  // shortcut: POSIX single quotes, wrong for cmd.exe; upgrade with native Windows.
   const name = `'${video.name.replaceAll("'", `'\\''`)}'`;
   const key = "key" in video.repo ? ` of ${video.repo.key}` : "";
   return {

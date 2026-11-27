@@ -50,7 +50,7 @@ export interface SecretsSource {
   status: "absent" | "ignored" | "notGit";
   values: Map<string, string>;
   /** Read, but other users can read it too: the sentence that says so and
-   *  names the chmod. Warned, not refused (DEM-104): an editor leaves a new
+   *  names the chmod. Warned, not refused: an editor leaves a new
    *  file 0644, so refusing would break nearly every setup. */
   exposed?: string;
 }
@@ -64,7 +64,7 @@ async function gitIgnores(
   dir: string,
   file: string,
 ): Promise<"ignored" | "notIgnored" | "notGit" | { failed: string }> {
-  // Through execGit, which carries the fsmonitor guard (DEM-90).
+  // Through execGit, which carries the fsmonitor guard.
   const r = await execGit(["check-ignore", "-q", "--", file], dir).catch(
     (error: unknown) => ({ failed: messageOf(error) }),
   );
