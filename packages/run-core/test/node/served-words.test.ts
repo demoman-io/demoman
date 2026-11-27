@@ -94,7 +94,7 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
       name: "Create an invoice",
       video: 3,
       created: false,
-      // DEM-108: the agent reads it here, so it must not be dropped.
+      // The agent reads it here, so it must not be dropped.
       otherRepo: "this flow belongs to X; this video was recorded from Y",
     });
     expect(out.stopped.reason).toBe("videoNotFound");
@@ -116,7 +116,7 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
     expect(input.provenance.takeId).toBe("scene-1-a");
   });
 
-  // Red when refresh's own evidence reaches an agent's answer (DEM-79).
+  // Red when refresh's own evidence reaches an agent's answer.
   it("the served report leaves out datesOnScreen", () => {
     const input = stored({ datesOnScreen: ["Dec 4, 2026"] });
     // Premise: the stored report carries it.
@@ -125,7 +125,7 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
     expect(input.datesOnScreen).toEqual(["Dec 4, 2026"]);
   });
 
-  // Red when a kept flow commits the machine's path again (DEM-227), or
+  // Red when a kept flow commits the machine's path again, or
   // when the agent's answer loses the still the MCP tool attaches.
   it("the committed report leaves out the still's path and the home folder; the served one keeps them", () => {
     const home = "/Users/someone";

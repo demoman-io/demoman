@@ -57,7 +57,7 @@ describe("schema 13: masks in the frames' own time (audit run 1)", () => {
   });
 });
 
-describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
+describe("a pre-0.7.3 mask the author's edits may have moved", () => {
   type Doc = ReturnType<typeof v12>;
   const timeOf = (doc: Doc, id: string) =>
     (doc.actions as { id: string; timestamp: number }[]).find(
@@ -118,7 +118,7 @@ describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
     );
   });
 
-  // Red: note on any edit anywhere (review of DEM-115) — the removed piece
+  // Red: note on any edit anywhere (review of the migration) — the removed piece
   // below lies outside both of the mask's stretches.
   it("says nothing when no edit lies between a step and its edge, or no mask is ranged", () => {
     const notes: string[] = [];
@@ -145,7 +145,7 @@ describe("a pre-0.7.3 mask the author's edits may have moved (DEM-115)", () => {
     expect(notes).toEqual([]);
   });
 
-  // Review of DEM-115. Red: count a stretch that only meets the step or the
+  // Review of the migration. Red: count a stretch that only meets the step or the
   // edge (closed intervals) — every v12 take whose cut ends at the mask's
   // step, as `cutsToRemoved` always ends one, gets a note.
   it("says nothing for a cut or gap that only meets a mask's step or edge", () => {

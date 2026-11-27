@@ -719,8 +719,7 @@ function authoredRegions(
  * (`approachSourceTimeMs`): from the step before's act end (its marker when
  * it has none, source 0 for the opening) to there plays `restMs`, from there
  * to the step `arriveMs`, counted from where the cursor's travel began: idle
- * between the approach and that is the machine's latency, and plays for 0
- * (DEM-273). A step whose approach scrolled
+ * between the approach and that is the machine's latency, and plays for 0. A step whose approach scrolled
  * (`scrollEndSourceTimeMs` with the beat's `afterScrollMs`) has a third: the
  * rest ends where the scroll did, and from there to the approach plays
  * `afterScrollMs`, the camera's room after the page moved. The idle after
@@ -866,7 +865,7 @@ function plannedIdleOf(
         : share(scrollEnd, approach, pace.afterScrollMs);
     // The arrive counts from where the cursor set off: idle before that is
     // the machine's latency in starting the journey, which the plan does
-    // not have, and plays for 0 (DEM-273: 186 ms of it took 186 of a
+    // not have, and plays for 0 (186 ms of it took 186 of a
     // planned 300 on CI's macOS). With no travel there, travel already
     // under way at the approach, or a set-off inside a removed stretch, or
     // an arrive that cannot be placed from it, it counts from the approach

@@ -81,7 +81,7 @@ describe(".demoman/app.json", () => {
   });
 
   // Red when a hand-written file without env, secrets or services is
-  // refused, and when a refusal's detail does not name its field (DEM-48).
+  // refused, and when a refusal's detail does not name its field.
   it("env, secrets and services default to empty", () => {
     const r = parseApp(
       JSON.stringify({
@@ -105,7 +105,7 @@ describe(".demoman/app.json", () => {
   });
 
   // Red when app.json cannot name a reset command, or writes one it was not
-  // given (DEM-57).
+  // given.
   it("round-trips an optional reset after start, and writes none when absent", () => {
     const withReset = serializeApp({ ...FULL, reset: "pnpm reset" });
     expect(Object.keys(JSON.parse(withReset))).toEqual([
@@ -124,7 +124,7 @@ describe(".demoman/app.json", () => {
     expect(serializeApp(FULL)).not.toContain("reset");
   });
 
-  // Red when app.json cannot pin now, or writes one it was not given (DEM-79).
+  // Red when app.json cannot pin now, or writes one it was not given.
   it("parses now and serializes it after reset", () => {
     const now = "2026-11-06T09:00:00Z";
     const keys = (a: AppSpec) => Object.keys(JSON.parse(serializeApp(a)));

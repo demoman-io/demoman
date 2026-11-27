@@ -139,7 +139,7 @@ export type FilmedCode =
       tree: string;
       dirty: boolean;
       /** Filters the folder's own git config names, which the tree was
-       *  read without (DEM-113); absent when there were none. */
+       *  read without; absent when there were none. */
       unfiltered?: string[];
     }
   | { none: string };
@@ -227,8 +227,8 @@ export interface RunReport {
       label: string;
       /** The script step the run stopped on (1-based, pauses counted), from
        *  the same record `label` names; null when no script step can be
-       *  named (a re-shoot, or no step attempted). DEM-61. Absent in a
-       *  report.json written before DEM-61. */
+       *  named (a re-shoot, or no step attempted). Absent in a
+       *  report.json written before the script step was recorded. */
       scriptStep?: number | null;
       /** The script's step count; null when the run had no script. */
       scriptSteps?: number | null;
@@ -288,7 +288,7 @@ export interface RunReport {
     name: string;
     version?: number;
     created: boolean;
-    /** Present when the run's checkout is not the flow's repo (DEM-108):
+    /** Present when the run's checkout is not the flow's repo:
      *  "this flow belongs to X; this video was recorded from Y". */
     otherRepo?: string;
   };
@@ -308,9 +308,9 @@ export interface RunReport {
   landing?: { startedElsewhere: string } | { unchecked: string };
   /** Up to 3 date-looking strings on the run's last screen; absent when it
    *  showed none or could not be read. Refresh's evidence for saying a
-   *  replaced video's dates may be why (DEM-79); never served to agents. */
+   *  replaced video's dates may be why; never served to agents. */
   datesOnScreen?: string[];
-  /** The instant the run's page clock was pinned to (DEM-79). Set when the
+  /** The instant the run's page clock was pinned to. Set when the
    *  run was given one: prepareStage stops a run whose pin cannot be
    *  installed, so a report that has it was pinned. Refresh confirms the pin
    *  reached its run from this, and writes the receipt's pinnedNow from it. */
@@ -371,14 +371,14 @@ export interface RunReport {
     unplacedBeats?: { step: string; note: string }[];
     /**
      * Screencast frames of the window's unscaled surface that were refused
-     * rather than filmed (a `surfaceMismatch` in `degradations`, DEM-280):
+     * rather than filmed (a `surfaceMismatch` in `degradations`):
      * how many, and when each was painted, in ms from the run's start.
      * Absent when there were none.
      */
     surfaceCrops?: { refused: number; atMs: number[] };
   };
   /**
-   * Every JavaScript dialog the run answered, in order (DEM-161). `step` is
+   * Every JavaScript dialog the run answered, in order. `step` is
    * the script step it opened during (1-based), null for one that opened with
    * no click, type or press armed (a load, a drag), which the video does not
    * draw (`drawn` false). Absent when no dialog opened.
@@ -881,7 +881,7 @@ function buildStopped(
   const lastAttempted = steps.at(-1) ?? null;
   // The script step, from the record the label names: the document's
   // failing action's own record where the label is the document's, else the
-  // last attempted. One numbering with the label (DEM-61).
+  // last attempted. One numbering with the label.
   const failing =
     step === null || scene === null
       ? lastAttempted
@@ -908,7 +908,7 @@ function buildStopped(
       scriptStep: failing === null ? null : failing.index + 1,
       scriptSteps: "steps" in script ? script.steps : null,
       // The record `scriptStep` reads: so the label and the number name one
-      // step even when no video was assembled (DEM-61 review).
+      // step even when no video was assembled.
       label: step
         ? `${step.kind} ${step.label}`
         : lastAttempted !== null
@@ -1195,11 +1195,11 @@ export function prVerdict(report: RunReport): {
 }
 
 /**
- * Where a run stopped, in one numbering with its label (DEM-61): the
+ * Where a run stopped, in one numbering with its label: the
  * script's own step, pauses counted, when one can be named. Otherwise the
  * count the run measured, "after" it, as before: a re-shoot has no script,
  * a run that attempted nothing has no step to name, and a report written
- * before DEM-61 has no script step.
+ * before the script step was recorded has none.
  */
 export function stoppedWhere(at: {
   index?: number;
@@ -1207,7 +1207,7 @@ export function stoppedWhere(at: {
   scriptStep?: number | null;
   scriptSteps?: number | null;
 }): string {
-  // Loose: a report.json written before DEM-61 has no script step, and the
+  // Loose: a report.json written before the script step was recorded has none, and the
   // compare harness reads an answer whose fields are all optional.
   return at.scriptStep != null && at.scriptSteps != null
     ? `at script step ${at.scriptStep} of ${at.scriptSteps}`
@@ -1315,7 +1315,7 @@ function recordingClause(report: RunReport): string {
   return " Recorded in real time: the repo's 60 fps applies only on a held clock.";
 }
 
-/** DEM-108: the run joined a flow from a checkout of another repo. */
+/** The run joined a flow from a checkout of another repo. */
 function otherRepoClause(report: RunReport): string {
   const said = report.videoVersion?.otherRepo;
   return said === undefined ? "" : ` Note: ${said}.`;
@@ -1340,10 +1340,10 @@ export const STILLS_ONLY =
  * Whether a run's video is its stills only: it recorded no motion span
  * though a step acted, in real time. There it cannot tell a page that did
  * not move from a screencast that got no frames (a locked screen, a
- * sleeping display, a hidden window or a busy machine: DEM-55, DEM-278), so
- * the sentence names both; DEM-279 would tell them apart. A held run takes every frame on its clock, and a frame
+ * sleeping display, a hidden window or a busy machine), so
+ * the sentence names both; watching the screencast go silent would tell them apart. A held run takes every frame on its clock, and a frame
  * it cannot take or encode stops the run or is said, so no spans there is a
- * page that did not move (DEM-238). A run that names no clock stopped before
+ * page that did not move. A run that names no clock stopped before
  * its stage was prepared (`run.recording`): it recorded nothing, and its
  * outcome says why. The one rule the run's summary and refresh's verdict
  * read; `stillsOnlyTake` is the same rule on a take, for export.
@@ -1400,7 +1400,7 @@ function framesClause(report: RunReport): string {
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
   }
-  // DEM-278: a visible window with its screen locked recorded no motion and
+  // A visible window with its screen locked recorded no motion and
   // read "Complete: the video matches every step".
   if (stillsOnly(report)) {
     said.push(
@@ -1507,7 +1507,7 @@ function runOutcomeLine(report: RunReport): string {
   if (report.outcome === "stopped") {
     const at = report.stopped?.at;
     // "at script step N of M" where the record `at.label` names has a
-    // script step (DEM-61), so the number and the label name one step.
+    // script step, so the number and the label name one step.
     // Otherwise "after step N of M": `at.index` is `walk.completed`, a count
     // of steps that SUCCEEDED, and printing `at.index + 1` as "at" would
     // claim step 1 was attempted on a run that never opened a stage.

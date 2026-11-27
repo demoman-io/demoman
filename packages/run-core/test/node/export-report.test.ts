@@ -257,7 +257,7 @@ describe("exportVerdict, the size of an MP4", () => {
     expect(exportVerdict(saved())).toBe("Saved /x.mp4 (1920×1080, 60 fps).");
   });
 
-  // DEM-278: a locked screen's take exported as "Saved", 13.5 MB of stills,
+  // A locked screen's take exported as "Saved", 13.5 MB of stills,
   // and nothing said it had no motion. Red if `warnings.stillsOnly` does not
   // reach the sentence, or says it when unset.
   it("says a stills-only take's video is its stills only", () => {
@@ -273,7 +273,7 @@ describe("exportVerdict, the size of an MP4", () => {
   });
 });
 
-// DEM-278: what export sets `warnings.stillsOnly` from, the run's rule on a
+// What export sets `warnings.stillsOnly` from, the run's rule on a
 // take. Red if a real-time take that acted and kept no motion is not judged
 // stills only, or if a held take, one with motion, one with no step, or a
 // sampled replay (not real time) is.

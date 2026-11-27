@@ -62,7 +62,7 @@ function departs(keys: CameraKey[], i: number): number {
  * - The target is the pointer, moved by `legal` to where the window can
  *   stand at the zoom of that instant: a spring chasing a point out of reach
  *   (a toolbar at the page's edge) was stopped dead against the edge by the
- *   render clamp, at full speed, and let go at full speed (DEM-211). Aimed
+ *   render clamp, at full speed, and let go at full speed. Aimed
  *   in reach, it eases into the edge. It is the aim in force instead (the
  *   latest key whose move has set off) when `cursorAt` is null (follow off, or no pointer
  *   is drawn), when it answers null, and while a drag's button is held:
@@ -125,7 +125,7 @@ export function solveFollow(args: {
     // Leaving the rest, the aim is a lead that moves with the hand and closes
     // on it by no more than the hand's own step: it may wait, never move
     // against the hand. Aimed at the hand at once, the camera went down to
-    // the drop as the hand went up from it (DEM-211, Excalidraw). While the
+    // the drop as the hand went up from it (Excalidraw). While the
     // hand is still, the lead closes on it at the follow's own rate, unless
     // that would go against where the hand moves next: a pause on the way
     // is waited out, not lurched toward (review of PR #86).
@@ -146,7 +146,7 @@ export function solveFollow(args: {
     // off between now and that press. Its frame was fitted to the drag's
     // ends, the grab among them, so the hand on its way there is not chased:
     // chasing it to the card swung the camera there and back at the press,
-    // a bounce before the drag began (DEM-254, the Sublime board).
+    // a bounce before the drag began (the Sublime board).
     // A pan to that aim that sets off mid-stretch is eased from where the
     // camera stood when it set off, at the keys' own pace, and the press
     // keeps the same target until the pan lands. Three cheaper aims each
@@ -351,7 +351,7 @@ export function sampleTrack(
  */
 /** Where the camera can stand at a scale: the canvas clamp every reader
  *  draws with. The follow is solved with this same clamp so it aims in
- *  reach (DEM-211): one definition, or the aim and the drawing drift apart. */
+ *  reach: one definition, or the aim and the drawing drift apart. */
 export function legalFor(
   base: number,
   frameRect: Rect,

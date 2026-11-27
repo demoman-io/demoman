@@ -256,7 +256,7 @@ describe("the receipt", () => {
     expect(refusal(withChange({ scriptDigest: "" }))).toContain("scriptDigest");
   });
 
-  // Red when a receipt cannot say which instant its video was pinned to (DEM-79).
+  // Red when a receipt cannot say which instant its video was pinned to.
   it("round-trips pinnedNow", () => {
     const pinned: KeptReceipt = {
       ...receipt,

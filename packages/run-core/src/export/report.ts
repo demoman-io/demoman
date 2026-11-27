@@ -208,7 +208,7 @@ export interface ExportWarnings {
    *  summary says so. Absent: this door does not count them. */
   masks?: number;
   /** The take recorded no motion though a step acted, in real time
-   *  (`stillsOnly`, DEM-278): the video is its stills only. Absent: it has
+   *  (`stillsOnly`): the video is its stills only. Absent: it has
    *  motion, was held, or this door does not say. */
   stillsOnly?: true;
   /** The video the take is a version of, which an edited take's summary
@@ -232,7 +232,7 @@ export interface ExportWarnings {
    *  it is listed (or this door keeps no such list). */
   notListed?: { error: string };
   /** The settings file would not read, so the file went to ~/Downloads, not
-   *  a chosen Export folder (DEM-180): why. */
+   *  a chosen Export folder: why. */
   exportFolderUnread?: string;
   /** The file was saved but could not be tagged with its video and version
    *  (or the take's video could not be read): why. Absent: it is tagged, or
@@ -827,7 +827,7 @@ export function exportCaveats(
       : [
           `it is ${videoSize.quality} quality, not your Export quality setting, which could not be read (${videoSize.settingUnreadable.replace(/\.$/, "")})`,
         ]),
-    // DEM-278: a stills-only take exported as if it moved, unsaid.
+    // A stills-only take exported as if it moved, unsaid.
     ...(report.warnings.stillsOnly === true
       ? [
           `${STILLS_ONLY} (recorded in real time: either the page did not move, or the screen sent no frames, as a locked screen, a sleeping display or a hidden window)`,

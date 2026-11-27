@@ -158,14 +158,13 @@ describe("planned idle", () => {
     expectWellFormed(b);
   });
 
-  // DEM-273: on a slow machine the journey's first motion comes after the
+  // On a slow machine the journey's first motion comes after the
   // approach marker (186 ms on CI's macOS), and that latency took a share of
   // the arrive: 300 planned, 114 filmed after the cursor landed. Red if the
   // arrive is shared from the approach marker rather than from the motion.
   // Where the cursor set off is read from its own travel (`cursorSamples`,
   // as the render reads it), not from any motion: page motion inside the
-  // latency (a spinner from the step before) is not the journey (review of
-  // DEM-273).
+  // latency (a spinner from the step before) is not the journey.
   it.each([
     ["", []],
     [", with page motion inside the latency", [[80, 150]]],

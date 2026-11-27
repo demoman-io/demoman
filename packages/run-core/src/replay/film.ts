@@ -48,8 +48,7 @@ export interface FilmStep {
     rect: Rect;
     /** What the shot showed at the step's press. */
     visible: Rect;
-    /** A drag's end, framed on its own against the shot at its release
-     *  (DEM-65), or at its press when none was recorded; `label` is the
+    /** A drag's end, framed on its own against the shot at its release, or at its press when none was recorded; `label` is the
      *  worse of the two. */
     end?: { label: Framing; rect: Rect };
   } | null;
@@ -421,7 +420,7 @@ export function filmQuality(
     scene.branding.padding,
   );
   // The follow as it is drawn on that frame, aimed in reach as the export's
-  // is (DEM-211): the camera measured is the camera in the video.
+  // is: the camera measured is the camera in the video.
   const track: CameraTrack = {
     ...resolved,
     cameraFollow: followInReach(
@@ -486,7 +485,7 @@ export function filmQuality(
       points === null ? endAt.get(action.id) : pointRect(points.end);
     const label = framingOf(startRect, visible, shot);
     // A drag lets go later than it presses, and the camera may have followed
-    // the hand there (DEM-65): its end is framed where the shot was at the
+    // the hand there: its end is framed where the shot was at the
     // release, when the take recorded one; else at the press, as before.
     const releaseMs = releaseAt.get(action.id);
     const atRelease =

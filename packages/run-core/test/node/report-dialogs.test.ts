@@ -12,7 +12,7 @@ import {
   type WalkResultLike,
 } from "../../src/replay/report.js";
 
-// DEM-161: the report lists every dialog the walk answered, each with the
+// The report lists every dialog the walk answered, each with the
 // script step it opened during, and the verdict says how many.
 
 const step = (i: number): AuthoredStep => ({

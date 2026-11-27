@@ -28,7 +28,7 @@ describe("FrameBundle.clock", () => {
     expect(isHeld(b)).toBe(true);
   });
 
-  // DEM-265: the take's frame length, kept; absent on an older take.
+  // The take's frame length, kept; absent on an older take.
   it("keeps a held bundle's frame length, and refuses one of 0 ms or less", () => {
     const at = (heldFrameMs: number) =>
       validateBundle({ ...realBundle(), clock: "held", heldFrameMs });

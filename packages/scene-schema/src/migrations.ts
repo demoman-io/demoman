@@ -276,7 +276,7 @@ const steps: Record<number, MigrationStep> = {
   // The output offset is taken as the source one: exact for a mask with no
   // cut, gap or hold between its step and its edge. Every mask is
   // converted so; where there is one, the edge may have moved, and that is
-  // said (DEM-115, `maskMayHaveMoved`).
+  // said (`maskMayHaveMoved`).
   12: (doc, notes) => {
     const edits = doc.edits;
     if (edits === null || typeof edits !== "object") {
@@ -459,7 +459,7 @@ export function migrateHoldsToGaps(doc: SceneDocument): SceneDocument {
 
 /**
  * Whether a v12 mask has an edge whose output offset an authored edit
- * retimes (DEM-115): a gap, hold or removed piece inside the stretch
+ * retimes: a gap, hold or removed piece inside the stretch
  * between the edge's step and the edge, on the actions' own timestamps. An
  * edge or edit that names no known step counts as moved: said, not guessed.
  */
@@ -533,7 +533,7 @@ function maskMayHaveMoved(
 /**
  * `notes` collects a sentence for each thing a step took away that the
  * author made (spec split-tool: text overlays), or may have moved (a
- * pre-0.7.3 mask, DEM-115); the caller shows them.
+ * pre-0.7.3 mask); the caller shows them.
  */
 export function migrateToCurrent(
   raw: unknown,

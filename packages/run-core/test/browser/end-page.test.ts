@@ -31,7 +31,7 @@ describe("readEndPage", () => {
       <select aria-label="Card expiry month" autocomplete="cc-exp-month"><option selected>04</option></select>
     `;
     const end = await readEndPage(env());
-    // Scrubbed for `report.json` (DEM-130). Premise: vitest's own page
+    // Scrubbed for `report.json`. Premise: vitest's own page
     // carries a query, so the scrub has values to replace.
     expect(new URL(location.href).searchParams.get("sessionId")).toBeTruthy();
     const page = new URL(location.href);

@@ -1,5 +1,5 @@
 /**
- * A JavaScript dialog in the video (DEM-161). The walk answers the dialog at
+ * A JavaScript dialog in the video. The walk answers the dialog at
  * once and records `DIALOG_BEAT_MS` on the action as the card's hold, so the
  * render reads the beat rather than deciding it again.
  */

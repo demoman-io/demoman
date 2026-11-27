@@ -231,7 +231,7 @@ describe("frameTrack near the canvas edge", () => {
   });
 });
 
-// DEM-211 (Excalidraw, 2026-11-18): the spring chased a pointer the zoomed
+// Excalidraw, 2026-11-18: the spring chased a pointer the zoomed
 // window could not reach (a toolbar at the page's edge), and the render
 // clamp stopped it dead at the wall at full speed, then let it go at full
 // speed. Aimed at where the window can stand, it eases into the edge.

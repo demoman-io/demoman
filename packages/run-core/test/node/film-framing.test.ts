@@ -792,7 +792,7 @@ describe("filmQuality: a quick run of clicks, the camera trailing", () => {
     return { film, end, zoomed, bundle };
   }
 
-  // DEM-65 (Sublime, 2026-11-06): a drag's end was framed against the shot
+  // Sublime, 2026-11-06: a drag's end was framed against the shot
   // at its press, so a drop the camera followed to read outOfFrame.
   it("a drag's end is framed where the camera was at its release", () => {
     const { film, end } = dragUnderFollow({ x: 500, y: 300 });

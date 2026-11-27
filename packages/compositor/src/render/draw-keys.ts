@@ -1,5 +1,5 @@
 /**
- * The key and click marks (DEM-154/155), drawn from the mockup's `.pill`,
+ * The key and click marks, drawn from the mockup's `.pill`,
  * `.k`, `.tag` and `.mouse` rules
  * (`docs/superpowers/specs/assets/2026-11-21-inputs/index.html`, option K1).
  *

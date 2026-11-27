@@ -261,7 +261,7 @@ describe("a zoomed click paced as a return just short of one", () => {
   });
 });
 
-// DEM-187 (ruled 2026-11-20: known waits go on the designed clock). A wait
+// (ruled 2026-11-20: known waits go on the designed clock). A wait
 // step, or a load, between two zoomed clicks takes the page's time, which
 // the designed clock does not count: without this the second click panned
 // from the first's zoom across a long load. Red if the walk stops reading

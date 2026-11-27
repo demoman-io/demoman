@@ -63,7 +63,7 @@ function coverWindow(
 
 /**
  * The pointer-follow for `keys`, solved with the canvas clamp the frame is
- * drawn with (`legalFor`), so it aims where the camera can stand (DEM-211).
+ * drawn with (`legalFor`), so it aims where the camera can stand.
  * `composeForTarget` and the film check (`filmForRun`) both read it: the
  * camera they measure is the camera that is drawn.
  */

@@ -344,7 +344,7 @@ export function drawBackground(
   if (m.a === 1 && m.d === 1 && m.b === 0 && m.c === 0) {
     // Unzoomed, most frames: the image is decoded for the deepest zoom
     // (`wallpaperRasterSize`), and shrinking it at "high" every frame was
-    // 18% of a CPU-drawn export (DEM-45). The same shrink, done once, is
+    // 18% of a CPU-drawn export. The same shrink, done once, is
     // within a level of it, so BACKGROUND_PAINT_VERSION stays.
     ctx.drawImage(unzoomedCopy(image, target), 0, 0);
     return;

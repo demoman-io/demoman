@@ -229,8 +229,7 @@ export type PlannedPace = AuthoredPace | RecordedPace | PlannedBeat;
  * for `restMs` in all, or up to its approach scroll's end when the step
  * scrolled and the rest after it for `afterScrollMs`; the idle from where
  * the cursor's travel began to the step plays for `arriveMs`, and any idle
- * between the approach and that travel (the machine's latency) for 0
- * (DEM-273). Idle inside the previous act
+ * between the approach and that travel (the machine's latency) for 0. Idle inside the previous act
  * plays for 0, and motion at rate 1.0 throughout (`plannedIdleOf`).
  *
  * `afterActionId` is `null` for the opening beat, which runs from source 0.

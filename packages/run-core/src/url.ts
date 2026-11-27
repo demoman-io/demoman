@@ -22,7 +22,7 @@ function charClass(c: string): string | null {
 
 /**
  * A random token: `-` and `_` break the runs `scrubSecrets` sweeps for, so a
- * base64url reset or invite token passes it whole (DEM-130). Told from a
+ * base64url reset or invite token passes it whole. Told from a
  * slug by how often it switches between lower case, upper case and digits:
  * random base64url switches on about 2 characters in 3 and hex on about 1
  * in 2, while `2024_United_States_presidential_election` switches 4 times
@@ -75,7 +75,7 @@ export function scrubUrl(raw: string): string {
  * Which page an address names, for telling one page from another in memory
  * (`IntentCapture.here`); never written anywhere. The path stays raw: two
  * records on one route (`/orders/<id1>`, `/orders/<id2>`) scrub alike, and a
- * run that moved between them must still see the move (DEM-143). The query's
+ * run that moved between them must still see the move. The query's
  * values are replaced as `scrubUrl` does, so `?q=a` and `?q=b` stay one page,
  * as they always have been.
  */
