@@ -368,7 +368,7 @@ export function realSetupDeps(
     isRoot: process.getuid?.() === 0,
     version,
     run: (command, args) => {
-      // DEM-109: spawnSync blocks the event loop, so no spinner can turn;
+      // Plain spawnSync blocks the event loop, so no spinner can turn;
       // in a terminal this line says what setup waits on until it returns.
       if (!io.stdoutTTY) return runCaptured(command, args);
       process.stdout.write(

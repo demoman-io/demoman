@@ -127,7 +127,7 @@ const ONE_DIGIT = ORIGINAL.replace(
   AMOUNT,
   "(1200 + i * 317 + (i === 0 ? 7 : 0))",
 );
-/** DEM-138's case: a line of 12px grey text, in a box of fixed width so its
+/** A line of 12px grey text, in a box of fixed width so its
  *  glyph advances move nothing else, and the same line with 4 characters
  *  changed (14:11 to 05:00 is 4 digits). */
 const LOCAL_TIME = (t: string) =>
@@ -152,7 +152,7 @@ const withExtra = (css: string, body: string, js = "") =>
   `${ORIGINAL.replace("</style>", `${css}\n</style>`).replace("</main>", `${body}</main>`)}${js === "" ? "" : `<script>${js}</script>`}`;
 /** The foot of the page: 32px high, 20px above the bottom of 1280x800. */
 const FOOT = "position: fixed; bottom: 20px; height: 32px;";
-/** DEM-139's field: `#search` focused, its caret drawn in one video and not
+/** A field: `#search` focused, its caret drawn in one video and not
  *  in the other, as two captures a blink apart would show it. Headless
  *  Chromium draws the caret in the same phase in every recording (measured
  *  2026-11-10, replay-settled-screens.test.ts), so the phase is forced. */
@@ -212,7 +212,7 @@ const STREAM = withExtra(
     }
   };`,
 );
-/** DEM-176: a click that loads the code for what it shows, as a route
+/** A click that loads the code for what it shows, as a route
  *  change in a dev server does, held `LAZY_MS` (longer than the beat). The
  *  module writes the line itself; until it arrives the page does not move,
  *  so only the script request in flight says the step is not done. */
@@ -274,7 +274,7 @@ const NEVER_AFTER_CLICK = withExtra(
   TICKS,
   `document.getElementById("checkout-btn").addEventListener("click", () => { ${TICK} });`,
 );
-/** The page an app that shows dates relative to its "now" serves (DEM-79):
+/** The page an app that shows dates relative to its "now" serves:
  *  a due date the server renders, and an age the page works out from a
  *  server timestamp against its own clock. `serverNow` is what the app
  *  takes as now: the real clock, or DEMOMAN_NOW when pinned. */
@@ -497,7 +497,7 @@ const filmed: { name: string; display: string; scale: number | null }[] = [];
 const gaps: {
   name: string;
   /** Whether it filmed the slow page (`SLOW`): a retry's runs and the
-   *  ones before it are told apart by this, not by their order (DEM-197). */
+   *  ones before it are told apart by this, not by their order. */
   slow: boolean;
   gaps: number[];
   /** Milliseconds from the first click to when the page stopped moving, or
@@ -951,7 +951,7 @@ export const firstFilm = () => {
         (await bytes("docs/order-report.json")).toString(),
       );
       expect(report.outcome).toBe("complete");
-      // DEM-227: the run's still is a path on this machine, which neither
+      // The run's still is a path on this machine, which neither
       // the committed file nor the published list carries. (A still that
       // could not be made stays, as `{ unavailable }`; run-core's
       // served-words test pins both forms.)
@@ -987,7 +987,7 @@ export const unchangedThenSlower = () => {
     "leaves an unchanged picture byte for byte as it was",
     async () => {
       const before = await Promise.all(Object.values(out).map(bytes));
-      // A's committed report as an earlier demoman wrote it (DEM-227).
+      // A's committed report as an earlier demoman wrote it.
       const reportAt = join(repo, "docs/order-report.json");
       const committed = await readFile(reportAt, "utf8");
       await writeFile(
@@ -1255,12 +1255,12 @@ async function firstScreenOf(page: string) {
   };
 }
 
-/** DEM-138: 4 characters of 12px grey text, in the app's own page. */
+/** 4 characters of 12px grey text, in the app's own page. */
 export const smallGreyText = () => {
-  // DEM-138: read "unchanged" while refresh compared 1280-wide drawn
+  // Read "unchanged" while refresh compared 1280-wide drawn
   // screens; the page at CSS 1x sees it (spec 2026-11-10).
   it(
-    "a small grey text change reads changed (DEM-138)",
+    "a small grey text change reads changed",
     async () => {
       await leavingRepo(async () => {
         // The premise: the two pages differ only in the digits of one span.
@@ -1658,16 +1658,16 @@ export const replaceChain = () => {
       );
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("failed");
-      // The script's own step, as its label says (DEM-61).
+      // The script's own step, as its label says.
       expect(b.detail).toMatch(/^Stopped at script step \d+ of \d+: /);
       expect(b.outputs).toEqual([]);
       expect(b.line).toBeNull();
       expect((await bytes(out.bMp4)).equals(before)).toBe(true);
       // The nav lost a link, so the other video's picture changed too.
       expect(byName(r, A).outcome).toBe("changed");
-      // DEM-146: a target gone is the script's to fix, and says how.
+      // A target gone is the script's to fix, and says how.
       expect(b.fix).toBe(rerecordFix(B, b.file));
-      // DEM-147: the stopped run's report and last still outlive the
+      // The stopped run's report and last still outlive the
       // throwaway library; the video that refreshed kept nothing.
       const at = join(failures, basename(b.file, ".json"));
       expect(b.evidence, JSON.stringify(b)).toEqual({
@@ -1681,7 +1681,7 @@ export const replaceChain = () => {
       );
       expect(report.outcome).toBe("stopped");
       expect(report.summary).toBe(b.detail);
-      // As a repo would commit it: no path on this machine (DEM-227).
+      // As a repo would commit it: no path on this machine.
       expect(report.still).toBeUndefined();
       // The still is the picture the run ended on, not an empty file.
       const still = pngSize(await readFile(join(at, "final-still.png")));
@@ -1741,7 +1741,7 @@ export const replaceChain = () => {
   );
 
   it(
-    "records a degraded run once more, then delivers it with a note (DEM-55)",
+    "records a degraded run once more, then delivers it with a note",
     async () => {
       html = ORIGINAL;
       let clean: RunVerdict | undefined;
@@ -1775,7 +1775,7 @@ export const replaceChain = () => {
   );
 
   it(
-    "runs the app's reset before each flow, and a failed reset fails only its flow (DEM-57)",
+    "runs the app's reset before each flow, and a failed reset fails only its flow",
     async () => {
       html = ORIGINAL;
       const events: string[] = [];
@@ -2186,7 +2186,7 @@ export const clickGuard = () => {
   });
 };
 
-/** An app that shows dates relative to now, recorded a day apart (DEM-79):
+/** An app that shows dates relative to now, recorded a day apart:
  *  unpinned it reads changed and says why; pinned it reads unchanged, and a
  *  real change beside the dates still reads changed. */
 export const pinnedDates = () => {
@@ -2419,11 +2419,11 @@ async function recordOn(video: KeptVideo, pages: string[]): Promise<Video[]> {
 }
 const finalScreen = (v: Video) => readFile(join(v.dir, screenImageName(null)));
 
-/** DEM-139: a focused field's blinking caret. Red without the caret style
+/** A focused field's blinking caret. Red without the caret style
  *  (PAGE_CAPTURE_HOLD): the final screen differs at the caret. */
 export const caret = () => {
   it(
-    "a focused field with a blinking caret reads unchanged (DEM-139)",
+    "a focused field with a blinking caret reads unchanged",
     async () => {
       // The premise: a capture without the caret style differs between the
       // two pages, and only inside the field (the caret). A work page's
@@ -2505,7 +2505,7 @@ export const hover = () => {
   );
 };
 
-/** DEM-73's fixture: a spinner that never stops, on every screen, half a
+/** A spinner that never stops, on every screen, half a
  *  turn apart in the two videos. Red without the hold at the start: the
  *  spinner's angle differs. */
 export const spinner = () => {
@@ -2625,12 +2625,12 @@ export const stream = () => {
   );
 };
 
-/** DEM-176: a click whose result waits on a lazily loaded module. Red while
+/** A click whose result waits on a lazily loaded module. Red while
  *  only fetch and XHR count as in flight: the screen is taken before the
  *  module arrives, with the panel still empty. */
 export const lazyModule = () => {
   it(
-    "the screen after a click that loads code is the page the code drew, unchanged (DEM-176)",
+    "the screen after a click that loads code is the page the code drew, unchanged",
     async () => {
       // The premise: the module is held longer than the beat.
       expect(LAZY_MS).toBeGreaterThan(STEP_QUIET_MS);

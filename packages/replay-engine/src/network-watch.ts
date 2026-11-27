@@ -23,7 +23,7 @@ export interface NetworkWatch {
     realMs: number,
     pageMs?: number,
   ): { from: number; page?: number; labels: string[] } | null;
-  /** Whether the top frame's document request is open (DEM-203). */
+  /** Whether the top frame's document request is open. */
   loading(): boolean;
   /** The connections counted now are ones the recording followed: data on
    *  one of them later is an answer the script once waited on. */
@@ -33,8 +33,7 @@ export interface NetworkWatch {
   followedDataAt(): number | null;
   /** The wait's window for every answer above until the next call: only
    *  requests opened at or after `since` on the page's clock count (null:
-   *  every one). A request older than the wait is not followed by it
-   *  (DEM-204, DEM-202). */
+   *  every one). A request older than the wait is not followed by it. */
   window(since: number | null): void;
   /** When data last arrived on a connection the recording followed while it
    *  was outside the window; null when none has. */
@@ -68,7 +67,7 @@ const pathOf = (url: unknown): string => {
 /** What is never the page waiting on its server: a subscription (what
  *  arrives on it is pushed, and it stays open) and media (a video's download
  *  runs as long as it plays). Everything else the top frame asks for is
- *  (DEM-202, the author's ruling of 2026-11-17). */
+ *  (the author's ruling of 2026-11-17). */
 const NEVER = new Set(["WebSocket", "EventSource", "Media"]);
 const POLL_MS = 25;
 
@@ -77,7 +76,7 @@ export interface NetworkWatchClocks {
   /** The page's clock (`clock.now()` ms). Default: `realNow`. */
   pageNow?: () => number;
   /** A Fetch's or XHR's `wallTime` (ms) on the page's clock: held only,
-   *  where the page stamps them on its held clock (DEM-206). */
+   *  where the page stamps them on its held clock. */
   pageOfWall?: (wallMs: number) => number;
   /** Scrubs a request's address before it names the request: labels reach
    *  the run report (`@demoman/run-core`'s `scrubUrl`). Default: kept. */
@@ -111,7 +110,7 @@ export async function createNetworkWatch(
   /** The live connections that count: those in the window. */
   const counted = () => [...live].filter(([, c]) => c.page >= since);
   /** Dropped for silence, kept whole: one that resumes is the request it
-   *  was, opened when it first did (review of DEM-202, finding 1). */
+   *  was, opened when it first did. */
   const idle = new Map<string, Entry>();
   let quietAt: number | null = null;
   /** Every wait, in order: when it began, when it was heard of, and the
@@ -166,7 +165,7 @@ export async function createNetworkWatch(
   // time under a pin 10 h ago, a document within 2 ms; CI run 3 recorded a
   // 10.5 h stretch from it). A fetch's or XHR's page time is kept: it says
   // where the page stood when it sent the request, whichever side of a look
-  // its word lands (DEM-206; both within 0.01 ms of the held time, measured
+  // its word lands (both within 0.01 ms of the held time, measured
   // 2026-11-17). Only those two: a request the browser makes itself (a
   // preflight) may be stamped in real time, unmeasured.
   // A request's window is placed on the page's clock the same way: its
@@ -242,15 +241,14 @@ export async function createNetworkWatch(
     cdp.on("Network.requestWillBeSent", (p) => {
       // An EventSource or a websocket was measured (2026-11-16,
       // compare/held-push.sh): counted, one that sent every 3 s made a 5 s
-      // video 72 s. A websocket is never heard here at all (no request is
-      // sent for one): a dev server's hot-reload socket sends on every
-      // request, and counted it kept each wait open 10 s past its last
-      // request (Chatbot, 2026-11-15). A video's download froze a held
-      // video's step settle 8 s (DEM-207). A rule, not a loss, so nothing
-      // says it.
+      // video 72 s. A websocket is never heard here at all (no request is sent
+      // for one): a dev server's hot-reload socket sends on every request, and
+      // counted it kept each wait open 10 s past its last request (Chatbot,
+      // 2026-11-15). A video's download froze a held video's step settle 8 s. A
+      // rule, not a loss, so nothing says it.
       // shortcut: a reply streamed over a websocket or an EventSource lands
       // where the machine puts it, unsaid; upgrade if an app shows it.
-      // An iframe's requests are its own document's business (DEM-203): a
+      // An iframe's requests are its own document's business: a
       // slow widget would hold the top page's every settle. A frame of
       // another site is its own process already, unseen here.
       if (NEVER.has(String(p.type)) || !isTop(p.frameId)) return;

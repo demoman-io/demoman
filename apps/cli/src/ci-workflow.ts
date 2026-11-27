@@ -28,7 +28,7 @@ import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
 /** setup-bun by commit, not tag: it runs in the job that can push and open
- *  pull requests, and a tag can be moved to other code (DEM-135). The tag
+ *  pull requests, and a tag can be moved to other code. The tag
  *  rides in the workflow's comment. `gh api
  *  repos/oven-sh/setup-bun/git/ref/tags/<tag>` gives a newer one's sha. */
 export const SETUP_BUN = "0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0";
@@ -66,7 +66,7 @@ fi`;
 
 /** A deployment or release names a commit on any branch, or a fork's:
  *  refreshing it would run its app.json with this repo's secrets and open its
- *  branch into the default one (DEM-123). Exit 1 is "not an ancestor"; any
+ *  branch into the default one. Exit 1 is "not an ancestor"; any
  *  other failure is git's and stops the job. */
 export const ON_DEFAULT_SCRIPT = `git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH" && code=0 || code=$?
 if [ "$code" -eq 1 ]; then
@@ -100,9 +100,9 @@ function secretNames(o: CiOptions): string[] {
   ];
 }
 
-/** Whether the workflow runs by hand (`workflow_dispatch`, DEM-62): a
+/** Whether the workflow runs by hand (`workflow_dispatch`): a
  *  release or deployment trigger records that release or deployment, which
- *  a manual run lacks. Manual runs only by hand (DEM-248). */
+ *  a manual run lacks. Manual runs only by hand. */
 export const runsByHand = (trigger: CiOptions["trigger"]): boolean =>
   trigger === "push" || trigger === "daily" || trigger === "manual";
 
@@ -243,8 +243,8 @@ ${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check --failures
 `;
 }
 
-/** What an update keeps from the workflow already on the default branch
- *  (DEM-241): read back from the text ciWorkflow writes, or why it cannot be.
+/** What an update keeps from the workflow already on the default branch:
+ *  read back from the text ciWorkflow writes, or why it cannot be.
  *  A hand-edited workflow that still reads as one of ours is taken at its
  *  word; the setup pull request's diff shows the person what changes. */
 export type FoundWorkflow =
@@ -473,7 +473,7 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
           exit 1
 `;
   // A manual run picks its branch: record only the branch this watches,
-  // never a feature branch delivered, and say so rather than skip (DEM-248).
+  // never a feature branch delivered, and say so rather than skip.
   // The branch is checked against [\w./-]+, so it is safe in the echo.
   const offBranchStep =
     deliver && runsByHand(o.trigger)
@@ -527,7 +527,7 @@ ${
     : ""
 }${
   // Whether or not the artifact is on: a failed flow's report and last
-  // still are the only record of where it broke (DEM-147). The check job
+  // still are the only record of where it broke. The check job
   // keeps them inside demoman-check.
   deliver
     ? `      - name: Keep what the failed flows showed
@@ -726,7 +726,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   // Plan; a hole or a missing value is asked once, then planned again.
   // An app.json the default branch does not hold may be an agent's draft,
   // committed or not: its commands are shown, and asked about, before the
-  // check runs them (DEM-110). Not the holes the person just typed here.
+  // check runs them. Not the holes the person just typed here.
   // --yes approves them, as it approves the plan.
   const approveCheck = async (
     app: AppSpec,

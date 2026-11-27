@@ -56,7 +56,8 @@ async function drawn(
         ctx.fillStyle = "#374151";
         ctx.font = "40px sans-serif";
         ctx.fillText("Invoices due this week", 80, 400);
-        // gray-500 on white, 12 px: the DEM-138 line.
+        // gray-500 on white, 12 px: the line a changed clock once read as
+        // unchanged.
         const l = at as { x: number; y: number };
         ctx.fillStyle = "#6b7280";
         ctx.font = "12px sans-serif";
@@ -199,7 +200,7 @@ describe("sameScreens", () => {
     CASE_MS,
   );
 
-  // DEM-138. Red if the images are drawn smaller before they are compared,
+  // Red if the images are drawn smaller before they are compared,
   // as the receipt's 1280-wide screens were.
   it(
     "compares at the images' own size",

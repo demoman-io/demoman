@@ -51,7 +51,7 @@ export interface StepSettleReport {
  * machine however long the server took: inside a server stretch frames come
  * as fast as the machine captures them and the page's clock follows real
  * time, so a settle over a streamed answer ended at its cap on one run and
- * quiet on another, 7 frames apart (DEM-204, Chatbot, 2026-11-16). `capMs`
+ * quiet on another, 7 frames apart (Chatbot, 2026-11-16). `capMs`
  * is then only the bound with the server's time in it.
  */
 export function stepSettleExpression(
@@ -247,7 +247,7 @@ export const ECHO_WINDOW_MS = 100;
 
 /**
  * How long after a full still, a page capture or a metrics re-send a frame
- * is judged for the window's unscaled surface (`surfaceCrop`, DEM-280).
+ * is judged for the window's unscaled surface (`surfaceCrop`).
  * Sized from CI's film (PR #143's ubuntu, run 45454571676): its stray came
  * about 423 ms after its still ended; see the walk's `cropWatch`. Judging
  * costs one luma decode a frame, and only inside it.

@@ -37,11 +37,10 @@ export interface AppSpec {
   appVersion: 1;
   install: string[];
   start: string;
-  /** Run before each flow, so one flow's changes never show in the next
-   *  (DEM-57). Named by the person or agent; never guessed. */
+  /** Run before each flow, so one flow's changes never show in the next. Named by the person or agent; never guessed. */
   reset?: string;
   /** The instant the app is recorded at when Demoman starts it, handed to
-   *  it as DEMOMAN_NOW (DEM-79). Set by the person; never written by Demoman. */
+   *  it as DEMOMAN_NOW. Set by the person; never written by Demoman. */
   now?: string;
   url: string;
   timeoutSeconds: number;
@@ -57,7 +56,7 @@ export type AppDraft = Omit<AppSpec, "start" | "url"> & {
 const Env = z.record(z.string(), z.string()).superRefine((env, ctx) => {
   for (const [name, value] of Object.entries(env)) {
     // Demoman sets it from `now`, and pins the page's clock with it: one
-    // set here would pin the app alone (DEM-79).
+    // set here would pin the app alone.
     if (name === "DEMOMAN_NOW") {
       ctx.addIssue({
         code: "custom",
@@ -101,7 +100,7 @@ const AppSchema = z
       .min(1)
       .refine((u) => /^https?:\/\/\S+$/.test(u), "must be an http(s) URL"),
     timeoutSeconds: z.number().int().positive().default(120),
-    // Defaulted like timeoutSeconds: a hand-written file may leave them out (DEM-48).
+    // Defaulted like timeoutSeconds: a hand-written file may leave them out.
     env: Env.default({}),
     secrets: z
       .array(

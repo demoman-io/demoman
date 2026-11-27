@@ -5,8 +5,8 @@ import { execGit, type GitRunner, readRepo } from "@demoman/runner/package";
  *  (git missing, a broken repo): the Studio still opens, and the caller says
  *  why it did not land on a project. */
 /** The folder this process works in, or why it cannot be read: a server
- *  started in a folder since deleted gets uv_cwd from process.cwd() (DEM-51,
- *  review of #35). */
+ *  started in a folder since deleted gets uv_cwd from process.cwd(), found
+ *  in review of #35. */
 export function workingFolder(
   cwd: () => string = () => process.cwd(),
 ): { dir: string } | { none: string } {

@@ -435,7 +435,7 @@ export type SceneZoomSkipped = z.infer<typeof ZoomSkipped>;
 
 /**
  * The default the generated zooms started from when the take's stills back
- * less than the camera's own (`zoomDefaultFor`, DEM-164): a held take's
+ * less than the camera's own (`zoomDefaultFor`): a held take's
  * stills are its frames, at the flow's scale (`stillScale`, still px per CSS
  * px), and at the default export they back `scale`, not 1.8x. Recorded so a
  * zoom added later starts where the generated ones did, and so the run

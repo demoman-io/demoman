@@ -103,7 +103,7 @@ export function testWorkers(weight, env = process.env) {
  * retry, or skipped itself with a note (a premise the machine was too slow
  * to set up), is one `::warning` annotation on the run's page. A real race
  * still shows: `unhurried-beats`' late last key failed 1 in 5 before it
- * learned to say a starved screencast (DEM-253), and a retry fails twice
+ * learned to say a starved screencast, and a retry fails twice
  * in a row about 1 in 25.
  *
  * Off CI nothing changes: a local failure is the one to look at.
@@ -128,7 +128,7 @@ export function ciRetry(env = process.env, say = (line) => console.log(line)) {
         );
     } else if (result.state === "skipped" && result.note) {
       say(`::warning title=Skipped::${name}: ${result.note}`);
-      // A retry that skips (a starved run, DEM-239) after a first attempt
+      // A retry that skips (a starved run) after a first attempt
       // that failed: the failure is said too, or a red reads as a skip.
       for (const error of result.errors ?? [])
         say(

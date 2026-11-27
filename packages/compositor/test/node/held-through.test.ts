@@ -6,7 +6,7 @@ import {
   pullOutLandsAt,
 } from "../../src/plan/camera";
 
-// DEM-178: a video trimmed `after: "action"` ends on the close-up, however
+// A video trimmed `after: "action"` ends on the close-up, however
 // late its step finished.
 describe("heldThroughEndMs", () => {
   const hold = CAMERA_DEFAULTS.neutral.zoomHoldMs;

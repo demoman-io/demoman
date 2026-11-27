@@ -26,7 +26,7 @@ import { CARDS } from "../helpers/memory-platform";
  * report): call `render()` per event instead of `refreshSoon`; stop
  * `renderLibrary` restoring the typed name; drop the `unwatched` notice;
  * make the empty card ignore `unreadable`; route `image` past `folder.thumb`;
- * drop the page's own decode after a refused thumb (DEM-86: on Linux the
+ * drop the page's own decode after a refused thumb (on Linux the
  * Studio has no `sips`, and every card would stay blank).
  */
 

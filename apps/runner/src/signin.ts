@@ -192,7 +192,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
   }
 
   // Checked before it is saved: a sign-in that did not work must not read as
-  // one that did, nor replace a session for this site that did (DEM-101).
+  // one that did, nor replace a session for this site that did.
   // Any failed check keeps the earlier file, a check that could not run
   // included; the answer names how to save this one anyway, for an earlier
   // session that has expired.

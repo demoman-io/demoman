@@ -1,6 +1,6 @@
 // apps/runner/test/executor-closed-shadow.slow.test.ts
 //
-// DEM-102 end to end: a run whose target is inside a closed shadow root
+// End to end: a run whose target is inside a closed shadow root
 // stops, and its stop's detail names the known limitation; one whose target
 // is simply missing, on the same page, does not. Slow by its time: each
 // stop waits out the 10 s a step waits for its target.

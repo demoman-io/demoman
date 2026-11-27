@@ -193,7 +193,7 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
-  // DEM-204: inside a server stretch frames come as fast as the machine
+  // Inside a server stretch frames come as fast as the machine
   // captures them. Red if one counts toward the quiet window or the cap.
   it("counts no frame that followed the server, toward quiet or the cap", async () => {
     await withPage(async (page) => {
@@ -432,7 +432,7 @@ describe("the step-settle probe in a real page", () => {
         video.srcObject = canvas.captureStream();
         document.body.append(video);
       });
-      // Not autoplay: a paused one is neither said nor paced (DEM-207).
+      // Not autoplay: a paused one is neither said nor paced.
       expect(await pin(0), "premise: not yet playing").toEqual({
         said: [],
         video: false,

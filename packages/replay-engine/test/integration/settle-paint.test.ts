@@ -152,7 +152,7 @@ addEventListener("load", () => {
  * every frame) in the frame of the first `requestAnimationFrame` anyone
  * asks for, and changes nothing before it. The probe's own last frame is
  * that first ask: the animation starts in it, which is where Chatbot's
- * framer-motion entrance landed when its hydration ran late (DEM-208).
+ * framer-motion entrance landed when its hydration ran late.
  */
 async function withLateEntrancePage(
   fn: (url: string) => Promise<void>,
@@ -426,7 +426,7 @@ describe("the settle probe against a real browser", () => {
       }
     });
   });
-  // DEM-208: Chatbot's opening was called "never settled" in 0.6 s of its
+  // Chatbot's opening was called "never settled" in 0.6 s of its
   // 5 s budget, when its entrance animation began in the probe's last frame,
   // and the video then began before the animation instead of after it.
   it("waits again for a page that starts changing in the probe's last frame", async () => {

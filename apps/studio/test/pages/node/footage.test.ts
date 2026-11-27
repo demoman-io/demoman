@@ -1,5 +1,5 @@
 // apps/studio/test/pages/node/footage.test.ts
-// DEM-179: the Studio's Storage panel, as the author picked it (placement 1,
+// The Studio's Storage panel, as the author picked it (placement 1,
 // variant A of what a cleanup removed).
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -198,7 +198,7 @@ describe("the Storage panel", () => {
   });
 });
 
-// Review of DEM-179: "checked, nothing old" only for a pass that finished
+// Review of Keep footage: "checked, nothing old" only for a pass that finished
 // under the setting shown, and no stale words left on screen.
 describe("the Storage panel, after review", () => {
   it("never says a failed pass, or one under another setting, checked", async () => {

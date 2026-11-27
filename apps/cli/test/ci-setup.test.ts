@@ -360,9 +360,9 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(offers[3]?.label).toContain("trunk");
   });
 
-  // DEM-89 and review findings 1 and 5. Red while the environments setup
-  // did not look for become offers no one is shown (both pickers list only
-  // offered triggers), or share the no-deployment offer's trigger.
+  // Red while the environments setup did not look for become offers no one is
+  // shown (both pickers list only offered triggers), or share the no-deployment
+  // offer's trigger.
   it("says the environments it did not look for in a note, not as offers", () => {
     const f = facts({
       deployments: [
@@ -382,7 +382,7 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(note).toContain("staging, qa");
     expect(note).toContain("newest 150 deployments, which were not read");
     expect(note).toContain("--trigger <environment>");
-    // Review of DEM-248, finding 2: an environment named like a trigger.
+    // An environment named like a trigger.
     expect(note).toContain(
       "--trigger deployment:<environment> for one named release, daily, push or manual",
     );
@@ -422,7 +422,7 @@ describe("triggerOffers and defaultTrigger", () => {
         { trigger: "daily", label: "", offered: true, why: "" },
       ]),
     ).toBe("daily");
-    // DEM-248: nor is manual, which records nothing until someone runs it.
+    // Nor is manual, which records nothing until someone runs it.
     expect(
       defaultTrigger([
         { trigger: "manual", label: "", offered: true, why: "" },
@@ -512,7 +512,7 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(f.calls).toEqual(["readGithub"]);
   });
 
-  // DEM-241: the workflow on the default branch, as an older release wrote
+  // The workflow on the default branch, as an older release wrote
   // it, with a trigger, route and artifact none of which is the default.
   const onDefault = (version: string, o: { app?: boolean } = {}) =>
     ciWorkflow({
@@ -671,7 +671,7 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     });
     expect(isStop(r) && r.reason).toBe("noDeployment");
     expect(f.calls).toEqual(["readGithub"]);
-    // DEM-89. Red while GitHub is asked only for its newest deployments:
+    // Red while GitHub is asked only for its newest deployments:
     // the chosen environment's own are past them on a busy repo.
     expect(f.seen.github).toEqual({ older: true, environment: "production" });
     // Review finding 7: production's own newest 30 were searched too.
@@ -767,7 +767,7 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(f.calls).not.toContain("verifySetup");
   });
 
-  // DEM-241: red if a value GitHub already holds is asked for without why.
+  // Red if a value GitHub already holds is asked for without why.
   it("a missing secret GitHub already has says the check needs its value", async () => {
     const f = fakes({
       needed: [account("DEMOMAN_SECRET_BUYER")],
@@ -804,7 +804,7 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     );
     expect(isStop(r) && r.reason).toBe("secretMissing");
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_BUYER");
-    // DEM-129: secrets.env refuses a line without its prefix, so the text
+    // A secrets.env line without its prefix is refused, so the text
     // describes the line the reader takes, origin line and all.
     expect(isStop(r) && r.detail).toContain(
       "secrets.env as a line such as DEMOMAN_SECRET_BUYER=value, with DEMOMAN_SECRET_BUYER_ORIGIN=<origin> beside it",
@@ -852,7 +852,7 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(p.secrets).toEqual([{ name: "PIN", status: "set" }]);
   });
 
-  // DEM-104: the warning reaches the plan's lines, which setup prints.
+  // The warning reaches the plan's lines, which setup prints.
   it("says in its lines when secrets.env is open to other users", async () => {
     const f = fakes({
       needed: [account("DEMOMAN_SECRET_SELLER")],
@@ -1147,7 +1147,7 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
   });
 
-  // DEM-99, red when makePlan leaves `artifact` to the choice alone: a files
+  // Red when makePlan leaves `artifact` to the choice alone: a files
   // flow's refresh fails without --out-dir, which only the artifact gives.
   it("turns the artifact on for a files flow, says why, and the workflow carries --out-dir", async () => {
     const f = fakes();
@@ -1177,8 +1177,8 @@ describe("planCiSetup's plan", () => {
     expect(planLines(commit).join("\n")).not.toContain("artifact");
   });
 
-  // Review of DEM-99: CI refreshes the base's copy of a flow the base has,
-  // which the pull request leaves out. Red when only the working tree counts.
+  // CI refreshes the base's copy of a flow the base has, which the pull request
+  // leaves out. Red when only the working tree counts.
   it("decides the artifact from the base's copy of a flow already there", async () => {
     const file = `${FLOWS_DIR}/checkout.json`;
     const root = await repo();
@@ -1263,7 +1263,7 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify).toBeUndefined();
   });
 
-  // Red when the plan does not say the refresh can be run by hand (DEM-62).
+  // Red when the plan does not say the refresh can be run by hand.
   it("says a push or daily refresh can be run by hand, and a release one cannot", async () => {
     const p = await okPlan(await repo(), fakes());
     const byHand =
@@ -1309,7 +1309,7 @@ describe("planCiSetup's plan", () => {
   it("leaves out a flow already on the default branch", async () => {
     const file = `${FLOWS_DIR}/checkout.json`;
     const root = await repo();
-    // The base's copy, which the plan now reads for its delivery (DEM-99).
+    // The base's copy, which the plan now reads for its delivery.
     const f = fakes({
       onDefault: [file],
       head: {
@@ -1353,7 +1353,8 @@ describe("planCiSetup's plan", () => {
     expect(q.files).toContain(APP_FILE);
   });
 
-  // Red if the plan leaves out accounts.json: the check and CI then cannot sign in (DEM-53).
+  // Red if the plan leaves out accounts.json: the check and CI then cannot sign
+  // in.
   it("carries .demoman/accounts.json unless committed as is", async () => {
     const text = '{"accountsVersion":1,"sites":{}}';
     const root = await repo();
@@ -1381,7 +1382,7 @@ describe("planCiSetup's plan", () => {
     );
   });
 
-  // DEM-240: an account's seed and sign-in route, never committed, are not
+  // An account's seed and sign-in route, never committed, are not
   // in the check's clean checkout, so the account does not exist there.
   const withFiles = (files?: string[]) =>
     JSON.stringify({
@@ -1424,8 +1425,8 @@ describe("planCiSetup's plan", () => {
     expect((await okPlan(root, committed)).files).not.toContain(
       "db/seeds/demo.rb",
     );
-    // Review of DEM-240. Red if an executable seed reaches the check (and
-    // so the pull request) without its exec bit: the reset exits 126.
+    // Red if an executable seed reaches the check (and so the pull request)
+    // without its exec bit: the reset exits 126.
     await chmod(join(root, "db", "seeds", "demo.rb"), 0o755);
     const g = fakes();
     await okPlan(root, g);
@@ -1434,8 +1435,8 @@ describe("planCiSetup's plan", () => {
     ).toMatchObject({ mode: 0o755 });
   });
 
-  // Review of DEM-240. Red if a listed link (or a file under a linked
-  // folder) is read through: it would carry a file from outside the repo.
+  // Red if a listed link (or a file under a linked folder) is read through: it
+  // would carry a file from outside the repo.
   it("stops on an account's listed file that is a link", async () => {
     const root = await repo();
     const outside = await mkdtemp(join(tmpdir(), "outside-"));
@@ -1481,8 +1482,7 @@ describe("planCiSetup's plan", () => {
       detail: expect.stringContaining("git ignores it"),
     });
     expect(f.calls).not.toContain("verifySetup");
-    // Review of DEM-240. Red if a check-ignore git cannot answer is taken
-    // for "not ignored".
+    // Red if a check-ignore git cannot answer is taken for "not ignored".
     expect(
       await plan(root, fakes({ ignoreFails: "fatal: bad pattern" })),
     ).toMatchObject({
@@ -1497,8 +1497,8 @@ describe("planCiSetup's plan", () => {
   // not say the clean checkout may lack its seed or route.
   it("says an account with no files may be missing its seed when the check fails on it", async () => {
     const root = await repo();
-    // Review of DEM-240: an account on another site, with no files, is not
-    // the started app's, so a failed reset does not name it.
+    // An account on another site, with no files, is not the started app's, so a
+    // failed reset does not name it.
     const two = JSON.parse(withFiles());
     two.sites["https://staging.example.com"] = {
       accounts: {
@@ -1565,7 +1565,7 @@ describe("planCiSetup's plan", () => {
   });
 
   // Red when the secrets.env ignore line stays behind in the person's
-  // checkout, so a teammate's clone does not ignore the file (DEM-62).
+  // checkout, so a teammate's clone does not ignore the file.
   it("carries .gitignore when only the working tree ignores .demoman/secrets.env", async () => {
     const root = await repo();
     const ignored =
@@ -1750,7 +1750,7 @@ describe("applyCiSetup", () => {
     return { f, p, values };
   }
 
-  // Red when the PR description is the plan's plain terminal lines (DEM-58).
+  // Red when the PR description is the plan's plain terminal lines.
   it("writes the setup PR's description as Markdown, naming secrets, never their values", async () => {
     const { f, p, values } = await ready();
     await applyCiSetup(p, f.deps, values);
@@ -1840,7 +1840,7 @@ describe("applyCiSetup", () => {
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_A");
     // Red if the detail says "kept:" again (a banned word).
     expect(isStop(r) && r.detail).toContain("set: none; left: none");
-    // The Actions setting is checked before any secret (DEM-54), and said.
+    // The Actions setting is checked before any secret, and said.
     expect(f.calls.indexOf("allowActionPullRequests")).toBeLessThan(
       f.calls.indexOf("setSecrets"),
     );
@@ -1874,7 +1874,7 @@ describe("applyCiSetup", () => {
           "https://github.com/o/r/settings/actions",
         ).length - 1,
       ).toBe(1);
-      // Red when secrets are set before a setting that stops the setup (DEM-54).
+      // Red when secrets are set before a setting that stops the setup.
       expect(f.calls).not.toContain("setSecrets");
       expect(isStop(r) && r.detail).toContain("nothing was set");
       expect(f.calls).not.toContain("openSetupPr");

@@ -19,7 +19,7 @@ import type { Version, VideoStore } from "./videos.js";
 export const DAY_MS = 86_400_000;
 export const MIN_INTERVAL_MS = 3_600_000;
 
-/** One video whose footage a pass removed (DEM-179): said by name, never
+/** One video whose footage a pass removed: said by name, never
  *  only counted. */
 export type RemovedVideo = {
   videoId: string;
@@ -56,7 +56,7 @@ export type ExpiryResult =
       /** What this pass removed, at most `REMOVED_SAID`. */
       removed?: RemovedVideo[];
       /** One sentence per flow or video left alone because a file it is
-       *  judged by would not read (DEM-127); empty when none, at most
+       *  judged by would not read; empty when none, at most
        *  SKIPPED_SAID and a count of the rest. Absent from a state file saved
        *  before 0.9.7: read it through `skippedOf`. */
       skippedUnreadable?: string[];
@@ -176,7 +176,7 @@ export async function expiryStatus(library: Library): Promise<ExpiryStatus> {
 
 /**
  * Removes the frames and thumbnails of every version older than the user's
- * Keep footage setting (30 days unless changed, DEM-179) that is not kept,
+ * Keep footage setting (30 days unless changed) that is not kept,
  * at most once an hour. Only `takes/<id>/frames/` and `takes/<id>/thumbs/`
  * go: scene, script, report, status, outputs and every exported file stay.
  * Forever removes nothing, and so does a setting that will not read: the
@@ -360,7 +360,7 @@ async function save(library: Library, state: State): Promise<void> {
 
 /** Take by take, as before: judged, marked, then its files removed. Only the
  *  mark holds the videos lock, so a merge cannot land between its read and
- *  its write of video.json (DEM-88), and it never waits on the lock: while
+ *  its write of video.json, and it never waits on the lock: while
  *  another holds it, the pass stops there and answers who, and the next
  *  pass goes on from what is not yet marked. */
 async function expire(
@@ -376,7 +376,7 @@ async function expire(
     // are left alone rather than judged without it.
     if ("unreadable" in video) continue;
     // A file that will not read leaves its flow or video alone and is
-    // said, rather than failing every pass at the same place (DEM-127).
+    // said, rather than failing every pass at the same place.
     const notJudged = (error: unknown) =>
       tally.skippedUnreadable.push(
         `flow ${video.id}: ${messageOf(error)}, so none of its old videos were judged`,
@@ -389,7 +389,7 @@ async function expire(
       continue;
     }
     // A flow with nothing old to expire is not judged, so a file of it that
-    // will not read costs expiry nothing and is no skip (review of DEM-127).
+    // will not read costs expiry nothing and is no skip.
     if (!versions.some((v) => v.expired === null && isOld(v, now, days)))
       continue;
     let kept: Set<string>;

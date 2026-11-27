@@ -40,7 +40,7 @@ export type BrowserFailure = {
 
 /**
  * Status's word on a downloaded browser's Linux libraries, read with `ldd`
- * rather than a launch (DEM-71): the ones the dynamic linker cannot find, or
+ * rather than a launch: the ones the dynamic linker cannot find, or
  * why `ldd` could not say. Never "none missing" for an `ldd` that failed.
  */
 export async function linkedLibraries(

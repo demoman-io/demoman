@@ -172,7 +172,7 @@ it("opens the Studio on a take, exports a GIF through its API, and stops", async
 
   expect(demoman("studio", "--stop")).toBe("Stopped the Studio.\n");
   // The Studio's window is Playwright's Chromium; nothing reached the
-  // person's own browser or desktop on the way (DEM-218). Red: a Studio
+  // person's own browser or desktop on the way. Red: a Studio
   // or export that `open`s a URL or file.
   expect(await openers.calls()).toEqual([]);
 }, 600_000);

@@ -15,7 +15,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 
 /**
- * DEM-154/155 end to end: every page Demoman opens presents as macOS, so a
+ * End to end: every page Demoman opens presents as macOS, so a
  * script's `Mod+K` and an app's "⌘K" agree on any machine, and what a script
  * pressed and clicked is in the take and in the page's own log.
  */

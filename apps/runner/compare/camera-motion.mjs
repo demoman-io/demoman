@@ -1,10 +1,10 @@
 // How the camera moves in a video, frame by frame, read from its pixels.
 //   node apps/runner/compare/camera-motion.mjs --video <mp4> [--from <s>] [--to <s>]
 //   node apps/runner/compare/camera-motion.mjs --repo <root> --take <id> --out <mp4> [--from <s>] [--to <s>]
-// With --take, first exports that take with <root>'s built runner, from a
-// copy in a throwaway home (the take store is never written), to --out.
-// Prints each frame's pan (px at 2560 wide; dx + = the picture moves right,
-// dy + = down) and the lines that answer DEM-254 and DEM-265:
+// With --take, first exports that take with <root>'s built runner, from a copy
+// in a throwaway home (the take store is never written), to --out. Prints each
+// frame's pan (px at 2560 wide; dx + = the picture moves right, dy + = down)
+// and the lines that answer the drag camera and frame-rate questions:
 //   reversals x: <n> [times] the pan changing direction at 8 px/frame or more
 //   reversals y: <n> [times] the same, up and down
 //   repeats: <n> [times]     a frame identical to the one before, between two

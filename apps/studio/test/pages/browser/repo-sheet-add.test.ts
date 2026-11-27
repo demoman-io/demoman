@@ -12,7 +12,7 @@ import {
 import { mountShell, pageParts } from "../helpers/shell-css";
 
 /**
- * The Add to repo sheet itself in Chromium (DEM-47, 49, 50, 56, 59): the
+ * The Add to repo sheet itself in Chromium: the
  * form, the folder list, the added state with its labelled files, and the
  * finished state after Open pull request. The CI steps have their own file.
  */
@@ -153,7 +153,7 @@ for (const scheme of ["light", "dark"] as const) {
     const shot = (name: string) =>
       page.screenshot({ path: `${SHOTS}/${name}-${scheme}.png` });
 
-    // Red if the form loses a field, the .mp4, or the Video line stops following the toggle (DEM-50).
+    // Red if the form loses a field, the .mp4, or the Video line stops following the toggle.
     it("the form draws Folder, File name with .mp4, the Video toggle with its line, and Quality", async () => {
       const { dialog } = await open({});
       const folder = await el<HTMLInputElement>(dialog, "[data-repo-folder]");
@@ -214,7 +214,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(document.activeElement).toBe(now);
     });
 
-    // Red if the folder button stops listing the repo's folders, or a pick does not fill Folder (DEM-50).
+    // Red if the folder button stops listing the repo's folders, or a pick does not fill Folder.
     it("the folder button lists the repo's folders and a pick fills Folder", async () => {
       const { dialog } = await open({});
       (await el<HTMLElement>(dialog, '[aria-label="Choose folder"]')).click();
@@ -280,7 +280,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(asked).toBe(2);
     });
 
-    // Red if a written file loses its label, or Reveal stops naming the whole path (DEM-49, DEM-56).
+    // Red if a written file loses its label, or Reveal stops naming the whole path.
     it("the added state labels each file and reveals it", async () => {
       const s = await added();
       const labels = [
@@ -302,7 +302,7 @@ for (const scheme of ["light", "dark"] as const) {
       );
     });
 
-    // Red if a refused reveal is only logged (DEM-56: Reveal did nothing).
+    // Red if a refused reveal is only logged (Reveal did nothing).
     it("a refused reveal is said under its row", async () => {
       const s = await added({
         reveal: async () => {
@@ -324,13 +324,13 @@ for (const scheme of ["light", "dark"] as const) {
       ).toBe("Reveal DemoScript");
     });
 
-    // Red if the sheet draws a note twice or drops the one it is given (DEM-49).
+    // Red if the sheet draws a note twice or drops the one it is given.
     it("draws each note it is given once", async () => {
       const s = await added({}, ["1x is a guess: set scale in the recipe."]);
       expect(s.dialog.querySelectorAll("[data-repo-note]")).toHaveLength(1);
     });
 
-    // Red if Open pull request leaves anything but Done, or loses the link (DEM-59).
+    // Red if Open pull request leaves anything but Done, or loses the link.
     it("after Open pull request only Done is left", async () => {
       const s = await added();
       (await el<HTMLElement>(s.dialog, "[data-repo-pr]")).click();
@@ -361,7 +361,7 @@ for (const scheme of ["light", "dark"] as const) {
       });
       const dialog = await el<HTMLDialogElement>(document, "dialog[open]");
       expect(dialog.textContent).toContain("Checking…");
-      // DEM-80: the wait has a spinner beside its words, painted and turning.
+      // The wait has a spinner beside its words, painted and turning.
       // Red without repo-sheet.ts's `line.prepend(spinner())`.
       const spin = dialog.querySelector<SVGElement>(
         "[data-repo-line] .spinner",

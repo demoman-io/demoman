@@ -19,7 +19,7 @@ import { launch } from "../src/launch.js";
 import { replayPhase } from "../src/replay.js";
 
 /**
- * DEM-161, the runner's re-record (`replayPhase` → `runReplay`): a take's
+ * The runner's re-record (`replayPhase` → `runReplay`): a take's
  * click that opens `confirm()` is answered by the engine alone. Without a
  * Playwright `dialog` listener Playwright dismisses it too, racing the
  * engine's OK; the page says which answer won.

@@ -1,4 +1,4 @@
-// DEM-217: one fixture take recorded the way a user's is (held clock, a
+// One fixture take recorded the way a user's is (held clock, a
 // 1440x900@2 display, headless, the default export; the look is white around
 // the window, so nothing dark sits outside it), and each defect the author
 // caught by watching a video asserted on its decoded frames:
@@ -151,7 +151,7 @@ describe("a typed field and a far zoomed click, recorded as a user's is", () => 
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
         throw new Error(JSON.stringify(answer));
       }
-      // A red run keeps the film it judged, and the still (DEM-272).
+      // A red run keeps the film it judged, and the still.
       const film = answer.file.path;
       keepOnFailure("picture-checks", () =>
         stillPath === undefined ? [film] : [film, stillPath],

@@ -265,7 +265,7 @@ export function strongestChange(a: LumaBlocks, b: LumaBlocks): number {
 /**
  * Whether `frame` is the window's unscaled surface rather than the page: the
  * top-left `1 / factor` of what `good` shows, magnified `factor` times, at
- * `good`'s own size (DEM-280). Chrome's screencast sends one around a full
+ * `good`'s own size. Chrome's screencast sends one around a full
  * still: the page is drawn at the still's DPR, and a frame of the window
  * takes its corner. Where the window's surface is the frame's size (a 1x
  * display) it cannot be told by size, and filmed it is a hard zoom flash.

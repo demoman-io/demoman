@@ -716,20 +716,19 @@ function authoredRegions(
  * that writes a plan, is never sampled.
  *
  * Each beat is two stretches, split where the cursor set off for its step
- * (`approachSourceTimeMs`): from the step before's act end (its marker when
- * it has none, source 0 for the opening) to there plays `restMs`, from there
- * to the step `arriveMs`, counted from where the cursor's travel began: idle
- * between the approach and that is the machine's latency, and plays for 0
- * (DEM-273). A step whose approach scrolled
- * (`scrollEndSourceTimeMs` with the beat's `afterScrollMs`) has a third: the
- * rest ends where the scroll did, and from there to the approach plays
- * `afterScrollMs`, the camera's room after the page moved. The idle after
- * the plan's last act plays `tailMs`. Idle inside a step's own act (from
- * its marker to its act end) plays for 0: an act's length is the machine's
- * (measured 94 against 416 ms for one click, fast against slowed, on
- * 2026-11-13), so playing its idle would put the machine back into the
- * video. Motion plays at rate 1.0 as everywhere, so a pair lasts its planned
- * idle and its motion.
+ * (`approachSourceTimeMs`): from the step before's act end (its marker when it
+ * has none, source 0 for the opening) to there plays `restMs`, from there to
+ * the step `arriveMs`, counted from where the cursor's travel began: idle
+ * between the approach and that is the machine's latency, and plays for 0. A
+ * step whose approach scrolled (`scrollEndSourceTimeMs` with the beat's
+ * `afterScrollMs`) has a third: the rest ends where the scroll did, and from
+ * there to the approach plays `afterScrollMs`, the camera's room after the page
+ * moved. The idle after the plan's last act plays `tailMs`. Idle inside a
+ * step's own act (from its marker to its act end) plays for 0: an act's length
+ * is the machine's (measured 94 against 416 ms for one click, fast against
+ * slowed, on 2026-11-13), so playing its idle would put the machine back into
+ * the video. Motion plays at rate 1.0 as everywhere, so a pair lasts its
+ * planned idle and its motion.
  *
  * A stretch with no idle that plays (all motion, or all removed) has nothing
  * to stretch, so it becomes a freeze of its planned length at its end — at
@@ -866,7 +865,7 @@ function plannedIdleOf(
         : share(scrollEnd, approach, pace.afterScrollMs);
     // The arrive counts from where the cursor set off: idle before that is
     // the machine's latency in starting the journey, which the plan does
-    // not have, and plays for 0 (DEM-273: 186 ms of it took 186 of a
+    // not have, and plays for 0 (186 ms of it took 186 of a
     // planned 300 on CI's macOS). With no travel there, travel already
     // under way at the approach, or a set-off inside a removed stretch, or
     // an arrive that cannot be placed from it, it counts from the approach

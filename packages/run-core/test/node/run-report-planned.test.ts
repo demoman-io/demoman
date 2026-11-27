@@ -145,7 +145,7 @@ describe("a planned beat that could not be placed", () => {
   });
 });
 
-// DEM-280: frames of the window's unscaled surface the walk refused are
+// Frames of the window's unscaled surface the walk refused are
 // counted and timed in the report, beside the kind the verdict line says.
 describe("frames of the window's surface the walk refused", () => {
   it("are counted, with when each was painted, and said as surfaceMismatch", () => {

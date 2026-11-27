@@ -406,7 +406,7 @@ describe("the list view", () => {
     expect(shown()[0]?.closest("[role=row]")).toBe(flowRow);
   });
 
-  // Red: the closed flow row saying only its lead's take status (DEM-31).
+  // Red: the closed flow row saying only its lead's take status.
   it("an older video's status is said on its closed flow row, named by its video", () => {
     const status = new Map([["take:b1", "Could not delete: it is open."]]);
     const { grid } = draw(BY_NAME, model, actions(), status);

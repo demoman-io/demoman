@@ -133,7 +133,7 @@ export async function record(
     onLaunched: async ({ context }) => {
       await installResolver(context);
       await installExecutorEntry(context);
-      // When each answer's data reached Demoman (`arrivals.ts`, DEM-235).
+      // When each answer's data reached Demoman (`arrivals.ts`).
       await watchArrivals(context);
       if (lagMs !== undefined) {
         await lagCdp(context, lagMs);

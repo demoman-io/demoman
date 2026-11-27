@@ -115,7 +115,7 @@ function headRow(
     const setView = actions.setView;
     if (sort !== null && setView !== undefined) {
       const button = el("button", { type: "button", "data-sort": sort }, label);
-      // The direction, for the eye as `aria-sort` says it (DEM-32): the
+      // The direction, for the eye as `aria-sort` says it: the
       // CSS turns it up for ascending.
       if (head.hasAttribute("aria-sort")) button.append(icon("chevronDown"));
       button.addEventListener("click", () =>
@@ -377,7 +377,7 @@ function entryRow(
     // What was said of one of a flow's takes is said on that take's video
     // row, which every flow has here. It is said on the flow row too while
     // the flow is closed and that video row hidden — the lead's where the
-    // row's Back was pressed, an older one's named by its video (DEM-31);
+    // row's Back was pressed, an older one's named by its video;
     // `refold` hides them while open, so none is said twice.
     const status =
       group === null

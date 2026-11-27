@@ -1,5 +1,5 @@
 /**
- * What the video draws for keys and clicks (DEM-154/155, spec 2026-11-21
+ * What the video draws for keys and clicks (spec 2026-11-21
  * "What the video draws", option K1): a keycap pill at the bottom centre for
  * every press and every click with a key held, two or three ripples and a
  * ×2/×3 tag for a multi-click, and a small mouse for a right-click. Each is

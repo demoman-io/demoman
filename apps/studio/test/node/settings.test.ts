@@ -47,7 +47,7 @@ beforeEach(async () => {
 afterEach(() => rm(home, { recursive: true, force: true }));
 
 describe("writeSetting across processes", () => {
-  // Red (DEM-87): saves queued per process only. Setup's save and the
+  // Red: saves queued per process only. Setup's save and the
   // Studio's both read the file, and the second write drops the first key
   // (the log reads read, read, write, write).
   it("two processes saving different keys keep both", async () => {

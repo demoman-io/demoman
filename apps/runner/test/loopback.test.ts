@@ -76,7 +76,7 @@ describe("listenOnLoopback", () => {
   }, 5_000);
 });
 
-// DEM-114. Red: make `refused` answer false, or serve the files at the
+// Red: make `refused` answer false, or serve the files at the
 // bare path; the foreign Host, or the request without the secret, gets them.
 describe("loopbackGuard", () => {
   const get = (port: number, path: string, host: string) =>

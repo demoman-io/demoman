@@ -426,7 +426,7 @@ function countDrawsOf(image: CanvasImageSource) {
   };
 }
 
-describe("the wallpaper's unzoomed copy (DEM-45)", () => {
+describe("the wallpaper's unzoomed copy", () => {
   it("the fixture carries its checker after a direct draw", async () => {
     const target = LANDSCAPE_1080P;
     const reference = new OffscreenCanvas(target.width, target.height);

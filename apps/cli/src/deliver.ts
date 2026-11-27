@@ -20,7 +20,7 @@ const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
  *  all of it. */
 const DETAIL_MAX = 500;
 /** `text` as a code span on GitHub (attach's rule): shown literally, so a
- *  page's text cannot post a link, an image or a mention (DEM-118). */
+ *  page's text cannot post a link, an image or a mention. */
 const codeSpan = (text: string, max: number): string => {
   const t = codeSpanText(text, max);
   return t === "" ? "(nothing said)" : `\`${t}\``;
@@ -52,8 +52,8 @@ const toCommit = (v: RefreshResult["videos"][number]): boolean =>
 /** Where a pull request from here goes, decided once: null on a branch
  *  (its own), the default branch on a detached HEAD (a deployed sha, a
  *  release tag), or why there may be none. A detached HEAD must already be
- *  on that branch, or the PR carries another branch's commits into it
- *  (DEM-123). `named`: the default branch the workflow already checked
+ *  on that branch, or the PR carries another branch's commits into it.
+ *  `named`: the default branch the workflow already checked
  *  against (DEMOMAN_DEFAULT_BRANCH); else gh says. */
 export async function offBase(
   repoRoot: string,
@@ -269,7 +269,7 @@ export async function deliver(
       ? [
           "",
           "Not refreshed:",
-          // The detail and the notes can quote the recorded page (DEM-118),
+          // The detail and the notes can quote the recorded page,
           // so they and the name sit in code spans; the fix is ours, outside.
           ...result.videos
             .filter((v) => v.outcome === "failed")

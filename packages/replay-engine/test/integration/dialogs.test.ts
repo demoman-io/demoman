@@ -18,7 +18,7 @@ import { createMemoryFrameStore } from "../helpers/frame-store";
 import { scene } from "../helpers/replay-scene";
 
 /**
- * DEM-161: a click that opens `confirm()`, against real Chromium, because
+ * A click that opens `confirm()`, against real Chromium, because
  * what the browser does while a dialog is open (blocks the page, holds the
  * click that opened it) is the thing a fake CDP cannot answer. The fixture
  * is the runner's (`compare/scripts/confirm-dialog.json` serves it too).

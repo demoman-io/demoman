@@ -125,7 +125,7 @@ describe("createHeldFrames", () => {
     expect(h.degradations[0]?.note).toMatch(/too short/);
   });
 
-  // DEM-265: a hold is a time. At 60 fps, 5 identical frames (83 ms) are
+  // A hold is a time. At 60 fps, 5 identical frames (83 ms) are
   // motion and 6 (100 ms) a hold; red if the run is counted in 30 fps frames.
   it("counts a hold in milliseconds at any frame length", async () => {
     expect(HOLD_MIN_MS).toBe(100);

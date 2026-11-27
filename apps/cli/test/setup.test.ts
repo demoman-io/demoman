@@ -957,7 +957,7 @@ describe("setup", () => {
     expect(m.lines.at(-1)).toContain(
       "No coding agent was found. Demoman works with Claude Code, Codex, Cursor and OpenCode:",
     );
-    // Premise: those four are every agent setup connects (DEM-94).
+    // Premise: those four are every agent setup connects.
     expect(AGENT_FLAGS.map(([, n]) => n)).toEqual([
       "Claude Code",
       "Codex",
@@ -1433,7 +1433,7 @@ describe("setup", () => {
       expect(m.files.has(MCP)).toBe(false);
     });
 
-    // DEM-72, red while cursorApps lists only macOS paths: on Linux the app
+    // Red while cursorApps lists only macOS paths: on Linux the app
     // is a .deb/.rpm under /usr/share/cursor, an unpacked /opt one, or an
     // AppImage, and it reads the same ~/.cursor/mcp.json.
     const onLinux = () =>
@@ -2186,7 +2186,7 @@ describe("setup --browser-only", () => {
 });
 
 describe("USAGE", () => {
-  // DEM-94. Red while USAGE's --agents leaves out an agent setup connects.
+  // Red while USAGE's --agents leaves out an agent setup connects.
   // Read as text: main.ts runs the CLI on import.
   it("names every agent setup connects under --agents", () => {
     const main = readFileSync(

@@ -269,7 +269,7 @@ describe("adding a flow to its repo, and removing it", () => {
   });
 
   // Red if added drops the mark or the scale guess, or says the platform or
-  // screens notes again (DEM-49: the author's ruling, they are the CLI's).
+  // screens notes again (the author's ruling: they are the CLI's).
   it("the Studio says the mark and the scale guess, not the platform or screens notes", async () => {
     keep = async () =>
       keptOk({
@@ -295,7 +295,7 @@ describe("adding a flow to its repo, and removing it", () => {
     expect(sent.at(-1)).toMatchObject({ phase: "added", marked: true });
   });
 
-  // Red if an add's files are not revealable (DEM-56).
+  // Red if an add's files are not revealable.
   it("an add's written files become revealable", async () => {
     const video = join(root, "docs", "demos", "flow.mp4");
     await mkdir(join(root, "docs", "demos"), { recursive: true });
@@ -503,7 +503,7 @@ describe("adding a flow to its repo, and removing it", () => {
     });
   });
 
-  // Red if a refused add is said only as an event (DEM-125): with no window
+  // Red if a refused add is said only as an event: with no window
   // open, nobody receives it.
   it("a refused add leaves its reason in studio.log and is told", async () => {
     keep = async () =>
@@ -538,7 +538,7 @@ describe("adding a flow to its repo, and removing it", () => {
     );
   });
   // Red if Add stops handing keep the version vetted as it was pressed
-  // (DEM-140): keep would add whatever is on disk at its turn.
+  // (keep would add whatever is on disk at its turn).
   it("an add hands keep the version it was pressed on", async () => {
     const rev = (await createLibrary(home).getSceneRead("add-take"))?.revision;
     expect(rev, "premise: the seeded take has a revision").toBeTruthy();
@@ -567,7 +567,7 @@ describe("adding a flow to its repo, and removing it", () => {
   });
 });
 
-// Red if the ping leaves running CI applies out of `queued` (DEM-126): a
+// Red if the ping leaves running CI applies out of `queued`: a
 // different version's open would stop the Studio under them.
 describe("ping's queued", () => {
   it("counts a running CI apply", async () => {

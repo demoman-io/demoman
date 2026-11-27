@@ -97,7 +97,7 @@ async function muxSpan(
     const bitmap = await createImageBitmap(blob);
     try {
       // A side `fitH264Frame` only evened is cropped by its odd pixel, not
-      // resampled: a 393->392 squeeze softens every column (DEM-124).
+      // resampled: a 393->392 squeeze softens every column.
       const evened =
         [0, 1].includes(bitmap.width - manifest.width) &&
         [0, 1].includes(bitmap.height - manifest.height);

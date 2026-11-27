@@ -307,7 +307,7 @@ const macroblocks = (w: number, h: number) =>
  * can deliver at REPLAY_DPR 3: a 1710x1107 window's 5130x3320 is 66,880
  * macroblocks, and the encoder refused every such span (2026-10-21). H.264
  * takes even sides only: the phone preset's 393-wide span on a scale-1
- * display was refused whole (DEM-124).
+ * display was refused whole.
  */
 export function fitH264Frame(
   width: number,

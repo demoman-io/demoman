@@ -24,11 +24,11 @@ export interface UserSettings {
   exportQuality: ExportQuality;
   /** null: not set, or set to something unusable (then `problems` says why). */
   pullRequests: PullRequestsValue | null;
-  /** The folder exports are saved in (DEM-180); null: not set, or set to
+  /** The folder exports are saved in; null: not set, or set to
    *  something unusable (then `problems.exportFolder` says why). Where an
    *  export lands is `exportFolderOf`'s answer. */
   exportFolder?: string | null;
-  /** How long old footage is kept (DEM-179). `DEFAULT_KEEP_FOOTAGE` when not
+  /** How long old footage is kept. `DEFAULT_KEEP_FOOTAGE` when not
    *  set; null when set to something unusable or the file will not read
    *  (then `problems.keepFootage` says why), so expiry removes nothing on a
    *  choice it cannot read. */
@@ -170,7 +170,7 @@ export const isExportFolder = (v: unknown): v is string =>
 export const defaultExportFolder = (): string => join(homedir(), "Downloads");
 
 /**
- * The one answer to "where does this export land" (DEM-180): the folder the
+ * The one answer to "where does this export land": the folder the
  * caller was given (`--out-dir`, a temporary folder), else the user's Export
  * folder, else ~/Downloads. An exportFolder value that cannot be used is
  * `unusable`, never ~/Downloads in its place: the person chose a folder. A

@@ -2,13 +2,13 @@
 // `pnpm test:changed`: the check before a push. The fast tier of the
 // packages this branch changed since it left origin/main, and of every
 // package that depends on them. CI runs the full tier of everything and is
-// the merge gate; this is the quick local look before it (DEM-149).
+// the merge gate; this is the quick local look before it.
 //
 // Some package tests read files outside any package: the cli's docs guards
 // read apps/docs, the README and scripts/changelog.mjs. A change to one of
 // those tests the packages that read it (READERS).
 //
-// It never runs every package (DEM-221): on 2026-11-18 a run that selected
+// It never runs every package: on 2026-11-18 a run that selected
 // every package took the 16 GB Mac down. A change to what every package's
 // tests run under (the lockfile, the tier script) is left to CI, which runs
 // every package anyway, and a selection reaching half the workspace or more
@@ -126,9 +126,9 @@ export function runEnv(single, env) {
 export function heading(names, why, { shared = [], single = false } = {}) {
   const notes = [
     shared.length > 0 &&
-      `every package's tests read ${shared.join(", ")}, and every package at once took the Mac down (DEM-221), so that run is CI's`,
+      `every package's tests read ${shared.join(", ")}, and every package at once took the Mac down on 2026-11-18, so that run is CI's`,
     single &&
-      "one test file at a time: this selection is half the workspace or more (DEM-221)",
+      "one test file at a time: this selection is half the workspace or more (a run of all took the Mac down on 2026-11-18)",
   ].filter(Boolean);
   const tail = notes.map((n) => `; ${n}`).join("");
   if (names.length === 0) {

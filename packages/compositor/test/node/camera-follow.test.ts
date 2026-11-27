@@ -204,7 +204,7 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
   });
 
-  // DEM-254 (the Sublime board, 2026-11-22): the drag's zoom lands between
+  // The Sublime board, 2026-11-22: the drag's zoom lands between
   // the card and the drop, 350 ms before the press. The follow chased the
   // hand to the card, then the press held the drag's aim and the camera
   // swung back: a bounce before the drag had begun.
@@ -452,7 +452,7 @@ describe("solveFollow and sampleTrack", () => {
     });
   });
 
-  // DEM-211 (Excalidraw, 2026-11-18): a drag dropped below its aim, the next
+  // Excalidraw, 2026-11-18: a drag dropped below its aim, the next
   // step's key (a toolbar, above) set off while the hand still rested at the
   // drop, and the hand then went up to it. The camera went up to the
   // toolbar, back down to the hand as it set off, then up again with it.

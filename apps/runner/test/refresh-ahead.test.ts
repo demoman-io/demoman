@@ -258,7 +258,7 @@ describe("a flow in .demoman/flows/", () => {
   });
 
   // Red: match `only` by keptFileName again — "place the orders" names
-  // place-the-orders.json, which no flow is in (DEM-68).
+  // place-the-orders.json, which no flow is in.
   it("is found by a name the library reads as the same, as the library matches", async () => {
     const { videos } = await refreshKept(
       { repoRoot: repo, library: "local", only: ["place the orders"] },

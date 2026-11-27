@@ -59,7 +59,7 @@ describe("createNetworkWatch", () => {
     expect(w.waiting()).toBe(false);
   });
 
-  // DEM-202: an answer landing in a pause is said only for a connection the
+  // An answer landing in a pause is said only for a connection the
   // recording followed. Red if data on any connection counts.
   it("says when data last arrived on a connection the recording followed", async () => {
     const { cdp, emit } = setup();
@@ -79,7 +79,7 @@ describe("createNetworkWatch", () => {
     expect(w.followedDataAt()).toBe(30);
   });
 
-  // DEM-206: a page's fetch heard before a look is still one since it, by
+  // A page's fetch heard before a look is still one since it, by
   // the page's clock. Red if real time alone decides.
   it("finds a page's own request by when the page sent it", async () => {
     const { cdp, emit } = setup();
@@ -303,7 +303,7 @@ describe("createNetworkWatch", () => {
     expect(w.labels()).toEqual(["GET /poll"]);
   });
 
-  // DEM-202: one rule for both the settle and the held clock.
+  // One rule for both the settle and the held clock.
   it("never counts a websocket, an EventSource or media", async () => {
     const { cdp, emit } = setup();
     const w = await createNetworkWatch(cdp, () => 0);
@@ -351,7 +351,7 @@ describe("createNetworkWatch", () => {
     expect(w.inFlight()).toBe(1);
   });
 
-  // DEM-203: an iframe's document is never the page loading.
+  // An iframe's document is never the page loading.
   it("says loading only for the top frame's document", async () => {
     const { cdp, emit } = setup();
     const w = await createNetworkWatch(cdp, () => 0);
@@ -491,7 +491,7 @@ describe("createNetworkWatch", () => {
     expect(await w.idle(page + 50, sleep)).toBe(true);
   });
 
-  // Review of DEM-202, finding 1: a request quiet past the cut-off that
+  // A request quiet past the cut-off that
   // speaks again is the request it was, opened when it first did. Red if
   // it is stamped anew and so falls inside a later wait's window.
   it("keeps a resumed connection's first opening", async () => {

@@ -42,14 +42,14 @@ export interface CaptureForIntentResult {
    * Which page this capture ran on, as `pageKey` names it, on every answer.
    * For telling pages apart in memory and never written: `pageUrl` and
    * `anchor.resolution.url` are scrubbed for disk, and two record ids on one
-   * route scrub alike (DEM-143).
+   * route scrub alike.
    */
   here: string;
   /**
    * Which document this capture ran in: `performance.timeOrigin`, the same
    * through `pushState`/`replaceState` and new on every page load. Lets the
    * run tell an address the app changed inside one document (part of the
-   * step) from a load of another one (DEM-61). Null when unknown.
+   * step) from a load of another one. Null when unknown.
    */
   document?: number | null;
   /**

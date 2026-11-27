@@ -1,5 +1,5 @@
 #!/bin/sh
-# Updating a CI install in one pull request (DEM-241), end to end, with this
+# Updating a CI install in one pull request, end to end, with this
 # checkout's build: a throwaway private GitHub repo whose default branch
 # already holds the workflow an older release wrote (0.9.8, rendered from
 # that release's own source) with a push trigger, the main route and the

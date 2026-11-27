@@ -14,7 +14,7 @@ afterEach(() => rm(home, { recursive: true, force: true }));
 
 describe("matchesFor", () => {
   // Red when a flow of unknown repo, recorded on another app, makes a new
-  // flow in a known repo a possible duplicate (DEM-51).
+  // flow in a known repo a possible duplicate.
   it("in a known repo, a flow of unknown repo is no match", async () => {
     const library = createLibrary(home);
     const store = createVideoStore(home, library);

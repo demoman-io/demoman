@@ -154,7 +154,7 @@ export function settlePaintExpression(
     // A page that began changing in that frame waits for quiet again, inside
     // the same budget: an entrance animation whose first frame was the
     // probe's last read as "never settled" after 0.6 s of 5, and the video
-    // then began before it (Chatbot, DEM-208).
+    // then began before it (Chatbot).
     while (tq !== null && !quietNow() && Date.now() - tq < QUIET_TIMEOUT) {
       await quietWait();
       await frame();

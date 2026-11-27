@@ -1,5 +1,5 @@
 // How long an old video's footage (its frames and previews) is kept before
-// expiry removes it (DEM-179): the user's `settings.json` holds one, expiry
+// expiry removes it: the user's `settings.json` holds one, expiry
 // reads it, `status` reports it, and the Studio offers them. One list, so the
 // runner's read, the Studio's check and the page's choices cannot drift.
 

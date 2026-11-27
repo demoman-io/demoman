@@ -44,7 +44,7 @@ const script = (more: Record<string, unknown> = {}) => ({
 
 /** A flow name no earlier run in this file has taken. The home is shared
  *  by every case and every retry of one: under a fixed name the retry was
- *  refused `nameTaken` by its own first attempt's flow (DEM-274). */
+ *  refused `nameTaken` by its own first attempt's flow. */
 let made = 0;
 const newFlow = (name: string) => `${name} (${++made})`;
 
@@ -237,7 +237,7 @@ describe("a flow's later runs read its scale", () => {
     expect(await recordedScale(phone)).toBe(3);
     // The picture, not the record: the phone's motion decodes at its width
     // times 3, evened for H.264 (`fitH264Frame`: 393 x 3 = 1179 is cropped
-    // to 1178, DEM-124). Turns red when the phone run is not launched again
+    // to 1178). Turns red when the phone run is not launched again
     // at 3 (browser.ts `rescale`): the span decodes at 786 (393 x 2).
     const phoneTake = phone.provenance.takeId as string;
     const store = createLibrary(home).frameStore(phoneTake);

@@ -79,7 +79,7 @@ describe("stopDetail", () => {
     );
   });
 
-  // DEM-102: said only on a page that has a closed shadow root.
+  // Said only on a page that has a closed shadow root.
   it("names a closed shadow root when the page has one and the target was not found", () => {
     const said =
       "this page has a closed shadow root, and a target inside one can't be reached during a run";
@@ -228,7 +228,7 @@ describe("prepareStage's word on the clock", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
-  // DEM-210: with held capture off it said nothing, so a session made while
+  // With held capture off it said nothing, so a session made while
   // it was on launched Chrome held (no smooth scroll) for a real-time run.
   it("asks a headless session for a real-clock browser when held capture is off", async () => {
     vi.stubEnv("DEMOMAN_HELD_CLOCK", "0");

@@ -764,7 +764,7 @@ export function createVideoStore(
   };
 
   // Under the lock: a merge landing between the read and the write would
-  // otherwise be undone, the take sent back to the merged-away flow (DEM-88).
+  // otherwise be undone, the take sent back to the merged-away flow.
   const markExpiredUnlocked: VideoStore["markExpired"] = async (
     takeId,
     at,

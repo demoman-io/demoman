@@ -161,7 +161,7 @@ describe("the kept file", () => {
     expect(refusal(withChange({ keptVersion: 3 }))).toContain("keptVersion");
   });
 
-  // DEM-105: a newer file is a reason to update, not a broken file.
+  // A newer file is a reason to update, not a broken file.
   it("tells a newer keptVersion to update Demoman, and only a newer one", () => {
     expect(refusal(withChange({ keptVersion: 3 }))).toContain(
       "keptVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
@@ -183,7 +183,7 @@ describe("the kept file", () => {
     },
   );
 
-  // DEM-111: refresh writes these paths from committed text. Red: drop the
+  // Refresh writes these paths from committed text. Red: drop the
   // outputPathRefusal calls in parseKept.
   it("refuses a path a refresh must never write: .git anywhere, .github, the wrong extension", () => {
     const output = (path: string) =>
@@ -218,13 +218,13 @@ describe("the kept file", () => {
     );
   });
 
-  // DEM-68: the flow's words as written, as the video's name is.
+  // The flow's words as written, as the video's name is.
   it("names the file from the flow's words as written", () => {
     expect(keptFileName("Add a task!")).toBe("add-a-task.json");
     expect(keptFileName("Filter invoices")).toBe("filter-invoices.json");
     expect(keptFileName("Search — results!")).toBe("search-results.json");
     expect(keptFileName("!!!")).toBe("video.json");
-    // DEM-132: any name is a file. Red: no cut — 260 ASCII characters and
+    // Any name is a file. Red: no cut — 260 ASCII characters and
     // 100 CJK characters (300 bytes) both pass 255.
     expect(keptFileName("a".repeat(260))).toBe(`${"a".repeat(206)}.json`);
     const cjk = keptFileName("請".repeat(100));

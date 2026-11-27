@@ -26,7 +26,7 @@ function host(): HTMLElement {
 }
 
 /** The knob, with every animation under `root` beside it: polled for
- *  rather than read once after `finished` (DEM-169: CI's macOS runner read
+ *  rather than read once after `finished` (CI's macOS runner read
  *  16 after the awaited animations had finished), so a red run says which
  *  animation was still where. */
 function knobAndAnimations(root: HTMLElement) {

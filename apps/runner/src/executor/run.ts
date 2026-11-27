@@ -99,9 +99,9 @@ export interface RunDeps {
   /** From the door: the version the script stated before it was raised. */
   versionRaisedFrom?: number;
   /** The instant the page's clock starts at, when refresh started the app
-   *  with it (DEM-79); never an MCP argument. */
+   *  with it; never an MCP argument. */
   pinnedNow?: string;
-  /** Read the last screen for dates (DEM-79): refresh's run only, the one
+  /** Read the last screen for dates: refresh's run only, the one
    *  reader; never an MCP argument. */
   readDates?: boolean;
   /** The size the flow's latest video was recorded at, for a script that
@@ -120,7 +120,7 @@ export interface RunDeps {
   flowScaleUnread?: string;
   /** The frame rate this run records at, decided once at the door
    *  (`resolveRecordingFrameRate`): the held clock and the page's frames
-   *  both read it, and the report names it (DEM-265). */
+   *  both read it, and the report names it. */
   recordingFrameRate: {
     value: RecordingFrameRate;
     from: RecordingFrameRateFrom;

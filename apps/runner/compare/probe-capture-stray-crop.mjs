@@ -1,4 +1,4 @@
-// Capture probe (2026-11-24, DEM-280): after a page capture, does Chrome's
+// Capture probe (2026-11-24): after a page capture, does Chrome's
 // screencast send frames of the page's top-left corner at the emulated DPR
 // (3), magnified, at the SAME size as a good frame on a 1x display?
 //   node apps/runner/compare/probe-capture-stray-crop.mjs [rounds=20] [scale=1]

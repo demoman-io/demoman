@@ -501,7 +501,7 @@ describe("the packed install", () => {
     }
   });
 
-  // DEM-218: setup from the packed install, the way a user gets it, against
+  // Setup from the packed install, the way a user gets it, against
   // every agent it supports, each a fake CLI (fake-agent.mjs) that logs what
   // it was asked and keeps what setup added. Setup has to connect all four
   // and write each one's file under HOME; run again, it has to take each

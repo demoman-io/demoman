@@ -237,7 +237,7 @@ describe("keep, a clean take", () => {
       await library.putJson(cleanTakeId, "report.json", {
         outcome: "complete",
         provenance: { takeId: cleanTakeId, bundleId: null, madeFrom: [] },
-        // DEM-227: a path on this machine, left out of the committed file.
+        // A path on this machine, left out of the committed file.
         still: { path: "/Users/someone/.demoman/takes/x/final-still.png" },
       });
 
@@ -366,7 +366,7 @@ describe("keep, a clean take", () => {
   );
 });
 
-describe("keep adds the version it was asked for (DEM-140)", () => {
+describe("keep adds the version it was asked for", () => {
   const mp4 = (path: string) => ({
     path,
     fileType: "mp4" as const,
@@ -873,10 +873,10 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     KEEP_MS,
   );
 
-  // DEM-68. Red: drop `name === trimmedName` from keep.ts's move — the add
+  // Red: drop `name === trimmedName` from keep.ts's move — the add
   // refuses with "already holds this flow" and the old files stay.
   it(
-    "an add moves a recipe under its pre-DEM-68 trimmed name, its receipt and screens with it",
+    "an add moves a recipe under its trimmed name from before small words were kept, its receipt and screens with it",
     async () => {
       await freshVideo("scene-trim-1", "Filter the invoices");
       const args = {
@@ -887,7 +887,8 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       const first = await keepVideo(args, deps());
       if (!first.ok) throw new Error(JSON.stringify(first));
       expect(first.file).toBe(".demoman/flows/filter-the-invoices.json");
-      // As an add before DEM-68 left it: every file under the trimmed name.
+      // As an add that trimmed small words left it: every file under the
+      // trimmed name.
       const r = ".demoman/receipts";
       await rename(
         join(repo, first.file),
@@ -929,12 +930,12 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     KEEP_MS,
   );
 
-  // Review of DEM-132. Red: drop `name === uncutName` from keep.ts's move —
-  // a "files" recipe saved under its whole 208-byte name before the 206-byte
-  // cut is refused with "already holds this flow".
+  // Red: drop `name === uncutName` from keep.ts's move — a "files" recipe saved
+  // under its whole 208-byte name before the 206-byte cut is refused with
+  // "already holds this flow".
   it("an add moves a files recipe saved under its uncut long name", async () => {
-    // "the" is a stop word, so its pre-DEM-68 trimmed name differs from its
-    // uncut slug: only the uncut rule can find it.
+    // "the" is a stop word, so its trimmed name from before small words were
+    // kept differs from its uncut slug: only the uncut rule can find it.
     const name = `the ${"b".repeat(204)}`;
     const slug = `the-${"b".repeat(204)}`;
     await freshVideo("scene-uncut-1", name);
@@ -951,7 +952,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     const uncut = `.demoman/flows/${slug}.json`;
     await rename(join(repo, first.file), join(repo, uncut));
     // Premise: only the uncut name is in the repo, it is past the cut, and
-    // it is not the trimmed name the DEM-68 rule already moves.
+    // it is not the trimmed name that rule already moves.
     expect(Buffer.byteLength(`${slug}.json`)).toBe(213);
     expect(`${slug}.json`).not.toBe(`${"b".repeat(204)}.json`);
     expect(await repoFiles()).toContain(uncut);
@@ -1689,7 +1690,7 @@ describe("keep's repo check", () => {
   });
 });
 
-// DEM-111: an agent names add's paths, so add never writes into .git or
+// An agent names add's paths, so add never writes into .git or
 // .github, only a name its type fits, and never over a file that is not
 // this flow's output or a Demoman video. Each is refused before rendering.
 describe("add's outputs replace only their own files", () => {

@@ -3,7 +3,7 @@ import { URL_SCRUB_PLACEHOLDER } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { pageKey, scrubSecrets, scrubUrl } from "../../src/index.js";
 
-// The base64url token from DEM-130: its `-` and `_` break every run the
+// The base64url token of a reset link: its `-` and `_` break every run the
 // secret sweeps look for, so the sweeps alone leave it whole.
 const TOKEN = "Zm9vYmFyYmF6cXV4Zm9v-YmFyYmF6cXV4Zm9vYmFy_enF1eA";
 

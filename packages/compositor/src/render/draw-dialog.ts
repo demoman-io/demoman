@@ -1,5 +1,5 @@
 /**
- * The dialog card (DEM-161): Chrome's own macOS JavaScript dialog, drawn
+ * The dialog card: Chrome's own macOS JavaScript dialog, drawn
  * because Chrome's is never in the captured frames. Option A of the mockup
  * (`docs/superpowers/specs/assets/2026-11-21-inputs/index.html`, `.chrome`
  * and `.b`): top centre of the page area, flush under its top edge, in page

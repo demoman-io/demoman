@@ -1,7 +1,7 @@
 // Old guide pages redirect to one page each (docs.json), and the browser keeps
 // the #section through the redirect, but Mintlify cannot redirect by anchor.
 // So an old section's anchor is sent on here, to the section that holds its
-// content now (DEM-96). Mintlify runs every .js file in the docs on every page;
+// content now. Mintlify runs every .js file in the docs on every page;
 // apps/cli/test/docs.test.ts runs this one against each old anchor.
 const OLD_ANCHORS = {
   // Was /guides/repo-flows ("Flows in the repo").

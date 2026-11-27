@@ -1208,7 +1208,7 @@ describe("exportQuality", () => {
   });
 });
 
-// DEM-180: where the Studio's exports, and an agent's without --out-dir, land.
+// Where the Studio's exports, and an agent's without --out-dir, land.
 describe("exportFolder", () => {
   const put = (exportFolder: unknown) =>
     h.call(pathFor("exportFolderPut"), {
@@ -1289,7 +1289,7 @@ describe("exportFolder", () => {
   });
 });
 
-// DEM-179: how long footage is kept, and what expiry last removed.
+// How long footage is kept, and what expiry last removed.
 describe("keepFootage and expiry", () => {
   it("reads 30 days when unset, saves a choice keeping other keys, refuses others", async () => {
     expect((await h.call(pathFor("keepFootageGet"))).json()).toEqual({
@@ -1403,7 +1403,7 @@ describe("reveal", () => {
     expect(h.revealed).toEqual([]);
   });
 
-  // Red if reveal stops asking what an add wrote (DEM-56: every Reveal on
+  // Red if reveal stops asking what an add wrote (every Reveal on
   // the add sheet was refused).
   it("reveal shows a file the add wrote", async () => {
     const file = join(home, "repo", ".demoman", "flows", "x.json");
@@ -1590,7 +1590,8 @@ describe("repoFolders", () => {
   const ask = (root: string) =>
     h.call(`${pathFor("repoFolders")}?root=${encodeURIComponent(root)}`);
 
-  // Red if the route lists dot folders, unsorted, or not at all (DEM-50's picker).
+  // Red if the route lists dot folders, unsorted, or not at all (the folder
+  // picker).
   it("folders lists the repo's folders without dot folders", async () => {
     for (const f of ["docs/demos/a", ".github/x", "src/b"]) {
       await mkdir(join(repo, f, ".."), { recursive: true });
@@ -1687,7 +1688,7 @@ describe("repoFolders", () => {
     expect(body.detail.length).toBeGreaterThan(0);
   });
 
-  // Red if a gone checkout says "spawn git ENOENT" again (DEM-76).
+  // Red if a gone checkout says "spawn git ENOENT" again.
   it("folders of a checkout that is gone says the folder is gone", async () => {
     const gone = join(repo, "gone");
     const r = await ask(gone);
@@ -1794,7 +1795,7 @@ describe("which flows can be added", () => {
     edits: { ...d.edits, trim: { tail: { actionId: "act-3", offsetMs: 0 } } },
   });
 
-  // Red if the listing runs the add check again (DEM-47: 3.6–5.6 s on a real
+  // Red if the listing runs the add check again (3.6–5.6 s on a real
   // library), or stops answering a flow with no repo.
   it("the listing answers only what needs no git: a keyless flow", async () => {
     const plain = await flow("Plain", "add-plain");

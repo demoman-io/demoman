@@ -31,7 +31,7 @@ export function pairSeams(
   // An idle between two motion runs that no frame of the film falls inside
   // shows nothing still: the film moves straight through it. On ubuntu the
   // journey opened with a 5 ms pointer sample, 12.5 ms of idle, then the
-  // rest of it, and neither seam that made qualified (DEM-190). An idle that
+  // rest of it, and neither seam that made qualified. An idle that
   // holds a frame tick, however short, stays an idle.
   const holdsNoFrame = (g: Run) =>
     Math.ceil(g.outStartMs / frameMs) * frameMs >= g.outEndMs;

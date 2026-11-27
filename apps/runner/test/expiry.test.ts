@@ -148,7 +148,7 @@ const exists = (path: string) =>
 /** A pid that is certainly not running: a child that has already exited. */
 const deadPid = () => spawnSync("true").pid as number;
 
-// DEM-179: how long footage is kept is the user's, and what goes is named.
+// How long footage is kept is the user's, and what goes is named.
 describe("expireOld under the Keep footage setting", () => {
   const setting = (value: unknown) =>
     writeFile(
@@ -274,7 +274,7 @@ describe("expireOld", () => {
             ),
           }
         : got;
-    // DEM-179: each removal is named, never only counted.
+    // Each removal is named, never only counted.
     expect(result).toEqual({
       ranAt: NOW.toISOString(),
       keepFootage: "30d",
@@ -461,7 +461,7 @@ describe("expireOld", () => {
     expect(await exists(join(tooNew.dir, "frames", "k0.jpg"))).toBe(true);
   });
 
-  it("works past a corrupt outputs.json, a corrupt lease and frames/ it cannot measure, keeps those, and says which (DEM-127)", async () => {
+  it("works past a corrupt outputs.json, a corrupt lease and frames/ it cannot measure, keeps those, and says which", async () => {
     // Red: let keptOf's outputs read, readLeases or sizeOf throw — the pass
     // fails at the first, and the later video never expires.
     const outputs = await newVideo("Outputs");
@@ -517,8 +517,8 @@ describe("expireOld", () => {
       expect(await exists(join(t.dir, "frames")), t.dir).toBe(false);
   });
 
-  // Review of DEM-127. Red: judge every flow — a corrupt outputs.json on a
-  // flow recorded today is said as an old video left alone, every hour.
+  // Red: judge every flow — a corrupt outputs.json on a flow recorded today is
+  // said as an old video left alone, every hour.
   it("does not judge, or say, a flow with nothing old to expire", async () => {
     const young = await newVideo("Young");
     const y = await take(young, "y-1", ago(2), { exportedAt: ago(1) });
@@ -540,8 +540,8 @@ describe("expireOld", () => {
     expect(said[0]).toMatch(new RegExp(`^flow ${old}:`));
   });
 
-  // Review of DEM-127. Red: no cap — every skip goes into status, the state
-  // file and a Studio row each.
+  // Red: no cap — every skip goes into status, the state file and a Studio row
+  // each.
   it("names at most SKIPPED_SAID skips, and counts the rest", async () => {
     const video = await newVideo("Many");
     const extra = 2;
@@ -571,8 +571,8 @@ describe("expireOld", () => {
     expect(skippedOf(await expiryStatus(lib))).toEqual(said);
   });
 
-  // Review of DEM-127. Red: read the list off a status only — a pass the
-  // lock put off would say nothing of its own skips.
+  // Red: read the list off a status only — a pass the lock put off would say
+  // nothing of its own skips.
   it("skippedOf reads any answer: a result, a pass the lock put off, a status from before 0.9.7, none", async () => {
     const video = await newVideo("Locked");
     const z = await take(video, "z-old", ago(45), { leasePid: deadPid() });
@@ -630,7 +630,7 @@ describe("expireOld", () => {
     const one = await newVideo("Checkout");
     const a = await take(one, "scene-a", ago(40));
     await take(one, "scene-b", ago(1));
-    // Left alone before the failure, and still said in it (review of DEM-127).
+    // Left alone before the failure, and still said in it.
     const z = await take(one, "scene-z", ago(45), { leasePid: deadPid() });
     await writeFile(join(z.dir, ".busy", "broken.json"), "{nope");
     // A removal that fails part-way: frames/k0.jpg can go, frames/spans/s.mp4 cannot.
@@ -645,7 +645,7 @@ describe("expireOld", () => {
       expect("failed" in result && result.failed).toContain(
         "left alone: video scene-z",
       );
-      // DEM-179: a pass that failed part-way still names what it removed.
+      // A pass that failed part-way still names what it removed.
       expect(await expiryStatus(lib)).toEqual({
         ...result,
         lastRemoval: expect.objectContaining({
@@ -828,8 +828,8 @@ describe("the executor", () => {
   });
 });
 
-// Review of DEM-179: what one pass names is never wiped out by another, and
-// a pass the lock cut short is not recorded as one that finished.
+// What one pass names is never wiped out by another, and a pass the lock cut
+// short is not recorded as one that finished.
 describe("expireOld's record of what it removed, under contention", () => {
   const statePath = () => join(home, "videos", ".expiry.json");
 

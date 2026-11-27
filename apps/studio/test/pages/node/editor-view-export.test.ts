@@ -460,7 +460,7 @@ describe("renderExport", () => {
     (root.querySelector("[data-show-in-folder]") as HTMLButtonElement).click();
     expect(handlers.onReveal).toHaveBeenCalledWith({ kind: "download", id: 7 });
     // Red: the editor's own formatter said "1536 MB" where the library says
-    // "1.5 GB" for the same file (DEM-95).
+    // "1.5 GB" for the same file.
     renderExport(
       root,
       {

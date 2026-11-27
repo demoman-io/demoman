@@ -359,7 +359,7 @@ const REPORT_CALL_SHARE = 0.8;
  *  once the client has initialized. A field `agentField` refuses (over
  *  `AGENT_NAME_MAX`, or nothing visible, like a lone zero-width space) is
  *  left out here rather than sent: `agentOf` refuses the whole agent for a
- *  bad title, which would cost a valid name (DEM-144). */
+ *  bad title, which would cost a valid name. */
 function agentName(server: McpServer): AgentName | null {
   const info = server.server.getClientVersion();
   const fits = (v: unknown): v is string => agentField(v) !== null;
@@ -473,7 +473,7 @@ export function registerTools(
   /** Every run and export this server started, by the id it handed out, with
    *  which it was: the page keeps one report per kind, and `report` must read
    *  the right one after a lost call. Of each kind (`keptKind`), the last
-   *  `JOBS_KEPT` finished, in the order they finished (DEM-106); one still
+   *  `JOBS_KEPT` finished, in the order they finished; one still
    *  going is never let go. The executor's job table counts its own calls
    *  still going too, so it never holds a run this map has let go. */
   const calls = new Map<

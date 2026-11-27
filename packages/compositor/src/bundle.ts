@@ -281,7 +281,7 @@ const DegradationSchema = z.object({
     // As `stepUnsettled`, but at least one condition was this machine's:
     // the first paint never came, the settle probe or the page screen
     // failed, requests could not be watched. Recording again may change
-    // it, so refresh does (DEM-55); the note names the step and the
+    // it, so refresh does; the note names the step and the
     // conditions, the page's beside the machine's.
     "stepSettleFailed",
     // A step's settle left out a request open since more than a request cap
@@ -309,7 +309,7 @@ const DegradationSchema = z.object({
     "answerUnpaced",
     // A held take only: a frame's read went unanswered on a page that
     // answered a second read, so the frame was taken again a frame of page
-    // time later (DEM-237). The note is the first read's sentence. This
+    // time later. The note is the first read's sentence. This
     // machine's, not the page's; the video is right, so refresh forgives it.
     "frameRetaken",
   ]),
@@ -358,15 +358,16 @@ export const FrameBundleSchema = z
      */
     clock: z.literal("held").optional(),
     /**
-     * A held replay only: the page time one captured frame moved (1000/30
-     * or 1000/60), written on every held take since DEM-265. Absent on a
-     * held take from before it, which was recorded at 1000/30.
+     * A held replay only: the page time one captured frame moved (1000/30 or
+     * 1000/60), written on every held take since the frame rate became
+     * recordable. Absent on a held take from before it, which was recorded at
+     * 1000/30.
      */
     heldFrameMs: z.number().positive().optional(),
     /**
      * A held replay only: the page time its opening played before the first
      * frame (the load, its settle, the sign-in check), which the take leaves
-     * out: its source time starts after it (DEM-186). Absent on a held take
+     * out: its source time starts after it. Absent on a held take
      * recorded before, whose source time includes it.
      */
     openingMs: z.number().nonnegative().optional(),

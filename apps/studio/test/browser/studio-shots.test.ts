@@ -260,7 +260,7 @@ function luminance(css: string): number {
 }
 
 /**
- * Every control wholly on screen as painted (DEM-215): shown (a box, not
+ * Every control wholly on screen as painted: shown (a box, not
  * hidden, drawn at full opacity, not disabled, not clipped away by a
  * scroller), and of those, each one whose centre another element is
  * painted over, and each pair whose boxes overlap (an ancestor and its
@@ -406,7 +406,7 @@ function controlsPainted(page: Page) {
  *  the near-black ground, clears at about 4.4:1. */
 const INK_CONTRAST = 3;
 
-/** A phone as Playwright emulates one (DEM-215): a context of its own on
+/** A phone as Playwright emulates one: a context of its own on
  *  `browser`, 390x844 at 3x, mobile, touch and a dark system, carrying the
  *  Studio's cookie, as the window's entry link would set it. */
 async function phonePage(browser: Browser, studio: Studio): Promise<Page> {
@@ -429,7 +429,7 @@ type Box = { x: number; y: number; width: number; height: number };
 /**
  * `selector`'s box once it reads the same twice running. Every render
  * replaces `#timeline` whole, so a box read once answers null for a node
- * just detached (DEM-152, DEM-251), and a late render that rescales the
+ * just detached, and a late render that rescales the
  * lane can move it between the read and the pointer.
  */
 async function steadyBox(page: Page, selector: string): Promise<Box> {
@@ -461,7 +461,7 @@ async function steadyBox(page: Page, selector: string): Promise<Box> {
 }
 
 /**
- * A timeline handle as the pointer finds it (DEM-215): its box, whether
+ * A timeline handle as the pointer finds it: its box, whether
  * the point at its middle is the handle and what covers it if not, its
  * opacity, and of its grab area (the bar and its ::after, 6px inward)
  * scanned a pixel across and two down, how many points land on it and the
@@ -984,7 +984,7 @@ describe("the Studio's screenshot set", () => {
       const ticked = join(SHOTS, "editor-export-files-1440x900-dark.png");
       await page.screenshot({ path: ticked });
       shots.push(ticked);
-      // DEM-180: Settings → Export, with the Export folder under the
+      // Settings → Export, with the Export folder under the
       // quality. Red if the field is not painted, shows no folder, or its
       // label or the --out-dir line is missing.
       await openPage(page, studio, "kits", editorTake, new Set());
@@ -1043,7 +1043,7 @@ describe("the Studio's screenshot set", () => {
       await sizeWindow(context, page, 1440, 900);
       await openPage(page, studio, "editor", editorTake, thumbs);
       const zoomLane = '[data-track="zoom"]';
-      // Waited for, not read once (DEM-152, `steadyBox`). A slow runner
+      // Waited for, not read once (`steadyBox`). A slow runner
       // moved the editor's late renders past `#preview`'s paint.
       let first: Box;
       try {
@@ -2685,7 +2685,7 @@ describe("the Studio's screenshot set", () => {
       // `replaceChildren`), and a rebuilt edge reads opacity 0 until Chrome
       // re-applies :hover under the resting pointer and the 120 ms fade
       // runs. On the macOS runner one landed between a read that matched
-      // and the next (DEM-212), so the rebuilds are counted as evidence.
+      // and the next, so the rebuilds are counted as evidence.
       await page.evaluate(() => {
         const w = window as unknown as { __rebuilds: number };
         w.__rebuilds = 0;
@@ -4962,7 +4962,7 @@ describe("the Studio's screenshot set", () => {
   // inside it; the home is then made read-only, so the studio's own write
   // is what refuses. Two shots, Details closed and open, each asserted on its paint,
   // then the button is pressed and has to open the take.
-  // DEM-179, the author's placement 1: the Storage figure opens a small
+  // The author's placement 1: the Storage figure opens a small
   // panel with Keep footage and what the last cleanup removed (variant A).
   it.runIf(process.platform === "darwin")(
     "shoots the Storage panel: Keep footage and the videos the last cleanup removed, closed and opened, each asserted on its paint",
@@ -5096,7 +5096,7 @@ describe("the Studio's screenshot set", () => {
         path: join(SHOTS, "library-storage-panel-forever-1440x900-dark.png"),
       });
 
-      // Review of DEM-179: the last cleanup ran under Forever and removed
+      // Review of Keep footage: the last cleanup ran under Forever and removed
       // nothing; picking 30 days must not say a 30-day check found nothing.
       await writeFile(
         join(home, "videos", ".expiry.json"),
@@ -5314,7 +5314,7 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A phone, emulated as Playwright makes one (DEM-215; CDP overrides on
+  // A phone, emulated as Playwright makes one (CDP overrides on
   // the app window until then): a context of its own, 390x844 at 3x,
   // mobile, touch, and a dark system, on the Studio's cookie. Not a resized
   // window, which still hovers: the row actions it hides at rest were drawn
@@ -5359,7 +5359,7 @@ describe("the Studio's screenshot set", () => {
             dpr: devicePixelRatio,
             hoverNone: matchMedia("(hover: none)").matches,
             coarse: matchMedia("(pointer: coarse)").matches,
-            // Evidence only (DEM-247): on a starved macOS runner the editor
+            // Evidence only: on a starved macOS runner the editor
             // once read hover and a fine pointer at the phone's size. These
             // say whether touch emulation itself was lost on that page or
             // only the media features, and which page it was.
@@ -5675,7 +5675,7 @@ describe("the Studio's screenshot set", () => {
         // A step's tick is drawn on the clip's piece, a button over a
         // button, at every width (the split case shoots it at 1280); and a
         // tick at the clip's tail sits under its trim handle, which is on
-        // top so the whole handle grabs (DEM-232).
+        // top so the whole handle grabs.
         await shoot(
           "editor",
           true,
@@ -5701,14 +5701,14 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // Escape and a list row's ⋯ menu (DEM-215; "Escape closing only one
+  // Escape and a list row's ⋯ menu ("Escape closing only one
   // panel"): the menu, opened by a tap on a phone, is the innermost thing
   // open, so one Escape should take it off the painted page.
   // It once moved focus to the row and left the menu open: list-keys.ts
   // preventDefaults Escape in a cell, which cancelled the popover's light
-  // dismiss (DEM-231).
+  // dismiss.
   it.runIf(process.platform === "darwin")(
-    "closes a list row's ⋯ menu with one Escape on a phone (DEM-231), asserted on its paint",
+    "closes a list row's ⋯ menu with one Escape on a phone, asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-menu-esc-"));
       homes.push(home);
@@ -5786,7 +5786,7 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // The editor under a real pointer and keys (DEM-215): what the author
+  // The editor under a real pointer and keys: what the author
   // caught by eye, each by Playwright's mouse and keyboard (never a
   // synthetic event, which cannot lose a pointer capture it never took),
   // each asserted on the painted result. On the take with a cut, split
@@ -5829,9 +5829,9 @@ describe("the Studio's screenshot set", () => {
       const shots: string[] = [];
       await sizeWindow(context, page, 1280, 720);
       await openPage(page, studio, "editor", cutTake.id, new Set());
-      /** Shoots `name` between two reads that both pass `check`, so the
-       *  shot is a picture of that state; a change between them reads and
-       *  shoots again (DEM-212's pattern). */
+      /** Shoots `name` between two reads that both pass `check`, so the shot is
+       *  a picture of that state; a change between them reads and shoots again
+       *  (the pattern of "shoots split pieces, a join's dot and its card"). */
       const shootWhile = async (
         name: string,
         check: () => Promise<string | null>,
@@ -5869,9 +5869,10 @@ describe("the Studio's screenshot set", () => {
         );
       type Pieces = Awaited<ReturnType<typeof pieces>>;
 
-      // The drag on the take's one piece, before any edit (a drag through
-      // an edit's refresh is DEM-234's case, after the next one). The
-      // piece has an end handle where its tail was removed.
+      // The drag on the take's one piece, before any edit (a drag through an
+      // edit's refresh is "keeps dragging a piece's end handle through a
+      // folder refresh", after the next one). The piece has an end handle
+      // where its tail was removed.
       // Waited for: the preview paints before the timeline draws its piece.
       const only = await vi.waitFor(
         async () => {
@@ -5888,7 +5889,8 @@ describe("the Studio's screenshot set", () => {
       const edge = '.piece-wrap:only-child > [data-edge="end"]';
       // Waited for whole: the handle shown, its 120 ms fade in run to the
       // end, and a point of it the pointer lands on: the one nearest its
-      // middle (DEM-232's case, after this one, asserts the middle).
+      // middle ("grabs the last piece's end handle at its middle", after this
+      // one, asserts the middle).
       const found = await vi
         .waitFor(
           async () => {
@@ -6240,16 +6242,14 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A piece's handle and where it is grabbed (DEM-215, "handles that could
-  // not be grabbed"): on the take with a cut at its end, the one piece's
-  // end handle, shown under the pointer, should be the thing at its own
-  // middle.
-  // A removed step's tick (data-cut) was drawn over it, covering its
-  // middle 24px, so only its top and bottom few px grabbed (DEM-232). Ruled
-  // 2026-11-19: the handle is on top, and the tick is still reached
-  // outside it.
+  // A piece's handle and where it is grabbed ("handles that could not be
+  // grabbed"): on the take with a cut at its end, the one piece's end handle,
+  // shown under the pointer, should be the thing at its own middle.
+  // A removed step's tick (data-cut) was drawn over it, covering its middle
+  // 24px, so only its top and bottom few px grabbed. Ruled 2026-11-19: the
+  // handle is on top, and the tick is still reached outside it.
   it.runIf(process.platform === "darwin")(
-    "grabs the last piece's end handle at its middle over a removed step's tick, which is still reached beside it (DEM-232), asserted on its paint",
+    "grabs the last piece's end handle at its middle over a removed step's tick, which is still reached beside it, asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-handle-"));
       homes.push(home);
@@ -6372,14 +6372,14 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A drag right after an edit (DEM-234): the edit's save comes back
+  // A drag right after an edit: the edit's save comes back
   // through the folder watch and rebuilds `#timeline`, and one landing
   // mid-drag replaced the handle in the hand, so the one drawn stopped
   // following the pointer (3 runs of 5). The refresh is made to land
   // mid-drag here, by a file the watch hears, so a run cannot pass by its
   // timing.
   it.runIf(process.platform === "darwin")(
-    "keeps dragging a piece's end handle through a folder refresh right after two splits (DEM-234), by a real pointer, asserted on its paint",
+    "keeps dragging a piece's end handle through a folder refresh right after two splits, by a real pointer, asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-drag-refresh-"));
       homes.push(home);
@@ -6417,7 +6417,7 @@ describe("the Studio's screenshot set", () => {
           );
         }
         const edge = '.piece-wrap:last-child > [data-edge="end"]';
-        // Waited for, not read once (DEM-251): a render landing after the
+        // Waited for, not read once: a render landing after the
         // count above detaches the piece it counted.
         const last = await steadyBox(page, ".piece-wrap:last-child > .piece");
         await page.mouse.move(last.x + last.width / 2, last.y + 4);
@@ -6591,15 +6591,15 @@ describe("the Studio's screenshot set", () => {
   };
 
   // A list row ticked by the mouse on a scrolled page should stay where
-  // it was in the window, and again when it is unticked (DEM-215, "the page
+  // it was in the window, and again when it is unticked ("the page
   // jumping when a row is selected"; the cards' form is
   // studio-bulk-scroll.test.ts). It once moved 64px down the window: the
-  // selection bar opened above it and the scroll did not follow (DEM-233).
+  // selection bar opened above it and the scroll did not follow.
   // At the foot and halfway: at the foot the scroll is at its end, which
   // hides a scroll that goes too far; halfway it has room either way.
   for (const at of ["foot", "middle"] as const)
     it.runIf(process.platform === "darwin")(
-      `keeps a list row ticked and unticked at the ${at} of a scrolled page where it was (DEM-233), by a real pointer, asserted on its paint`,
+      `keeps a list row ticked and unticked at the ${at} of a scrolled page where it was, by a real pointer, asserted on its paint`,
       async () => {
         const { studio, page, foot } = await listAtFoot(
           `studio-shots-tick-${at}-`,
@@ -6754,7 +6754,7 @@ describe("the Studio's screenshot set", () => {
     );
 
   // A list row's own Delete, pressed by the mouse, says so in a toast that
-  // leaves the painted page by itself in its time (DEM-215, "a delete toast
+  // leaves the painted page by itself in its time ("a delete toast
   // that never cleared").
   it.runIf(process.platform === "darwin")(
     "deletes a list row by its own Delete and the toast goes by itself, by a real pointer, asserted on its paint",
@@ -6986,7 +6986,7 @@ describe("the Studio's screenshot set", () => {
       });
       const trimFlow = await flow(TRIM_NAME, trimTake, checkout);
       // Recorded with no repo: the one answer the listing still gives
-      // (DEM-47), a disabled Add with its reason.
+      // (the sheet checks the rest), a disabled Add with its reason.
       const LOOSE_NAME = "Sign up";
       const looseTake = (PLAIN[1] as PlainTake).id;
       const loose = await store.create({
@@ -7019,12 +7019,12 @@ describe("the Studio's screenshot set", () => {
       const PR = "https://github.com/acme/web/pull/7";
       /** The repo's live CI state: set up once the setup run passed. */
       let ciKind: "notSetUp" | "setUp" = "notSetUp";
-      /** DEM-269: set up by an older release, once the case gets there. */
+      /** Set up by an older release, once the case gets there. */
       let ciUpdate: CiUpdateWire | undefined;
       const LATER_PR = "https://github.com/acme/web/pull/8";
-      /** Review of DEM-269: the next check stops with this, once. */
+      /** Review of Update CI: the next check stops with this, once. */
       let stopNext: { reason: string; detail: string } | null = null;
-      /** Review of DEM-269: the next check waits for this. */
+      /** Review of Update CI: the next check waits for this. */
       let planHeld: Promise<void> | null = null;
       const repoCi: StudioCi = {
         state: async () =>
@@ -7122,7 +7122,7 @@ describe("the Studio's screenshot set", () => {
       const takes = await api(studio, pathFor("takes"));
       expect(takes.status, takes.text).toBe(200);
       const answer = takes.json() as TakesAnswer;
-      // The listing checks nothing it needs git for (DEM-47): only the flow
+      // The listing checks nothing it needs git for: only the flow
       // with no repo has an answer; the sheet asks for the others.
       expect(okFlow in answer.addable, "premise: no listing answer").toBe(
         false,
@@ -7330,7 +7330,7 @@ describe("the Studio's screenshot set", () => {
         await shoot(`library-add-to-repo-list-${name}`, `${at} ${name}`);
       }
       // ---- the editor's Repo section: an unchecked flow offers Add and the
-      // sheet checks, as the library's does (DEM-47)
+      // sheet checks, as the library's does
       at = "editor, a flow with a trim";
       await page.goto(`${studio.origin}/editor.html?scene=${trimTake}`);
       const section = '[data-repo-section] [data-action="repo-add"]';
@@ -7390,7 +7390,7 @@ describe("the Studio's screenshot set", () => {
       ).toBe("docs/demos");
       expect(
         await page.locator("[data-repo-name]").inputValue(),
-        "the file name keeps the flow's words (DEM-50)",
+        "the file name keeps the flow's words",
       ).toBe("change-a-setting");
       expect(
         await page.locator("[data-repo-root]").innerText(),
@@ -7429,7 +7429,7 @@ describe("the Studio's screenshot set", () => {
         });
       await page.locator("[data-ci-check]").waitFor();
       await settle(page, "added");
-      // Each written file says what it is, with its Reveal (DEM-49, DEM-56).
+      // Each written file says what it is, with its Reveal.
       const labels = await page
         .locator("[data-repo-written] dt")
         .allInnerTexts();
@@ -7442,13 +7442,13 @@ describe("the Studio's screenshot set", () => {
           .count(),
         "a Reveal for each written file",
       ).toBe(labels.length);
-      // DEM-49: the terminal's notes are not the sheet's.
+      // The terminal's notes are not the sheet's.
       const sheetText = (await page.locator("dialog[open]").innerText()) ?? "";
       expect(sheetText).not.toContain("added on macOS");
       expect(sheetText).not.toMatch(/screens settled/);
       await dialogPaint("the last step");
       await shoot("add-sheet-last-step", "the last step");
-      // Review of DEM-269: a stopped check keeps its way out. Red if Check
+      // Review of Update CI: a stopped check keeps its way out. Red if Check
       // is the add sheet's only button after a stop.
       stopNext = {
         reason: "checkFailed",
@@ -7483,7 +7483,7 @@ describe("the Studio's screenshot set", () => {
         { timeout: PAINT_MS, interval: 100 },
       );
       await dialogPaint("the watch");
-      // DEM-80: the held watch is a wait, and says so with a turning
+      // The held watch is a wait, and says so with a turning
       // spinner. Red without ci-steps.ts's `waiting` on "working".
       expect(
         await page.evaluate(() => {
@@ -7519,7 +7519,7 @@ describe("the Studio's screenshot set", () => {
       ).toBe(1);
       await shoot("add-sheet-ci-done", "the verdict");
       await page.locator("[data-repo-done], [data-ci-not-now]").first().click();
-      // ---- Set up CI beside the project's heading (DEM-52)
+      // ---- Set up CI beside the project's heading
       at = "Set up CI";
       await page.goto(`${studio.origin}/?project=${encodeURIComponent(KEY)}`);
       const setUp = page.locator("[data-ci-setup]");
@@ -7564,7 +7564,7 @@ describe("the Studio's screenshot set", () => {
         glyph: 16,
       });
       await shoot("library-ci-setup", at);
-      // DEM-77: a long project name gives way to the button — wide, and at
+      // A long project name gives way to the button — wide, and at
       // 900x800, where the rail folds into the title's switcher. Red at 900
       // with the button laid over the band (`position: absolute`).
       const LONG =
@@ -7665,17 +7665,17 @@ describe("the Studio's screenshot set", () => {
         await page
           .locator("dialog[open] .confirm-actions button")
           .allInnerTexts(),
-        `${at}: Done alone once the pull request is open (DEM-59)`,
+        `${at}: Done alone once the pull request is open`,
       ).toEqual(["Done"]);
       await dialogPaint("finished");
       await shoot("add-sheet-finished", "finished");
       await page.locator("dialog[open] [data-repo-done]").click();
-      // In repo at once, from the add's answer (DEM-59).
+      // In repo at once, from the add's answer.
       await page
         .locator("[data-list] [role=row] [data-kept]")
         .first()
         .waitFor({ timeout: 2_000 });
-      // ---- DEM-269: set up by an older release: Update CI beside the
+      // ---- Set up by an older release: Update CI beside the
       // heading, and its sheet after the check. Red if the heading offers
       // nothing, the sheet does not say it updates, its check is not named,
       // or the choices do not mark how it runs now.
@@ -7746,7 +7746,7 @@ describe("the Studio's screenshot set", () => {
       await dialogPaint("the update sheet");
       await shoot("ci-sheet-update", "the update sheet");
       await page.locator("dialog[open] [data-ci-done]").click();
-      // Review of DEM-269: an update's check running while its sheet is
+      // Review of Update CI: an update's check running while its sheet is
       // left and opened again is still an update. Red if the title falls
       // back to "Set up CI".
       let letGo: () => void = () => {};

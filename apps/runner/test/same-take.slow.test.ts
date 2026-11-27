@@ -467,7 +467,7 @@ describe("one script recorded fast and slowed", () => {
     }
   });
 
-  // DEM-273: a planned arrive plays at its length from where the cursor set
+  // A planned arrive plays at its length from where the cursor set
   // off, whatever the machine took to start the journey. Red if the arrive
   // is counted from the approach marker again (timeline.ts `plannedIdleOf`):
   // the slowed take's latency then takes its share (CI's macOS: 114 of 300).

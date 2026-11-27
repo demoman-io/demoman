@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The keycap glyph sheet (DEM-154): each vendored Lucide outline in
+ * The keycap glyph sheet: each vendored Lucide outline in
  * `src/render/key-glyphs.ts`, from the BUILT `dist`, beside Lucide's own SVG
  * from `lucide-static@LUCIDE_VERSION`, both at 96px and Lucide's stroke. A
  * row whose two columns differ is a wrong path. ⌦ is shown mirrored in both

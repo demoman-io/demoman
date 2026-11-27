@@ -3,7 +3,7 @@ name: Export variants
 # What each look costs a CPU-drawn export on a runner without a GPU
 # (apps/runner/compare/export-variants.mjs): one take on the public fixture
 # app, exported as recorded, without the camera blur, without padding (so
-# without the frame's shadows), and so on (DEM-45). Manual, or on a perf/
+# without the frame's shadows), and so on. Manual, or on a perf/
 # branch that touches it: workflow_dispatch reaches only workflows on main.
 
 on:

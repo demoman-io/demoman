@@ -180,7 +180,7 @@ describe("the Export quality setting", () => {
     expect(sent).toEqual({ exportQuality: "full" });
   });
 
-  // DEM-180. Red if the default or the reason is dropped on the way, or the
+  // Red if the default or the reason is dropped on the way, or the
   // write sends anything but { exportFolder }, null included.
   it("exportFolder.read and write call the two routes", async () => {
     const platform = createPlatform();
@@ -205,7 +205,7 @@ describe("the Export quality setting", () => {
       defaultFolder: "/Users/me/Downloads",
       unreadable: "x is not JSON",
     });
-    // The folder the Studio saved, not the one typed (review of DEM-180).
+    // The folder the Studio saved, not the one typed.
     expect(await platform.exportFolder?.write("/films")).toEqual({
       saved: null,
       replaced: "it was replaced",

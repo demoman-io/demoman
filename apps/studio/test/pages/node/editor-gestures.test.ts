@@ -209,7 +209,7 @@ describe("addZoom", () => {
     expect(cmd).not.toHaveProperty("note");
   });
 
-  it("starts at the level the context carries, not the camera's default (DEM-242)", () => {
+  it("starts at the level the context carries, not the camera's default", () => {
     const s = setup();
     const t2 = s.model.clip.ticks[1];
     if (!t2) throw new Error("fixture");

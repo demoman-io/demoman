@@ -89,9 +89,9 @@ export interface GestureContext {
 
 /**
  * The level a zoom the author adds starts at: the take's recorded
- * `zoomDefault` (what its stills back, DEM-164), else the camera's default.
+ * `zoomDefault` (what its stills back), else the camera's default.
  * The take decided it when it was saved; both ways of adding a zoom read
- * that record rather than deciding again (DEM-242).
+ * that record rather than deciding again.
  */
 export function addedZoomScale(
   scene: Pick<SceneDocument, "zoomDefault">,

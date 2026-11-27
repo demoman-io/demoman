@@ -61,7 +61,7 @@ export const ROUTES = {
   exportFolderPut: { method: "PUT", path: "/api/settings/export-folder" },
   keepFootageGet: { method: "GET", path: "/api/settings/keep-footage" },
   keepFootagePut: { method: "PUT", path: "/api/settings/keep-footage" },
-  /** What expiry last removed, and when it last ran (DEM-179). */
+  /** What expiry last removed, and when it last ran. */
   expiryGet: { method: "GET", path: "/api/expiry" },
   libraryViewGet: { method: "GET", path: "/api/settings/library-view" },
   libraryViewPut: { method: "PUT", path: "/api/settings/library-view" },
@@ -336,7 +336,7 @@ export interface TakesAnswer {
   /** The add check's half that needs no git: an entry only for a flow
    *  recorded with no repo ("not in a repo"). Any other flow not in the
    *  repo has none, and the page asks `repoAddable` for the one it adds
-   *  (DEM-47: the whole check per flow cost seconds a listing). */
+   *  (the whole check per flow cost seconds a listing). */
   addable: Record<string, Addable>;
   /** Each take that is a version of a video: which, its number, and
    *  whether its recording expired (its frames were removed). A take not
@@ -454,7 +454,7 @@ export interface ExportQualityAnswer {
   replaced?: string;
 }
 
-/** The user's Export folder (DEM-180): where the Studio's exports, and an
+/** The user's Export folder: where the Studio's exports, and an
  *  agent's not started with `--out-dir`, are saved. `exportFolder` is null
  *  when none is chosen (then `defaultFolder`, ~/Downloads), or when the file
  *  could not be used, in which case `unreadable` says why. A PUT takes an
@@ -468,7 +468,7 @@ export interface ExportFolderAnswer {
   replaced?: string;
 }
 
-/** How long old footage is kept (DEM-179): `30d` when nothing is set. With
+/** How long old footage is kept: `30d` when nothing is set. With
  *  `unreadable` the setting cannot be used, `keepFootage` is null, and
  *  expiry removes nothing until it can. */
 export interface KeepFootageAnswer {
@@ -487,7 +487,7 @@ export interface RemovedFootage {
   bytes: number;
 }
 
-/** What expiry last did (DEM-179). `lastRemoval` is the last pass that
+/** What expiry last did. `lastRemoval` is the last pass that
  *  removed anything, kept across the empty passes after it; null when none
  *  ever has. `lastRanAt` is null when no pass has run. `problem` says why
  *  the last pass failed, or why its record will not read: never read as
@@ -789,7 +789,7 @@ export interface CiAppliedWire {
   lines: string[];
 }
 export type CiAnswerWire = CiPlannedWire | CiAppliedWire | CiStopWire;
-/** CI is set up with a workflow an older Demoman wrote (DEM-269): who wrote
+/** CI is set up with a workflow an older Demoman wrote: who wrote
  *  it, this release, and how it runs now, which an update keeps unless the
  *  person picks otherwise. */
 export interface CiUpdateWire {

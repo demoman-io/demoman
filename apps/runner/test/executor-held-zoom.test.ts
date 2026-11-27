@@ -35,7 +35,7 @@ const was = {
 };
 
 /**
- * DEM-164: a held take records its stills at the flow's scale, here 2x as
+ * A held take records its stills at the flow's scale, here 2x as
  * the CLI records (`standInDisplay`, `DEMOMAN_DISPLAY`), which back less than
  * the camera's 1.8x at the default export. The take is saved with the zoom
  * its stills back, and says so.

@@ -150,8 +150,8 @@ export function createJobTable(kept: number = JOBS_KEPT) {
       evict();
     },
     /** Gives `job` its answer and moves it to the end, so a long call is
-     *  not let go first for having started first (DEM-141, as the MCP's
-     *  list since DEM-106). A job set under no id is only answered. */
+     *  not let go first for having started first (as the MCP's
+     *  list does). A job set under no id is only answered. */
     settle(id: string | null, job: Job, final: Outcome): Outcome {
       job.final = final;
       if (id !== null && jobs.get(id) === job) {
@@ -199,7 +199,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       : { updateCommand: options.updateCommand },
   );
   const videos = createVideoStore(home, library, { log });
-  // Absent: each export reads the user's Export folder (DEM-180).
+  // Absent: each export reads the user's Export folder.
   const outDir = options.outDir;
   const sessionStore = createSessionStore(home);
   const sessions = createSessionLoader(sessionStore, log);
@@ -248,8 +248,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     if ("kind" in where) return where;
     return chooseAccount(await findAccounts(where.from), target, named);
   }
-  /** The frame rate a run or probe records at, decided once at its door
-   *  (DEM-265): a value that is not 30 or 60 refuses it, naming the file; a
+  /** The frame rate a run or probe records at, decided once at its door:
+   *  a value that is not 30 or 60 refuses it, naming the file; a
    *  file that will not read records at the default, carrying why. */
   async function frameRateFor(
     from: string,
@@ -722,7 +722,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             "video",
           );
         }
-        // DEM-108: joining from another repo's checkout can be meant (one
+        // Joining from another repo's checkout can be meant (one
         // repo serves another's app), so it joins, and the report says so.
         // Both resolved (`sharesRepo`): an adopted kept flow holds the raw key.
         const here = await videos.resolve(videoRepo);
@@ -1111,7 +1111,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(checked.versionRaisedFrom === undefined
               ? {}
               : { versionRaisedFrom: checked.versionRaisedFrom }),
-            // Refresh's own run only (DEM-79): not an MCP argument.
+            // Refresh's own run only: not an MCP argument.
             ...(typeof args.pinnedNow === "string"
               ? { pinnedNow: args.pinnedNow }
               : {}),

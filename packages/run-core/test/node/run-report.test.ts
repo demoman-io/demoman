@@ -400,8 +400,8 @@ describe("RunReport", () => {
     expect(report.stopped?.at.scriptStep).toBeNull();
   });
 
-  // A report.json written before DEM-61 has no script step: it reads as it
-  // did, never "script step undefined".
+  // A report.json written before the script step was recorded has no script
+  // step: it reads as it did, never "script step undefined".
   it("a report from before the script-step numbering reads as it did", () => {
     const report = buildRunReport({
       ...complete(),
@@ -452,7 +452,7 @@ describe("RunReport", () => {
     expect(verdictLine(report)).toMatch(/^Stopped at script step 1 of 3: /);
   });
 
-  // DEM-61 (Helpdesk, 2026-11-06): "Stopped after step 2 of 4" counted the
+  // Helpdesk, 2026-11-06: "Stopped after step 2 of 4" counted the
   // actions that succeeded, while the label in the same answer said "script
   // step 4". One numbering: the script's own steps, pauses counted.
   it("a stop names the script step it stopped on, counting pauses", () => {
@@ -575,7 +575,7 @@ describe("RunReport", () => {
     expect(line.split("surfaceMismatch")).toHaveLength(2);
   });
 
-  // DEM-278: a visible window with its screen locked recorded no motion and
+  // A visible window with its screen locked recorded no motion and
   // read "Complete: the video matches every step", word for word like a run
   // that moved. Red if such a run's line does not say it is stills only, or
   // if a held run, one that names no clock (it stopped before its stage), a
@@ -1140,9 +1140,9 @@ describe("RunReport", () => {
   });
 });
 
-// DEM-108. Red if verdictLine drops `videoVersion.otherRepo`: the run page,
-// the PR line and the agent's summary would not say the flow is another
-// repo's.
+// A run joined from another repo's checkout. Red if verdictLine drops
+// `videoVersion.otherRepo`: the run page, the PR line and the agent's summary
+// would not say the flow is another repo's.
 describe("a flow joined from another repo, on the line", () => {
   it("says so after the run's own clause, and says nothing when it is not", () => {
     const clean = buildRunReport(complete());
@@ -1327,7 +1327,7 @@ describe("prVerdict", () => {
         ...complete(),
         walk: { ...completeWalk(3), reason: "anchorNotRendered", completed: 1 },
       }),
-      // The record of the action it stopped on is script step 2 (DEM-61).
+      // The record of the action it stopped on is script step 2.
       "stopped at script step 2 of 9",
     ],
     [
@@ -1390,8 +1390,8 @@ describe("prVerdict", () => {
       "matches all 3 steps",
     ],
     [
-      // A confirm the run accepted by default is said under the video
-      // (DEM-161): the video's clause stays clean.
+      // A confirm the run accepted by default is said under the video:
+      // the video's clause stays clean.
       "a dialog answered by default",
       buildRunReport({
         ...complete(),
@@ -1585,7 +1585,7 @@ describe("a typed field that does not hold its text", () => {
     expect(report.verdict.kind).toBe("matches");
   });
 
-  // DEM-173: a `type` whose last key was never seen painted is said on the
+  // A `type` whose last key was never seen painted is said on the
   // step, so the report does not read as a step whose value showed.
   it("carries lastKeyPaint onto the step", () => {
     const args = complete();

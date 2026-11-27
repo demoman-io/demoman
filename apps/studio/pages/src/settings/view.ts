@@ -28,7 +28,7 @@ export interface SettingsActions {
   /** The user's Pull requests default. */
   setPullRequests(value: PullRequestsChoice): void;
   setExportQuality(value: ExportQualityChoice): void;
-  /** A full path, `~/…`, or null for the default (DEM-180). */
+  /** A full path, `~/…`, or null for the default. */
   setExportFolder(folder: string | null): void;
   /** Commits one Brand kit control. */
   setBrandKit(patch: BrandingPatch): void;
@@ -260,7 +260,7 @@ export function renderSettings(
   root.replaceChildren(layout);
 }
 
-/** Where exports land (DEM-180): the folder, typed, saved on `change` as
+/** Where exports land: the folder, typed, saved on `change` as
  *  the library's budget is. Unreadable: the field is empty and disabled, and
  *  the section's notice says why. Emptied, or set to the default, it saves
  *  null. */

@@ -660,7 +660,7 @@ describe("the list's look", () => {
   });
 
   // Red: the name's `max-width: 100%` beside a tag, which clips the tag
-  // to nothing (DEM-34).
+  // to nothing.
   it("at 720px a name as wide as its cell leaves its tag's glyph showing", async () => {
     await page.viewport(720, 900);
     mount();
@@ -1217,7 +1217,7 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
   });
 
   // Red: no glyph after the sorted label, or hover painted in the sorted
-  // ink (DEM-32).
+  // ink.
   it("the sorted heading shows its direction, and hover is not the sorted ink", async () => {
     mount();
     const sortedHead = (): HTMLElement =>

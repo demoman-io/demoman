@@ -74,7 +74,7 @@ export async function localValues(
   tooShort: string[];
   /** Why secrets.env was not read (value-free), when it was refused. */
   unread?: string;
-  /** Read, but other users can read it too (DEM-104): the chmod to run. */
+  /** Read, but other users can read it too: the chmod to run. */
   exposed?: string;
 }> {
   const values: SecretValues = new Map();

@@ -15,7 +15,7 @@ export type Kept = string | { name: string; bytes: Uint8Array };
 
 /**
  * Keeps `files` if the running test fails, as `<label>-<name>` in
- * FAILURES_DIR, so a red CI run arrives with the film it read. DEM-272: a
+ * FAILURES_DIR, so a red CI run arrives with the film it read. A
  * picture failure only the MP4 could explain arrived with none. Call it in
  * the test, once the files exist; `files` is read when the test fails. A
  * file that cannot be kept says so on stderr and does not hide the failure.

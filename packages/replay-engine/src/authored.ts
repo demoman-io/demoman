@@ -156,7 +156,7 @@ export interface IntentCapture {
    */
   pageUrl: string | null;
   /** Which page the capture ran on, as the port's `pageKey` names it: the
-   *  raw path, for telling one page from another (DEM-143). Held in memory
+   *  raw path, for telling one page from another. Held in memory
    *  and never written. Null or absent: unknown, which never tells two
    *  pages apart. */
   here?: string | null;
@@ -166,7 +166,7 @@ export interface IntentCapture {
   credentialField?: boolean | null;
   /** Which document the capture ran in (`performance.timeOrigin`): the same
    *  through `pushState`, new on a page load. Null or absent: unknown, which
-   *  is never the same document (DEM-61). */
+   *  is never the same document. */
   document?: number | null;
 }
 
@@ -249,14 +249,14 @@ export interface AuthoredStep {
   fieldRead?: { unavailable: string };
   /** On a `type` whose last key the page was not seen to paint: why. The
    *  step's end is the bound, so the camera may leave before the value
-   *  shows (DEM-173). */
+   *  shows. */
   lastKeyPaint?: { unconfirmed: string };
   /** On a `type` whose field had text its select did not cover, so the
    *  typed text went in beside it: that text, kept only when the typed text
    *  is (never for a credential field). */
   fieldNotCleared?: { before?: string; why?: string };
   /** On a click, type or press that opened JavaScript dialogs: each, as the
-   *  run answered it (DEM-161). The action keeps the same list. */
+   *  run answered it. The action keeps the same list. */
   dialogs?: DialogRecord[];
   /** On a `waitForLoad` that was met: whether a load started since the
    *  previous step began. False is a wait that passed without a navigation. */
@@ -371,7 +371,7 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
 
 /** A held take's stills, at the flow's scale, in the frame the take is
  *  drawn in: what `zoomDefaultFor` (`@demoman/run-core`) sizes the default
- *  zoom from (DEM-164). */
+ *  zoom from. */
 export interface StillBacking {
   /** The take's frames: its stills and the size they were recorded at. */
   bundle: FrameBundle;
@@ -413,7 +413,7 @@ export interface AuthoredResult extends ReplayResult {
    *  was placed. */
   trimUnplaced?: ("start" | "end")[];
   /** On a planned take: the zoom an `after: "action"` end holds through its
-   *  cut (DEM-178) would land past the end of the take, so it is not held
+   *  cut would land past the end of the take, so it is not held
    *  and pulls out before the cut. Absent otherwise. (An unplanned take
    *  films through the landing, and drops the hold silently when a run
    *  stops short of it, as it always has.) */
@@ -712,7 +712,7 @@ export function createAuthoredRun(
    *  which a script says "this page is about to become something else". */
   let herePage: string | null = null;
   /** The document `herePage` was read in; null when unknown. An address the
-   *  app changes inside this document is the step's own (DEM-61). */
+   *  app changes inside this document is the step's own. */
   let hereDoc: number | null = null;
 
   const commit = (
@@ -937,7 +937,7 @@ export function createAuthoredRun(
             // session): the failure carries that page, and the caller names it.
             // Not on a new address the app wrote inside this same document
             // (a row's pushState, then a fetch): that target is waited for
-            // like any other (DEM-61).
+            // like any other.
             const sameDocument =
               answer.document != null && answer.document === hereDoc;
             const elsewhere =
@@ -1011,11 +1011,11 @@ export function createAuthoredRun(
             answeredPage !== null &&
             herePage !== null &&
             pageKeyOf(answeredPage) !== herePage;
-          // A new address inside the same document is the step's own doing
-          // (DEM-61), so a failure there is the resolver's: a missing target
-          // after a row's pushState is a missing target. A client-side
-          // sign-in redirect is caught by the runner's sign-in check, which
-          // reads the page whatever the stop reason.
+          // A new address inside the same document is the step's own doing, so
+          // a failure there is the resolver's: a missing target after a row's
+          // pushState is a missing target. A client-side sign-in redirect is
+          // caught by the runner's sign-in check, which reads the page whatever
+          // the stop reason.
           const sameDocument = answeredDoc !== null && answeredDoc === hereDoc;
           return !moved || sameDocument
             ? reasonForCaptureFailure(record.failureReason)
@@ -1124,7 +1124,7 @@ export function createAuthoredRun(
         ) {
           // The app changed its address inside the same document (a search
           // writing `?q=`, a row opening its detail with `pushState`): the
-          // step's own doing, not another page (DEM-61). A client-side
+          // step's own doing, not another page. A client-side
           // redirect to sign-in is the runner's sign-in check to name.
           herePage = page;
         } else if (page !== herePage) {
@@ -1560,7 +1560,7 @@ export function assembleAuthored(
  *
  * An end `after: "action"` whose step the walk held a zoom through
  * (`StepTiming.heldEndMs`) also returns `held`, that zoom's landing as a
- * marker on the step, for `holdZoomThroughCut` (DEM-178). Not when the film
+ * marker on the step, for `holdZoomThroughCut`. Not when the film
  * stops short of it: the compositor would clamp the end and say the zoom
  * could not reach it, which is not why.
  *

@@ -30,7 +30,7 @@ async function freePort(): Promise<number> {
 }
 /** `true`, or the code the listen failed with: a premise that fails then
  *  says whether the port was taken or the listen failed some other way
- *  (EMFILE, an address family) — DEM-267. */
+ *  (EMFILE, an address family). */
 async function canListen(port: number): Promise<true | string> {
   const s = createServer();
   const ok = await new Promise<true | string>((r) => {
@@ -274,7 +274,7 @@ describe("startApp", () => {
       });
       expect(isRefusal(r) && r.reason).toBe("appPortTaken");
       expect((r as AppStartRefusal).detail).toContain(url);
-      // Red when the refusal leaves the person to find what holds the port (DEM-62).
+      // Red when the refusal leaves the person to find what holds the port.
       if (hasLsof)
         // lsof's command is the process title: "node", or "node (vitest 1)"
         // on Linux, where vitest renames its workers.
@@ -298,7 +298,7 @@ describe("startApp", () => {
   });
 
   // Red when a flow's changes show in the next: reset runs the app's own
-  // command before each flow (DEM-57).
+  // command before each flow.
   describe("reset", () => {
     it("runs the reset command, saying so, and answers ok", async () => {
       const said: string[] = [];
@@ -634,7 +634,7 @@ describe("whoListens", () => {
 });
 
 // Red when the app Demoman starts is not handed the repo's pinned instant, or
-// a pin that cannot hold is recorded anyway (DEM-79).
+// a pin that cannot hold is recorded anyway.
 describe("now", () => {
   const NOW = "2026-11-06T09:00:00Z";
   const seen = (name: string) =>

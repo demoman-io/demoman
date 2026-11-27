@@ -94,7 +94,7 @@ const withApp = ciWorkflow({
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
 
-// DEM-241: an update keeps how the workflow on the default branch runs.
+// An update keeps how the workflow on the default branch runs.
 // Red if foundWorkflow misreads any trigger, route or artifact it writes.
 describe("foundWorkflow", () => {
   const routes = (t: CiOptions["trigger"]) =>
@@ -381,7 +381,7 @@ exit 0
     expect(r.from, r.log).toBe("950");
   });
 
-  // DEM-248. Red when the manual trigger's step names no event or no
+  // Red when the manual trigger's step names no event or no
   // branch: the feature branch's manual run 900 is then the newest.
   it("a manual trigger takes this workflow's own newest manual run on its branch", () => {
     const man = ciWorkflow({
@@ -495,7 +495,7 @@ exit 0
     expect(push).not.toContain("gh run download");
     expect(push).not.toContain("actions: read");
   });
-  // DEM-147: red when a failed flow's report and still are kept only with
+  // Red when a failed flow's report and still are kept only with
   // --artifact, or the upload waits for a success that never comes.
   it("keeps a failed flow's report and still with or without the artifact", () => {
     for (const y of [push, art]) {
@@ -561,7 +561,7 @@ describe("ciWorkflow", () => {
     );
   });
 
-  // Red when the refresh can only wait for its trigger (DEM-62): push and
+  // Red when the refresh can only wait for its trigger: push and
   // daily can be run by hand; release and deployment record a release or
   // a deployment, which a manual run does not have.
   it("push and daily can be run by hand; release and deployment cannot", () => {
@@ -570,7 +570,7 @@ describe("ciWorkflow", () => {
     for (const y of [releaseY, deploy])
       expect(lines(y)).not.toContain("  workflow_dispatch:");
     // A manual run records only the watched branch, never a feature branch:
-    // the refresh job's first step refuses any other (DEM-248), and only
+    // the refresh job's first step refuses any other, and only
     // in the job a manual run starts.
     for (const y of [push, dailyY]) {
       expect(parse(y).jobs.refresh.steps[0]).toMatchObject({
@@ -713,8 +713,8 @@ describe("the loop guard", () => {
     ["deployment", deploy, "github.event.deployment.sha"],
   ] as const) {
     it(`${name}: a guard step follows the checkout and every later step is conditioned on it`, () => {
-      // A push run by hand is refused off its branch before the checkout
-      // (DEM-248); it comes before the guard, so the guard cannot skip it.
+      // A push run by hand is refused off its branch before the checkout;
+      // it comes before the guard, so the guard cannot skip it.
       const byHand = steps(y).filter((b) => b.includes("A run by hand"));
       expect(byHand).toHaveLength(name === "push" ? 1 : 0);
       if (name === "push") expect(steps(y)[0]).toBe(byHand[0]);
@@ -791,7 +791,7 @@ describe("the loop guard", () => {
 
 // A deployment or release checks out a sha or tag that may be on any branch,
 // or a fork's: refreshing it would run that commit's app.json with secrets
-// and open its branch into main (DEM-123, DEM-117).
+// and open its branch into main.
 describe("the default-branch guard", () => {
   const release = ciWorkflow({
     version: "0.2.0",
@@ -972,11 +972,11 @@ describe("release and daily triggers", () => {
       expect(y).not.toContain("Demoman's own");
       expect(y).not.toContain("[skip demoman]");
     }
-    // The release's only guard is the default-branch one (DEM-123).
+    // The release's only guard is the default-branch one.
     expect(daily).not.toContain("steps.guard");
     expect(release).toContain("Skip commits off the default branch\n");
     // Only the pull_request exclusion conditions either job: a manual run
-    // off the branch is refused by a step, not skipped (DEM-248).
+    // off the branch is refused by a step, not skipped.
     for (const y of [release, daily])
       expect(parse(y).jobs.refresh.if).toBe(
         expr("github.event_name != 'pull_request'"),
@@ -997,7 +997,7 @@ describe("release and daily triggers", () => {
   });
 });
 
-// DEM-248: a workflow that never runs on its own.
+// A workflow that never runs on its own.
 describe("the manual trigger", () => {
   const manual = ciWorkflow({
     version: "0.2.0",
@@ -1017,9 +1017,9 @@ describe("the manual trigger", () => {
     expect(parse(manual).jobs.check).toBeDefined();
   });
 
-  // Review of DEM-248, finding 1. Red when a run started on another branch
-  // records it (the step is dropped), or is skipped in silence (the job's
-  // `if` refuses it, so GitHub shows a run that did nothing and says nothing).
+  // Red when a run started on another branch records it (the step is dropped),
+  // or is skipped in silence (the job's `if` refuses it, so GitHub shows a run
+  // that did nothing and says nothing).
   it("fails a run started off the branch it watches, and says why", () => {
     const m = ciWorkflow({
       version: "0.2.0",
@@ -1400,7 +1400,7 @@ describe("ciSetup", () => {
     expect([...a.calls, ...b.calls, ...c.calls]).toEqual([]);
   });
 
-  // DEM-248. Red while "manual" is read as a deployment environment of
+  // Red while "manual" is read as a deployment environment of
   // that name (no such deployment, so setup refuses), or the plan does not
   // say the workflow never runs on its own.
   it("--trigger manual writes a workflow that runs only by hand, and says so", async () => {
@@ -1565,7 +1565,7 @@ describe("ciSetup", () => {
     expect(m.said.join("\n")).toContain("nothing was written");
   });
 
-  // DEM-110: an app.json nobody committed may be an agent's draft, and the
+  // An app.json nobody committed may be an agent's draft, and the
   // check runs its commands. Red when the check runs before the question,
   // or after a no.
   describe("an app.json nobody committed", () => {
@@ -1963,7 +1963,7 @@ describe("ciSetup", () => {
     );
   });
 
-  // DEM-241 review: red if a workflow setup cannot read stops the terminal
+  // Red if a workflow setup cannot read stops the terminal
   // with "pass --trigger" instead of asking it, or one it can read is asked.
   it("asks the trigger over a workflow it cannot read, and not over one it can", async () => {
     const mine = asker({
@@ -2411,7 +2411,7 @@ describe("the app's package manager is there in both jobs", () => {
       expect(corepack(j)).toHaveLength(1);
     }
   });
-  // DEM-135: by commit in the job that can push, the tag beside it for a
+  // By commit in the job that can push, the tag beside it for a
   // reader. Red when it goes back to a tag a release can move.
   it("pins setup-bun by commit, naming its tag", () => {
     expect(bunApp).toContain(

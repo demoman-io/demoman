@@ -56,7 +56,7 @@ export interface ExecutorOptions {
   /** Tests and the window probe only; production uses DEFAULT_WORK_WINDOW. */
   workWindow?: WorkWindow;
   /** Where exports are saved, over the user's Export folder (`--out-dir`);
-   *  absent: each export reads that setting (DEM-180). */
+   *  absent: each export reads that setting. */
   outDir?: string;
   /** Tests only. */
   onWorkPage?: (page: Page) => void;

@@ -322,7 +322,7 @@ describe("export tagging", () => {
   );
 });
 
-// DEM-180: with no --out-dir, an export lands in the user's Export folder,
+// With no --out-dir, an export lands in the user's Export folder,
 // decided once before anything is leased or rendered.
 describe("export goes to the Export folder the settings name", () => {
   /** depsFor() with no outDir, and a count of work pages opened. */
@@ -358,8 +358,8 @@ describe("export goes to the Export folder the settings name", () => {
     EXPORT_MS,
   );
 
-  // Review of DEM-180: red if a value it cannot use falls back to
-  // ~/Downloads, or a chosen folder that is gone is made again.
+  // Red if a value it cannot use falls back to ~/Downloads, or a chosen folder
+  // that is gone is made again.
   it("refuses a value it cannot use, and a chosen folder that is gone, before rendering", async () => {
     await putTake(home, take.takeId, take.original, take.bundle);
     await choose("films");

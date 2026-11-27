@@ -11,7 +11,7 @@ import { createDialogAnswerer, runAuthored } from "../../src/index.js";
 import { type CdpFake, createCdpFake } from "../helpers/cdp-fake";
 import { createMemoryFrameStore } from "../helpers/frame-store";
 
-/** DEM-161: the walk answers every JavaScript dialog as the step asks, OK by
+/** The walk answers every JavaScript dialog as the step asks, OK by
  *  default, and says so. */
 
 const OPENING = "Page.javascriptDialogOpening";

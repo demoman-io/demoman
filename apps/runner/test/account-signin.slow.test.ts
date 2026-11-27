@@ -268,7 +268,7 @@ describe("signInAccount", () => {
   }, 60_000); // 1.8 s here; 5x is 8.8 s
 
   // Red when a client-side sign-in waits out 10 s for a page load that never
-  // comes (DEM-60).
+  // comes.
   it("a client-side sign-in moves on once the form is gone, without the 10 s wait", async () => {
     const { deps: d, logs } = deps();
     const t0 = Date.now();
@@ -280,7 +280,7 @@ describe("signInAccount", () => {
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
-  // DEM-151: the path compared against is the one the last step started on.
+  // The path compared against is the one the last step started on.
   // Read after the steps, it was already /app when the page moved before
   // the click returned, and the 10 s wait ran out (CI's macOS runner).
   it("a client-side sign-in that moves before its click returns does not wait 10 s", async () => {
@@ -292,7 +292,7 @@ describe("signInAccount", () => {
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
-  // DEM-81: when the 10 s wait does run out, its line says what the last
+  // When the 10 s wait does run out, its line says what the last
   // look saw, so a slow run names which condition never came true. Red:
   // drop `(last look: …)` from the line in account-signin.ts.
   it("a client-side sign-in that keeps its form past the wait says what the wait last saw", async () => {
@@ -442,7 +442,7 @@ describe("signInAccount", () => {
     expect(other.bodies().slice(bodies).join("\n")).not.toContain(PASSWORD);
   }, 60_000); // 0.7 s here; 5x is 3.5 s
 
-  // DEM-116. Red: read the origin from `handle.ownerFrame()`, which asks the
+  // Red: read the origin from `handle.ownerFrame()`, which asks the
   // page for `ownerDocument.documentElement`; a frame owner element answers
   // as the frame it holds, here one on the bound origin.
   it("never types a secret on another origin whose field claims an iframe of the site", async () => {

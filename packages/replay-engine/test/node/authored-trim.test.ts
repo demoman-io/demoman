@@ -419,7 +419,7 @@ describe("runAuthored: each step's finish, and the script's trim", () => {
     );
   });
 
-  // DEM-178: a step that finishes after the zoom's own hold would end the
+  // A step that finishes after the zoom's own hold would end the
   // video on the pull-out, not the close-up `after: "action"` asks for.
   describe("an end after action holds the zoom through the cut", () => {
     const TAIL = 2000;

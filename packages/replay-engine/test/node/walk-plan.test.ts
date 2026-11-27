@@ -526,7 +526,7 @@ describe("the walk plans its pauses", () => {
     expect(result.pacing?.beats[1]?.restMs, evidence).toBe(BASE);
   });
 
-  // DEM-187 (ruled 2026-11-20: known waits go on the designed clock). Red if
+  // Known waits go on the designed clock (ruled 2026-11-20). Red if
   // a wait between two zoomed clicks leaves the second a pan: on the
   // designed clock they are as close as the case above's, and only the
   // wait, whose length the server sets, comes between them.
@@ -1055,7 +1055,7 @@ describe("a planned take whose steps cannot be placed on its video", () => {
 });
 
 describe("a planned tail with a zoom held through the cut", () => {
-  // DEM-178 on a planned take: the zoom held through an `after: "action"`
+  // On a planned take, the zoom held through an `after: "action"`
   // cut lands `motionTimings(1).zoomOutMs` after it, and the tail plays
   // through that and a settle. Red if `plannedHeldEnd() - designed` is
   // dropped from `pacing.tailMs` (walk.ts): the tail is then the trim alone.

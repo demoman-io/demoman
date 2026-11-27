@@ -9,7 +9,7 @@ import {
 } from "../../src/auto-zoom.js";
 
 /**
- * DEM-164 under held: a held take's stills are at the flow's scale, 2x, and
+ * Auto zoom under held: a held take's stills are at the flow's scale, 2x, and
  * the default export cut every 1.8x zoom to what they back. Measured
  * 2026-11-19 (`apps/runner/compare/pacing-pairs.mjs`, held, 1440x900@2,
  * default branding, default export): `grantedScale` 1.3470029185063235 at

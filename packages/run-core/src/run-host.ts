@@ -11,7 +11,7 @@ export const messageOf = (error: unknown): string =>
 
 /** A version field this Demoman cannot read, in words. A number above every
  *  version it reads came from a newer Demoman: the fix is to update, never
- *  to remove the file (DEM-105). */
+ *  to remove the file. */
 export const unreadVersion = (
   field: string,
   version: unknown,

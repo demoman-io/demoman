@@ -134,7 +134,7 @@ function dragBox(
  * that refilled whatever the author deleted, so the lane could only be
  * argued with (v8 §6). On a held take whose stills back less, the default
  * scale is the take's `zoomDefault`, and a zoom the editor adds starts there
- * too (`addedZoomScale`, DEM-242).
+ * too (`addedZoomScale`).
  *
  * Close clicks. Every click gets its zoom however close it follows the one
  * before: where there is no room to return to full frame between two
@@ -315,7 +315,7 @@ function fittedScale(
 
 /**
  * The default zoom a take's stills can play at its default export, decided
- * when the take is saved so the export never cuts it (DEM-164). A held take's
+ * when the take is saved so the export never cuts it. A held take's
  * stills are its frames, at the flow's scale (2x by `CAPTURE_SCALE`), not
  * the 3x of a real-time still: measured 2026-11-19 at 1440x900@2, every 1.8x
  * zoom was cut to 1.35x at the default 1440p export, said only in

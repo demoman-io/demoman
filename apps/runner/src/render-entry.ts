@@ -68,7 +68,7 @@ export interface RenderManifest {
     | { base64: string; contentType: string; name: string }
     | { error: string }
     | null;
-  /** Geist for a dialog card (DEM-161), as node read it, or why not. Loaded
+  /** Geist for a dialog card, as node read it, or why not. Loaded
    *  before the first frame of a take with a card; such a take fails the
    *  render with the reason when it cannot be. */
   font: { base64: string } | { error: string };

@@ -1,4 +1,4 @@
-// Held-clock probe (2026-11-21, DEM-237): a held screenshot just after a
+// Held-clock probe (2026-11-21): a held screenshot just after a
 // redirect to a sign-in page, on a page reused from an earlier recording.
 //   node apps/runner/compare/held-probe-redirect-shot.mjs [rounds=20]
 // CI stopped there with "its screenshot went unanswered, though the page

@@ -51,7 +51,7 @@ const q = <T extends Element>(root: ParentNode, sel: string): T => {
 };
 
 describe("renderSettings", () => {
-  // DEM-180. Red if the row shows nothing where none is chosen, a change
+  // Red if the row shows nothing where none is chosen, a change
   // does not reach setExportFolder, the default or an empty field is saved
   // as a folder, or an unreadable setting can be typed over.
   it("draws the Export folder and saves what is typed", () => {
@@ -98,8 +98,8 @@ describe("renderSettings", () => {
     field.dispatchEvent(new Event("change"));
     expect(b.setExportFolder).toHaveBeenCalledWith(null);
 
-    // Review of DEM-180: an unusable setting leaves the field empty and
-    // editable, so the fix an export names can be made here.
+    // Review of the Export folder: an unusable setting leaves the field empty
+    // and editable, so the fix an export names can be made here.
     const unreadable = document.createElement("div");
     const c = actions();
     renderSettings(unreadable, { ...model, exportFolder: null }, c, new Map());

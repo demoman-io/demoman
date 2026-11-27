@@ -48,7 +48,7 @@ describe("runVerdict", () => {
       detail: "the run's own line",
     });
   });
-  // Red when a forgiven degradation fails the flow (DEM-55): it is degraded,
+  // Red when a forgiven degradation fails the flow: it is degraded,
   // named in the report's own words, once however often it happened.
   it("calls a matching run with a soft still degraded, naming it once", () => {
     expect(
@@ -68,7 +68,7 @@ describe("runVerdict", () => {
     const got = verdictOf({ frames: { spans: 2, degradations: [kind] } });
     expect(got.kind).toBe("failed");
   });
-  // DEM-238 (ruled 2026-11-24): the stills-only rule is the real-time
+  // Ruled 2026-11-24: the stills-only rule is the real-time
   // recorder's starved screencast (run-core `stillsOnly`). Red if a held run
   // that recorded no motion is called degraded (a static page, on any
   // machine), or if a real-time one stops being.
@@ -114,7 +114,7 @@ describe("runVerdict", () => {
       rerecord: true,
     });
   });
-  // DEM-146: only a failure whose cure is a new script says "record again".
+  // Only a failure whose cure is a new script says "record again".
   // Red when the set loses a reason, or when a stop the app or the machine
   // caused is sent to the agent.
   it.each([
@@ -178,7 +178,7 @@ describe("runVerdict", () => {
   });
 });
 
-// DEM-147. Red when an earlier run's still survives beside a later run's
+// Red when an earlier run's still survives beside a later run's
 // report, or a run with no still is said to have kept one.
 describe("keepFailure", () => {
   it("keeps one run's report and still, never an earlier run's still", async () => {
@@ -303,7 +303,7 @@ describe("recordWithRetry", () => {
     );
   });
   // Red when a step that never settled sends the flow round again: a stream
-  // does not settle on the second recording either (DEM-138 trial).
+  // does not settle on the second recording either (seen in the trial).
   it("does not record again for an unsettled step, and still says why", async () => {
     const unsettled = {
       ...clean,
@@ -347,8 +347,8 @@ describe("recordWithRetry", () => {
     expect(r.count()).toBe(2);
   });
   // Red when a settle the machine failed (a paint that never came, a page
-  // screen that could not be taken) is taken as the page's: it is the
-  // DEM-55 kind of one-off, and recording again may settle it.
+  // screen that could not be taken) is taken as the page's: it is the kind of
+  // one-off a forgiven degradation is, and recording again may settle it.
   it("records again when a step's settle failed on the machine's side", async () => {
     const failedSettle = {
       ...clean,

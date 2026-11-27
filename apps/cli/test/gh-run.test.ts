@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 describe("realGh", () => {
-  // DEM-90. Red while realGh starts gh with the plain environment: the git
+  // Red while realGh starts gh with the plain environment: the git
   // gh runs in the repo then runs the program the repo's config names.
   it("starts gh so the git it runs carries the fsmonitor guard", async () => {
     const repo = mkdtempSync(join(tmpdir(), "gh-run-repo-"));

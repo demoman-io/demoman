@@ -31,7 +31,7 @@ describe("the job table report(id) answers from", () => {
     expect(jobs.get("b")).toBeDefined();
   });
 
-  it("lets go of the call that settled first, so a long one that settles late stays (DEM-141)", () => {
+  it("lets go of the call that settled first, so a long one that settles late stays", () => {
     // Red: settle answers the job without moving it — ordered by start, the
     // long call is let go at the next set.
     const jobs = createJobTable();

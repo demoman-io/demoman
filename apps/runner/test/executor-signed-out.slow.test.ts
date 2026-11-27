@@ -282,7 +282,7 @@ it("still writes the session back when a cookie in the file had already expired"
 }, 120_000);
 
 // Final review minor d: a redirect's query (a token, an invite) stays out
-// of the report's note; DEM-130: so does a token in its path.
+// of the report's note; so does a token in its path.
 it("notes where the start URL went as origin and scrubbed path only", async () => {
   const out = (await executor.request("run", {
     video: ownVideo(),

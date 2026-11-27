@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { datesIn, readDatesOnScreen } from "../src/executor/dates-on-screen.js";
 
 // Red when refresh cannot tell a page that shows dates from one that does
-// not: the note it drives must fire only on evidence (DEM-79).
+// not: the note it drives must fire only on evidence.
 describe("datesIn", () => {
   it.each([
     ["Due Dec 4, 2026", "Dec 4, 2026"],

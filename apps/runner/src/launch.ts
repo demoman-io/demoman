@@ -125,7 +125,7 @@ export interface Display {
   width: number;
   height: number;
   scale: number;
-  /** Why `scale` is 1 by assumption, not read (DEM-70): Linux desktops that
+  /** Why `scale` is 1 by assumption, not read: Linux desktops that
    *  say their scale nowhere Demoman looks. Said on the run report. */
   scaleAssumed?: string;
 }
@@ -153,11 +153,10 @@ export function displayArgs(display: Display): string[] {
  * 2026-11-03 (`compare/gpu-args.mjs`): on runners without a GPU no flag set
  * moved an export off ~190 s; on a T4, `--enable-gpu --ignore-gpu-blocklist
  * --use-angle=vulkan --enable-features=Vulkan` rendered in 22.5 s against
- * ~420 s. What recording does under those flags is not measured yet
- * (DEM-42). Adding one is the whole change — the encoder is pinned
- * apart from the GPU (`render-entry.ts`'s `softwareEncoded`), launch.test.ts
- * runs its check on any platform listed here, and
- * `compare/export-variants.mjs` is the before/after.
+ * ~420 s. What recording does under those flags is not measured yet. Adding one
+ * is the whole change — the encoder is pinned apart from the GPU
+ * (`render-entry.ts`'s `softwareEncoded`), launch.test.ts runs its check on any
+ * platform listed here, and `compare/export-variants.mjs` is the before/after.
  */
 const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["--enable-gpu"],
@@ -166,7 +165,7 @@ export const HEADLESS_GPU_ARGS = GPU_ARGS_BY_PLATFORM[process.platform] ?? [];
 
 /**
  * Chrome's reduced macOS user agent for this browser's major version. Every
- * page Demoman opens presents as macOS (DEM-154), so a script's `Mod+K` and an
+ * page Demoman opens presents as macOS, so a script's `Mod+K` and an
  * app's "⌘K" agree on any host; Playwright derives the client hints'
  * `userAgentData.platform: "macOS"` from it. It never says `HeadlessChrome`.
  */
@@ -238,7 +237,7 @@ export function launchFailure(said: string): {
  * Linux. A browser that closes after it started fails with Playwright's
  * "Target page, context or browser has been closed" and none of Chromium's
  * own words (its stderr reaches no error or logger), so the fallback says
- * these instead (DEM-120). A setting that cannot be read is not claimed.
+ * these instead. A setting that cannot be read is not claimed.
  */
 export function sandboxBlockers(
   read: (path: string) => string = (p) => readFileSync(p, "utf8").trim(),
@@ -277,11 +276,11 @@ export function sandboxBlockers(
 }
 
 /**
- * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
- * asked not to, and nearly every page a run opens is a third party's
- * (DEM-120). A machine that cannot sandbox (a container running as root, a
- * Linux whose user namespaces are closed, as GitHub's Ubuntu runners are)
- * still launches, without it, and says so every time. Any failure counts, not only Playwright's "Chromium
+ * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless asked
+ * not to, and nearly every page a run opens is a third party's. A machine that
+ * cannot sandbox (a container running as root, a Linux whose user namespaces
+ * are closed, as GitHub's Ubuntu runners are) still launches, without it, and
+ * says so every time. Any failure counts, not only Playwright's "Chromium
  * sandboxing failed!": Chromium's namespace and zygote failures do not all
  * carry it, and a browser that would not start either way still fails.
  */

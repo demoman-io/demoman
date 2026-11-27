@@ -40,10 +40,10 @@ export interface VerifyDeps {
   refresh(
     args: Parameters<typeof refreshKept>[0],
     env: NodeJS.ProcessEnv,
-    /** The started app's reset, run before each flow as refresh runs it
-     *  (DEM-57); absent when the check starts no app. */
+    /** The started app's reset, run before each flow as refresh runs it;
+     *  absent when the check starts no app. */
     beforeFlow?: AppStarted["reset"],
-    /** The instant the started app was given (DEM-79), so the check records
+    /** The instant the started app was given, so the check records
      *  as CI's refresh does; absent when none. */
     pinnedNow?: string,
   ): Promise<RefreshResult>;

@@ -16,7 +16,7 @@ import { createNodeFrameEncoder } from "../helpers/frame-encoder-node";
 import { createMemoryFrameStore } from "../helpers/frame-store";
 
 /**
- * DEM-154/155: right, double, triple and held clicks and key combos, against
+ * Right, double, triple and held clicks and key combos, against
  * real Chromium, asserting what the PAGE received (`inputs-app.html` logs
  * every key and mouse event). The fixture is the runner's; Tasks 4, 6 and 7
  * read the same page by the same names.

@@ -1310,7 +1310,7 @@ function repoSection(
       add.setAttribute("aria-disabled", "true");
       add.title = "Adding to repo…";
     } else if (repo.addable === undefined || repo.addable.ok) {
-      // Unchecked: the sheet checks on open (DEM-47).
+      // Unchecked: the sheet checks on open.
       add.addEventListener("click", () => handlers.onAddToRepo?.());
     } else {
       add.setAttribute("aria-disabled", "true");

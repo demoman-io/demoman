@@ -1,5 +1,5 @@
 #!/bin/sh
-# A demo account's own files, never committed, carried by setup (DEM-240),
+# A demo account's own files, never committed, carried by setup,
 # end to end, with this checkout's build: a throwaway private GitHub repo
 # whose app signs its demo account in through a dev-only page the agent
 # wrote and nobody committed. setup's check runs from a clean checkout, so

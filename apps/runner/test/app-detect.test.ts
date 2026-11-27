@@ -193,7 +193,7 @@ describe("detectApp", () => {
   });
 
   // Red when a pnpm-workspace.yaml holding only settings (allowBuilds, as
-  // newer pnpm writes) reads as a monorepo with no packages (DEM-48).
+  // newer pnpm writes) reads as a monorepo with no packages.
   it("package.json: a pnpm-workspace.yaml with settings only is one package", async () => {
     const got = await detectApp(fix("pnpm-settings"), ORIGIN);
     if ("none" in got) throw new Error(got.none);

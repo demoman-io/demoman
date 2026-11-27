@@ -358,7 +358,7 @@ async function workspaceDirs(
   let globs: string[] | null = null;
   const ws = await readOr(join(root, "pnpm-workspace.yaml"));
   // A workspace file listing no packages holds settings only (newer pnpm
-  // writes allowBuilds there): one package, not a monorepo (DEM-48).
+  // writes allowBuilds there): one package, not a monorepo.
   const listed =
     ws === null
       ? undefined

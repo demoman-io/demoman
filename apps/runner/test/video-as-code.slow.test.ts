@@ -57,7 +57,7 @@ const PLACE_ORDER = 4;
  *  where the camera, left to itself, is back at full frame (850 ms hold
  *  after the click, then a 925 ms pull-out) on any machine, however fast
  *  the click finishes (asserted below): the close-up at the cut is the zoom
- *  held through it (DEM-178), not a click that happened to finish inside
+ *  held through it, not a click that happened to finish inside
  *  the hold. */
 const TAIL_MS = 2000;
 

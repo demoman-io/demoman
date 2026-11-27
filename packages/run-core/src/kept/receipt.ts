@@ -34,7 +34,7 @@ export type KeptReceipt = {
    *  absent from a receipt written before it was recorded. */
   scriptDigest?: string;
   /** The instant the video was recorded at, when the repo pinned one
-   *  (`now` in app.json, DEM-79); absent when it was not pinned. */
+   *  (`now` in app.json); absent when it was not pinned. */
   pinnedNow?: string;
 };
 

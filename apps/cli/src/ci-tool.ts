@@ -214,7 +214,7 @@ export function createCiTool(io: {
 
 /** The check runs the app's commands through sh -c, and the agent may have
  *  written them, so the agent never starts them: the person runs the
- *  terminal's setup, which shows them and asks (DEM-110). MCP elicitation
+ *  terminal's setup, which shows them and asks. MCP elicitation
  *  was tried for this; Claude Code never showed the question. */
 async function toTerminal(app: AppSpec): Promise<CiStop> {
   return {

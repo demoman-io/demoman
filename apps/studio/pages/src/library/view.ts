@@ -64,7 +64,7 @@ export interface LibraryActions {
    *  draws neither (a platform that has no storage to manage). */
   reclaim?(): void;
   setBudget?(bytes: number): void;
-  /** The Studio's Storage panel (DEM-179): with these, the Storage figure
+  /** The Studio's Storage panel: with these, the Storage figure
    *  opens it. Read again each time it opens. */
   footage?: FootageActions;
   edit(sceneId: string): void;
@@ -135,12 +135,12 @@ export interface LibraryActions {
   };
   /** In repo, Not in repo or All. */
   goTab?(t: Tab): void;
-  /** Set up CI for a project, beside its heading (DEM-52): what opens it,
+  /** Set up CI for a project, beside its heading: what opens it,
    *  or null when the place offers none (no flow of it in the repo, its
    *  CI set up and current, or its state not read yet). Set up by an older
-   *  release, it opens Update CI (DEM-269). */
+   *  release, it opens Update CI. */
   ciSetup?(p: Place): (() => void) | null;
-  /** Whether that button updates an older release's workflow (DEM-269). */
+  /** Whether that button updates an older release's workflow. */
   ciUpdating?(p: Place): boolean;
   /** The search box's text, at each keystroke. Absent: no box. */
   search?(query: string): void;
@@ -260,8 +260,8 @@ function fillBar(
  * Runs `change`, the selection bar going in or out above `below`, and on a
  * scrolled page scrolls by however far that moved `below` in the window,
  * so what is ticked stays under the pointer. The list's scroll anchoring
- * did not hold: the ticked row moved 64px down, off a page's foot
- * (DEM-233). Where anchoring holds (the cards) it has moved the scroll
+ * did not hold: the ticked row moved 64px down, off a page's foot.
+ * Where anchoring holds (the cards) it has moved the scroll
  * already by the measure here, and this moves it by nothing.
  */
 function keepInPlace(below: Element | null, change: () => void): void {
@@ -287,7 +287,7 @@ const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
 export function paintCiSlot(
   slot: HTMLElement,
   openCi: (() => void) | null,
-  /** Update CI (DEM-269): set up by an older release. */
+  /** Update CI: set up by an older release. */
   update = false,
 ): void {
   if (openCi === null) {
@@ -754,7 +754,7 @@ function createHeader(withStorage: boolean, footage?: FootageActions): Header {
   );
   const storage = el("div", { class: "storage" });
   // The studio's total: the word, then what the folder holds. No budget —
-  // the studio manages no storage. With footage actions (DEM-179) it is the
+  // the studio manages no storage. With footage actions it is the
   // button that opens the Storage panel: how long footage is kept, and what
   // the last cleanup removed.
   const totalValue = el("span", { "data-total-size": "" });
@@ -978,8 +978,8 @@ function createHeader(withStorage: boolean, footage?: FootageActions): Header {
     foot,
   );
   storage.append(trigger, panel);
-  // Set up CI shares the title's line, and a long title gives way to it
-  // (DEM-77): a flex row, not a button laid over the band.
+  // Set up CI shares the title's line, and a long title gives way to it:
+  // a flex row, not a button laid over the band.
   const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
   const titleRow = el("div", { class: "title-row" });
   titleRow.append(title, ciSlot);
@@ -1623,7 +1623,7 @@ function repoActionButton(
     remove.addEventListener("click", () => repo.remove(id));
     return remove;
   }
-  // No answer from the listing: it checks only what needs no git (DEM-47),
+  // No answer from the listing: it checks only what needs no git,
   // so the sheet checks this flow when it opens.
   const can = repo.addable(id);
   const add = el("button", {

@@ -131,7 +131,7 @@ const AUTOPLAY = `<!doctype html><meta charset=utf-8><link rel=icon href="data:,
 /** The same, and it asks for `/underway` once it has played half a
  *  second: there the test slows the machine (`relagCdp`). Slowed from the
  *  start, or at its `playing` event, Chrome never got the clip off 0.00
- *  (DEM-244, said; CI's ubuntu and a loaded Mac, 2026-11-23). */
+ *  (said; CI's ubuntu and a loaded Mac, 2026-11-23). */
 const AHEAD = AUTOPLAY.replace(
   "document.body.append(v);",
   'v.addEventListener("timeupdate", function underway() {\n    if (v.currentTime < 0.5) return;\n    v.removeEventListener("timeupdate", underway);\n    fetch("/underway");\n  });\n  document.body.append(v);',
@@ -144,12 +144,12 @@ const CLIP = readFileSync(
  *  with data to play through (2026-11-19). */
 const CLIP_PARTS = 16;
 /** Real seconds per take second at or above which a walk counts as a
- *  machine far behind its frames (DEM-244; the measurements are at its
+ *  machine far behind its frames (the measurements are at its
  *  one reader). */
 const STARVED_REAL_PER_TAKE = 2;
 const CLIP_GAP_MS = 125;
 /** What the pin says of a video whose picture stood on its last frame
- *  ahead of its currentTime (DEM-259). */
+ *  ahead of its currentTime. */
 const PICTURE_AHEAD =
   /^a video's picture stood on its last frame while it played \(its picture at \d+\.\d\d s of [\d.]+, its currentTime at \d+\.\d\d s\): its picture plays in real time, ahead of the take$/;
 /** Real seconds per take second above which a walk fell behind real time:
@@ -162,7 +162,7 @@ let url: string;
 const open: ServerResponse[] = [];
 /** Each streamed answer as the server sent it, in real ms: when it was
  *  asked for and when each chunk was written. A loaded machine sends late
- *  (DEM-235: chunks 8-10 shown together on CI's macOS), and the video
+ *  (chunks 8-10 shown together on CI's macOS), and the video
  *  follows what the server did, not the 200 ms it was told. */
 const streams: { askedAt: number; sentAt: number[] }[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
@@ -186,7 +186,7 @@ beforeAll(async () => {
       // goes no earlier than i gaps after the first, by performance.now(),
       // and a timer that fires early is set again for what is left. Timed
       // with Date.now() and chained timers, the ten came 1799 ms apart on
-      // CI's ubuntu (PR #128, DEM-235): a wall clock can step and a chained
+      // CI's ubuntu (PR #128): a wall clock can step and a chained
       // timer can come early, and the premise below then failed on the
       // fixture, not on the walk.
       const stream = { askedAt: performance.now(), sentAt: [] as number[] };
@@ -446,7 +446,7 @@ describe("a held recording that waits on its server", () => {
     // Premises: the lag held the slowed recording's commands and none of the
     // normal one's. Asked of the lag, not of the two recordings' lengths: on
     // a starved macOS runner the normal one took 41.3 s by itself and the
-    // slowed one 40.5 (DEM-235, PR #123), though the lag held every command
+    // slowed one 40.5 (PR #123), though the lag held every command
     // as asked. The sum counts each held command's 40 ms, parallel ones
     // too, so 10 s is about 250 commands held, not 10 s of the recording's
     // length; what the lag does to frame times is asserted below.
@@ -483,7 +483,7 @@ describe("a held recording that waits on its server", () => {
       // would have seen; when the server sent it is a premise above. The
       // page can run a chunk's script in the grant after it arrived, at the
       // first chunk as at the last. Against send times this went red when a
-      // loaded runner delivered the first chunk 140 ms late (DEM-235, PR
+      // loaded runner delivered the first chunk 140 ms late (PR
       // #142's ubuntu). The bound is the one it had: each end of the
       // stretch shows in the first frame taken after its data arrived, or
       // the held frame after, on the same machine and the same clock as the
@@ -540,7 +540,7 @@ describe("a held recording that waits on its server", () => {
     expect(film.connectionsIgnored, said).toEqual([]);
   });
 
-  // The author's ruling, 2026-11-16 (DEM-202): the video follows the server
+  // The author's ruling, 2026-11-16: the video follows the server
   // only while the script waits on the page. A request that never answers
   // is waited on by its step's settle, to the settle's cap, and said; the
   // pause after it is designed time. (Before, the pause followed the open
@@ -591,7 +591,7 @@ describe("a held recording that waits on its server", () => {
     expect(offGrid, said).toEqual([]);
   }, 250_000);
 
-  // DEM-202: a feed open from the page's load kept every pause on the
+  // A feed open from the page's load kept every pause on the
   // server's time (a 5 s video ran 76 s, compare/held-push.sh). Red if the
   // pause follows the feed, or what arrived in it goes unsaid, or is said
   // more than once.
@@ -625,7 +625,7 @@ describe("a held recording that waits on its server", () => {
   // The anti-goal of the same change: a wait left out, so page time outruns
   // the server. The opening's load is the first wait there is. Red if the
   // document's wait is not in the video as the server's time.
-  // DEM-186: the take's time starts at its opening still, so the opening's
+  // The take's time starts at its opening still, so the opening's
   // load is not in it: timed from before the load, the video opened on its
   // first frame for as long as the server took. Red if the take is timed
   // from the walk's start: its first frame and the load's span 700 ms in.
@@ -649,7 +649,7 @@ describe("a held recording that waits on its server", () => {
     ).toEqual([]);
   }, 120_000);
 
-  // DEM-203: an iframe's document was counted as the page loading, so a
+  // An iframe's document was counted as the page loading, so a
   // step that added a slow widget held its settle on the widget's server.
   // Red if the step's screen waits on the frame, or the run says it did.
   it("a slow iframe does not hold a step's settle", async () => {
@@ -672,7 +672,7 @@ describe("a held recording that waits on its server", () => {
     expect(screen - click, said).toBeLessThan(FRAME_MS / 2);
   }, 120_000);
 
-  // DEM-207: a video that stops while playing (its data stalled, or the
+  // A video that stops while playing (its data stalled, or the
   // recorder froze it) showed as a still picture, unsaid. Red if it is
   // unsaid, or said without why (its data, on CI's machines). Red if it is
   // unsaid or the note leaves out the video's state.
@@ -694,7 +694,7 @@ describe("a held recording that waits on its server", () => {
     ).toHaveLength(1);
   }, 120_000);
 
-  // DEM-207: on a clock ahead of real time, an autoplaying video never had
+  // On a clock ahead of real time, an autoplaying video never had
   // the data to start, and stood on its first frame, unsaid. Red if the
   // clock does not pace it (held-clock.ts `grant`): the video region then
   // never moves.
@@ -751,7 +751,7 @@ describe("a held recording that waits on its server", () => {
     // (2026-11-19). Frozen, it stood on its first frame (held-probe-video.mjs).
     if (frames.length >= 30 && moved > frames.length / 2) return;
     // Unless the report says why its picture stood still, with the video's
-    // state. DEM-259: the picture is Chrome's real-time playback, which
+    // state. The picture is Chrome's real-time playback, which
     // starts about 1.3 s ahead of currentTime and gains on every frame the
     // machine falls behind, until it stands on the clip's last frame (CI's
     // ubuntu at 2.35 and 2.54 real s per take s, 5 and 3 frames; its macOS
@@ -764,7 +764,7 @@ describe("a held recording that waits on its server", () => {
       notes.some((n) => PICTURE_AHEAD.test(n))
     )
       return;
-    // DEM-244: on a machine far behind its frames, Chrome may never start
+    // On a machine far behind its frames, Chrome may never start
     // the clip, fully buffered, at readyState 1 or 2 (CI after #105, and the
     // Mac on its efficiency cores beside CPU burners: 4.3 to 7.5 real s per
     // take s, 2026-11-20). Not fixed yet, so there it must be said. A
@@ -782,7 +782,7 @@ describe("a held recording that waits on its server", () => {
     ).not.toEqual([]);
   }, 120_000);
 
-  // DEM-259: a playing video's picture is Chrome's real-time playback. On a
+  // A playing video's picture is Chrome's real-time playback. On a
   // machine behind its frames it runs ahead of the take to the clip's last
   // frame, and stands there while currentTime, on the page's clock, plays
   // on; the loop restarts only when currentTime reaches the end. That read
@@ -832,8 +832,9 @@ describe("a held recording that waits on its server", () => {
           d.note === "a playing video runs on its own clock: it was not held",
       )?.startMs ?? Number.NaN;
     // Chrome left the clip on 0.00 while it played, fully buffered short
-    // of playing (DEM-244's state; a clip at readyState 3 or 4 that stands
-    // still is the clock's fault, not a starved machine's).
+    // of playing (what a machine far behind its frames does; a clip at
+    // readyState 3 or 4 that stands still is the clock's fault, not the
+    // machine's).
     const startStalls = r.bundle.degradations.filter((d) =>
       /^a video stopped on one frame while playing \(at 0\.00 s of [\d.]+, readyState [012], buffered to [\d.]+ s, networkState \d\)$/.test(
         d.note,
@@ -850,7 +851,7 @@ describe("a held recording that waits on its server", () => {
       lastMoving,
       spans: r.bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
     });
-    // DEM-244: on a machine far behind its frames, Chrome may never get the
+    // On a machine far behind its frames, Chrome may never get the
     // clip off 0.00, before any slowing (the Mac at utility QoS beside ten
     // CPU burners, 3 of 3, 2026-11-23). Then this case cannot be recorded
     // there, and the report must say why, as in "own pace".
@@ -862,7 +863,7 @@ describe("a held recording that waits on its server", () => {
     expect(notes, said).toContain(
       "a playing video runs on its own clock: it was not held",
     );
-    // DEM-263: CI's ubuntu starves it a step later. Chrome stood the clip on
+    // CI's ubuntu starves it a step later. Chrome stood the clip on
     // 0.00 for half a second at its start, said, then got it under way, and
     // the last-frame note never came (red on main 3 times; the Mac beside
     // six CPU burners 7 of 10, and unloaded 0 of 10, 2026-11-23). That

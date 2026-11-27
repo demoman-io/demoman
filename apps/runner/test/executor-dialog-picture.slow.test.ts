@@ -1,4 +1,4 @@
-// DEM-161: a confirm() the run answers is drawn on a hold of the video, and
+// A confirm() the run answers is drawn on a hold of the video, and
 // the picture shows it. One take through the real executor (held clock, the
 // default), exported, and read from decoded frames: the card's OK pill
 // (#1a73e8) appears on the hold only, and under it the page is from before

@@ -104,7 +104,7 @@ const repoRelative = (p: unknown): p is string =>
   !p.split("/").includes("..");
 
 /**
- * Why a repo path is no place for a file a flow writes, or null (DEM-111):
+ * Why a repo path is no place for a file a flow writes, or null:
  * never in any `.git` folder (a nested repo's too) or in `.github`, and,
  * given `ext` (".mp4", ".gif", ".json"), only a name its bytes fit. Read
  * by `add`, whose paths an agent names, and by the kept file's reader,
@@ -255,7 +255,7 @@ export function parseKept(text: string, file: string): Parsed {
   };
 }
 
-/** The longest slug, in UTF-8 bytes (DEM-132): its receipt's `.screens`
+/** The longest slug, in UTF-8 bytes: its receipt's `.screens`
  *  folder, written through a `.<uuid>.tmp` beside it, is 49 bytes more, and
  *  255 is the file system's limit. A "files" recipe has no receipt, so one
  *  of up to 209 bytes did write: an add finds it under its uncut name and
@@ -270,7 +270,7 @@ export const videoSlug = (name: string, maxBytes = MAX_SLUG_BYTES): string =>
     maxBytes,
   ).replace(/^-+|-+$/g, "") || "video";
 
-/** The recipe's file name, and its receipt's. Until DEM-68 it dropped stop
+/** The recipe's file name, and its receipt's. It once dropped stop
  *  words and a trailing s; an add moves a recipe still named that way. */
 export function keptFileName(name: string): string {
   return `${videoSlug(name)}.json`;

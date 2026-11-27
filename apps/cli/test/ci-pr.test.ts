@@ -146,8 +146,8 @@ describe("openSetupPr", () => {
     expect(sh(root, "branch", "--list", SETUP_BRANCH)).toBe("");
   });
 
-  // Review of DEM-240. Red if a file carried executable (an account's seed
-  // script) is committed 100644: CI's reset then exits 126.
+  // Red if a file carried executable (an account's seed script) is committed
+  // 100644: CI's reset then exits 126.
   it("commits a file carried with mode 0o755 as executable", async () => {
     await openSetupPr(
       args([

@@ -163,7 +163,7 @@ describe("a step's page screen, when something fails", () => {
   });
 
   // Red if a caret the hold could not hide is compared: it blinks, so the
-  // same page reads changed (DEM-139).
+  // same page reads changed.
   it("says so when a focused field's caret could not be hidden", async () => {
     const d = deps();
     intercept(d, isEval(PAGE_CAPTURE_HOLD), async () => ({
@@ -669,7 +669,7 @@ describe("frames a page screen keeps out of the film", () => {
     expect(pushed, pushed.join(",")).not.toContain("2400x1500");
   });
 
-  // DEM-280. At display scale 1 the window's unscaled surface is the page
+  // At display scale 1 the window's unscaled surface is the page
   // frame's own size, so no size rule drops it: CI filmed one as a hard
   // zoom flash. Red with the walk's `surfaceFrame` check removed. The page
   // changing for real after it (a key typed, a scroll) is filmed: a false

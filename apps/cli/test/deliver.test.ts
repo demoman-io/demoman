@@ -585,7 +585,7 @@ describe("deliver", () => {
     expect(calls().some((c) => c.includes("--attach"))).toBe(false);
   });
 
-  it("pr: a failed video's page text sits in a code span, its fix and folder outside (DEM-118, 146, 147)", async () => {
+  it("pr: a failed video's page text sits in a code span, its fix and folder outside", async () => {
     script = {
       "pr list": { stdout: '[{"number":7}]' },
       "pr edit": { stdout: "ok" },
@@ -700,7 +700,7 @@ describe("deliver", () => {
   });
 
   // A deployment or release trigger checks out a sha or tag: HEAD is
-  // detached, and the PR goes to the default branch (DEM-123).
+  // detached, and the PR goes to the default branch.
   describe("from a detached HEAD", () => {
     const detachOnFeature = () => {
       git(repo, "checkout", "-q", "-b", "feature");

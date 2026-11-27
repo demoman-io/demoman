@@ -1,6 +1,6 @@
 // The oldest Node the package runs on, per release line: node:util's parseEnv
 // and styleText (which @clack/prompts imports) arrived in 20.12 and 21.7, and
-// an older Node fails while the bundle links (DEM-121, measured on real
+// an older Node fails while the bundle links (measured on real
 // 20.0.0 and 21.6.2). build.mjs writes this into engines and the bin's check.
 export const NODE_FLOORS = [
   [20, 12],

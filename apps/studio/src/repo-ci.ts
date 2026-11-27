@@ -69,7 +69,7 @@ export interface CiJobs {
    *  Any plan held for `root` is out of date from here. */
   added(root: string, files: string[]): void;
   /** Whether an add wrote this absolute path while this server ran: what
-   *  reveal shows beside the exports (DEM-56). */
+   *  reveal shows beside the exports. */
   wrote(path: string): boolean;
 }
 
@@ -368,7 +368,7 @@ export function createCiJobs(o: {
         } catch (error) {
           live = { kind: "unreadable", detail: messageOf(error) };
         }
-        // Each reason once per root, not on every read (review of DEM-269).
+        // Each reason once per root, not on every read.
         const unread = live.kind === "setUp" ? live.unread : undefined;
         if (unread !== undefined && unreadSaid.get(root) !== unread)
           log(`studio: ci ${root}: no update offered: ${unread}`);

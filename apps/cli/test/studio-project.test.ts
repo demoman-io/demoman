@@ -55,7 +55,7 @@ describe("callerProject", () => {
   });
 
   // Red when a server whose folder was deleted throws uv_cwd instead of
-  // opening the Studio without a project (DEM-51).
+  // opening the Studio without a project.
   it("a working folder that no longer exists opens without a project, saying why", async () => {
     const gone = () => {
       throw new Error("ENOENT: no such file or directory, uv_cwd");

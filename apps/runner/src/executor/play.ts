@@ -125,7 +125,7 @@ export async function prepareStage(
   // The browser is launched for this recording's clock, and launched again
   // when the live one was for the other, so one that records in real time
   // launches exactly as before held capture. Said with held capture off too:
-  // a session made while it was on launches held (DEM-210).
+  // a session made while it was on launches held.
   if (deps.session.headless) {
     const ensured = await deps.session.ensure({
       held: verdict?.hold === true,
@@ -146,7 +146,7 @@ export async function prepareStage(
   const { page } = launched;
 
   // One frame length for the page's frames and the held clock: the rate
-  // decided at the door (DEM-265), so the two can never disagree.
+  // decided at the door, so the two can never disagree.
   const rate = deps.recordingFrameRate;
   const frameMs = frameMsOf(rate.value);
   const realWhy =
@@ -190,7 +190,7 @@ export async function prepareStage(
   }
 
   // Before the first navigation, on this flow's own target: every document
-  // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
+  // of the flow reads the repo's pinned instant. A pin that cannot
   // be installed stops the run: a video at the real date would be compared
   // with pinned ones and read as changed.
   if (deps.pinnedNow !== undefined && recording.clock !== "held") {
@@ -347,7 +347,7 @@ async function holdClock(
   frameMs: number,
   abandon: () => Promise<void>,
 ): Promise<{ clock: HeldClock; network: NetworkWatch }> {
-  // The watch stamps requests on the page's clock (DEM-202): before the
+  // The watch stamps requests on the page's clock: before the
   // hold, a request opens at its start, 0.
   let holding: HeldClock | undefined;
   const network = await createNetworkWatch(cdp, Date.now, {
@@ -472,11 +472,11 @@ export interface Played {
   heldFailed: string | undefined;
   landingNote: RunReport["landing"];
   arrival: Arrival;
-  /** Date-looking text on the last screen, [] when none or unreadable
-   *  (DEM-79): refresh's evidence for its note on dates. */
+  /** Date-looking text on the last screen, [] when none or unreadable:
+   *  refresh's evidence for its note on dates. */
   datesOnScreen: string[];
   /** The target a run did not find is named inside a closed shadow root
-   *  on the page it stopped on (DEM-102); false when unasked or
+   *  on the page it stopped on; false when unasked or
    *  unanswered (the log says why). */
   closedShadowRoot: boolean;
 }
@@ -546,7 +546,7 @@ export async function playOnStage(
     if (verdict.startedElsewhere) {
       // Origin and path only, like `signin`'s sign-in page: a redirect's
       // query can carry a token, a nonce or an invite code, and its path a
-      // reset or invite token (DEM-130).
+      // reset or invite token.
       landingNote = {
         startedElsewhere: originAndPath(scrubUrl(facts.landedUrl)),
       };
@@ -555,7 +555,7 @@ export async function playOnStage(
   };
   let authored: AuthoredResult;
   // A Playwright `dialog` listener stops its own auto-dismiss, so the engine
-  // alone answers each dialog, over CDP (DEM-161). Only on the walk's page,
+  // alone answers each dialog, over CDP. Only on the walk's page,
   // only while it walks.
   const leaveToEngine = () => {};
   page.on("dialog", leaveToEngine);
@@ -697,7 +697,7 @@ export async function playOnStage(
       ? await readDatesOnScreen(page, log)
       : [];
   // A target not found may be inside a closed shadow root, which no run can
-  // reach (DEM-102). Not asked after a mid-run sign-out: the stop is that,
+  // reach. Not asked after a mid-run sign-out: the stop is that,
   // and signing in again has moved the page on.
   const failedStep = result.steps.at(-1)?.step;
   const closedShadowRoot =
@@ -736,7 +736,7 @@ export function walkedReason(played: Played): ReplayStopReason | null {
   return played.signedOutAfter === null ? played.result.reason : "signedOut";
 }
 
-/** DEM-102's known limitation, said only on a page that has one. */
+/** The closed-shadow-root limitation, said only on a page that has one. */
 const CLOSED_SHADOW_ROOT =
   "Also, this page has a closed shadow root, and a target inside one can't be reached during a run (a known limitation): target an element outside it";
 
@@ -754,7 +754,7 @@ const notFound = (result: AuthoredResult): boolean =>
  * words, under `clickNotDelivered` where the click went, and — the
  * runner's own — a target that did not load, which the reason alone would
  * call a step that could not be found; and, when the target's words are
- * inside a closed shadow root, that no run can reach it (DEM-102).
+ * inside a closed shadow root, that no run can reach it.
  */
 export function stopDetail(target: string, played: Played): string | undefined {
   const {

@@ -368,7 +368,7 @@ describe("timeline drags", () => {
 
 // A render that lands mid-drag (the folder watch's refresh after an edit)
 // replaced the handle in the hand, and the one drawn stopped following
-// the pointer (DEM-234): it waits for the release instead.
+// the pointer: it waits for the release instead.
 describe("a render while a drag is held", () => {
   const press = (handle: HTMLElement, track: HTMLElement) => {
     handle.dispatchEvent(
@@ -444,7 +444,7 @@ describe("a render while a drag is held", () => {
 
 // The edges between two pieces sit under the beats: their two grabs cover
 // the seam, and a beat on it (a split made at a step) is clicked there.
-// The clip's own ends are its trim and go over them (DEM-232).
+// The clip's own ends are its trim and go over them.
 describe("a beat on a seam between two pieces", () => {
   it("is what a press at its middle lands on", () => {
     const scene = applyCommand(

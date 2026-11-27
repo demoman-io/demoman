@@ -291,7 +291,7 @@ export const GIF_BUDGET_BYTES = 10_000_000;
  *  (vertical)/", an action id and a de-duplicating " (1)". */
 const MAX_BASE = 120;
 
-/** And in UTF-8 bytes, since 120 CJK characters are 360 (DEM-132): 200
+/** And in UTF-8 bytes, since 120 CJK characters are 360: 200
  *  leaves 55 of the 255 for those suffixes. */
 const MAX_NAME_BYTES = 200;
 

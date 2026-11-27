@@ -32,8 +32,8 @@ describe("matchRoute", () => {
     // since 2026-10-31, with libraryViewGet and libraryViewPut; 35 since
     // 2026-11-05, with Part C's seven repo routes; 36 since 2026-11-06,
     // with repoFolders; 38 since 2026-11-23, with exportFolderGet and
-    // exportFolderPut (DEM-180); 41 since 2026-11-24, with keepFootageGet,
-    // keepFootagePut and expiryGet (DEM-179).
+    // exportFolderPut; 41 since 2026-11-24, with keepFootageGet,
+    // keepFootagePut and expiryGet.
     expect(ids.length).toBe(41);
     expect(ids).toEqual(
       expect.arrayContaining([

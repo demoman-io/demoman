@@ -19,7 +19,7 @@ import { keyframeOnlyBundle, renderSmallFilm } from "./render-small.js";
 const MEASURE_MS = 15_000;
 
 // The setup is three steps, each its own hook with its own budget, so a
-// timeout names the step that ran out (DEM-175). Measured locally on
+// timeout names the step that ran out. Measured locally on
 // 2026-11-12 (Apple silicon, three runs): the measurer 0.2–0.5 s, the
 // slideshow 1.3–1.5 s, the moving film 0.6 s; 2.2 s together, the file 3.5 s.
 // The macOS runner took 9.3–25.0 s for the file over 12 runs (2026-11-08..12),

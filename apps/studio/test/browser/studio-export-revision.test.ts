@@ -10,7 +10,7 @@ import { sampleImage, sampleMp4 } from "../../../runner/test/mp4-probe.js";
 import { createExportQueue } from "../../src/queue.js";
 import { createRunExport } from "../../src/run-export.js";
 
-// DEM-100: an export renders the scene it was queued with. Two exports are
+// An export renders the scene it was queued with. Two exports are
 // queued behind a held turn, the take is switched to 9:16 on disk, and only
 // then does the queue move. Both outputs must decode in the queued shape.
 //

@@ -48,7 +48,7 @@ jobs:
         env:
           ROUNDS: ${{ inputs.rounds || '2' }}
           # The open question's sets: full Chromium against the headless
-          # shell on one machine (DEM-45). All seven sets at two rounds would
+          # shell on one machine. All seven sets at two rounds would
           # outrun the 45-minute limit.
           SETS: ${{ inputs.sets || 'none' }}
           BROWSERS: ${{ inputs.browsers || 'full;shell' }}

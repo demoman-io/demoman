@@ -17,7 +17,7 @@ export type AppPlan =
   | {
       kind: "none";
       said: string;
-      /** Said once when app.json pins `now` and this refresh cannot (DEM-79). */
+      /** Said once when app.json pins `now` and this refresh cannot. */
       note?: string;
     }
   | { kind: "start"; app: AppSpec }
@@ -53,7 +53,7 @@ export async function appPlanFor(
   if (o.baseUrl !== undefined) {
     const said = `--base-url given; ${APP_FILE} not used`;
     // Read only to say a pin it asks for cannot happen: Demoman does not
-    // start an app at --base-url, so it cannot hand it the instant (DEM-79).
+    // start an app at --base-url, so it cannot hand it the instant.
     // An invalid file is ignored, as --base-url always has.
     const now = parsed.ok ? parsed.app.now : undefined;
     return now === undefined
@@ -106,9 +106,9 @@ export async function withApp<T>(
     ci: boolean;
     log: (l: string) => void;
   },
-  /** Gets the started app's reset, to run before each flow (DEM-57), a
-   *  no-op when no app is started here; and the instant it was started at
-   *  (DEM-79), null when none or none started here. */
+  /** Gets the started app's reset, to run before each flow, a
+   *  no-op when no app is started here; and the instant it was started at,
+   *  null when none or none started here. */
   run: (reset: AppStarted["reset"], pinnedNow: string | null) => Promise<T>,
   deps: Partial<AppStartDeps> & { startApp?: typeof startApp } = {},
 ): Promise<

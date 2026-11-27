@@ -193,7 +193,7 @@ const MAC_COMMANDS: Record<string, string | string[]> = {
   "Shift+Meta+ArrowLeft": "moveToLeftEndOfLineAndModifySelection",
   "Shift+Meta+ArrowRight": "moveToRightEndOfLineAndModifySelection",
   "Meta+KeyA": "selectAll",
-  // No copy, cut or paste: those reach the system clipboard (DEM-163).
+  // No copy, cut or paste: those reach the system clipboard.
   "Meta+KeyZ": "undo",
   "Shift+Meta+KeyZ": "redo",
 };

@@ -135,9 +135,9 @@ export interface RefreshDeps {
   /** The browser that decodes outputs to compare them. */
   session: Pick<BrowserSession, "openWorkPage">;
   /** Before each recording (a retry too): the app's reset from app.json,
-   *  so one flow's changes never show in the next (DEM-57). */
+   *  so one flow's changes never show in the next. */
   beforeFlow?: () => Promise<{ ok: true } | { ok: false; detail: string }>;
-  /** The instant the started app was given as DEMOMAN_NOW (DEM-79): every
+  /** The instant the started app was given as DEMOMAN_NOW: every
    *  run's page starts its clock there, and each receipt written says so.
    *  Absent when the repo pins none or no app was started here. */
   pinnedNow?: string;
@@ -151,7 +151,7 @@ export interface RefreshDeps {
 }
 
 /** Said beside a video replaced without a pin whose last screen showed
- *  dates (DEM-79): a likely cause, never the certain one. */
+ *  dates: a likely cause, never the certain one. */
 export const DATES_NOTE = (samples: string[]): string =>
   `this video shows dates such as ${samples.map((s) => `\`${codeSpanText(s, 40)}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/reference/app-json#pinned-dates`;
 
@@ -184,7 +184,7 @@ export type RunVerdict =
   | { kind: "clean" }
   | { kind: "degraded"; problems: string[] }
   /** `rerecord`: the script no longer fits the page, so recording the flow
-   *  again with an agent is the fix (DEM-146). */
+   *  again with an agent is the fix. */
   | { kind: "failed"; detail: string; rerecord?: true };
 
 /** Refused at the door for the script itself (recipe section 7). */
@@ -227,7 +227,7 @@ const SCRIPT_STOPS: Record<ReplayStopReason, boolean> = {
   portFailure: false,
 };
 
-/** The one line a failure the script causes is delivered with (DEM-146).
+/** The one line a failure the script causes is delivered with.
  *  Markdown as written: it goes into a pull request body as it is, so the
  *  name, which may come from a page's title, is a safe code span. */
 export const rerecordFix = (name: string, file: string): string =>
@@ -236,8 +236,7 @@ export const rerecordFix = (name: string, file: string): string =>
 /** The degradations that leave a video correct, only less smooth or less
  *  sharp: a soft still, a scroll still moving, motion frames dropped or kept
  *  as stills under load. Any other (a drag or click that may have done
- *  nothing, missing motion) can make the video wrong, so it fails (review
- *  of the DEM-55 branch). */
+ *  nothing, missing motion) can make the video wrong, so it fails. */
 const FORGIVEN = new Set<string>([
   "stillFailed",
   "scrollUnsettled",
@@ -265,7 +264,7 @@ const FORGIVEN = new Set<string>([
  * stopped, every step matched, everything stored, nothing degraded.
  * Degraded: all of that, but every degradation is one that leaves the video
  * correct (FORGIVEN), or acting steps recorded no motion; refresh records it
- * once more (DEM-55). Failed: anything else, its detail the answer's own
+ * once more. Failed: anything else, its detail the answer's own
  * summary plus the degradations in the report's words, so CI says why.
  * Read from the answer, never recomputed.
  */
@@ -295,7 +294,7 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
     const words = (DEGRADATION_WORDS as Record<string, string>)[k];
     return words === undefined ? k : `${words} (${k})`;
   });
-  // The run's own rule (run-core `stillsOnly`): real time only, DEM-238.
+  // The run's own rule (run-core `stillsOnly`): real time only.
   // (src/compare/numbers.ts refuses any stills-only run, held too: there
   // the question is whether two runs can be compared at all.)
   const starved = stillsOnly(r);
@@ -354,8 +353,8 @@ export function degradedNote(problems: string[]): string {
 }
 
 /** Records a flow, and once more when the first recording is degraded: on a
- *  busy runner a soft still or a starved screencast is usually a one-off
- *  (DEM-55). Answers the run that stands and its verdict; a second degraded
+ *  busy runner a soft still or a starved screencast is usually a one-off.
+ *  Answers the run that stands and its verdict; a second degraded
  *  run stands too, and the caller delivers it with a note. */
 export async function recordWithRetry(
   run: () => Promise<Record<string, unknown>>,
@@ -401,7 +400,7 @@ export async function refreshKept(
      *  compared against. */
     previous?: string;
     /** Where each failed run's report and last still are kept, in a folder
-     *  per flow, before the throwaway library goes (DEM-147). */
+     *  per flow, before the throwaway library goes. */
     failures?: string;
   },
   deps: RefreshDeps,
@@ -473,7 +472,7 @@ export async function refreshKept(
     if (toFolder && args.outDir === undefined) {
       failed(
         who,
-        // DEM-99: setup turns the artifact on for the files flows it sees; one
+        // Setup turns the artifact on for the files flows it sees; one
         // added later lands here, so this names the way out.
         "deliver files needs --out-dir <folder> to write its videos to; pass one. In the workflow `npx demoman setup --ci` wrote, it comes with the artifact: if that workflow was set up before this flow delivered files, run `npx demoman setup --ci` again, which updates the workflow and turns the artifact on for it",
       );
@@ -532,7 +531,7 @@ export async function refreshKept(
     }
     // The script's own refs are read only through the repo paths above
     // (`scriptFor`): one with no repo path would be read as written, from
-    // anywhere on this machine (DEM-112). `add` always writes both.
+    // anywhere on this machine. `add` always writes both.
     const branding = kept.script.look?.branding;
     if (kept.logo === null && branding?.logo != null)
       outside.push(
@@ -721,7 +720,7 @@ function scriptFor(
 /**
  * A failed run's report (as a repo would commit it) and its last still,
  * copied to `<failures>/<flow file's name>/` before the throwaway library is
- * removed (DEM-147). Answers that folder as given, or why it could not be
+ * removed. Answers that folder as given, or why it could not be
  * kept; `note: null` when the run made no report to keep (a refusal at the
  * door, whose line already says all of it).
  */
@@ -1125,7 +1124,7 @@ async function deliverOne(
   }
   const writeReceipt = same !== true;
   // A report an earlier demoman committed may hold its picture's path on
-  // the recording machine (DEM-227). The same picture leaves it unwritten,
+  // the recording machine. The same picture leaves it unwritten,
   // so say so. Missing or unreadable, it holds nothing to warn about here.
   if (same === true && kept.report !== null) {
     const old = await readFile(join(to, kept.report), "utf8").catch(() => "");

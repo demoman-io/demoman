@@ -108,16 +108,15 @@ jobs:
 
   # The packages and the runner run on macOS too: until 2026-11-11 the only
   # macOS check was the author's local `pnpm test`, a slower copy of this
-  # workflow that held the laptop for ~25 min before every push (DEM-149).
+  # workflow that held the laptop for ~25 min before every push.
   # Five macOS jobs, the free plan's macOS concurrency. The refresh lane
   # stays on Linux: five more macOS jobs would queue behind these.
   #
-  # Not blocking yet: their first runs (2026-11-11/12) failed tests that pass
-  # on Linux and on the author's Mac — DEM-151, 152, 169, 171, 172 and 173,
-  # all fixed since. Two of those fixes (152, 171) wait and say more rather
-  # than prove a cause, so the flag stays until the macOS jobs have run green
-  # a few times. A red macOS job still shows red on the run; it does not
-  # fail it.
+  # Not blocking yet: their first runs (2026-11-11/12) failed tests that pass on
+  # Linux and on the author's Mac, all fixed since. Two of those fixes wait and
+  # say more rather than prove a cause, so the flag stays until the macOS jobs
+  # have run green a few times. A red macOS job still shows red on the run; it
+  # does not fail it.
   packages:
     needs: changes
     if: needs.changes.outputs.product == 'true'
@@ -148,7 +147,7 @@ jobs:
       # The pages' browser lane writes a screenshot for each failed case;
       # without this they die with the runner and a red run arrives
       # without them. The shots lane's folder too: a failed case there
-      # names the shot it took in its error (DEM-152).
+      # names the shot it took in its error.
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -167,7 +166,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.product == 'true'
     runs-on: ${{ matrix.os }}
-    # macOS not blocking yet: DEM-151, DEM-152 (above the packages job).
+    # macOS not blocking yet (see above the packages job).
     continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
@@ -182,7 +181,7 @@ jobs:
       - name: Tests (the runner, shard ${{ matrix.shard }} of 4)
         run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/4 --exclude 'test/refresh-*.slow.test.ts'
       # A failed picture case keeps the film it judged (test/keep-on-failure.ts).
-      # Without it a red run that only the MP4 could explain had none (DEM-272).
+      # Without it a red run that only the MP4 could explain had none.
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

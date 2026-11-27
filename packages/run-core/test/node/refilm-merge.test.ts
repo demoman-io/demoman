@@ -138,7 +138,7 @@ describe("mergeSkeleton", () => {
     expect(typed).toMatchObject({ text: "Maple", recorded: t.id });
   });
 
-  it("carries a click's dialog answer from the scene into the merged step (DEM-161)", () => {
+  it("carries a click's dialog answer from the scene into the merged step", () => {
     // Red if the merge rebuilt steps without the derived step's `dialog`.
     const doc = scene();
     const sk = skeletonFor(doc);

@@ -401,7 +401,7 @@ function fakeLaunched(options: { closeRejects?: boolean } = {}): Fake {
 
 describe("createBrowserSession bookkeeping (fake launcher)", () => {
   // Spec 2026-11-13 part 2: headless no longer takes the screen's scale, so
-  // DEM-70's "1x is assumed" says nothing about it and is not logged. Turns
+  // the earlier "1x is assumed" says nothing about it and is not logged. Turns
   // red when `start` takes `read.scale` (or logs `read.scaleAssumed`) again.
   it("does not say a desktop's scale was assumed: headless records at the asked scale", async () => {
     const said = "1x is assumed: this desktop's scale could not be read";
@@ -1099,7 +1099,7 @@ describe("openWorkPage", () => {
   });
 });
 
-// DEM-71: status reads a Linux download's libraries without launching it.
+// Status reads a Linux download's libraries without launching it.
 describe("linkedLibraries", () => {
   it("names the libraries ldd cannot find, and says when ldd failed", async () => {
     const said = [

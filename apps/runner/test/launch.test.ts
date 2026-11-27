@@ -19,7 +19,7 @@ import {
 } from "../src/launch.js";
 
 // Red when a cause is dropped, claimed from a setting that could not be
-// read, or claimed off Linux (DEM-120).
+// read, or claimed off Linux.
 describe("sandboxBlockers", () => {
   const proc = (values: Record<string, string>) => (path: string) => {
     const v = values[path];
@@ -58,7 +58,7 @@ describe("sandboxBlockers", () => {
 });
 
 // Red when the FATAL line loses to an earlier stderr line, the reason is
-// dropped for Playwright's first line alone (DEM-120), unrelated stderr
+// dropped for Playwright's first line alone, unrelated stderr
 // is offered as the reason, or a boxed error says only its prefix.
 describe("launchFailure", () => {
   const closed =
@@ -213,7 +213,7 @@ describe("launch", () => {
     }
   }, 30_000);
 
-  // DEM-120. Red: drop `chromiumSandbox: true` from `launchSandboxed`;
+  // Red: drop `chromiumSandbox: true` from `launchSandboxed`;
   // Playwright then adds `--no-sandbox`. Strict on macOS, which always
   // sandboxes; a Linux that cannot must say so, and only then go without.
   it("runs Chromium with its sandbox, or says why it cannot", async () => {
@@ -393,7 +393,7 @@ describe("launch", () => {
     // The control: without a display, a headless screencast films the
     // override's CSS size at 1x, which is the gap this closes.
     expect(off.frame, JSON.stringify(off)).toEqual([640, 400]);
-    // Every launch presents as macOS, display or not (DEM-154).
+    // Every launch presents as macOS, display or not.
     expect(off.userAgent).toContain("(Macintosh;");
     expect(off.userAgent).not.toContain("Headless");
     expect(on.frame, JSON.stringify(on)).toEqual([1280, 800]);

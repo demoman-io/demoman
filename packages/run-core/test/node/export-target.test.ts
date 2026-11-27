@@ -500,7 +500,7 @@ describe("export names", () => {
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(cut)).toBe(false);
   });
 
-  it("cuts a long CJK name to 200 bytes, so the file name stays under 255 (DEM-132)", () => {
+  it("cuts a long CJK name to 200 bytes, so the file name stays under 255", () => {
     // Red: cut by characters alone — 120 three-byte characters are 360.
     const name = "請求書を作成して送信する".repeat(10);
     expect(Buffer.byteLength(name)).toBeGreaterThan(255);

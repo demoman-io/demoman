@@ -142,7 +142,7 @@ export async function replayPhase(input: {
   }).mayReplay;
 
   // A Playwright `dialog` listener stops its own auto-dismiss, so the engine
-  // alone answers each dialog, over CDP, as the take answered it (DEM-161):
+  // alone answers each dialog, over CDP, as the take answered it:
   // the same as `play.ts`, only while it walks.
   const leaveToEngine = () => {};
   page.on("dialog", leaveToEngine);

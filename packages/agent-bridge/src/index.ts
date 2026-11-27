@@ -33,7 +33,7 @@ export const RUN_TOOL_CAP_MS = 50_000;
  *  MCP server keeps this many finished of those, and as many finished of
  *  the calls only it answers (snapshot, probe, add, ci), never one in
  *  flight. Each keeps its whole final answer, a run's report included
- *  (review 2026-10-13, #7; DEM-106). */
+ *  (review 2026-10-13, #7). */
 export const JOBS_KEPT = 50;
 
 /** Who the agent says it is: the MCP client's own `clientInfo` (spec §5.4,
@@ -72,7 +72,7 @@ export function cleanAgentText(text: string): string {
 
 /** The field cleaned, or null when nothing visible is left or it was over
  *  the cap to begin with. demoman-mcp asks it before sending a field, so the
- *  two sides keep one rule (DEM-144). */
+ *  two sides keep one rule. */
 export const agentField = (v: unknown): string | null => {
   if (typeof v !== "string" || v.length > AGENT_NAME_MAX) return null;
   const clean = cleanAgentText(v);

@@ -238,7 +238,7 @@ export interface WalkStep {
   /**
    * Called for a `type` whose last key the page was not seen to paint
    * (`lastKeyPainted`), with why. The step's end is then the bound, not the
-   * paint, and the camera may leave before the value shows (DEM-173).
+   * paint, and the camera may leave before the value shows.
    */
   onLastKeyUnpainted?(why: string): void;
   /**
@@ -254,7 +254,7 @@ export interface WalkStep {
    * `dialog`). Absent: OK. Armed from the click until the next click, type
    * or press arms, or the walk ends, so a confirm the page opens late (a
    * timer, a fetch) still gets it. Set, and none opened by then, the run
-   * stops as of this step with `dialogNotOpened` (DEM-161).
+   * stops as of this step with `dialogNotOpened`.
    */
   dialog?: DialogIntent;
   /**
@@ -665,7 +665,7 @@ export interface EngineDeps {
    */
   held?: HeldClock;
   /** The held clock's network watch, which the walk's settle reads too: one
-   *  rule for "the page is waiting on its server" (DEM-202). Absent, a
+   *  rule for "the page is waiting on its server". Absent, a
    *  continuous walk watches the page itself, on its clock. */
   network?: NetworkWatch;
 }
@@ -937,7 +937,7 @@ export async function runWalk(
   // policy.ts) rather than re-derived here.
   if (!deps.mayReplay) return empty("mutating");
 
-  /** Held: moved to the opening still once there is one (DEM-186). */
+  /** Held: moved to the opening still once there is one. */
   let started = clock.now();
   /** Held: the page time the opening played before it, the bundle's
    *  `openingMs`; none when the take never started (signed out). */
@@ -1044,13 +1044,13 @@ export async function runWalk(
       ? run()
       : held.waiting(run, windowed ? windowOf() : null);
   /** A wait beginning now follows what opened from a request cap before
-   *  it, on the clock (DEM-202). */
+   *  it, on the clock. */
   const windowOf = (): number => clock.now() - STEP_REQUEST_CAP_MS;
   let designed = 0;
   let designedZoom: { actionMs: number; arrivalMs: number } | null = null;
   let designedHeldUntil: number | null = null;
-  /** A wait step (`waitFor`, a load) counted since the last zoom (DEM-187,
-   *  ruled 2026-11-20: known waits go on the designed clock). */
+  /** A wait step (`waitFor`, a load) counted since the last zoom (ruled 2026-11-20:
+   *  known waits go on the designed clock). */
   let waitedSinceZoom = false;
   /** Top-frame loads started by the steps counted so far: read when a step
    *  is counted (`commitPlan`), after its settle, which waits out a load its
@@ -1066,7 +1066,7 @@ export async function runWalk(
    *  returns through full frame with a whole return's room planned.
    *  Decided from the script and from whether a load started, never from
    *  how long either took, which a server sets. A `waitFor` met at once
-   *  counts too: the author accepted that pause (DEM-187, 2026-11-24).
+   *  counts too: the author accepted that pause (2026-11-24).
    *  shortcut: whether a click after a wait zooms at all is still the gap
    *  rule's on the designed clock, which counts the wait as no time (the
    *  walk's `room.zooms` and the take's `cameraFor` both ask it); upgrade
@@ -1132,7 +1132,7 @@ export async function runWalk(
         trimAfterAction: config.tail?.after === "action",
         pauseMs: pausedSinceCounted + (source.closingPauseMs?.() ?? 0),
       }),
-      // A zoom held through an `after: "action"` cut (DEM-178)
+      // A zoom held through an `after: "action"` cut
       // lands after it: the tail plays through that landing and a
       // settle, as the unplanned walk films through it.
       plannedHeldEnd() - designed,
@@ -1307,8 +1307,8 @@ export async function runWalk(
   const offStopped = cdp.on("Page.frameStoppedLoading", (params) => {
     if (isTop(params)) topLoading = false;
   });
-  // Every JavaScript dialog is answered, as the step asks or OK, and said
-  // (DEM-161): left open, it blocks the page and the step that opened it.
+  // Every JavaScript dialog is answered, as the step asks or OK, and said:
+  // left open, it blocks the page and the step that opened it.
   const dialogs = createDialogAnswerer(cdp, DIALOG_BEAT_MS);
 
   /**
@@ -1334,7 +1334,7 @@ export async function runWalk(
    */
   //
   /**
-   * DEM-280: screencast frames of the window's unscaled surface. A full
+   * Screencast frames of the window's unscaled surface. A full
    * still, a page capture or a metrics re-send draws the page at
    * `stillScale`, and Chrome's screencast can send a frame of the window's
    * corner of it after: the page's top-left magnified, at the page frame's
@@ -1896,9 +1896,8 @@ export async function runWalk(
    */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
     // Held: the budget is page time outside server stretches, as the probe
-    // counts its cap (`stepSettleExpression`), so the server never spends
-    // it (DEM-204); with the server's time in it, the settle stops a
-    // request cap later.
+    // counts its cap (`stepSettleExpression`), so the server never spends it;
+    // with the server's time in it, the settle stops a request cap later.
     // Read only when held: a clock read is a moment of a real clock's.
     const began = held === undefined ? 0 : at();
     const outer = deadline + STEP_REQUEST_CAP_MS;
@@ -1958,7 +1957,7 @@ export async function runWalk(
       // within the document (a Next.js link's pushState) leaves none, and the
       // probe's quiet window already restarts on what it changes; counted, it
       // asked the window again only when it landed inside it, which the
-      // server's timing decided: 12 frames apart (DEM-205, 2026-11-17).
+      // server's timing decided: 12 frames apart (2026-11-17).
       const replaced =
         held === undefined
           ? navigationsSeen !== navs
@@ -2297,7 +2296,7 @@ export async function runWalk(
   };
   /** Held: the requests the settle leaves out (`settleAndCaptureNow`'s
    *  `openedAfter`) are not followed either, or a stream opened before it
-   *  kept every settle in a stretch that never ended (DEM-204). */
+   *  kept every settle in a stretch that never ended. */
   const settleAndCapture = (
     ...asked: Parameters<typeof settleAndCaptureNow>
   ): Promise<void> => waitingOn(() => settleAndCaptureNow(...asked), true);
@@ -2953,7 +2952,7 @@ export async function runWalk(
       if (native) {
         // The picture first, as an OS drag image is: the page's dragover
         // finds it under the pointer, not a step behind (a held step is a
-        // 33 ms frame, which left it off the pointer, DEM-210).
+        // 33 ms frame, which left it off the pointer).
         if (pictureShown) await onPage(DRAG_PICTURE_MOVE, [p.x, p.y]);
         await cdp.send("Input.dispatchDragEvent", {
           type: "dragOver",
@@ -3489,12 +3488,11 @@ export async function runWalk(
     lastCompletedActionId: string | null;
   } | null = null;
   /**
-   * Ends the armed step's answer (DEM-161 final review, finding 1): hands it
-   * every dialog it opened, late ones included, and stops when one was
-   * refused or did not fit, or it asked for one and none opened. Such a
-   * stop is that step's, so the count goes back to before it and the run
-   * reports it as the step it stopped on; what happened after it stays in
-   * the take, as it happened. True when the run stops.
+   * Ends the armed step's answer: hands it every dialog it opened, late ones
+   * included, and stops when one was refused or did not fit, or it asked for
+   * one and none opened. Such a stop is that step's, so the count goes back to
+   * before it and the run reports it as the step it stopped on; what happened
+   * after it stays in the take, as it happened. True when the run stops.
    */
   const dialogsSettled = (): boolean => {
     const armed = dialogStep;
@@ -3604,7 +3602,7 @@ export async function runWalk(
       // and the opening rest is played from it.
       filing = true;
       if (held !== undefined) {
-        // DEM-186: a held take's time starts here, not before the opening
+        // A held take's time starts here, not before the opening
         // load. The renderer plays source time from 0, and the load and
         // settle have no frame, so the video opened on its first frame for
         // as long as they took (617 ms on a moving page). Decided here and
@@ -4918,7 +4916,7 @@ async function typeKeys(
  * once the renderer handled the key, not once it painted it, and the act's
  * end is stamped when the verb returns: on CI's macOS runner the last glyph
  * reached the film 367 ms after that, and the camera left before the value
- * showed (DEM-173). Bounded by `ACT_CEILING_MS`, since a page that draws no
+ * showed. Bounded by `ACT_CEILING_MS`, since a page that draws no
  * frames would otherwise hold the walk. Asked of the field itself, so the
  * frame timed is the field's own (an iframe's, for a field in one). Null
  * once drawn, or when the key took the document away (an OTP box that

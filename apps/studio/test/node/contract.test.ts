@@ -75,8 +75,8 @@ describe("the route contract", () => {
     // 2026-10-31, with libraryViewGet and libraryViewPut; 29 since 2026-11-05, with repoAddable; 31 with repoAdd and repoRemove;
     // 35 with repoCiState, repoCiPlan, repoCiApply and repoPr; 36 with
     // repoFolders; 38 since 2026-11-23, with exportFolderGet and
-    // exportFolderPut (DEM-180); 41 since 2026-11-24, with keepFootageGet,
-    // keepFootagePut and expiryGet (DEM-179).
+    // exportFolderPut; 41 since 2026-11-24, with keepFootageGet,
+    // keepFootagePut and expiryGet.
     expect(ids.length).toBe(41);
   });
 

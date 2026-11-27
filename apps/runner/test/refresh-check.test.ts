@@ -277,7 +277,7 @@ describe("checkCurrent", () => {
     ]);
   });
 
-  // DEM-131. Red: drop the hex check; git is then asked about the option.
+  // Red: drop the hex check; git is then asked about the option.
   it("reads a receipt whose commit is not a commit id as recorded with no commit, and never asks git", async () => {
     const a = flow(1, "Place an order");
     await add(

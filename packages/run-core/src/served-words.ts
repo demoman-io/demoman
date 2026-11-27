@@ -52,7 +52,7 @@ const NOT_STORED: Record<string, string> = { take: "video", video: "flow" };
 /** A run report — stored in `report.json` in the old words — as an agent
  *  and a kept repo file read it (spec §2.1). */
 export function servedRunReport(r: RunReport): Json {
-  // Refresh's own evidence (DEM-79), not part of an agent's answer.
+  // Refresh's own evidence, not part of an agent's answer.
   const { datesOnScreen: _dates, ...rest } = r;
   let out: Json = { ...(rest as unknown as Json) };
   if (isObj(out.provenance)) {
@@ -101,7 +101,7 @@ export function servedRunReport(r: RunReport): Json {
 }
 
 /** A run report as a kept flow commits it into a repo that may be public,
- *  and as refresh lists it (DEM-227): served, without a `still` path (a
+ *  and as refresh lists it: served, without a `still` path (a
  *  picture on the machine that ran it, which the commit does not hold; a
  *  `still` that says why there is none stays), and with `home` written `~`
  *  wherever else it appears (a `local:` repo key in `flow.otherRepo`, a
