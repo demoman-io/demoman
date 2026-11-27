@@ -1,4 +1,4 @@
-// Makes the surface-crop fixtures (DEM-280), with Chrome's own JPEG encoder:
+// Makes the surface-crop fixtures, with Chrome's own JPEG encoder:
 //   node packages/replay-engine/test/fixtures/frames/make-surface-crop.mjs
 // The page is unhurried-beats' (a field, a button, a striped block), at a
 // 1280x800 viewport, as a screencast frame on a 1x display shows it.

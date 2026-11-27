@@ -180,7 +180,7 @@ describe("the editing keys, against a real page", () => {
 });
 
 describe("a field whose last key is never seen painted", () => {
-  // DEM-173: the step's end waits for the last key's paint, bounded; a page
+  // The step's end waits for the last key's paint, bounded; a page
   // that draws no frame inside the bound is said, not taken as painted.
   it("says so on the step rather than reporting the key painted", async () => {
     await runTypes(
@@ -197,7 +197,7 @@ describe("a field whose last key is never seen painted", () => {
 });
 
 describe("a field whose last key paints late", () => {
-  // DEM-173, and DEM-253's guard: the type's act ends only once the page
+  // The type's act ends only once the page
   // has drawn the frames after the last key; this field's second one comes
   // 600 ms late. Read off the act's
   // own end, not the film, so a starved screencast cannot fake it
@@ -236,7 +236,7 @@ describe("a field whose last key paints late", () => {
 });
 
 describe("a field whose key takes the page away", () => {
-  // Review of DEM-173: the document the key went into is gone, so there is
+  // The document the key went into is gone, so there is
   // no paint left to confirm; the step is not reported as unpainted.
   it("says nothing about the last key's paint", async () => {
     await runTypes(

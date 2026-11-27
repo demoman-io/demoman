@@ -6,7 +6,7 @@ import type {
 import type { CdpSession } from "./types.js";
 
 /**
- * JavaScript dialogs (DEM-161). Every dialog that opens while the walk runs
+ * JavaScript dialogs. Every dialog that opens while the walk runs
  * is answered here, as the armed step asks or OK by default, and recorded.
  *
  * The answer is sent from inside the event, never after the step: while a

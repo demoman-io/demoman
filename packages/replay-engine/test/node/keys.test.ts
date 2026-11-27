@@ -164,7 +164,7 @@ describe("pressCombo", () => {
   });
 
   it.each([["V"], ["C"], ["X"]])(
-    "Mod+%s carries no command: it never reaches the clipboard (DEM-163)",
+    "Mod+%s carries no command: it never reaches the clipboard",
     async (key) => {
       const calls = await sent(["Mod"], key);
       const down = calls.find(

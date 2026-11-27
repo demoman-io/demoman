@@ -567,7 +567,7 @@ const evidenceOf = (result: AuthoredResult, progress: ReplayProgress[] = []) =>
 type Sleep = { atMs: number; ms: number; waiting: boolean };
 
 /**
- * Where the take's time starts, from the clock's start (DEM-186): where the
+ * Where the take's time starts, from the clock's start: where the
  * opening still's one designed frame began, the walk's first sleep outside a
  * wait on the page (the load, its settle and the landing check are waits).
  */
@@ -640,7 +640,7 @@ describe("the walk on a held clock", () => {
       );
   });
 
-  // DEM-265: at 60 fps the walk steps the clock's frame, counts the quiet
+  // At 60 fps the walk steps the clock's frame, counts the quiet
   // window's frames from its milliseconds, and the take says its frame.
   it("steps the clock's frame at 60 and records it in the take", async () => {
     const F60 = 1000 / 60;
@@ -837,7 +837,7 @@ describe("the walk on a held clock", () => {
     );
   });
 
-  // The author's ruling, 2026-11-16 (DEM-202): only a wait on the page
+  // The author's ruling, 2026-11-16: only a wait on the page
   // follows the server; a rest, a pause and the tail are designed time. Red
   // if a rest is slept inside a wait (a page with a stream open ran a 5 s
   // video to 76 s), or the settle and the wait step are not waits (page
@@ -934,9 +934,9 @@ describe("the walk on a held clock", () => {
     expect(waitedMs(sleeps), said).toBeGreaterThanOrEqual(WAIT_TIMEOUT_MS);
   });
 
-  // DEM-202: every wait follows only what opened in its window, the step
+  // Every wait follows only what opened in its window, the step
   // settle's 6 s look-back; the opening's load has no lower bound. Red if a
-  // wait follows a request older than it (DEM-204's fault, by another wait).
+  // wait follows a request older than it.
   it.each([
     [
       "a step's settle, a click's answer and a waitFor",
@@ -1018,7 +1018,7 @@ describe("the walk on a held clock", () => {
     expect(result.bundle?.timing).toBe("real");
     // Written on every held take, 30 fps too: absent means one from before.
     expect(result.bundle?.heldFrameMs).toBe(1000 / 30);
-    // On the take's time, from its opening still (DEM-186).
+    // On the take's time, from its opening still.
     const lead = leadOf(sleeps);
     // Premise: the take started after the clock did, and before the times.
     expect(lead, evidence).toBeGreaterThan(0);
@@ -1032,7 +1032,7 @@ describe("the walk on a held clock", () => {
         .map((d) => [d.startMs, d.note]);
     expect(said("animationUnpinned")).toEqual([[40 - lead, UNPINNED[0]?.what]]);
     expect(said("connectionIgnored")).toEqual([[0, IGNORED[0]]]);
-    // DEM-237: a frame taken again is said, at the held time it was due.
+    // A frame taken again is said, at the held time it was due.
     expect(said("frameRetaken")).toEqual([[60 - lead, RETAKEN[0]?.what]]);
     // The tail is played: the take runs its planned tail past the last act.
     expect(TAIL).not.toBe(TAKE_TAIL_MS);
@@ -1181,7 +1181,7 @@ describe("the walk's own scroll on a held clock", () => {
 });
 
 describe("the walk's own scroll on a held clock at 60 fps", () => {
-  // DEM-265: the scroll lasts HELD_SCROLL_MS whatever the frame, so it
+  // The scroll lasts HELD_SCROLL_MS whatever the frame, so it
   // takes twice the steps at 60.
   it("plays the corrective scroll over the same time, a step a frame", async () => {
     const F60 = 1000 / 60;
@@ -1256,7 +1256,7 @@ describe("in-page waits on a held clock", () => {
       expect(s.startMs, evidence).toBeGreaterThanOrEqual(opening);
   });
 
-  // DEM-186 review: what the opening said before the take is moved with
+  // What the opening said before the take is moved with
   // it. Red if the opening's degradations keep the walk's start: the failed
   // settle says 600 ms into a take that has not started.
   it("says what the opening said at the take's start", async () => {
@@ -1277,7 +1277,7 @@ describe("in-page waits on a held clock", () => {
     ).toEqual([[0, 0]]);
   });
 
-  // DEM-186: the renderer plays source time from 0, so a take timed from
+  // The renderer plays source time from 0, so a take timed from
   // before its opening load opened on its first frame for as long as the
   // load took (617 ms on a moving page). Red if the take is timed from the
   // walk's start: its first frame lands 600 ms and a frame in.
@@ -1324,7 +1324,7 @@ describe("in-page waits on a held clock", () => {
 });
 
 describe("a navigation during a step's settle on a held clock", () => {
-  // DEM-205: a Next.js link's client-side navigation sometimes landed inside
+  // A Next.js link's client-side navigation sometimes landed inside
   // the settle's window and sometimes before it, by when the server's answer
   // ended, and the window was asked again only in the first case: 12 frames
   // apart between two recordings. Red if a navigation that leaves no

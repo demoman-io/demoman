@@ -231,7 +231,7 @@ describe("createHeldClock", () => {
     ).toEqual(Array(30).fill("advance"));
   });
 
-  // DEM-265: a repo that records at 60 fps. Red if any grant, or the
+  // A repo that records at 60 fps. Red if any grant, or the
   // clock's grid, still steps 1000/30.
   it("advances page time by 1000/60 per frame at 60", async () => {
     const F60 = 1000 / 60;
@@ -254,7 +254,7 @@ describe("createHeldClock", () => {
     expect(Math.abs(thirty.clock.now() - 1000)).toBeLessThan(HELD_EPS_MS);
   });
 
-  // DEM-265: the stretch's grid, and the pin the clock runs, are the
+  // The stretch's grid, and the pin the clock runs, are the
   // clock's frame.
   it("follows the server on its own frame's grid, and pins with its frame's script", async () => {
     const F60 = 1000 / 60;
@@ -277,7 +277,7 @@ describe("createHeldClock", () => {
     expect(pins.every((p) => p.source === pinAnimationsScript(F60))).toBe(true);
   });
 
-  // DEM-265 review: Chrome's clock falls behind per grant (whole µs), and 60
+  // Chrome's clock falls behind per grant (whole µs), and 60
   // fps grants twice as often. Read through the page time a look asks the
   // network watch for waits sent since (`waitsSince`'s `pageMs`): a wait the
   // page sent 0.17 ms behind the look, 4 s in, counts at 60 and not at 30.
@@ -539,7 +539,7 @@ describe("createHeldClock", () => {
     expect(inFrames(clock.networkSpans().map((s) => s.startMs))).toEqual([3]);
   });
 
-  // DEM-206: Nylon's click sent its fetch inside the grant after it, at the
+  // Nylon's click sent its fetch inside the grant after it, at the
   // grant's start or 10 ms in as Chrome had it, and its word came 1 ms
   // either side of the grant's end. By real time the stretch began at the
   // click or a frame later: the rest of the video stood a frame apart.
@@ -770,7 +770,7 @@ describe("createHeldClock", () => {
     expect(after.every((f) => onGrid(f.sourceTimeMs))).toBe(true);
   });
 
-  // The author's ruling, 2026-11-16 (DEM-202): the video follows the server
+  // The author's ruling, 2026-11-16: the video follows the server
   // only while the script waits on the page. Red if a sleep outside a wait
   // follows an open connection (a 5 s video ran 76 s on a page with a
   // stream), or one inside a wait does not.
@@ -844,7 +844,7 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBe(3 * HELD_FRAME_MS);
   });
 
-  // DEM-186 review: only the first unpaced time is kept, so one in the
+  // Only the first unpaced time is kept, so one in the
   // opening, which the video leaves out, hid a later one it shows. Red if
   // the take's start keeps the opening's, or forgets one after it.
   it("says unpaced data from the take's start, not the opening's", async () => {
@@ -906,7 +906,7 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBeNull();
   });
 
-  // DEM-204: a step's settle leaves out requests it does not wait for, and
+  // A step's settle leaves out requests it does not wait for, and
   // an answer arriving on one then landed where the machine put it. Red if
   // the left-out set outlives the wait, or that answer is unsaid.
   it("follows only a wait's window, and says data outside it", async () => {
@@ -930,9 +930,10 @@ describe("createHeldClock", () => {
     expect(clock.unpaced()).toBe(HELD_FRAME_MS);
   });
 
-  // DEM-202: waits nest (a step's settle holds the page's answers to
+  // Waits nest (a step's settle holds the page's answers to
   // reads), and an inner one is part of the outer. Red if an inner wait's
-  // later window drops a request the outer still waits on (DEM-204 again).
+  // later window drops a request the outer still waits on, as it did for the
+  // settle.
   it("follows the earliest window among nested waits", async () => {
     const { clock, log } = setup({ waits: false });
     await clock.hold(START);
@@ -971,7 +972,7 @@ describe("createHeldClock", () => {
     expect(clock.pageOf(START + 250)).toBe(250);
   });
 
-  // DEM-204: a held settle counts no frame shot following the server. Red
+  // A held settle counts no frame shot following the server. Red
   // if the page is not told which frames those are.
   it("tells the page which frames followed the server", async () => {
     const { clock, pins } = setup({
@@ -1245,7 +1246,7 @@ describe("createHeldClock", () => {
     expect(frames).toHaveLength(0);
   });
 
-  // DEM-237: two CI refreshes stopped on the opening load with the loop
+  // Two CI refreshes stopped on the opening load with the loop
   // sentence, on pages with no loop. Red if a page that answers a second
   // read is still blamed for a loop, or the sentence leaves out which read
   // hung, where the browser had the page, or what the network watch saw.
@@ -1277,7 +1278,7 @@ describe("createHeldClock", () => {
     );
     await slept;
     const said = String(failed);
-    // A frame after the first, which was taken again (DEM-237).
+    // A frame after the first, which was taken again.
     expect(said).toMatch(
       /did not answer within 15 s during the opening, 67 ms into its load: its screenshot went unanswered when the frame was taken again a frame of page time later, the first read still unanswered, though the page answered a second read within 1000 ms \(at http:\/\/localhost:4402\/board\/web, document interactive\), so no script of it is running now; its document's request was open; the browser has it at http:\/\/auth\.example\/sign-in\/\[redacted\]$/,
     );
@@ -1287,7 +1288,7 @@ describe("createHeldClock", () => {
     expect(frames).toHaveLength(0);
   });
 
-  // DEM-186: the video's time starts at the opening still, after the
+  // The video's time starts at the opening still, after the
   // opening's load. Red if a stop after it says the clock's own time, which
   // runs ahead of the video by the opening.
   it("says a stop's time from the take's start, once it has one", async () => {
@@ -1375,7 +1376,7 @@ describe("createHeldClock", () => {
     const slept = clock.sleep(100).catch((e: unknown) => {
       failed = e;
     });
-    // A page that answers is taken again first (DEM-237).
+    // A page that answers is taken again first.
     await vi.advanceTimersByTimeAsync(
       2 * (GRANT_EXPIRY_TIMEOUT_MS + SECOND_READ_MS),
     );
@@ -1442,7 +1443,7 @@ describe("createHeldClock", () => {
     expect(frames, "the frame the late screenshot answered").toHaveLength(1);
   });
 
-  // DEM-237: CI's screenshot 33 ms into a redirect's sign-in page went
+  // CI's screenshot 33 ms into a redirect's sign-in page went
   // unanswered on a page that answered a second read, and the run stopped.
   // Red if such a frame stops the run, is filed at the time it was due
   // (its picture is a frame later), is filed twice when the first answers
@@ -1512,7 +1513,7 @@ describe("createHeldClock", () => {
     };
   };
 
-  // Review of DEM-237: a retake on a sleep's last frame ran the clock a
+  // A retake on a sleep's last frame ran the clock a
   // frame past the sleep, and every later step a frame late. Red if the
   // next sleep does not owe that frame back.
   it("owes a retake's frame past a sleep's end back to the next sleep", async () => {
@@ -1576,7 +1577,7 @@ describe("createHeldClock", () => {
     ]);
   });
 
-  // Review of DEM-237: a first screenshot still pending can hold the
+  // A first screenshot still pending can hold the
   // retake's behind it. Red if the stop does not say the first was pending.
   it("says the first read was still unanswered when its retake goes unanswered too", async () => {
     vi.useFakeTimers();
@@ -1639,7 +1640,7 @@ describe("createHeldClock", () => {
     };
   };
 
-  // DEM-237's CI sighting (nylon, 2026-11-24): the retake's screenshot went
+  // On nylon's CI, 2026-11-24, the retake's screenshot went
   // unanswered too, after the first had answered late. A screenshot waits
   // for the next frame drawn, so the first's picture shows the page at the
   // held time it answered: here after the retake's grant, a frame on. Red
@@ -1681,7 +1682,7 @@ describe("createHeldClock", () => {
     expect(ms).toBeGreaterThanOrEqual(1.5 * GRANT_EXPIRY_TIMEOUT_MS);
   });
 
-  // Review of DEM-237's stand-in. Red if the hangs it took reach the
+  // Red if the hangs it took reach the
   // stretch it is part of: the frame after it then jumps page time by the
   // late answer's real time (the latency read from them, or the retake's
   // hang followed as the server's).
@@ -1708,7 +1709,7 @@ describe("createHeldClock", () => {
       );
   });
 
-  // Review of DEM-237's stand-in. Red if a retake whose second read went
+  // Red if a retake whose second read went
   // unanswered (a script, or a page gone) is stood in for: that is a stop.
   it("stands nothing in when the retake's second read goes unanswered", async () => {
     vi.useFakeTimers();
@@ -1727,7 +1728,7 @@ describe("createHeldClock", () => {
     );
   });
 
-  // Review of DEM-237's stand-in. Red if it is allowed more than once a
+  // Red if it is allowed more than once a
   // run: a page whose screenshots keep hanging would crawl on, 30 s a frame.
   it("stands a late picture in once a run, and stops the second time", async () => {
     vi.useFakeTimers();
@@ -1750,7 +1751,7 @@ describe("createHeldClock", () => {
     );
   });
 
-  // DEM-275: on a slow runner Chrome refused one capture outright ("Unable
+  // On a slow runner Chrome refused one capture outright ("Unable
   // to capture screenshot") and the run gave way. Red if one refusal stops
   // the run, is not said, or the frame is filed at the time it was refused;
   // red if a second refusal does not stop it.
@@ -1784,7 +1785,7 @@ describe("createHeldClock", () => {
       ),
     ]);
   });
-  // Review of DEM-275. Red if a refusal on a page that does not answer a
+  // Red if a refusal on a page that does not answer a
   // second read (gone, crashed) is retaken: the run would then stop on a
   // clock that could not move, not on the refusal.
   it("stops on a refusal at once when the page does not answer a second read", async () => {
@@ -1946,7 +1947,7 @@ describe("createHeldClock", () => {
     );
   });
 
-  // DEM-207: ahead of real time, an autoplaying video never had the data
+  // Ahead of real time, an autoplaying video never had the data
   // to start, and stood on its first frame (compare/held-probe-video.mjs).
   it("lets no frame run ahead of real time while a video plays or waits to", async () => {
     const video = (from: number) =>
@@ -2056,7 +2057,7 @@ describe("PIN_ANIMATIONS", () => {
       {},
     ) as (heldMs: number) => { said: string[]; video: boolean };
 
-  // DEM-207: an autoplaying video short of the data to play through waits
+  // An autoplaying video short of the data to play through waits
   // to start; the clock paces it, and one that never starts is said.
   it("answers a video waiting to start, and says one that waited 3 s", () => {
     const waiting = {
@@ -2087,7 +2088,7 @@ describe("PIN_ANIMATIONS", () => {
       expect(videoPin(paused)(0)).toEqual({ said: [], video: false });
   });
 
-  // DEM-265: the waits are times, so at 60 fps they count twice the pins.
+  // The waits are times, so at 60 fps they count twice the pins.
   // Red if the script built for a frame length counts 30 fps pins.
   it("says a video that waited 3 s, and one stopped for half a second, at any frame length", () => {
     const pinOf = (frameMs: number, video: object) =>
@@ -2180,7 +2181,7 @@ describe("PIN_ANIMATIONS", () => {
     ]);
   });
 
-  // DEM-210: a page that replaced querySelectorAll stopped every held run
+  // A page that replaced querySelectorAll stopped every held run
   // ("could not pin the page's animations ... hostile page").
   it("finds the page's videos with the querySelectorAll the page started with", () => {
     const video = { paused: false, ended: false, currentTime: 0 };
@@ -2391,7 +2392,7 @@ describe("HELD_FRAMES_SCRIPT", () => {
     expect(p.native).toEqual([]); // premise: Chrome's own was never asked
   });
 
-  // DEM-265: the page's frame is the clock's. A document started on a
+  // The page's frame is the clock's. A document started on a
   // frame of 60 that is not one of 30 reads its start on 60's grid only if
   // the script steps the frame it was built for.
   it("puts the document's start on the grid of the frame it was built for", () => {

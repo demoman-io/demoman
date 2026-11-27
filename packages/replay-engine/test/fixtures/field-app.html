@@ -13,12 +13,12 @@
   <input id="code1" type="text" maxlength="1">
   <input id="code2" type="text" maxlength="1">
   <!-- Draws no animation frame for 1.5 s after a key: past the 1 s the type
-       verb waits for its last key's paint (DEM-173). -->
+       verb waits for its last key's paint. -->
   <input id="frozen" type="text">
   <!-- Navigates on its first key: the document the key went into is gone. -->
   <input id="leave" type="text">
   <!-- Its second frame after a key comes 600 ms late (that frame busy-waits
-       first): the type verb waits two frames after its last key (DEM-173).
+       first): the type verb waits two frames after its last key.
        Measured 2026-11-24 at 300 ms: the act lasted 297 ms longer than the
        same key on a plain field with the wait, and no longer without it. -->
   <input id="slowpaint" type="text">

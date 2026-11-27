@@ -208,7 +208,7 @@ describe("standInFrame", () => {
 });
 
 /**
- * DEM-280. The `crop-*` fixtures are 1280x800 frames of unhurried-beats'
+ * The `crop-*` fixtures are 1280x800 frames of unhurried-beats'
  * page from Chrome's own encoder (`make-surface-crop.mjs`): the page, its
  * window surface at DPR 3 (the top-left third magnified 3x, at the same
  * size: the frame CI filmed as a flash), and two pages that changed for

@@ -314,7 +314,7 @@ export type ReplayStopReason =
    * Measured, never inferred, from either of two witnesses, each read off the
    * page every capture names (`IntentCapture.here`, never written; the stored
    * `resolution.url` and `pageUrl` are scrubbed and cannot tell two record
-   * ids apart, DEM-143):
+   * ids apart):
    *
    * - the step's element was FOUND, and found on a different page from the one
    *   the step before it ran on;
@@ -331,7 +331,7 @@ export type ReplayStopReason =
    *
    * An address the app changes inside the same document (a query, a hash,
    * `pushState`) is not a move: the capture's `document` says so, and the
-   * run goes on (DEM-61); a target missing there stops with the resolver's
+   * run goes on; a target missing there stops with the resolver's
    * own reason, and a client-side sign-in redirect is the runner's sign-in
    * check to name.
    */
@@ -372,13 +372,13 @@ export type ReplayStopReason =
   | "clickNotDelivered"
   /**
    * A click step said how to answer a dialog (`dialog`) and its click opened
-   * none (DEM-161): the take does not match the script.
+   * none: the take does not match the script.
    */
   | "dialogNotOpened"
   /**
    * The step's `dialog` answer does not fit the dialog that opened: dismiss
    * on an alert, or text on anything but a prompt. The run answered OK so the
-   * page could go on, then stopped (DEM-161).
+   * page could go on, then stopped.
    */
   | "dialogAnswerUnfit"
   /**
@@ -534,14 +534,14 @@ export interface ReplayResult {
   ignoredDrags?: { actionId: string; note: string }[];
   /**
    * When each screencast frame of the window's unscaled surface was painted,
-   * in ms on the walk's clock, refused rather than filmed (DEM-280,
-   * `surfaceCrop`); the bundle's `surfaceMismatch` degradation says the
+   * in ms on the walk's clock, refused rather than filmed (`surfaceCrop`);
+   * the bundle's `surfaceMismatch` degradation says the
    * same. Optional as `unconfirmedClicks` is; the walk always sets it.
    */
   surfaceCrops?: number[];
   /**
    * Every JavaScript dialog the run answered, in order, with the action it
-   * opened during (null between steps), DEM-161. Optional as
+   * opened during (null between steps). Optional as
    * `unconfirmedClicks` is; the walk always sets it.
    */
   dialogs?: AnsweredDialog[];

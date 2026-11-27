@@ -49,7 +49,7 @@ describe("the navigating guard on a held clock", () => {
     expect(guard.navigated()).toBe(true);
   });
 
-  // DEM-265: a frame of its own clock, at 60 fps too.
+  // A frame of its own clock, at 60 fps too.
   it("plays a frame of its clock's length at 60", async () => {
     const F60 = 1000 / 60;
     const { guard, slept, now } = guardOn(150, F60);

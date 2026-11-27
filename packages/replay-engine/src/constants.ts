@@ -327,7 +327,7 @@ export const ACT_CEILING_MS = 1000;
  * a debounce longer than the beat, and any delay made by a timer alone
  * (`setTimeout` with no request open) longer than the beat. A delay that
  * waits on a request (fetch, XHR, or code being loaded: a script or a
- * stylesheet, DEM-176) is condition 2's, and is waited out.
+ * stylesheet) is condition 2's, and is waited out.
  */
 export const STEP_QUIET_MS = 200;
 /**

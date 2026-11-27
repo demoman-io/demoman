@@ -122,7 +122,7 @@ function fakeCaptures(opts: {
   navigatesAwayAfterCall?: number;
   /** Per call (0-based), the page's address, over `navigatesAwayAfterCall`. */
   urls?: string[];
-  /** Per call, the document the capture ran in (DEM-61); absent: not said. */
+  /** Per call, the document the capture ran in; absent: not said. */
   documents?: (number | null)[];
 }): FakeCaptures {
   const calls: AnchorIntent[] = [];
@@ -984,7 +984,7 @@ describe("the authored source and its assembler", () => {
     expect(document?.actions).toHaveLength(1);
   });
 
-  // DEM-61 (Helpdesk, 2026-11-06): the search box writes `?q=` to the
+  // Helpdesk, 2026-11-06: the search box writes `?q=` to the
   // address with no page load, and the next step stopped as "went
   // elsewhere". An address the app changes inside one document is the step's.
   it("a query change in the same document is part of the step", async () => {
@@ -1079,7 +1079,7 @@ describe("the authored source and its assembler", () => {
   });
 
   // A row's pushState, then a target the script names wrongly: the stop is
-  // the missing target, not "went elsewhere" (DEM-61 review). A client-side
+  // the missing target, not "went elsewhere". A client-side
   // sign-in redirect is the runner's sign-in check to name, on any stop.
   it("a target missing after a same-document address change is a missing target", async () => {
     const driven = await drive(fiveStepScript(), {

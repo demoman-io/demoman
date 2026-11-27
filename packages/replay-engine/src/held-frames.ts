@@ -4,7 +4,7 @@ import { admitFrame, degradation } from "./span.js";
 import type { FrameEncoder } from "./types.js";
 
 /** A run of identical frames this long in page time is a hold: a keyframe,
- *  no span. Three frames at 30 fps, six at 60 (DEM-265). */
+ *  no span. Three frames at 30 fps, six at 60. */
 export const HOLD_MIN_MS = 100;
 
 export interface HeldFrames {

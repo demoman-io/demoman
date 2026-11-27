@@ -2,7 +2,7 @@ import type { NetworkWatch } from "./network-watch.js";
 import type { CdpSession, Clock } from "./types.js";
 
 /** One video frame of page time at 30 fps, the default: a clock takes its
- *  own (`HeldClock.frameMs`), and a repo may record at 60 (DEM-265). */
+ *  own (`HeldClock.frameMs`), and a repo may record at 60. */
 export const HELD_FRAME_MS = 1000 / 30;
 
 /** A grant expires once the page has run what falls due in it (milliseconds in
@@ -23,7 +23,7 @@ const SILENT = Symbol("silent");
 
 /** A frame's read that went unanswered on a page that answered a second
  *  read: no script holds it, so the frame is taken again a frame of page
- *  time later (`shoot`, DEM-237). */
+ *  time later (`shoot`). */
 class Retake extends Error {
   constructor(
     message: string,
@@ -46,7 +46,7 @@ class Retake extends Error {
 const SCREENSHOT = "its screenshot";
 
 /** Chrome's refusal of one capture, which a slow machine gives now and
- *  then (DEM-275, DEM-168): taken again once, not given way to. */
+ *  then: taken again once, not given way to. */
 const REFUSED = /Unable to capture screenshot/;
 
 /** A retake's read that went unanswered where its caller can stand the
@@ -82,13 +82,13 @@ const EPS = HELD_EPS_MS;
 
 /** Page time a playing video's `currentTime` may stand still across before
  *  it is said to have stopped: a video frozen on one picture reads as a
- *  still in the recording (DEM-207). Counted in captured frames of the
+ *  still in the recording. Counted in captured frames of the
  *  clock's length. */
 const VIDEO_STALL_MS = 500;
 
 /** Page time a video may wait to start playing before it is said:
  *  `compare/held-push.sh`'s clip, at about 80 KB/s, started 1.7 s in, paced
- *  (measured 2026-11-19, DEM-207). Counted in captured frames. */
+ *  (measured 2026-11-19). Counted in captured frames. */
 const VIDEO_WAIT_MS = 3000;
 
 /** Page script: pins every animation in the document to the held time (ms),
@@ -120,7 +120,7 @@ const VIDEO_WAIT_MS = 3000;
  *  of the data to play through) is said once it has waited
  *  `VIDEO_WAIT_MS` of frames.
  *  Answers `{ said, video }`: what it could not pin, and whether a video
- *  plays or waits to, which the clock paces to real time (DEM-207).
+ *  plays or waits to, which the clock paces to real time.
  *  shortcut: a video in a frame (an embedded player) or a shadow root is
  *  neither paced nor said here (a frame of another origin is said as one on
  *  its own clock, play.ts); upgrade if an app's embed shows frozen.
@@ -128,13 +128,13 @@ const VIDEO_WAIT_MS = 3000;
  *  follows the page's clock: it starts ahead, and gains on every frame the
  *  machine falls behind, until it stands on the clip's last frame while
  *  `currentTime` plays on, and a loop restarts only once `currentTime`
- *  reaches the end (DEM-259: 1.3 s ahead from the start, and a loaded Mac's
+ *  reaches the end (1.3 s ahead from the start, and a loaded Mac's
  *  stood on 3.97 s of 4 while `currentTime` went 1.97 to 2.57). So the
  *  frames it presents are counted too (`requestVideoFrameCallback`), and a
  *  picture that stands on the clip's last frame, ahead of `currentTime`,
  *  for `VIDEO_STALL_MS` of frames is said, once per source.
  *  Built for a frame length: its waits are times, so at 60 fps it counts
- *  twice the frames (DEM-265). */
+ *  twice the frames. */
 export const pinAnimationsScript = (frameMs: number): string => {
   const stallPins = Math.round(VIDEO_STALL_MS / frameMs);
   const waitPins = Math.round(VIDEO_WAIT_MS / frameMs);
@@ -206,7 +206,7 @@ export const pinAnimationsScript = (frameMs: number): string => {
         if (was.shown !== undefined) was.shown.n = 0;
       }
       // Autoplay starts once Chrome has the data to play through: on a
-      // clock ahead of real time, never (DEM-207). Only one still fetching
+      // clock ahead of real time, never. Only one still fetching
       // waits for it (networkState 2, NETWORK_LOADING): a broken source, or
       // one Chrome stopped loading, is not paced or said as waiting.
       if (!m.autoplay || m.played.length > 0 || m.readyState >= 4) continue;
@@ -280,7 +280,7 @@ export const PIN_ANIMATIONS = pinAnimationsScript(HELD_FRAME_MS);
  *  as a browser runs one frame's callbacks. A callback asked for inside a
  *  frame runs on the next. `server`: the frame was shot following the
  *  server, which a callback reads as `window.__demomanServerFrame` (a held
- *  settle counts no such frame, DEM-204).
+ *  settle counts no such frame).
  *
  *  The callbacks' timestamp is the held time on this document's clock, not a
  *  read of `performance.now()`, which Chrome clamps to 100 µs with a jitter
@@ -304,8 +304,7 @@ export const PIN_ANIMATIONS = pinAnimationsScript(HELD_FRAME_MS);
  *  a link to an anchor on a smooth-scrolling page is not seen. Upgrade if an
  *  app shows it.
  *
- *  Built for the clock's frame length, so the page's grid is the clock's
- *  (DEM-265). */
+ *  Built for the clock's frame length, so the page's grid is the clock's. */
 export const heldFramesScript = (frameMs: number): string => `(() => {
   if (window.__demomanFlushFrames) return;
   if (window !== window.parent) {
@@ -315,8 +314,8 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
     try { if (!window.parent.__demomanFlushFrames) return; } catch (e) { return; }
   }
   const request = window.requestAnimationFrame.bind(window);
-  // Read before the page's own scripts run: a page that replaces it (DEM-210's
-  // hostile page) would otherwise stop the pin on every frame.
+  // Read before the page's own scripts run: a page that replaces it (a hostile one)
+  // would otherwise stop the pin on every frame.
   const all = document.querySelectorAll;
   const query = (s) => all.call(document, s);
   const FRAME = ${frameMs};
@@ -425,7 +424,7 @@ export interface HeldClock extends Clock {
   /** Page animations the pin could not hold, at the held time first seen. */
   unpinned(): { atMs: number; what: string }[];
   /** Frames taken again a frame of page time later, at the held time of the
-   *  one that went unanswered, each with why (DEM-237). */
+   *  one that went unanswered, each with why. */
   retaken(): { atMs: number; what: string }[];
   /** Connections that stopped counting as waiting on the server (`NetworkWatch.ignored`). */
   ignoredConnections(): string[];
@@ -443,19 +442,18 @@ export interface HeldClock extends Clock {
    *  pause, a rest, a journey) and is held frames whatever is open: read off
    *  the connection alone, a page with a channel that kept answering made a
    *  5 s video 76 s, a pause cut short on every step (measured 2026-11-16,
-   *  compare/held-push.sh; the author's ruling, DEM-202). Nests. Frames a wait
+   *  compare/held-push.sh; the author's ruling). Nests. Frames a wait
    *  heard over is still owed when the wait on the page ends are not played
    *  on the way out (a wait that follows at once plays them, inside its own
    *  reported stretch), a connection still open is left, and real time that
    *  passes outside a wait is not credited to one. `since`: the wait's
    *  window on the page's clock (`now()` ms; none: no lower bound), whose
-   *  requests alone it follows; data on an older one during it is unpaced
-   *  (DEM-204, DEM-202). Nested waits follow the earliest window among
+   *  requests alone it follows; data on an older one during it is unpaced. Nested waits follow the earliest window among
    *  them: an inner wait is part of the outer. */
   waiting<T>(run: () => Promise<T>, since?: number | null): Promise<T>;
   /** A page's `wallTime` (ms, its held clock) as `now()` ms. */
   pageOf(wallMs: number): number;
-  /** The recording's time starts now, at its opening still (DEM-186): a
+  /** The recording's time starts now, at its opening still: a
    *  stop says its time from here, and one before it says it was in the
    *  opening, whose page time the video leaves out. */
   startTake(): void;
@@ -570,7 +568,7 @@ export function createHeldClock(deps: {
    *  time. Nylon's click sent its fetch at the start of the next grant or
    *  10 ms into it, as Chrome had it, and heard 1 ms either side of the
    *  grant's end: the stretch began at the click or a frame later, and
-   *  the rest of the video stood a frame apart (DEM-206). */
+   *  the rest of the video stood a frame apart. */
   const dated = (
     wait: { from: number; page?: number } | null,
     looked: { real: number; held: number },
@@ -592,7 +590,7 @@ export function createHeldClock(deps: {
    *  grant in whole µs, so it falls behind per grant, about 8e-6 ms per ms
    *  at 30 fps (measured 2026-11-17, 0.03 ms at 4 s on Nylon); 2.5 times
    *  that. The term scales with grants per ms, so 60 fps keeps the same
-   *  margin (DEM-265). */
+   *  margin. */
   const pageSlack = () => 0.05 + held * 2e-5 * (HELD_FRAME_MS / frameMs);
   /** The waits since a look: heard after it, or sent by the page since it
    *  stood there. */
@@ -642,7 +640,7 @@ export function createHeldClock(deps: {
     if (startEpochMs === null) throw new Error("grant before hold");
     // A video plays on Chrome's real clock, and autoplay starts only once
     // its download keeps up with page time: ahead of real time, one stood
-    // on its first frame (DEM-207). While the pin sees one playing or
+    // on its first frame. While the pin sees one playing or
     // waiting to, no grant ends ahead of real time, as Chrome paces a page
     // without the held switches.
     // Real time the clock fell behind (a slow capture, the walk's own work)
@@ -772,7 +770,7 @@ export function createHeldClock(deps: {
 
   /** Why a frame's read went unanswered, in what the page and the browser
    *  say a moment later. A page that answers a second read runs no script
-   *  now, so a loop is not what holds it (DEM-237: two CI refreshes blamed
+   *  now, so a loop is not what holds it (two CI refreshes blamed
    *  one on pages that have none, during the opening load). */
   const unanswered = async (
     what: string,
@@ -829,7 +827,7 @@ export function createHeldClock(deps: {
    *  A read that went unanswered on a page that answers a second one is
    *  taken again, once, a frame of page time later: a CI runner's screenshot
    *  33 ms into a redirect's sign-in page went unanswered on a page whose
-   *  document was complete with nothing open (DEM-237), and a held page draws
+   *  document was complete with nothing open, and a held page draws
    *  only as its clock moves. The frame at the first time is not in the video,
    *  and the report says so (`retaken`). */
   const shoot = async (server = false) => {
@@ -868,7 +866,7 @@ export function createHeldClock(deps: {
       } catch (hung) {
         const stood = first();
         if (!(hung instanceof Spared) || stood === null) throw hung;
-        // DEM-237 (nylon, 2026-11-24): the retake hung too, after the first
+        // On nylon, 2026-11-24, the retake hung too, after the first
         // had answered. Its picture is filed at the page time it shows, and
         // said on the frame's one retake note.
         spared = true;
@@ -936,7 +934,7 @@ export function createHeldClock(deps: {
     try {
       shot = await answered(deps.capture(), SCREENSHOT, retake, spare);
     } catch (e) {
-      // DEM-275: Chrome refused a capture outright on a slow runner, and the
+      // Chrome refused a capture outright on a slow runner, and the
       // run gave way at once. A refusal on a page that answers a second read
       // is taken again once, a frame of page time later, as an unanswered
       // one is, and said; a second refusal stops the run as before. A page
