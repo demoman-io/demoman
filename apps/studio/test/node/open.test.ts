@@ -22,7 +22,7 @@ const CASE_MS = 60_000;
 let home: string;
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "studio-open-"));
-  // CI's Linux runner has no display, which openStudio refuses (DEM-69).
+  // CI's Linux runner has no display, which openStudio refuses.
   vi.stubEnv("DISPLAY", ":0");
 });
 afterEach(async () => {
@@ -52,7 +52,7 @@ const servings = async (): Promise<number> =>
 
 describe("openStudio", () => {
   // Red if openStudio stops asking visibleWindowRefusal before it spawns.
-  it("refuses at once with no display, starting nothing (DEM-69)", async () => {
+  it("refuses at once with no display, starting nothing", async () => {
     const a = await openStudio({
       home,
       version: "0.0.0-test",
@@ -69,7 +69,7 @@ describe("openStudio", () => {
   // Red if the display check moves back above resolve(): a studio started
   // on a display is still asked for its window from a shell without one.
   it(
-    "still reuses a live studio from a shell with no display (DEM-69)",
+    "still reuses a live studio from a shell with no display",
     async () => {
       const first = await openStudio({
         home,
@@ -345,7 +345,7 @@ describe("openStudio", () => {
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
       ]);
-      // CI's red run arrives explaining itself (DEM-66): each open's note,
+      // CI's red run arrives explaining itself: each open's note,
       // which says what a replaced studio's ping got, and both logs.
       const log = (name: string) =>
         readFile(join(home, name), "utf8").then(
@@ -363,7 +363,7 @@ describe("openStudio", () => {
     CASE_MS,
   );
 
-  // A waiter that finds the start lock before its pid lands (DEM-66) is
+  // A waiter that finds the start lock before its pid lands is
   // runner's pid-lock.test.ts: the lock is runner's takePidLock now, out of
   // reach of a mock here.
 
@@ -426,7 +426,7 @@ describe("openStudio", () => {
 });
 
 describe("openStudio on a busy machine", () => {
-  // DEM-66: red if livePing calls a live studio dead on its first missed
+  // Red if livePing calls a live studio dead on its first missed
   // ping — the record is replaced (the stale note) and a second one starts.
   it(
     "keeps a live studio that misses one ping, starting no other",
@@ -513,7 +513,7 @@ describe("stopStudio", () => {
     expect(r).toMatchObject({ stopped: false, cutShort: 0 });
     // Could not tell is not "nothing running": it says what it found.
     expect(r.why).toContain(`pid ${process.pid} is alive but did not answer`);
-    // And why: port 1 refuses the ping (DEM-66's review).
+    // And why: port 1 refuses the ping.
     expect(r.why).toContain("ECONNREFUSED");
     expect(() => process.kill(process.pid, 0)).not.toThrow();
   });

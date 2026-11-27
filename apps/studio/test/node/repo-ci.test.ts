@@ -276,7 +276,7 @@ describe("the CI routes", () => {
     });
   });
 
-  // Review of DEM-269. Red if an update's job is not replayed like Set up
+  // Review of Update CI. Red if an update's job is not replayed like Set up
   // CI's, or its states drop the update, or a reason is logged on every read.
   it("an update's job keeps saying so and replays; a reason is logged once", async () => {
     const update = {
@@ -343,7 +343,7 @@ describe("the CI routes", () => {
     expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual(live);
   });
 
-  // Review of DEM-269. Red if an applied update replays once its pull
+  // Review of Update CI. Red if an applied update replays once its pull
   // request is gone and the update is on offer again (the sheet would show
   // the closed pull request and Done for good), or a job for another update
   // replays.

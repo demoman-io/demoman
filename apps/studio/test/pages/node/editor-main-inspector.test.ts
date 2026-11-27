@@ -413,7 +413,7 @@ describe("editor main — the inspector, wired", () => {
     expect(document.querySelector('[data-tick="act-1"]')).not.toBeNull();
   });
 
-  // DEM-242: "Zoom on this step" starts at the level the take recorded
+  // "Zoom on this step" starts at the level the take recorded
   // (`zoomDefault`), as the zooms Demoman generated did; a take without the
   // record starts at 1.8x.
   it.each([

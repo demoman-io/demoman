@@ -360,7 +360,7 @@ const markOf = (
 
 /**
  * A smoke wait for a takes event after `at`, named when it times out
- * (DEM-245: "the stream never matched in 25000 ms", about half the runs on
+ * ("the stream never matched in 25000 ms", about half the runs on
  * one day, and the message did not say which of three waits it was). It
  * says how long it waited, what the hub was asked to send and what the
  * stream got since `at`, whether a feed says it is down, and the server's
@@ -389,7 +389,7 @@ async function waitNamed(
 /**
  * Resolves once the takes watch has heard a write. A recursive watch on
  * macOS starts its FSEvents stream asynchronously, and a change made before
- * the stream is live is never reported: DEM-245's red runs (`Sent since:
+ * the stream is live is never reported: the red runs (`Sent since:
  * []`, no watch error, nothing in 25 s) were the case's own writes landing
  * first, and a watch made to start 3 s late gives the same failure. So a
  * marker at the top of `takes/` (a listing change) is written until a takes

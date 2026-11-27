@@ -58,7 +58,7 @@ async function opened(d: ReturnType<typeof door>) {
 }
 
 describe("repoSheetModel", () => {
-  // Red if the sheet waits for the check before it exists, or stops splitting the default path (DEM-47, DEM-50).
+  // Red if the sheet waits for the check before it exists, or stops splitting the default path.
   it("opens on checking, then the form with folder and name from the default path", async () => {
     const m = repoSheetModel(
       door({
@@ -78,7 +78,7 @@ describe("repoSheetModel", () => {
     });
   });
 
-  // Red if a refusal from the check is not said, or closing loses why (DEM-47 moved the check here).
+  // Red if a refusal from the check is not said, or closing loses why (the check moved here).
   it("a refused check is said, and closing resolves failed with it", async () => {
     const m = await opened(
       door({
@@ -185,7 +185,7 @@ describe("repoSheetModel", () => {
     expect(d.bodies).toEqual([]);
   });
 
-  // Red if a written file is labelled by anything but where it lives (DEM-49).
+  // Red if a written file is labelled by anything but where it lives.
   it("writtenLabel names each file the add writes", () => {
     expect(writtenLabel("docs/demos/filter-invoices.mp4")).toBe("Video");
     expect(writtenLabel(".demoman/flows/filter-invoice.json")).toBe(
@@ -365,7 +365,7 @@ describe("repoSheetModel with CI", () => {
     expect((await m.result).prOpened).toBe("https://gh/pr/4");
   });
 
-  // Red if the result stops carrying where the flow was added, which the row marks In repo from (DEM-59).
+  // Red if the result stops carrying where the flow was added, which the row marks In repo from.
   it("added carries root and file for the row", async () => {
     const { m } = await lastStepOf({ kind: "setUp" });
     m.close();

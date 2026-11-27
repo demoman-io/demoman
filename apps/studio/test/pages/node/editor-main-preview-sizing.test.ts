@@ -62,7 +62,7 @@ const draws = vi.hoisted(() => ({
    * a pump by one frame, so the price the preview measures is the price this
    * file set. Spun on the real clock, a 1 ms draw was priced at whatever the
    * runner spent around it: on a loaded CI runner the play latched the floor
-   * and these cases read `expected 720 to be 1314` (DEM-262).
+   * and these cases read `expected 720 to be 1314`.
    */
   clockMs: 0,
   composeMs: 0,

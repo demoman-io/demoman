@@ -206,7 +206,7 @@ describe("ciSteps", () => {
     expect(live.d.planBodies).toHaveLength(2);
   });
 
-  // Review of DEM-269. Red if a stopped check leaves Check as the add
+  // Review of Update CI. Red if a stopped check leaves Check as the add
   // sheet's only button (no way out but Escape).
   it("offers Not now beside Check after a stop", async () => {
     const { d, s } = await read({ kind: "notSetUp" });
@@ -272,7 +272,7 @@ describe("ciSteps", () => {
   });
 });
 
-// DEM-269: the Set up CI sheet offers an update of an older release's
+// The Set up CI sheet offers an update of an older release's
 // workflow; the add sheet keeps its own pull request.
 describe("an update of an older workflow", () => {
   const update = {
@@ -283,7 +283,7 @@ describe("an update of an older workflow", () => {
   };
   const older: CiState = { kind: "setUp", update };
 
-  // Review of DEM-269. Red if a reopened sheet over a running or finished
+  // Review of Update CI. Red if a reopened sheet over a running or finished
   // update's job forgets it is an update (title "Set up CI", "Check").
   it.each<CiState>([
     { kind: "running", jobId: "ci-1", update },

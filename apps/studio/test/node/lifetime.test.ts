@@ -75,7 +75,7 @@ const HELD_MS = 43_210;
  * after an open settles). Every other timer stays real, and a held check the
  * Studio clears is gone, as it would be. On a real 50 ms timer the deadline
  * raced the open a case puts in flight: a loaded runner answered the POST
- * after it, and the Studio stopped with no open counted (DEM-252, DEM-266).
+ * after it, and the Studio stopped with no open counted.
  */
 function heldDeadline(ms: number): () => void {
   const real = globalThis.setTimeout;
@@ -856,7 +856,7 @@ describe("start-up checks", () => {
       expect(page.status).toBe(200);
     }
     const said = s.logs.filter((l) => /theme|settings\.json/.test(l));
-    // DEM-179: the start-up cleanup says, once, that it removed nothing over
+    // The start-up cleanup says, once, that it removed nothing over
     // the broken file; no page load says anything.
     const expiry = (l: string) => l.startsWith("studio: expiring old videos:");
     expect(said.filter((l) => !expiry(l))).toEqual([]);

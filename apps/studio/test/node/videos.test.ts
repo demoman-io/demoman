@@ -240,7 +240,7 @@ describe("the takes listing's videos", () => {
     expect(body.videoOf["inv-2"]?.expired).toBe(false);
   });
 
-  it("says an old version expiry left alone for a lease that will not read (DEM-127)", async () => {
+  it("says an old version expiry left alone for a lease that will not read", async () => {
     // Red: read only `failed` from the expiry result — the pass succeeds,
     // inv-1 keeps its frames, and no row says why.
     await createLibrary(home).putJson("inv-1", "script.json", {});
@@ -292,7 +292,7 @@ describe("the takes listing's videos", () => {
   );
 
   it("an asset sweep that stops says why, as an upkeep row", async () => {
-    // Red: drop swept() from the upkeep, or its stopped row (DEM-136).
+    // Red: drop swept() from the upkeep, or its stopped row.
     // A folder where a take's scene.json should be: it will not read.
     const broken = join(home, "takes", "broken-take", "scene.json");
     await mkdir(broken, { recursive: true });

@@ -50,7 +50,7 @@ const left = async () => (await readdir(join(home, "assets"))).sort();
 const backupsLeft = async () =>
   (await readdir(home)).filter((n) => n.startsWith("kits.json.bak-")).sort();
 
-describe("the upkeep's asset sweep (DEM-136)", () => {
+describe("the upkeep's asset sweep", () => {
   // Red if any one source of a name stops being read, or the grace or the
   // backup rule goes: the asset or backup it keeps would be removed.
   it("removes only what nothing kept names and is past its grace, and backups past keeping but the newest", async () => {

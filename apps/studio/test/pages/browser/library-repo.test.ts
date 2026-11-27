@@ -52,7 +52,7 @@ const video = (id: string, name: string, extra: object = {}): VideoSummary =>
   }) as unknown as VideoSummary;
 
 const OK: Addable = { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" };
-/** The listing's one answer (DEM-47): a flow recorded with no repo. */
+/** The listing's one answer: a flow recorded with no repo. */
 const LOOSE: Addable = {
   ok: false,
   reason: "noCheckout",
@@ -72,7 +72,7 @@ interface Flow {
   name: string;
   /** What the sheet's check answers; OK unless given. */
   addable?: Addable;
-  /** What the listing says (only a flow with no repo, since DEM-47). */
+  /** What the listing says (only a flow with no repo, as the sheet checks the rest). */
   listed?: Addable;
   video?: object;
 }
@@ -491,7 +491,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     expect(document.querySelector("[data-toast]")).toBeNull();
   });
 
-  // Red if the row hides Add from a flow the listing no longer checks (DEM-47).
+  // Red if the row hides Add from a flow the listing no longer checks.
   it("a flow the listing did not check offers Add", async () => {
     await mountLibrary([{ id: "yes", name: "Checkout" }]);
     const on = await button("repo-add", "yes");
@@ -499,7 +499,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     expect(on.getAttribute("aria-label")).toBe("Add to repo: Checkout");
   });
 
-  // Red if Add waits for the library to be read again before its sheet opens (DEM-47: 4–6 s).
+  // Red if Add waits for the library to be read again before its sheet opens (4–6 s).
   it("the sheet opens before the listing is read again", async () => {
     await mountLibrary([{ id: "yes", name: "Checkout" }]);
     const reads = { n: 0 };
@@ -589,7 +589,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
   });
 
   // Red if a read that began before the mark landed paints the flow Not in
-  // repo again after the add's own In repo (DEM-59).
+  // repo again after the add's own In repo.
   it("a read from before the mark does not take In repo away", async () => {
     const flows = [{ id: "yes", name: "Checkout" }];
     await mountLibrary(flows);
@@ -638,7 +638,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     ).not.toBeNull();
   });
 
-  // Red if In repo waits for the listing to come back after an add (DEM-59).
+  // Red if In repo waits for the listing to come back after an add.
   it("In repo shows as soon as the sheet closes after an add", async () => {
     await mountLibrary([{ id: "yes", name: "Checkout" }]);
     // A last step with no CI choice, so Done is the way out.
@@ -713,7 +713,7 @@ describe("Set up CI beside a project's heading", () => {
   }
   const ciButton = () => document.querySelector<HTMLElement>("[data-ci-setup]");
 
-  // Red if a project with a flow in the repo and no CI offers no way in (DEM-52).
+  // Red if a project with a flow in the repo and no CI offers no way in.
   it("a project with a flow in the repo and no CI offers Set up CI", async () => {
     const asked = await mountAt(KEY, async () => ({ kind: "notSetUp" }));
     const b = await vi.waitFor(() => {

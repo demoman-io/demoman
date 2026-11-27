@@ -7,7 +7,7 @@ import type { RepoCiDoor } from "../../../pages/src/shell/ci-steps";
 import { mountShell, pageParts } from "../helpers/shell-css";
 
 /**
- * CI setup on its own (DEM-52): the sheet "Set up CI" beside a project's
+ * CI setup on its own: the sheet "Set up CI" beside a project's
  * heading opens, with no flow being added.
  */
 const { css } = pageParts(libraryHtml, "article.card:hover");

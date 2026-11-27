@@ -45,7 +45,7 @@ const LANE_MS = 60_000;
 /** The edit-and-export case. CI's macOS `packages` leg, 2026-11-11 to
  *  11-18: 83 passes at 23.9-59.6 s (median 43.3 s, 18 over 50 s), and two
  *  runs out of LANE_MS at 61.2 s, one of them after every stage had
- *  finished (DEM-213); the ubuntu leg, 91 passes at 4.4-25.0 s. About
+ *  finished; the ubuntu leg, 91 passes at 4.4-25.0 s. About
  *  twice the macOS worst. */
 const EDIT_EXPORT_MS = 120_000;
 /** The studio's export, Export pressed to the saved row: inside the 1.8 s
@@ -254,7 +254,7 @@ async function agentExport(
 
 /** Runs `body` with a `stage(name)` to call as each part begins. When the
  *  parts outlast `ms` it fails naming the part still running and what each
- *  part took, rather than vitest's bare "Test timed out" (DEM-213). From
+ *  part took, rather than vitest's bare "Test timed out". From
  *  then `stage` throws, so the body stops at its next part rather than run
  *  on against the Studio and the home `afterEach` takes away. */
 function staged(

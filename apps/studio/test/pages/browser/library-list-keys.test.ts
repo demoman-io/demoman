@@ -515,7 +515,7 @@ describe("Enter", () => {
 });
 
 describe("selecting", () => {
-  // Red: Enter falling through to `edit` while flows are ticked (DEM-35).
+  // Red: Enter falling through to `edit` while flows are ticked.
   it("Enter while flows are ticked does what a click does: a flow toggles, a video opens nothing", async () => {
     mount(["B"]);
     expect(ticked(), "the fixture ticks B").toEqual(["f:B"]);
@@ -752,7 +752,7 @@ describe("type-ahead after another key", () => {
   });
 
   it("a letter after a click searches from where the click put focus", async () => {
-    // A window no runner's click outlasts (DEM-172: a real click took
+    // A window no runner's click outlasts (a real click took
     // 669 ms on CI's macOS runner, past the 500 ms one), so only the click
     // can have ended the search.
     const window = 60_000;

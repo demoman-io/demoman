@@ -25,7 +25,7 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 const seen = vi.hoisted(() => ({
   kept: false,
   removes: 0,
-  /** What repoAddable answers; the listing answers nothing (DEM-47). */
+  /** What repoAddable answers; the listing answers nothing. */
   addable: null as unknown,
   asked: 0,
   /** Holds the next listing read, which keeps what it read until let go. */
@@ -275,7 +275,7 @@ describe("editor main: the Repo section", () => {
   }, 20_000);
 
   // Red if the panel checks the flow before offering Add: the sheet checks
-  // on open, as the library's does, so the check is not run twice (DEM-47).
+  // on open, as the library's does, so the check is not run twice.
   it("offers Add on an unchecked flow without asking repoAddable", async () => {
     await import("../../../pages/entrypoints/editor/main");
     const add = await vi.waitFor(

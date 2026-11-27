@@ -3937,7 +3937,7 @@ describe("each track has a header the height of its track", () => {
       }
       // A beat on the trim's edge — where a take's last action usually sits
       // — is under the handle, so the whole handle starts a trim, and the
-      // beat is still reached beside it (the author, 2026-11-19, DEM-232;
+      // beat is still reached beside it (the author, 2026-11-19;
       // over it until then, which left the handle's middle ungrabbable).
       // Placed onto the handle here
       // rather than found in the fixture, which has no beat on an edge.

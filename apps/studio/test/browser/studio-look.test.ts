@@ -313,7 +313,7 @@ describe("controls", () => {
         }),
       );
       // Rect and pixel read together until the ring paints, not once
-      // (DEM-171: CI's macOS runner sampled the ground 3px above a focused,
+      // (CI's macOS runner sampled the ground 3px above a focused,
       // outlined segment — a scroll still moving it is the likely gap).
       await vi.waitFor(
         async () => {
@@ -433,7 +433,7 @@ describe("library", () => {
           `a card's ring at ${c.left}: ${JSON.stringify(ring)}`,
         ).toBeGreaterThanOrEqual(LINE_STEP);
       }
-      // The list's date headings' sans label, not mono capitals (DEM-30).
+      // The list's date headings' sans label, not mono capitals.
       expect(g.headFont, said).not.toMatch(/mono/i);
       expect(g.headCase, said).toBe("none");
       const rule = await hairlineAt(page, g.contentRight - 6, g.head.mid, "h");

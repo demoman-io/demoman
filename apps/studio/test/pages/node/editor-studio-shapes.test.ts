@@ -174,7 +174,7 @@ describe("a file row from outputs.json", () => {
     });
   });
 
-  it("off macOS the same button says Show in folder (DEM-86: no Finder there)", () => {
+  it("off macOS the same button says Show in folder (no Finder there)", () => {
     // FreeBSD too: the server opens the folder on anything not a Mac.
     for (const ua of [
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",

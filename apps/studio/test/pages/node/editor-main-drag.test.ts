@@ -451,7 +451,7 @@ describe("editor main — what a drag's three outcomes each do", () => {
     expect(refusalText()).toBe(said);
   });
 
-  // A render that lands mid-drag waits for the release (DEM-234), so the
+  // A render that lands mid-drag waits for the release, so the
   // drag's own render is stale by then: the drop resolves against the
   // newest model, or a head dropped past a tail set mid-drag was saved.
   it("resolves a drop against the edit made while the handle was held", async () => {
@@ -524,7 +524,7 @@ describe("editor main — what a drag's three outcomes each do", () => {
     expect(refusalText()).toBe("");
   });
 
-  // DEM-242: a zoom added on the Zoom lane starts at the level the take
+  // A zoom added on the Zoom lane starts at the level the take
   // recorded (`zoomDefault`, what a held take's 2x frames back), as the
   // zooms Demoman generated did; a take without the record starts at 1.8x.
   it.each([

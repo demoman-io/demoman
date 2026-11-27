@@ -275,7 +275,7 @@ for (const scheme of ["light", "dark"] as const) {
       await shot("check-status", scheme);
       s.send({ phase: "done", step: "plan", answer: planned });
       await el(dialog, "[data-ci-apply]");
-      // The author (DEM-269): the progress goes once the check answers, and
+      // The author: the progress goes once the check answers, and
       // the verdict says what passed, not the bare outcome word.
       expect(dialog.querySelector("[data-ci-status]")).toBeNull();
       expect(dialog.querySelector("[data-ci-verdict]")?.textContent).toMatch(
