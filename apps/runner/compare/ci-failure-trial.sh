@@ -1,10 +1,11 @@
 #!/bin/sh
 # A failed flow in CI, end to end, with this checkout's build and no release
-# (the failure detail, its fix hint and its kept screens): a throwaway private GitHub repo holding a static page
-# and two hand-written flows, one whose target the page does not have. The
-# workflow is the one `setup --ci` writes (push trigger, pr route), rendered
-# from this checkout's source, with every `npx demoman@<version>` pointed at
-# the packed `apps/cli/pkg` committed beside it.
+# (the failure detail, its fix hint and its kept screens): a throwaway private
+# GitHub repo holding a static page and two hand-written flows, one whose target
+# the page does not have. The workflow is the one `setup --ci` writes (push
+# trigger, pr route), rendered from this checkout's source, with every
+# `npx demoman@<version>` pointed at the packed `apps/cli/pkg` committed beside
+# it.
 #
 #   ci-failure-trial.sh <owner>
 #

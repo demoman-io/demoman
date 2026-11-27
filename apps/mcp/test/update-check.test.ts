@@ -171,8 +171,8 @@ describe("createUpdateCheck", () => {
   });
 
   // Review Focus 4.
-  // Found in review: writeFile's mode applies only on create, so a temp file
-  // a crash left behind (with this pid, reused) would carry its 0644 over.
+  // writeFile's mode applies only on create, so a temp file a crash left behind
+  // (with this pid, reused) would carry its 0644 over.
   it("writes 0600 over a leftover temp file of another mode", async () => {
     const h = await home();
     const tmp = join(h, `update-check.json.${process.pid}.tmp`);

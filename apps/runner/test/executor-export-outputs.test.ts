@@ -358,8 +358,8 @@ describe("export goes to the Export folder the settings name", () => {
     EXPORT_MS,
   );
 
-  // Found in review: red if a value it cannot use falls back to
-  // ~/Downloads, or a chosen folder that is gone is made again.
+  // Red if a value it cannot use falls back to ~/Downloads, or a chosen folder
+  // that is gone is made again.
   it("refuses a value it cannot use, and a chosen folder that is gone, before rendering", async () => {
     await putTake(home, take.takeId, take.original, take.bundle);
     await choose("films");

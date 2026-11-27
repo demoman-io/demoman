@@ -400,8 +400,8 @@ describe("RunReport", () => {
     expect(report.stopped?.at.scriptStep).toBeNull();
   });
 
-  // A report.json written before the script step was recorded has no script step: it reads as it
-  // did, never "script step undefined".
+  // A report.json written before the script step was recorded has no script
+  // step: it reads as it did, never "script step undefined".
   it("a report from before the script-step numbering reads as it did", () => {
     const report = buildRunReport({
       ...complete(),
@@ -1140,9 +1140,9 @@ describe("RunReport", () => {
   });
 });
 
-// A run joined from another repo's checkout. Red if verdictLine drops `videoVersion.otherRepo`: the run page,
-// the PR line and the agent's summary would not say the flow is another
-// repo's.
+// A run joined from another repo's checkout. Red if verdictLine drops
+// `videoVersion.otherRepo`: the run page, the PR line and the agent's summary
+// would not say the flow is another repo's.
 describe("a flow joined from another repo, on the line", () => {
   it("says so after the run's own clause, and says nothing when it is not", () => {
     const clean = buildRunReport(complete());

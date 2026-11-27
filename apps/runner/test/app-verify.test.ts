@@ -73,7 +73,7 @@ const files = () => [
   { path: `${FLOWS_DIR}/${keptFileName("Long")}`, text: flowText("Long", 3) },
   { path: `${FLOWS_DIR}/${keptFileName("Short")}`, text: flowText("Short", 1) },
   { path: ".demoman/receipts/short.screens/final.png", text: BYTES },
-  // An account's seed script, carried executable (found in review).
+  // An account's seed script, carried executable.
   { path: "bin/seed-demo", text: "#!/bin/sh\n", mode: 0o755 },
 ];
 const video = (over: Partial<RefreshVideo> = {}): RefreshVideo => ({

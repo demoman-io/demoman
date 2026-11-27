@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Reads an export of `held-sweep.json` (record it with pacing-pairs.mjs) off
-// its decoded pixels, for lane A's held sweep (opening freezes, short repaints, faint flickers):
+// its decoded pixels, for lane A's held sweep (opening freezes, short repaints,
+// faint flickers):
 //
 //   node apps/runner/compare/held-sweep-read.mjs <video.mp4>...
 //

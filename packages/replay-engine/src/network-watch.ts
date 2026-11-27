@@ -241,12 +241,11 @@ export async function createNetworkWatch(
     cdp.on("Network.requestWillBeSent", (p) => {
       // An EventSource or a websocket was measured (2026-11-16,
       // compare/held-push.sh): counted, one that sent every 3 s made a 5 s
-      // video 72 s. A websocket is never heard here at all (no request is
-      // sent for one): a dev server's hot-reload socket sends on every
-      // request, and counted it kept each wait open 10 s past its last
-      // request (Chatbot, 2026-11-15). A video's download froze a held
-      // video's step settle 8 s. A rule, not a loss, so nothing
-      // says it.
+      // video 72 s. A websocket is never heard here at all (no request is sent
+      // for one): a dev server's hot-reload socket sends on every request, and
+      // counted it kept each wait open 10 s past its last request (Chatbot,
+      // 2026-11-15). A video's download froze a held video's step settle 8 s. A
+      // rule, not a loss, so nothing says it.
       // shortcut: a reply streamed over a websocket or an EventSource lands
       // where the machine puts it, unsaid; upgrade if an app shows it.
       // An iframe's requests are its own document's business: a

@@ -15,9 +15,9 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 
 /**
- * A pinned clock in a real browser: a run given `pinnedNow` starts the page's clock
- * at that instant and lets it run, across a navigation, without stopping a
- * debounce that measures time with Date.now(). The page reports what its
+ * A pinned clock in a real browser: a run given `pinnedNow` starts the page's
+ * clock at that instant and lets it run, across a navigation, without stopping
+ * a debounce that measures time with Date.now(). The page reports what its
  * clock reads to the server, so the test reads the page's own answers.
  */
 const PINNED = "2026-11-06T09:00:00Z";

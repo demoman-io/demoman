@@ -833,8 +833,8 @@ describe("a held recording that waits on its server", () => {
       )?.startMs ?? Number.NaN;
     // Chrome left the clip on 0.00 while it played, fully buffered short
     // of playing (what a machine far behind its frames does; a clip at
-    // readyState 3 or 4 that stands still is the clock's fault, not a
-    // starved machine's).
+    // readyState 3 or 4 that stands still is the clock's fault, not the
+    // machine's).
     const startStalls = r.bundle.degradations.filter((d) =>
       /^a video stopped on one frame while playing \(at 0\.00 s of [\d.]+, readyState [012], buffered to [\d.]+ s, networkState \d\)$/.test(
         d.note,

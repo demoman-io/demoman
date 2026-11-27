@@ -792,8 +792,8 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(await report("id-4"))).toEqual({ url: "id-4", targets: [] });
   });
 
-  // Found in review. Red if snapshots and runs share one budget: the
-  // run's id would be pushed out while the executor still holds its report.
+  // Red if snapshots and runs share one budget: the run's id would be pushed
+  // out while the executor still holds its report.
   it("keeps a finished run's id past JOBS_KEPT later snapshots", async () => {
     const { client } = await connect(
       {

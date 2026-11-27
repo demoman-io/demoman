@@ -1896,9 +1896,8 @@ export async function runWalk(
    */
   const settlePage = async (deadline: number): Promise<Unmet[]> => {
     // Held: the budget is page time outside server stretches, as the probe
-    // counts its cap (`stepSettleExpression`), so the server never spends
-    // it; with the server's time in it, the settle stops a
-    // request cap later.
+    // counts its cap (`stepSettleExpression`), so the server never spends it;
+    // with the server's time in it, the settle stops a request cap later.
     // Read only when held: a clock read is a moment of a real clock's.
     const began = held === undefined ? 0 : at();
     const outer = deadline + STEP_REQUEST_CAP_MS;
@@ -3489,12 +3488,11 @@ export async function runWalk(
     lastCompletedActionId: string | null;
   } | null = null;
   /**
-   * Ends the armed step's answer: hands it
-   * every dialog it opened, late ones included, and stops when one was
-   * refused or did not fit, or it asked for one and none opened. Such a
-   * stop is that step's, so the count goes back to before it and the run
-   * reports it as the step it stopped on; what happened after it stays in
-   * the take, as it happened. True when the run stops.
+   * Ends the armed step's answer: hands it every dialog it opened, late ones
+   * included, and stops when one was refused or did not fit, or it asked for
+   * one and none opened. Such a stop is that step's, so the count goes back to
+   * before it and the run reports it as the step it stopped on; what happened
+   * after it stays in the take, as it happened. True when the run stops.
    */
   const dialogsSettled = (): boolean => {
     const armed = dialogStep;

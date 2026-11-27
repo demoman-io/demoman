@@ -1017,9 +1017,9 @@ describe("the manual trigger", () => {
     expect(parse(manual).jobs.check).toBeDefined();
   });
 
-  // Found in review. Red when a run started on another branch
-  // records it (the step is dropped), or is skipped in silence (the job's
-  // `if` refuses it, so GitHub shows a run that did nothing and says nothing).
+  // Red when a run started on another branch records it (the step is dropped),
+  // or is skipped in silence (the job's `if` refuses it, so GitHub shows a run
+  // that did nothing and says nothing).
   it("fails a run started off the branch it watches, and says why", () => {
     const m = ciWorkflow({
       version: "0.2.0",
@@ -1963,7 +1963,7 @@ describe("ciSetup", () => {
     );
   });
 
-  // Found in review: red if a workflow setup cannot read stops the terminal
+  // Red if a workflow setup cannot read stops the terminal
   // with "pass --trigger" instead of asking it, or one it can read is asked.
   it("asks the trigger over a workflow it cannot read, and not over one it can", async () => {
     const mine = asker({

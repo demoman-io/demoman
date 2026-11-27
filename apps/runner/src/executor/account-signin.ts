@@ -203,9 +203,10 @@ async function runSteps(
       nav.loaded = 0;
       nav.failed = 0;
     }
-    // Read just before the last acting step dispatches, after its element
-    // was found: a navigation the step before set going has landed by then. Every signIn starts with a goto (accounts.ts),
-    // so the last acting step always exists and this is always set.
+    // Read just before the last acting step dispatches, after its element was
+    // found: a navigation the step before set going has landed by then. Every
+    // signIn starts with a goto (accounts.ts), so the last acting step always
+    // exists and this is always set.
     const pathNow = () => {
       if (i === lastAction) nav.pathBefore = originAndPath(page.url());
     };
@@ -546,7 +547,8 @@ export async function signInAccount(
         // here, and waited out the 10 s.
         let signedInPlace = false;
         let lastLook = 0;
-        // What the last look saw, for the line below when none is enough: the path, the field, or why the page would not read.
+        // What the last look saw, for the line below when none is enough: the
+        // path, the field, or why the page would not read.
         let lastSeen = "the page was never read";
         while (nav.documents === 0 && Date.now() < navUntil) {
           if (Date.now() - lastLook >= 250) {

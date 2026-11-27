@@ -1590,7 +1590,8 @@ describe("repoFolders", () => {
   const ask = (root: string) =>
     h.call(`${pathFor("repoFolders")}?root=${encodeURIComponent(root)}`);
 
-  // Red if the route lists dot folders, unsorted, or not at all (the folder picker).
+  // Red if the route lists dot folders, unsorted, or not at all (the folder
+  // picker).
   it("folders lists the repo's folders without dot folders", async () => {
     for (const f of ["docs/demos/a", ".github/x", "src/b"]) {
       await mkdir(join(repo, f, ".."), { recursive: true });

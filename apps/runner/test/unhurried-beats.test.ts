@@ -297,17 +297,17 @@ describe("a typed field and a far click, filmed unhurried", () => {
       const full = ink.findIndex((e) => e >= peak - glyph / 2);
       const fullValueMs = (sampled[full] as { ms: number }).ms;
       // Ruled 2026-11-24, as for a never-quiet page: the walk saw the page draw
-      // the last key (no `lastKeyPaint`), the film shows the whole value
-      // more than a frame (and under a second) after the act's recorded end,
-      // and the bundle kept no screencast frame from the act's end until the
-      // one that shows it. That is the real-time screencast starved of frames
-      // and delivering the paint late (470-613 ms on CI, under load), not a
-      // picture drawn late from frames it had: the value's assertion is
-      // skipped there, the camera's below still run, and the case skips at
-      // the end saying so. That the walk waits for the frames at all is
-      // guarded where no screencast is read (replay-field-read, "ends the
-      // type's act after the page drew the frames after the last key");
-      // without that guard this skip would hide a regression of the type's act ending before the key paints.
+      // the last key (no `lastKeyPaint`), the film shows the whole value more
+      // than a frame (and under a second) after the act's recorded end, and the
+      // bundle kept no screencast frame from the act's end until the one that
+      // shows it. That is the real-time screencast starved of frames and
+      // delivering the paint late (470-613 ms on CI, under load), not a picture
+      // drawn late from frames it had: the value's assertion is skipped there,
+      // the camera's below still run, and the case skips at the end saying so.
+      // That the walk waits for the frames at all is guarded where no
+      // screencast is read (replay-field-read, "ends the type's act after the
+      // page drew the frames after the last key"); without that guard this skip
+      // would hide a regression of the type's act ending before the key paints.
       const actEndSrc = typed?.actEndSourceTimeMs as number;
       const fullSrc = toSourceMs(timeline, fullValueMs);
       const gapFrames = bundle.motionSpans.filter(

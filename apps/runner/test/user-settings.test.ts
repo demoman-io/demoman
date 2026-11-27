@@ -136,8 +136,8 @@ describe("exportFolderOf", () => {
       unusable: `${file(home)}: exportFolder must be an absolute path; got "films"`,
     });
     // A file that will not read may never have named a folder: ~/Downloads,
-    // with why, for the export to say (found in review: refusing here
-    // stopped every export over a broken file).
+    // with why, for the export to say (refusing here stopped every export over
+    // a broken file).
     await writeFile(file(home), "{nope");
     const broken = await exportFolderOf(home, undefined);
     expect(broken).toMatchObject({

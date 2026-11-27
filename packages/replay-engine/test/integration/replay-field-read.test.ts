@@ -197,12 +197,11 @@ describe("a field whose last key is never seen painted", () => {
 });
 
 describe("a field whose last key paints late", () => {
-  // The type's act ends only once the page
-  // has drawn the frames after the last key; this field's second one comes
-  // 600 ms late. Read off the act's
-  // own end, not the film, so a starved screencast cannot fake it
-  // (unhurried-beats skips on that). Red if the walk stops waiting for the
-  // frames (`lastKeyPainted`): the act then ends at the key.
+  // The type's act ends only once the page has drawn the frames after the last
+  // key; this field's second one comes 600 ms late. Read off the act's own end,
+  // not the film, so a starved screencast cannot fake it (unhurried-beats skips
+  // on that). Red if the walk stops waiting for the frames (`lastKeyPainted`):
+  // the act then ends at the key.
   it("ends the type's act after the page drew the frames after the last key", async () => {
     await runTypes(
       [

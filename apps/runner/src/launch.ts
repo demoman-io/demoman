@@ -153,10 +153,10 @@ export function displayArgs(display: Display): string[] {
  * 2026-11-03 (`compare/gpu-args.mjs`): on runners without a GPU no flag set
  * moved an export off ~190 s; on a T4, `--enable-gpu --ignore-gpu-blocklist
  * --use-angle=vulkan --enable-features=Vulkan` rendered in 22.5 s against
- * ~420 s. What recording does under those flags is not measured yet. Adding one is the whole change — the encoder is pinned
- * apart from the GPU (`render-entry.ts`'s `softwareEncoded`), launch.test.ts
- * runs its check on any platform listed here, and
- * `compare/export-variants.mjs` is the before/after.
+ * ~420 s. What recording does under those flags is not measured yet. Adding one
+ * is the whole change — the encoder is pinned apart from the GPU
+ * (`render-entry.ts`'s `softwareEncoded`), launch.test.ts runs its check on any
+ * platform listed here, and `compare/export-variants.mjs` is the before/after.
  */
 const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["--enable-gpu"],
@@ -276,10 +276,11 @@ export function sandboxBlockers(
 }
 
 /**
- * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless
- * asked not to, and nearly every page a run opens is a third party's. A machine that cannot sandbox (a container running as root, a
- * Linux whose user namespaces are closed, as GitHub's Ubuntu runners are)
- * still launches, without it, and says so every time. Any failure counts, not only Playwright's "Chromium
+ * Chromium with its sandbox on: Playwright passes `--no-sandbox` unless asked
+ * not to, and nearly every page a run opens is a third party's. A machine that
+ * cannot sandbox (a container running as root, a Linux whose user namespaces
+ * are closed, as GitHub's Ubuntu runners are) still launches, without it, and
+ * says so every time. Any failure counts, not only Playwright's "Chromium
  * sandboxing failed!": Chromium's namespace and zygote failures do not all
  * carry it, and a browser that would not start either way still fails.
  */

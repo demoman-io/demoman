@@ -153,8 +153,8 @@ async function run() {
           "window.addVideo && !document.getElementById('v') && addVideo()",
       });
     }
-    // The picture, not currentTime: an earlier run saw one stand still while the
-    // other moved. PNG, so a repeat is byte for byte.
+    // The picture, not currentTime: an earlier run saw one stand still while
+    // the other moved. PNG, so a repeat is byte for byte.
     const shot = await s.send("Page.captureScreenshot", { format: "png" });
     const h = createHash("md5").update(shot.data).digest("hex");
     if (h !== lastPicture) pictures.push(k);

@@ -1011,10 +1011,11 @@ export function createAuthoredRun(
             answeredPage !== null &&
             herePage !== null &&
             pageKeyOf(answeredPage) !== herePage;
-          // A new address inside the same document is the step's own doing, so a failure there is the resolver's:
-          // a missing target after a row's pushState is a missing target. A client-side
-          // sign-in redirect is caught by the runner's sign-in check, which
-          // reads the page whatever the stop reason.
+          // A new address inside the same document is the step's own doing, so
+          // a failure there is the resolver's: a missing target after a row's
+          // pushState is a missing target. A client-side sign-in redirect is
+          // caught by the runner's sign-in check, which reads the page whatever
+          // the stop reason.
           const sameDocument = answeredDoc !== null && answeredDoc === hereDoc;
           return !moved || sameDocument
             ? reasonForCaptureFailure(record.failureReason)

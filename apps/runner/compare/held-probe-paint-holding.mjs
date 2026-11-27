@@ -129,7 +129,8 @@ try {
       for (let f = 1; f <= FRAMES; f++) {
         await grant(f * FRAME);
         const s = await shot();
-        // A refused capture (the "Unable to capture screenshot" error) is neither an answer nor a hang.
+        // A refused capture (the "Unable to capture screenshot" error) is
+        // neither an answer nor a hang.
         if (s.e !== undefined) {
           refused++;
           line = `round ${round}: screenshot refused at ${Math.round(f * FRAME)} ms of page time (${s.e})`;

@@ -236,8 +236,7 @@ export const rerecordFix = (name: string, file: string): string =>
 /** The degradations that leave a video correct, only less smooth or less
  *  sharp: a soft still, a scroll still moving, motion frames dropped or kept
  *  as stills under load. Any other (a drag or click that may have done
- *  nothing, missing motion) can make the video wrong, so it fails (review
- *  of the forgiven-still branch). */
+ *  nothing, missing motion) can make the video wrong, so it fails. */
 const FORGIVEN = new Set<string>([
   "stillFailed",
   "scrollUnsettled",

@@ -368,7 +368,8 @@ describe("checkAddable", () => {
     }
   });
 
-  // Red if the default name goes back through normaliseName (which gave "filter-invoice").
+  // Red if the default name goes back through normaliseName (which gave
+  // "filter-invoice").
   it("videoSlug keeps the words as written", () => {
     expect(videoSlug("Filter invoices")).toBe("filter-invoices");
     expect(videoSlug("Create an invoice")).toBe("create-an-invoice");

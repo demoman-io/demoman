@@ -248,7 +248,7 @@ export async function serveLoginApp(
         return;
       }
       // A form that hides its password field on click, posts, and only then
-      // navigates with a document load (found in review).
+      // navigates with a document load.
       case "/login-hide-then-go":
         html(
           page(

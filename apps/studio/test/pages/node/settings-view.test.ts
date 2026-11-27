@@ -98,8 +98,8 @@ describe("renderSettings", () => {
     field.dispatchEvent(new Event("change"));
     expect(b.setExportFolder).toHaveBeenCalledWith(null);
 
-    // Review of the Export folder: an unusable setting leaves the field empty and
-    // editable, so the fix an export names can be made here.
+    // Review of the Export folder: an unusable setting leaves the field empty
+    // and editable, so the fix an export names can be made here.
     const unreadable = document.createElement("div");
     const c = actions();
     renderSettings(unreadable, { ...model, exportFolder: null }, c, new Map());

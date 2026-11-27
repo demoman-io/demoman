@@ -360,9 +360,9 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(offers[3]?.label).toContain("trunk");
   });
 
-  // Found in review. Red while the environments setup
-  // did not look for become offers no one is shown (both pickers list only
-  // offered triggers), or share the no-deployment offer's trigger.
+  // Red while the environments setup did not look for become offers no one is
+  // shown (both pickers list only offered triggers), or share the no-deployment
+  // offer's trigger.
   it("says the environments it did not look for in a note, not as offers", () => {
     const f = facts({
       deployments: [
@@ -382,7 +382,7 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(note).toContain("staging, qa");
     expect(note).toContain("newest 150 deployments, which were not read");
     expect(note).toContain("--trigger <environment>");
-    // Found in review. An environment named like a trigger.
+    // An environment named like a trigger.
     expect(note).toContain(
       "--trigger deployment:<environment> for one named release, daily, push or manual",
     );
@@ -1177,8 +1177,8 @@ describe("planCiSetup's plan", () => {
     expect(planLines(commit).join("\n")).not.toContain("artifact");
   });
 
-  // Found in review. CI refreshes the base's copy of a flow the base has,
-  // which the pull request leaves out. Red when only the working tree counts.
+  // CI refreshes the base's copy of a flow the base has, which the pull request
+  // leaves out. Red when only the working tree counts.
   it("decides the artifact from the base's copy of a flow already there", async () => {
     const file = `${FLOWS_DIR}/checkout.json`;
     const root = await repo();
@@ -1353,7 +1353,8 @@ describe("planCiSetup's plan", () => {
     expect(q.files).toContain(APP_FILE);
   });
 
-  // Red if the plan leaves out accounts.json: the check and CI then cannot sign in.
+  // Red if the plan leaves out accounts.json: the check and CI then cannot sign
+  // in.
   it("carries .demoman/accounts.json unless committed as is", async () => {
     const text = '{"accountsVersion":1,"sites":{}}';
     const root = await repo();
@@ -1424,8 +1425,8 @@ describe("planCiSetup's plan", () => {
     expect((await okPlan(root, committed)).files).not.toContain(
       "db/seeds/demo.rb",
     );
-    // Found in review. Red if an executable seed reaches the check (and
-    // so the pull request) without its exec bit: the reset exits 126.
+    // Red if an executable seed reaches the check (and so the pull request)
+    // without its exec bit: the reset exits 126.
     await chmod(join(root, "db", "seeds", "demo.rb"), 0o755);
     const g = fakes();
     await okPlan(root, g);
@@ -1434,8 +1435,8 @@ describe("planCiSetup's plan", () => {
     ).toMatchObject({ mode: 0o755 });
   });
 
-  // Found in review. Red if a listed link (or a file under a linked
-  // folder) is read through: it would carry a file from outside the repo.
+  // Red if a listed link (or a file under a linked folder) is read through: it
+  // would carry a file from outside the repo.
   it("stops on an account's listed file that is a link", async () => {
     const root = await repo();
     const outside = await mkdtemp(join(tmpdir(), "outside-"));
@@ -1481,8 +1482,7 @@ describe("planCiSetup's plan", () => {
       detail: expect.stringContaining("git ignores it"),
     });
     expect(f.calls).not.toContain("verifySetup");
-    // Found in review. Red if a check-ignore git cannot answer is taken
-    // for "not ignored".
+    // Red if a check-ignore git cannot answer is taken for "not ignored".
     expect(
       await plan(root, fakes({ ignoreFails: "fatal: bad pattern" })),
     ).toMatchObject({
@@ -1497,8 +1497,8 @@ describe("planCiSetup's plan", () => {
   // not say the clean checkout may lack its seed or route.
   it("says an account with no files may be missing its seed when the check fails on it", async () => {
     const root = await repo();
-    // Found in review. An account on another site, with no files, is not
-    // the started app's, so a failed reset does not name it.
+    // An account on another site, with no files, is not the started app's, so a
+    // failed reset does not name it.
     const two = JSON.parse(withFiles());
     two.sites["https://staging.example.com"] = {
       accounts: {

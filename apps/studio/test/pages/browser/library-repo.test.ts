@@ -72,7 +72,8 @@ interface Flow {
   name: string;
   /** What the sheet's check answers; OK unless given. */
   addable?: Addable;
-  /** What the listing says (only a flow with no repo, as the sheet checks the rest). */
+  /** What the listing says (only a flow with no repo, as the sheet checks
+   *  the rest). */
   listed?: Addable;
   video?: object;
 }

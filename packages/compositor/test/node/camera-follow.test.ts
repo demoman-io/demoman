@@ -204,7 +204,7 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
   });
 
-  // the Sublime board, 2026-11-22: the drag's zoom lands between
+  // The Sublime board, 2026-11-22: the drag's zoom lands between
   // the card and the drop, 350 ms before the press. The follow chased the
   // hand to the card, then the press held the drag's aim and the camera
   // swung back: a bounce before the drag had begun.

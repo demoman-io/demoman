@@ -563,8 +563,9 @@ async function lagCdp(ms) {
   const proto = Object.getPrototypeOf(await page.context().newCDPSession(page));
   await browser.close();
   const send = proto.send;
-  // Emulation's CPU throttle cannot stand in for a slow page: under it
-  // Chrome never answers setVirtualTimePolicy (tried for the 12-frame gap after a navigation on a runner).
+  // Emulation's CPU throttle cannot stand in for a slow page: under it Chrome
+  // never answers setVirtualTimePolicy (tried for the 12-frame gap after a
+  // navigation on a runner).
   proto.send = async function (...a) {
     await new Promise((r) => setTimeout(r, ms));
     return send.apply(this, a);

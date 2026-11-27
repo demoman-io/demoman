@@ -5829,9 +5829,9 @@ describe("the Studio's screenshot set", () => {
       const shots: string[] = [];
       await sizeWindow(context, page, 1280, 720);
       await openPage(page, studio, "editor", cutTake.id, new Set());
-      /** Shoots `name` between two reads that both pass `check`, so the
-       *  shot is a picture of that state; a change between them reads and
-       *  shoots again (the split-pieces case's pattern). */
+      /** Shoots `name` between two reads that both pass `check`, so the shot is
+       *  a picture of that state; a change between them reads and shoots again
+       *  (the pattern of "shoots split pieces, a join's dot and its card"). */
       const shootWhile = async (
         name: string,
         check: () => Promise<string | null>,
@@ -5869,9 +5869,10 @@ describe("the Studio's screenshot set", () => {
         );
       type Pieces = Awaited<ReturnType<typeof pieces>>;
 
-      // The drag on the take's one piece, before any edit (a drag through
-      // an edit's refresh is the drag-through-refresh case, after the next one). The
-      // piece has an end handle where its tail was removed.
+      // The drag on the take's one piece, before any edit (a drag through an
+      // edit's refresh is "keeps dragging a piece's end handle through a
+      // folder refresh", after the next one). The piece has an end handle
+      // where its tail was removed.
       // Waited for: the preview paints before the timeline draws its piece.
       const only = await vi.waitFor(
         async () => {
@@ -5888,7 +5889,8 @@ describe("the Studio's screenshot set", () => {
       const edge = '.piece-wrap:only-child > [data-edge="end"]';
       // Waited for whole: the handle shown, its 120 ms fade in run to the
       // end, and a point of it the pointer lands on: the one nearest its
-      // middle (the handle-middle case, after this one, asserts the middle).
+      // middle ("grabs the last piece's end handle at its middle", after this
+      // one, asserts the middle).
       const found = await vi
         .waitFor(
           async () => {
@@ -6240,14 +6242,12 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
-  // A piece's handle and where it is grabbed ("handles that could
-  // not be grabbed"): on the take with a cut at its end, the one piece's
-  // end handle, shown under the pointer, should be the thing at its own
-  // middle.
-  // A removed step's tick (data-cut) was drawn over it, covering its
-  // middle 24px, so only its top and bottom few px grabbed. Ruled
-  // 2026-11-19: the handle is on top, and the tick is still reached
-  // outside it.
+  // A piece's handle and where it is grabbed ("handles that could not be
+  // grabbed"): on the take with a cut at its end, the one piece's end handle,
+  // shown under the pointer, should be the thing at its own middle.
+  // A removed step's tick (data-cut) was drawn over it, covering its middle
+  // 24px, so only its top and bottom few px grabbed. Ruled 2026-11-19: the
+  // handle is on top, and the tick is still reached outside it.
   it.runIf(process.platform === "darwin")(
     "grabs the last piece's end handle at its middle over a removed step's tick, which is still reached beside it, asserted on its paint",
     async () => {

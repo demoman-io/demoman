@@ -3939,8 +3939,8 @@ describe("each track has a header the height of its track", () => {
       // — is under the handle, so the whole handle starts a trim, and the
       // beat is still reached beside it (the author, 2026-11-19;
       // over it until then, which left the handle's middle ungrabbable).
-      // Placed onto the handle here
-      // rather than found in the fixture, which has no beat on an edge.
+      // Placed onto the handle here rather than found in the fixture, which has
+      // no beat on an edge.
       const handle = node('[data-track="clip"] [data-trim="tail"]');
       const beat = ticks[ticks.length - 1] as HTMLElement;
       beat.style.left = handle.style.left;

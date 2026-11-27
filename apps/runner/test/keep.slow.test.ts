@@ -887,7 +887,8 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       const first = await keepVideo(args, deps());
       if (!first.ok) throw new Error(JSON.stringify(first));
       expect(first.file).toBe(".demoman/flows/filter-the-invoices.json");
-      // As an add that trimmed small words left it: every file under the trimmed name.
+      // As an add that trimmed small words left it: every file under the
+      // trimmed name.
       const r = ".demoman/receipts";
       await rename(
         join(repo, first.file),
@@ -929,12 +930,12 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     KEEP_MS,
   );
 
-  // Found in review. Red: drop `name === uncutName` from keep.ts's move —
-  // a "files" recipe saved under its whole 208-byte name before the 206-byte
-  // cut is refused with "already holds this flow".
+  // Red: drop `name === uncutName` from keep.ts's move — a "files" recipe saved
+  // under its whole 208-byte name before the 206-byte cut is refused with
+  // "already holds this flow".
   it("an add moves a files recipe saved under its uncut long name", async () => {
-    // "the" is a stop word, so its trimmed name from before small words were kept differs from its
-    // uncut slug: only the uncut rule can find it.
+    // "the" is a stop word, so its trimmed name from before small words were
+    // kept differs from its uncut slug: only the uncut rule can find it.
     const name = `the ${"b".repeat(204)}`;
     const slug = `the-${"b".repeat(204)}`;
     await freshVideo("scene-uncut-1", name);

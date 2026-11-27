@@ -358,9 +358,10 @@ export const FrameBundleSchema = z
      */
     clock: z.literal("held").optional(),
     /**
-     * A held replay only: the page time one captured frame moved (1000/30
-     * or 1000/60), written on every held take since the frame rate became
-     * recordable. Absent on a held take from before it, which was recorded at 1000/30.
+     * A held replay only: the page time one captured frame moved (1000/30 or
+     * 1000/60), written on every held take since the frame rate became
+     * recordable. Absent on a held take from before it, which was recorded at
+     * 1000/30.
      */
     heldFrameMs: z.number().positive().optional(),
     /**

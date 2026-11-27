@@ -517,8 +517,8 @@ describe("expireOld", () => {
       expect(await exists(join(t.dir, "frames")), t.dir).toBe(false);
   });
 
-  // Found in review. Red: judge every flow — a corrupt outputs.json on a
-  // flow recorded today is said as an old video left alone, every hour.
+  // Red: judge every flow — a corrupt outputs.json on a flow recorded today is
+  // said as an old video left alone, every hour.
   it("does not judge, or say, a flow with nothing old to expire", async () => {
     const young = await newVideo("Young");
     const y = await take(young, "y-1", ago(2), { exportedAt: ago(1) });
@@ -540,8 +540,8 @@ describe("expireOld", () => {
     expect(said[0]).toMatch(new RegExp(`^flow ${old}:`));
   });
 
-  // Found in review. Red: no cap — every skip goes into status, the state
-  // file and a Studio row each.
+  // Red: no cap — every skip goes into status, the state file and a Studio row
+  // each.
   it("names at most SKIPPED_SAID skips, and counts the rest", async () => {
     const video = await newVideo("Many");
     const extra = 2;
@@ -571,8 +571,8 @@ describe("expireOld", () => {
     expect(skippedOf(await expiryStatus(lib))).toEqual(said);
   });
 
-  // Found in review. Red: read the list off a status only — a pass the
-  // lock put off would say nothing of its own skips.
+  // Red: read the list off a status only — a pass the lock put off would say
+  // nothing of its own skips.
   it("skippedOf reads any answer: a result, a pass the lock put off, a status from before 0.9.7, none", async () => {
     const video = await newVideo("Locked");
     const z = await take(video, "z-old", ago(45), { leasePid: deadPid() });
@@ -630,7 +630,7 @@ describe("expireOld", () => {
     const one = await newVideo("Checkout");
     const a = await take(one, "scene-a", ago(40));
     await take(one, "scene-b", ago(1));
-    // Left alone before the failure, and still said in it (found in review).
+    // Left alone before the failure, and still said in it.
     const z = await take(one, "scene-z", ago(45), { leasePid: deadPid() });
     await writeFile(join(z.dir, ".busy", "broken.json"), "{nope");
     // A removal that fails part-way: frames/k0.jpg can go, frames/spans/s.mp4 cannot.
@@ -828,8 +828,8 @@ describe("the executor", () => {
   });
 });
 
-// Found in review: what one pass names is never wiped out by another, and
-// a pass the lock cut short is not recorded as one that finished.
+// What one pass names is never wiped out by another, and a pass the lock cut
+// short is not recorded as one that finished.
 describe("expireOld's record of what it removed, under contention", () => {
   const statePath = () => join(home, "videos", ".expiry.json");
 

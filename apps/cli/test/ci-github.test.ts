@@ -150,8 +150,8 @@ function busy(pages: string[][]): Record<string, Answer> {
 }
 
 describe("readGithub", () => {
-  // Red while only the newest 30 deployments are read: Production's
-  // success sits behind 30 Preview ones, and setup said there was none.
+  // Red while only the newest 30 deployments are read: Production's success
+  // sits behind 30 Preview ones, and setup said there was none.
   it("finds the chosen environment's deployment past a full page of others", async () => {
     const previews = Array.from({ length: 30 }, (_, i) => ({
       id: 100 - i,
@@ -199,9 +199,9 @@ describe("readGithub", () => {
       calls.filter((c) => c.args[1]?.endsWith("/statuses?per_page=30")),
     ).toHaveLength(2);
   });
-  // Red while only a named environment is looked for (interactive
-  // setup, --yes and the Studio name none), or while the names come from
-  // GitHub's environments list, which a private repo on Free answers empty.
+  // Red while only a named environment is looked for (interactive setup, --yes
+  // and the Studio name none), or while the names come from GitHub's
+  // environments list, which a private repo on Free answers empty.
   it("looks up each environment older deployments name", async () => {
     const r = await readGithub(
       fake(busy([["Preview", "Production"]])),
@@ -234,8 +234,8 @@ describe("readGithub", () => {
     ).toHaveLength(10);
     expect(r).toMatchObject({ unchecked: ["pr-9", "pr-10"] });
   });
-  // Red when paging stops unsaid, or does not stop: page 6 is
-  // unscripted, so asking for it throws.
+  // Red when paging stops unsaid, or does not stop: page 6 is unscripted, so
+  // asking for it throws.
   it("reads four older pages at most, and says when there were more", async () => {
     const full = (name: string) => Array.from({ length: 30 }, () => name);
     const calls: Array<{ args: string[] }> = [];
@@ -313,8 +313,8 @@ describe("readGithub", () => {
     expect(r).toMatchObject({ deployments: [{ environment: "Production" }] });
     expect(calls.some((c) => c.args[1]?.includes("environment="))).toBe(false);
   });
-  // Red while readGithub spawns git on its own: the runner it is
-  // given (the one carrying the fsmonitor guard) is never asked.
+  // Red while readGithub spawns git on its own: the runner it is given (the one
+  // carrying the fsmonitor guard) is never asked.
   it("asks git through the runner it is given", async () => {
     const asked: string[][] = [];
     const git: GitRunner = (args, cwd, env) => {
@@ -325,8 +325,8 @@ describe("readGithub", () => {
     expect(r).toMatchObject({ slug: S, remote: "origin" });
     expect(asked.map((a) => a[0])).toEqual(["config", "ls-remote"]);
   });
-  // Red when the runner's throw (git missing, the folder gone)
-  // escapes readGithub instead of answering why.
+  // Red when the runner's throw (git missing, the folder gone) escapes
+  // readGithub instead of answering why.
   it("a git that will not start is githubUnreadable, saying why", async () => {
     const git: GitRunner = async () => {
       throw new Error("spawn git ENOENT");

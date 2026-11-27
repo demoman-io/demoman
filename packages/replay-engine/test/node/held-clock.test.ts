@@ -1682,10 +1682,9 @@ describe("createHeldClock", () => {
     expect(ms).toBeGreaterThanOrEqual(1.5 * GRANT_EXPIRY_TIMEOUT_MS);
   });
 
-  // Red if the hangs it took reach the
-  // stretch it is part of: the frame after it then jumps page time by the
-  // late answer's real time (the latency read from them, or the retake's
-  // hang followed as the server's).
+  // Red if the hangs it took reach the stretch it is part of: the frame after
+  // it then jumps page time by the late answer's real time (the latency read
+  // from them, or the retake's hang followed as the server's).
   it("keeps a server stretch's pace through a stand-in", async () => {
     vi.useFakeTimers();
     const page = shots({ late: [2], hung: [3] });

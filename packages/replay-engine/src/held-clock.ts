@@ -98,12 +98,11 @@ const VIDEO_WAIT_MS = 3000;
  *  waiting for `animationend` still hears it, and pinned again from the frame
  *  the page is seen playing it again. A scroll-driven animation follows the
  *  scroll, which the walk moves, so it is left alone.
- *  An animation the page itself holds paused is the page's picture, and is
- *  left where it is: one first seen paused, until the page plays it, and a
- *  CSS animation whose element says `animation-play-state: paused`, for as
- *  long as it does (a progress ring scrubbed by a negative delay swept from
- *  0 to full under the pin; review of 2026-11-16). It goes on from where it
- *  stood.
+ *  An animation the page itself holds paused is the page's picture, and is left
+ *  where it is: one first seen paused, until the page plays it, and a CSS
+ *  animation whose element says `animation-play-state: paused`, for as long as
+ *  it does (a progress ring scrubbed by a negative delay swept from 0 to full
+ *  under the pin; review of 2026-11-16). It goes on from where it stood.
  *  shortcut: a script's `pause()` of an animation the pin already holds is
  *  not seen, so it plays on; upgrade if an app shows it.
  *  An animation at a playbackRate other than 1 is not pinned (played at
@@ -314,8 +313,8 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
     try { if (!window.parent.__demomanFlushFrames) return; } catch (e) { return; }
   }
   const request = window.requestAnimationFrame.bind(window);
-  // Read before the page's own scripts run: a page that replaces it (a hostile one)
-  // would otherwise stop the pin on every frame.
+  // Read before the page's own scripts run: a page that replaces it (a hostile
+  // one) would otherwise stop the pin on every frame.
   const all = document.querySelectorAll;
   const query = (s) => all.call(document, s);
   const FRAME = ${frameMs};
@@ -639,11 +638,10 @@ export function createHeldClock(deps: {
    *  (measured 2026-11-15, apps/runner/compare/held-probe-navigation.mjs). */
   const grant = async (to: number) => {
     if (startEpochMs === null) throw new Error("grant before hold");
-    // A video plays on Chrome's real clock, and autoplay starts only once
-    // its download keeps up with page time: ahead of real time, one stood
-    // on its first frame. While the pin sees one playing or
-    // waiting to, no grant ends ahead of real time, as Chrome paces a page
-    // without the held switches.
+    // A video plays on Chrome's real clock, and autoplay starts only once its
+    // download keeps up with page time: ahead of real time, one stood on its
+    // first frame. While the pin sees one playing or waiting to, no grant ends
+    // ahead of real time, as Chrome paces a page without the held switches.
     // Real time the clock fell behind (a slow capture, the walk's own work)
     // is skipped once, not caught up: grants with no wait would play the
     // video in slow motion until held time caught up.

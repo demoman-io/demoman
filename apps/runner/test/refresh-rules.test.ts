@@ -347,8 +347,8 @@ describe("recordWithRetry", () => {
     expect(r.count()).toBe(2);
   });
   // Red when a settle the machine failed (a paint that never came, a page
-  // screen that could not be taken) is taken as the page's: it is the
-  // kind of one-off a forgiven degradation is, and recording again may settle it.
+  // screen that could not be taken) is taken as the page's: it is the kind of
+  // one-off a forgiven degradation is, and recording again may settle it.
   it("records again when a step's settle failed on the machine's side", async () => {
     const failedSettle = {
       ...clean,

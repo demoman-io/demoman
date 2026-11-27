@@ -111,8 +111,8 @@ describe("the Studio's CI door", () => {
       update: { from: "0.9.8", to: "0.9.9", trigger: "daily", route: "main" },
     });
     expect(await stateOf(workflow("0.9.9", "pr"))).toEqual({ kind: "setUp" });
-    // Found in review. Red if a newer workflow is offered a downgrade, or
-    // a tag that is no release is compared as text.
+    // Red if a newer workflow is offered a downgrade, or a tag that is no
+    // release is compared as text.
     expect(await stateOf(workflow("0.9.10", "pr"))).toEqual({ kind: "setUp" });
     expect(await stateOf(workflow("latest", "pr"))).toMatchObject({
       kind: "setUp",
@@ -135,7 +135,7 @@ describe("the Studio's CI door", () => {
       kind: "setUp",
       unread: expect.stringContaining("names no"),
     });
-    // Found in review. Never offered while its pull request is open.
+    // Never offered while its pull request is open.
     const openPr = await createStudioCi({
       deps: () =>
         ({
@@ -147,7 +147,7 @@ describe("the Studio's CI door", () => {
           }),
         }) as unknown as Omit<CiDeps, "log" | "signal">,
     }).state(ROOT);
-    // Held back, and said (found in review).
+    // Held back, and said.
     expect(openPr).toEqual({
       kind: "setUp",
       unread:
@@ -178,7 +178,7 @@ describe("the Studio's CI door", () => {
     expect(releaseOlder("0.9.10", "0.9.9")).toBe(false);
     expect(releaseOlder("0.9.9", "0.9.9")).toBe(false);
     expect(releaseOlder("0.10.0-rc.1", "0.10.0")).toBe(true);
-    // Found in review. Numbered pre-releases by number, not text.
+    // Numbered pre-releases by number, not text.
     expect(releaseOlder("0.10.0-rc.9", "0.10.0-rc.10")).toBe(true);
     expect(releaseOlder("0.10.0-rc.10", "0.10.0-rc.9")).toBe(false);
     expect(releaseOlder("latest", "0.9.9")).toBeNull();

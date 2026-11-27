@@ -227,8 +227,9 @@ export async function keepVideo(
   const fileRel = `${FLOWS_DIR}/${keptFileName(video.name)}`;
   // The same file in the old folder: moved here when this keep writes.
   const legacyRel = `${LEGACY_FLOWS_DIR}/${basename(fileRel)}`;
-  // The name it had before names kept their small words, in either folder: moved here too, and its
-  // receipt and screens with it, so the move lands in one commit.
+  // The name it had before names kept their small words, in either folder:
+  // moved here too, and its receipt and screens with it, so the move lands in
+  // one commit.
   const trimmedName = `${normaliseName(video.name).replace(/ /g, "-") || "video"}.json`;
   // Before a slug was cut at 206 bytes, a "files" recipe of up to 209
   // wrote under its whole name: found there and moved, never refused.
@@ -364,8 +365,9 @@ export async function keepVideo(
         `${rel} already holds the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
       );
     }
-    // Names the library treats as one shared a file until names kept their small words; they
-    // still may not share a repo, or refresh's `only` takes both.
+    // Names the library treats as one shared a file until names kept their
+    // small words; they still may not share a repo, or refresh's `only` takes
+    // both.
     if (kept.flow !== video.id && sameName(kept.name, video.name)) {
       return refuse(
         "outputTaken",

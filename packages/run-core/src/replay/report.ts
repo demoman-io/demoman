@@ -1207,8 +1207,8 @@ export function stoppedWhere(at: {
   scriptStep?: number | null;
   scriptSteps?: number | null;
 }): string {
-  // Loose: a report.json written before the script step was recorded has none, and the
-  // compare harness reads an answer whose fields are all optional.
+  // Loose: a report.json written before the script step was recorded has none,
+  // and the compare harness reads an answer whose fields are all optional.
   return at.scriptStep != null && at.scriptSteps != null
     ? `at script step ${at.scriptStep} of ${at.scriptSteps}`
     : `after step ${at.index ?? "?"} of ${at.of ?? "?"}`;
@@ -1337,16 +1337,16 @@ export const STILLS_ONLY =
   "no motion was recorded: the video is its stills only";
 
 /**
- * Whether a run's video is its stills only: it recorded no motion span
- * though a step acted, in real time. There it cannot tell a page that did
- * not move from a screencast that got no frames (a locked screen, a
- * sleeping display, a hidden window or a busy machine), so
- * the sentence names both; watching the screencast go silent would tell them apart. A held run takes every frame on its clock, and a frame
- * it cannot take or encode stops the run or is said, so no spans there is a
- * page that did not move. A run that names no clock stopped before
- * its stage was prepared (`run.recording`): it recorded nothing, and its
- * outcome says why. The one rule the run's summary and refresh's verdict
- * read; `stillsOnlyTake` is the same rule on a take, for export.
+ * Whether a run's video is its stills only: it recorded no motion span though a
+ * step acted, in real time. There it cannot tell a page that did not move from
+ * a screencast that got no frames (a locked screen, a sleeping display, a
+ * hidden window or a busy machine), so the sentence names both; watching the
+ * screencast go silent would tell them apart. A held run takes every frame on
+ * its clock, and a frame it cannot take or encode stops the run or is said, so
+ * no spans there is a page that did not move. A run that names no clock stopped
+ * before its stage was prepared (`run.recording`): it recorded nothing, and its
+ * outcome says why. The one rule the run's summary and refresh's verdict read;
+ * `stillsOnlyTake` is the same rule on a take, for export.
  */
 export function stillsOnly(r: {
   run?: { recording?: { clock: "held" | "real" } };

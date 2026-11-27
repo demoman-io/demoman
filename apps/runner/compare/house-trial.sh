@@ -1,6 +1,7 @@
 #!/bin/sh
 # A house app's refresh trial on this machine with the repo's own build: no
-# release, no CI (a client-side route change read as settled was reproduced and fixed this way).
+# release, no CI (a client-side route change read as settled was reproduced and
+# fixed this way).
 #
 #   house-trial.sh <app checkout> <rounds> [flow…]
 #

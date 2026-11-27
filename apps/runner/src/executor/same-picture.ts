@@ -25,11 +25,11 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  * a thin grey stroke; `faintly` (a wide block, a low level) a weak change
  * over an area, text or a fill a few shades off.
  *
- * Set 2026-10-28 on MP4 frames. On lossless page screens (the page at CSS
- * 1x, its own size, no window: spec 2026-11-10, decisions 2 and 4) `sharply`
- * was a 2-pixel block at 60 levels until PR #67's CI: on ubuntu, 12px
- * #9ca3af text drew its strokes too light for a 2x2 mean to move 60, and
- * the "14:11 local time" to "05:00" case read 0.0003% there (0.0070% on macOS). Per pixel at 40
+ * Set 2026-10-28 on MP4 frames. On lossless page screens (the page at CSS 1x,
+ * its own size, no window: spec 2026-11-10, decisions 2 and 4) `sharply` was a
+ * 2-pixel block at 60 levels until PR #67's CI: on ubuntu, 12px #9ca3af text
+ * drew its strokes too light for a 2x2 mean to move 60, and the
+ * "14:11 local time" to "05:00" case read 0.0003% there (0.0070% on macOS). Per pixel at 40
  * levels, 2026-11-11, on macOS and on ubuntu with the GPU off (PR #67 CI):
  *
  *   share changed, sharply (0.0008% allowed)    macOS            ubuntu
