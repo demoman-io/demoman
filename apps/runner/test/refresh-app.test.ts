@@ -107,7 +107,7 @@ describe("appPlanFor", () => {
     });
   });
 
-  // Red when a pin the repo asked for silently does not happen (DEM-79).
+  // Red when a pin the repo asked for silently does not happen.
   it("with --base-url and now set, is none and notes now was not used", async () => {
     await writeApp(app({ now: "2026-11-06T09:00:00Z" }));
     const plan = await appPlanFor(root, { baseUrl: "http://x.test" });
@@ -146,7 +146,7 @@ describe("withApp", () => {
     pinnedNow: null,
   });
 
-  // Red when the run cannot reach the app's reset (DEM-57).
+  // Red when the run cannot reach the app's reset.
   it("hands the run the started app's reset, and a no-op with no app", async () => {
     const reset = vi.fn(async () => ({ ok: true as const }));
     const startApp = vi.fn(async () => ({ ...started(), reset }));
@@ -166,7 +166,7 @@ describe("withApp", () => {
     expect(none).toMatchObject({ ok: true, value: { ok: true } });
   });
 
-  // Red when the run cannot learn the instant the started app was given (DEM-79).
+  // Red when the run cannot learn the instant the started app was given.
   it("withApp hands the started app's pinnedNow to run, and a none plan's note to lines", async () => {
     const startApp = vi.fn(async () => ({
       ...started(),

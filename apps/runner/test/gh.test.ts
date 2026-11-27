@@ -321,7 +321,7 @@ describe("gh adapter", () => {
   });
 });
 
-describe("defaultGhRun and the repository's own config (DEM-90)", () => {
+describe("defaultGhRun and the repository's own config", () => {
   // Red while defaultGhRun starts gh with the env it was given: the git gh
   // runs in the filmed project then runs the program its config names.
   it("starts gh so the git it runs carries the fsmonitor guard", async () => {

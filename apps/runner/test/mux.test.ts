@@ -308,7 +308,7 @@ describe("muxSpans", () => {
     }
   }, 120_000);
 
-  // DEM-124: a 393x853 span (the phone preset at display scale 1) is muxed
+  // A 393x853 span (the phone preset at display scale 1) is muxed
   // at 392x852, H.264's even sides. Squeezed by a pixel, every column is
   // resampled and the middle of the frame lands half a pixel off: 1px
   // stripes there go grey. Cropped, they stay stripes.

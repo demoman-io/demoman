@@ -231,7 +231,7 @@ const earlierSession = (): SessionFile => ({
   state: { cookies: [], origins: [] },
 });
 
-// DEM-101: the check comes before the save, so a signed-out verdict never
+// The check comes before the save, so a signed-out verdict never
 // replaces the site's earlier session file.
 it("leaves an earlier session file byte-for-byte when the new one is not signed in", async () => {
   const path = await createSessionStore(home).save(earlierSession());
@@ -251,8 +251,8 @@ it("leaves an earlier session file byte-for-byte when the new one is not signed 
 }, 120_000);
 
 // A check that could not run is a failed check too: the earlier file stays,
-// and the answer says why and how to save this sign-in anyway (review of
-// DEM-101).
+// and the answer says why and how to save this sign-in anyway (found in
+// review).
 it("keeps an earlier session, naming the way past it, when the check browser will not start", async () => {
   const path = await createSessionStore(home).save(earlierSession());
   const before = await readFile(path, "utf8");

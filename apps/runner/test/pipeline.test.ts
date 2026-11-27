@@ -391,7 +391,7 @@ describe("runPipeline", () => {
     expect(existsSync(capturedRunRoot())).toBe(false);
   });
 
-  it("renders a run that finished every step and still stopped, and says the reason (DEM-161)", async () => {
+  it("renders a run that finished every step and still stopped, and says the reason", async () => {
     const { runPipeline } = await import("../src/pipeline.js");
     // A dialog answer the browser refused at teardown: every step ran, the
     // walk's reason is set and its outcome is complete.

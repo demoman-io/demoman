@@ -1,4 +1,4 @@
-// DEM-265: a repo's `recordingFrameRate` reaches the picture. One page with a
+// A repo's `recordingFrameRate` reaches the picture. One page with a
 // 600 ms CSS transition started by a click, recorded held through the real
 // executor twice, its project's `.demoman/config.json` at 30 and then 60,
 // each exported at "high" (60 fps) and read from decoded frames. At 30 the

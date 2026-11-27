@@ -168,7 +168,7 @@ describe("createLocalExecutor", () => {
     }
   });
 
-  // DEM-71: a Linux download whose libraries are missing cannot start, so it
+  // A Linux download whose libraries are missing cannot start, so it
   // is not installed; an ldd that could not say leaves it installed, and
   // says so. Red if status drops the check, its verdict or browserLibraries.
   it("says a download with missing libraries is not installed", async () => {
@@ -762,7 +762,7 @@ describe("an export in progress", () => {
   );
 });
 
-// DEM-265: the run (and the probe) decides the recording frame rate once,
+// The run (and the probe) decides the recording frame rate once,
 // from the project's `.demoman/config.json` alone (ruling B, 2026-11-23: no
 // user layer), records at it, and the report says which and from where.
 describe("the recording frame rate", () => {

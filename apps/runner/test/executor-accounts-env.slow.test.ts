@@ -217,7 +217,7 @@ it("lists the accounts in status, never a value", async () => {
   await writeAccounts(seller());
   const secrets = join(repo, ".demoman", "secrets.env");
   await writeFile(secrets, `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\n`);
-  // DEM-104: an editor leaves it 0644; status reads it and says so.
+  // An editor leaves it 0644; status reads it and says so.
   await chmod(secrets, 0o644);
   const out = (await executor.request("status", {})) as {
     value: { accounts: unknown; secretsFile: unknown };

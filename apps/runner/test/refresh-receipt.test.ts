@@ -979,7 +979,7 @@ describe("the files route", () => {
     }
   });
 
-  // DEM-112. Red: drop the check beside refresh's repoPath loop; scriptFor
+  // Red: drop the check beside refresh's repoPath loop; scriptFor
   // then leaves both refs as written and the run reads them off disk.
   it("a flow whose script names a logo or wallpaper with no repo path fails before filming", async () => {
     const outside = await mkdtemp(join(tmpdir(), "demoman-refs-out-"));
@@ -1096,7 +1096,7 @@ describe("the files route", () => {
 });
 
 // Red when a pinned refresh records at the real date, or the note on dates
-// fires without evidence or where a pin already holds them (DEM-79).
+// fires without evidence or where a pin already holds them.
 describe("pinned dates", () => {
   const PINNED = "2026-11-06T09:00:00Z";
   const pinned = (): RefreshDeps => ({ ...deps(), pinnedNow: PINNED });

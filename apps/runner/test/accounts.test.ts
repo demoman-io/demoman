@@ -48,7 +48,7 @@ describe("parseAccounts", () => {
     expect(r.file.dir).toBe("/p/.demoman");
   });
 
-  // DEM-240. Red if an account's files are dropped, kept unnormalized, or a
+  // Red if an account's files are dropped, kept unnormalized, or a
   // path outside the repo (or into .git) is taken: setup would read and
   // commit it.
   it("reads an account's files as repo paths, and refuses one outside the repo", () => {
@@ -84,7 +84,7 @@ describe("parseAccounts", () => {
       "C:/x",
       ".git/config",
       ".",
-      // Review of DEM-240: .git in any case (macOS reads .GIT as .git), and
+      // Found in review: .git in any case (macOS reads .GIT as .git), and
       // the files setup handles itself, secrets.env among them.
       ".GIT/config",
       ".github/workflows/deploy.yml",
@@ -216,7 +216,7 @@ describe("parseAccounts", () => {
     expect(r.field).toContain(field);
   });
 
-  // DEM-105: update, never remove; and the field named once.
+  // Update, never remove; and the field named once.
   it("tells a newer accountsVersion to update Demoman, naming the field once", () => {
     const r = parseAccounts(
       "/p/.demoman/accounts.json",

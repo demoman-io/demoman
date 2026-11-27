@@ -73,7 +73,7 @@ const files = () => [
   { path: `${FLOWS_DIR}/${keptFileName("Long")}`, text: flowText("Long", 3) },
   { path: `${FLOWS_DIR}/${keptFileName("Short")}`, text: flowText("Short", 1) },
   { path: ".demoman/receipts/short.screens/final.png", text: BYTES },
-  // An account's seed script, carried executable (review of DEM-240).
+  // An account's seed script, carried executable (found in review).
   { path: "bin/seed-demo", text: "#!/bin/sh\n", mode: 0o755 },
 ];
 const video = (over: Partial<RefreshVideo> = {}): RefreshVideo => ({
@@ -318,7 +318,7 @@ describe("verifySetup", () => {
   });
 
   // Red when setup's check records at the real date while CI records pinned:
-  // the check would pass a flow CI then reads as changed (DEM-79).
+  // the check would pass a flow CI then reads as changed.
   it("hands the refresh the started app's pinnedNow", async () => {
     const startApp = startStub(async () => ({
       reused: false,

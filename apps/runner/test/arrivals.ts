@@ -21,7 +21,7 @@ type EmittingProto = {
 };
 
 /**
- * Hears every CDP session's network data in this process (DEM-235): when
+ * Hears every CDP session's network data in this process: when
  * Demoman's own session heard each answer's data arrive, which is all a held
  * clock can follow. The server's send times say when it was sent; a loaded
  * runner delivered one 140 ms late. `performance.now()`, the clock the test

@@ -239,7 +239,7 @@ describe("video store", () => {
     });
   });
 
-  // Red (DEM-88): markExpired outside the lock. Its read of video.json
+  // Red: markExpired outside the lock. Its read of video.json
   // names the source flow; the merge lands; its write puts that flow back.
   it("an expiry that read before a merge does not write the merged flow back", async () => {
     const lib = createLibrary(home);
@@ -469,7 +469,7 @@ describe("video store", () => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("the library's lock", () => {
-  // Red (DEM-91): the rename-aside lock. The waiter judged the lock dead,
+  // Red: the rename-aside lock. The waiter judged the lock dead,
   // another process took it over in between, and the waiter then moved that
   // live lock aside and held it too.
   it("a waiter that judged the lock dead does not take it after another process has", async () => {

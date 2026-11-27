@@ -114,7 +114,7 @@ DP-1 disconnected (normal left inverted right x axis y axis)
     expect(x.calls).toEqual(["xrandr --current", "xrdb -query"]);
   });
 
-  // DEM-70: GNOME and KDE scale through Xft.dpi, not GDK_SCALE. Red: drop
+  // GNOME and KDE scale through Xft.dpi, not GDK_SCALE. Red: drop
   // readXftScale and this reads 2560x1440 at 1x.
   it("takes Xft.dpi as the scale when GDK_SCALE is unset", async () => {
     const x = answering(XRANDR, "Xft.antialias:\t1\nXft.dpi:\t192\n");
@@ -147,7 +147,7 @@ DP-1 disconnected (normal left inverted right x axis y axis)
     );
   });
 
-  // DEM-70: a 1 nothing said is said, not passed off as read. Red: drop the
+  // A 1 nothing said is said, not passed off as read. Red: drop the
   // scaleAssumed spread and the read looks like a plain 1x screen.
   it("says the scale was assumed when neither GDK_SCALE nor Xft.dpi says it", async () => {
     for (const [why, x] of [

@@ -76,7 +76,7 @@ describe("signinAccount", () => {
     expect(lines.join("\n")).not.toContain(PASSWORD);
   }, 60_000);
 
-  // DEM-104: read, not refused, and said where the person reads it.
+  // Read, not refused, and said where the person reads it.
   it("says when secrets.env is readable by other users, and still signs in", async () => {
     const secrets = join(repo, ".demoman", "secrets.env");
     await writeFile(secrets, "# no secrets here\n");

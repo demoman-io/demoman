@@ -19,10 +19,10 @@ describe("film:compare's scripts", () => {
     // (2026-10-27); `button-run.json` the camera's follow through a run
     // (2026-10-22); `video-as-code.json` the script's trim and per-click
     // zoom (2026-11-02); `same-document.json` an address change inside one
-    // document (DEM-61, 2026-11-07). Five are input-coverage go/no-gos
-    // (DEM-156, 158, 160, 161), against four fixture pages (the two
+    // document (2026-11-07). Five are input-coverage go/no-gos
+    // (select, drag, hover, dialog), against four fixture pages (the two
     // native-select scripts share one). `inputs.json` the key and click
-    // marks (DEM-154, 155), which executor-inputs-picture records.
+    // marks, which executor-inputs-picture records.
     expect(files).toEqual([
       "actual.json",
       "button-run.json",

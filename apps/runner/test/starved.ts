@@ -1,7 +1,7 @@
 import { SPAN_QUIET_MS } from "@demoman/replay-engine";
 
 /**
- * Whether the recorder kept motion past an act's end (DEM-239's skip, in
+ * Whether the recorder kept motion past an act's end (the skip in
  * executor-room.slow). A span closes `SPAN_QUIET_MS` after its last moving
  * frame, and an act ended at a gap ends on that last frame, so a span's own
  * close always reaches past such an act: asked of `endMs` alone, an act that

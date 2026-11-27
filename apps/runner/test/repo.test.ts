@@ -132,7 +132,7 @@ describe("readRepo", () => {
   });
 });
 
-describe("execGit and the repository's own config (DEM-90)", () => {
+describe("execGit and the repository's own config", () => {
   // Red: execGit without `-c core.fsmonitor=false` — the filmed folder's
   // config names a program git runs as the user on `add -A`.
   it("never runs a program the repository's config names", async () => {
@@ -253,7 +253,7 @@ describe("readFilmedCode", () => {
     );
   });
 
-  // DEM-113. Red: drop the `-c filter.<name>.clean=` the add carries; the
+  // Red: drop the `-c filter.<name>.clean=` the add carries; the
   // folder's own clean and process programs run as the user. Or blank a
   // redefined global filter instead of restoring it: `global-clean` stays
   // unmade.

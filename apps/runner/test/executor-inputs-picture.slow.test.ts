@@ -1,4 +1,4 @@
-// DEM-154/155: the key and click marks are in the picture. The compare
+// The key and click marks are in the picture. The compare
 // script `compare/scripts/inputs.json` (Mod+K, Escape, a double-click, two
 // right-clicks, two clicks, a Shift-click) runs through the real executor (held
 // clock, the default), is exported, and is read from decoded frames at

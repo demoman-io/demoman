@@ -92,7 +92,7 @@ const session = createBrowserSession({
     await installExecutorEntry(context);
     // DEMOMAN_ROOM_LAG_MS=n holds every CDP command n ms (lag.ts): a slow CI
     // runner on this machine, whose stills and lookups between the typing and
-    // the click take longer (DEM-183). From about 80 the screencast stalls
+    // the click take longer. From about 80 the screencast stalls
     // too, and the report counts long stills.
     const lag = Number(process.env.DEMOMAN_ROOM_LAG_MS ?? 0);
     if (lag > 0) await lagCdp(context, lag);
@@ -171,7 +171,7 @@ async function run(steps: Step[], scriptVersion = 1) {
       camera: scene.camera,
       pacing: scene.pacing,
       // What the recorder saw move, which an act's end is read from
-      // (DEM-239: a never-quiet page's act ended at its click on CI).
+      // (a never-quiet page's act ended at its click on CI).
       motion: bundle.motionSpans.map((m) => [m.startMs, m.endMs]),
       degradations: bundle.degradations.map((d) => [d.kind, d.startMs, d.note]),
     });
@@ -459,7 +459,7 @@ describe("unhurried beats through the executor", () => {
     const spin = markerOf(0);
     const actEnd = spin.actEndSourceTimeMs as number;
     const acted = actEnd - spin.sourceTimeMs;
-    // DEM-239 (ruled 2026-11-20: a limit of the real-time recorder, said,
+    // Ruled 2026-11-20: a limit of the real-time recorder, said,
     // not fixed; 2026-11-24: said as a skip, since it blocked the required
     // gate). The spinner paints on every frame, so an act that ended short
     // of the ceiling while kept motion resumed after it, before the next
@@ -497,7 +497,7 @@ describe("unhurried beats through the executor", () => {
     });
     if (acted < 900 && resumed.length > 0 && !across && lost.length === 0)
       ctx.skip(
-        `a starved screencast (DEM-239): the act ended ${Math.round(acted)} ms after the click, at a gap of no kept motion, and kept motion resumed at ${JSON.stringify(resumed)}; the real-time recorder read the gap in its frames as a quiet page. ${window}`,
+        `a starved screencast: the act ended ${Math.round(acted)} ms after the click, at a gap of no kept motion, and kept motion resumed at ${JSON.stringify(resumed)}; the real-time recorder read the gap in its frames as a quiet page. ${window}`,
       );
     // Premise: the spinner was still painting at the ceiling. Red with
     // why the skip above did not apply.

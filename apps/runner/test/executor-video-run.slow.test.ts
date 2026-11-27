@@ -289,7 +289,7 @@ describe("run records into a video", () => {
     RUN_MS,
   );
 
-  // DEM-108. The same-repo side is the `toEqual` above: no otherRepo there.
+  // The same-repo side is the `toEqual` above: no otherRepo there.
   // Red if the `{ id }` join stops comparing the flow's repo with the run's.
   it(
     "joins a flow from a checkout of another repo, and says so",
@@ -661,7 +661,7 @@ describe("a run joins the kept flow", () => {
     2 * RUN_MS,
   );
 
-  // DEM-108, second review: an adopted kept flow holds this checkout's raw
+  // An adopted kept flow holds this checkout's raw
   // key. Red if the join compares it unresolved with the run's resolved
   // one: one repo would read as two.
   it(

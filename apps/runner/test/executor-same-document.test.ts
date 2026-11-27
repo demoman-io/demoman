@@ -15,7 +15,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 
 /**
- * DEM-61 end to end, in a real browser: an address the app changes inside
+ * End to end, in a real browser: an address the app changes inside
  * one document (a search writing `?q=`, a row opening its detail with
  * `pushState`) is part of the step, and a real page load is not.
  */
@@ -74,7 +74,7 @@ beforeEach(() => {
   requested = [];
 });
 
-/** Two Mongo-style ids: each scrubs to `redacted` on disk (DEM-130). */
+/** Two Mongo-style ids: each scrubs to `redacted` on disk. */
 const RECORDS = ["507f1f77bcf86cd799439011", "507f191e810c19729de860ea"];
 
 const run = (steps: unknown[], target = url) =>
@@ -143,7 +143,7 @@ describe("an address the app changes inside one document", () => {
     expect(report.stopped?.reason, said).toBe("pageWentElsewhere");
   }, 120_000);
 
-  // DEM-143: a record id scrubs to `redacted` on disk, so the stored address
+  // A record id scrubs to `redacted` on disk, so the stored address
   // cannot tell two records apart; the run compares the raw path instead.
   it("stops on a load of another record on the same route", async () => {
     const report = await run(

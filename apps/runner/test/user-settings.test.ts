@@ -100,7 +100,7 @@ describe("readUserSettings: exportQuality", () => {
   });
 });
 
-// DEM-180: one answer to "where does this export land".
+// One answer to "where does this export land".
 describe("exportFolderOf", () => {
   it("a given folder wins, else the setting, else ~/Downloads", async () => {
     const home = await temp();
@@ -136,7 +136,7 @@ describe("exportFolderOf", () => {
       unusable: `${file(home)}: exportFolder must be an absolute path; got "films"`,
     });
     // A file that will not read may never have named a folder: ~/Downloads,
-    // with why, for the export to say (review of DEM-180: refusing here
+    // with why, for the export to say (found in review: refusing here
     // stopped every export over a broken file).
     await writeFile(file(home), "{nope");
     const broken = await exportFolderOf(home, undefined);
@@ -154,7 +154,7 @@ describe("exportFolderOf", () => {
   });
 });
 
-// DEM-179. Red if a choice that cannot be read is taken for 30 days: expiry
+// Red if a choice that cannot be read is taken for 30 days: expiry
 // would then remove footage the person may have chosen to keep forever.
 describe("readUserSettings: keepFootage", () => {
   it("reads a choice, 30 days when unset, and null with why when unusable", async () => {

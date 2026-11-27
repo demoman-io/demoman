@@ -30,7 +30,7 @@ describe("targetWords", () => {
   });
 });
 
-// DEM-102. Red if the check reads the page's own JS view (a closed root is
+// Red if the check reads the page's own JS view (a closed root is
 // invisible there), counts an open root or a light-DOM custom element, or
 // blames a closed root that does not hold the target.
 describe("closedShadowHolds", () => {

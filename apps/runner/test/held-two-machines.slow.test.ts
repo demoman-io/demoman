@@ -161,7 +161,7 @@ describe("a held recording", () => {
       // Premise: two requests, the document's and the other site's after
       // the click (the icons are empty, so Chrome fetches none). Only the
       // second is a network stretch of the take: the document's was over
-      // before its first frame, where the take's time starts (DEM-186).
+      // before its first frame, where the take's time starts.
       const premise = [["a GET /", "b GET /there"]];
       expect(measured.requests, said).toEqual([...premise, ...premise]);
       for (const [i, r] of [one, two].entries())
@@ -200,7 +200,7 @@ describe("a held recording", () => {
     BOTH_MS,
   );
 
-  // DEM-204. The click asks for a streamed answer a moment later, so the
+  // The click asks for a streamed answer a moment later, so the
   // step's settle is asked before it opens and runs over it. Chunks 600 ms
   // apart: 12 captured frames fit in a gap on a fast machine and not on a
   // slowed one, and the settle's cap ran on the page's clock, which follows

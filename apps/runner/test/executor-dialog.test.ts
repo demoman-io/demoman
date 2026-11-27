@@ -15,7 +15,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 
 /**
- * DEM-161 end to end, in a real browser: a click that opens `confirm()` is
+ * End to end, in a real browser: a click that opens `confirm()` is
  * answered once, by the engine (OK unless the step says otherwise), and the
  * run report lists it. The page says which answer it got: Playwright's own
  * auto-dismiss would make it `false` on a run that asked for OK.

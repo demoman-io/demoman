@@ -913,7 +913,7 @@ describe("an agent take that ends on a click", () => {
   }, 300_000);
 });
 
-// DEM-124. H.264 takes even sides only; a phone take filmed at display scale
+// H.264 takes even sides only; a phone take filmed at display scale
 // 1 (headless here, a 1x monitor or a Linux runner for an author) screencasts
 // 393 CSS px as 393 px, and the encoder refused every such span whole. The
 // video was the stills alone. The page flashes black and white, so a video

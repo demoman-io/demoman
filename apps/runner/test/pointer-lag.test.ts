@@ -1,7 +1,7 @@
 // Records a take through a real browser whose pointer moves are answered
 // unevenly, renders it, and finds the drawn cursor in the decoded frames.
 // About 14 s here. ubuntu-latest took 91 s before held became the default (CI,
-// 2026-11-17) and ran past 120 s beside held files (DEM-210): 300 s.
+// 2026-11-17) and ran past 120 s beside held files: 300 s.
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -65,7 +65,7 @@ let home: string;
 
 /** Real time (`DEMOMAN_HELD_CLOCK=0`): a held clock keeps the machine's lag
  *  out of page time, which is this file's premise; held, each 400 ms answer
- *  is paid per frame, and ubuntu-latest ran past 240 s (DEM-210). */
+ *  is paid per frame, and ubuntu-latest ran past 240 s. */
 const heldWas = process.env.DEMOMAN_HELD_CLOCK;
 
 beforeAll(async () => {

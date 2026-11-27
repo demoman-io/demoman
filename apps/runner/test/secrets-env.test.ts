@@ -58,7 +58,7 @@ describe("readSecretsFile", () => {
     expect(s.values.get("KL_PASSWORD")).toBe("correct horse");
   });
 
-  // DEM-104: warned, not refused: an editor leaves a new file 0644, and
+  // Warned, not refused: an editor leaves a new file 0644, and
   // refusing would break nearly every setup.
   it("reads a file other users can read, and says so with the chmod", async () => {
     await writeFile(join(repo, ".gitignore"), ".demoman/secrets.env\n");

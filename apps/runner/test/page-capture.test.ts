@@ -61,9 +61,10 @@ describe("pageCapture", () => {
     ).rejects.toThrow(message);
   });
 
-  // DEM-130: `pageUrl` reaches `report.json`, so it is scrubbed. DEM-143:
-  // `here` is what `pageWentElsewhere` compares, never written, so its path
-  // stays raw and its query values go as the sensor's do.
+  // `pageUrl` reaches `report.json`, so it is scrubbed. Two records on one
+  // route must not read as one page: `here` is what `pageWentElsewhere`
+  // compares, never written, so its path stays raw and its query values go
+  // as the sensor's do.
   it.each([
     ["notInTree", DESTROYED],
     ["pageFaulted", "TypeError: boom"],

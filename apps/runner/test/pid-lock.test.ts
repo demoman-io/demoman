@@ -85,7 +85,7 @@ describe("takePidLock", () => {
 
   // Red: take the lock with `open(path, "wx")` and write the pid after. A
   // waiter reads the empty lock as no pid, breaks it, and both hold it — the
-  // two Studios of DEM-66, made certain here by a slow write.
+  // the two Studios a concurrent open once started, made certain here by a slow write.
   it("a waiter that comes while the holder's text is still being written does not break it", async () => {
     slow.on = true;
     let active = 0;

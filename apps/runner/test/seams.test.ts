@@ -12,7 +12,7 @@ const seg = (outStartMs: number, outEndMs: number, kind: string) => ({
 describe("pairSeams", () => {
   // ubuntu, PR #80 (job 132675434140): step 0's pair, 1115 to 2070. The
   // journey opened with a 5 ms pointer sample and 12.5 ms of idle before the
-  // rest of it, and only the motion-to-idle seam qualified (DEM-190). Red:
+  // rest of it, and only the motion-to-idle seam qualified. Red:
   // drop the fold of sub-frame idle in seams.ts, and the idle-to-motion seam
   // is lost again.
   it("counts an idle shorter than a frame between motion runs as motion", () => {
@@ -96,7 +96,7 @@ describe("pairSeams", () => {
 
   // macOS, PR #87 (job 135131814001): step 1's pair, 1062 to 1994. The
   // arrive the plan made 300 ms was filmed 114 ms, too short for the 100 ms
-  // reference, so its seam does not count. That is the product's (DEM-273),
+  // reference, so its seam does not count. That is the product's,
   // not the check's: no fold here may make it count.
   it("leaves out a seam whose idle has no room for the reference", () => {
     const { seams } = pairSeams(

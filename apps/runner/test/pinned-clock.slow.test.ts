@@ -15,7 +15,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { installResolver } from "../src/page-agent.js";
 
 /**
- * DEM-79 in a real browser: a run given `pinnedNow` starts the page's clock
+ * A pinned clock in a real browser: a run given `pinnedNow` starts the page's clock
  * at that instant and lets it run, across a navigation, without stopping a
  * debounce that measures time with Date.now(). The page reports what its
  * clock reads to the server, so the test reads the page's own answers.
@@ -195,7 +195,7 @@ describe("a run with pinnedNow", () => {
 });
 
 // Red when refresh has no evidence of dates on screen, or evidence where
-// there were none (DEM-79).
+// there were none.
 describe("the dates a run's last screen shows", () => {
   it("are in the report when the last page shows one", async () => {
     const report = await run(

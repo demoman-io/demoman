@@ -46,7 +46,7 @@ describe("landingVerdict", () => {
     );
   });
 
-  it("names a sign-in page without a token in its path (DEM-130)", () => {
+  it("names a sign-in page without a token in its path", () => {
     const v = landingVerdict(
       {
         askedUrl: "https://app.kitchenlink.com/orders",

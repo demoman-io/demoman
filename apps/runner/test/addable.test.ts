@@ -155,7 +155,7 @@ describe("checkAddable", () => {
         takeId,
       );
       expect(notCarriedOf(scene)).toEqual([]);
-      // The version vetted: what an add pressed now hands keep (DEM-140).
+      // The version vetted: what an add pressed now hands keep.
       const read = await library.getSceneRead(takeId);
       expect(read?.revision, "premise: the take has a revision").toBeTruthy();
       expect(await addable(record)).toEqual({
@@ -256,7 +256,7 @@ describe("checkAddable", () => {
 
   // Red if keep.ts's otherApp check goes: every loopback port shares the
   // `localhost` file, so another local app's sign-in blocked this one.
-  it("a localhost sign-in to another port is another app's (DEM-46)", async () => {
+  it("a localhost sign-in to another port is another app's", async () => {
     const handAt = (startUrl: string) =>
       createSessionStore(home).save({
         sessionVersion: 1,
@@ -368,7 +368,7 @@ describe("checkAddable", () => {
     }
   });
 
-  // Red if the default name goes back through normaliseName (DEM-50: "filter-invoice").
+  // Red if the default name goes back through normaliseName (which gave "filter-invoice").
   it("videoSlug keeps the words as written", () => {
     expect(videoSlug("Filter invoices")).toBe("filter-invoices");
     expect(videoSlug("Create an invoice")).toBe("create-an-invoice");

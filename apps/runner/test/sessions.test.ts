@@ -154,7 +154,7 @@ describe("the store", () => {
     await expect(createSessionStore(home).read()).rejects.toThrow(path);
   });
 
-  // DEM-105: a newer Demoman's sign-in is good; removing it would lose it.
+  // A newer Demoman's sign-in is good; removing it would lose it.
   it("tells a newer session file to update Demoman, never to remove it", async () => {
     const dir = join(home, "sessions");
     await mkdir(dir, { mode: 0o700 });

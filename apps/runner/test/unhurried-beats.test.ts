@@ -57,7 +57,7 @@ const PAGE = `<!doctype html><meta charset=utf-8><title>Unhurried</title>
 <button id="create">Create invoice</button>
 <script>
   // The last key's paint held back one frame, 300 ms, after the key was
-  // handled: what CI's macOS runner did on its own (DEM-173), on any machine.
+  // handled: what CI's macOS runner did on its own, on any machine.
   document.getElementById("amount").addEventListener("input", (e) => {
     if (e.target.value !== ${JSON.stringify(TYPED)}) return;
     requestAnimationFrame(() => {
@@ -199,7 +199,7 @@ describe("a typed field and a far click, filmed unhurried", () => {
       if (answer.outcome !== "saved" || answer.fileType === "stills") {
         throw new Error(JSON.stringify(answer));
       }
-      // A red run keeps the film it read (DEM-253: the last key late). A
+      // A red run keeps the film it read (the last key late). A
       // starved run that skips keeps none: CI uploads only a failed job's.
       const mp4 = answer.file.path;
       keepOnFailure("unhurried-beats", () => [mp4]);
@@ -296,7 +296,7 @@ describe("a typed field and a far click, filmed unhurried", () => {
       // caret's blink is less than that).
       const full = ink.findIndex((e) => e >= peak - glyph / 2);
       const fullValueMs = (sampled[full] as { ms: number }).ms;
-      // DEM-253 (ruled 2026-11-24, as DEM-239): the walk saw the page draw
+      // Ruled 2026-11-24, as for a never-quiet page: the walk saw the page draw
       // the last key (no `lastKeyPaint`), the film shows the whole value
       // more than a frame (and under a second) after the act's recorded end,
       // and the bundle kept no screencast frame from the act's end until the
@@ -307,7 +307,7 @@ describe("a typed field and a far click, filmed unhurried", () => {
       // the end saying so. That the walk waits for the frames at all is
       // guarded where no screencast is read (replay-field-read, "ends the
       // type's act after the page drew the frames after the last key");
-      // without that guard this skip would hide a DEM-173 regression.
+      // without that guard this skip would hide a regression of the type's act ending before the key paints.
       const actEndSrc = typed?.actEndSourceTimeMs as number;
       const fullSrc = toSourceMs(timeline, fullValueMs);
       const gapFrames = bundle.motionSpans.filter(
@@ -347,7 +347,7 @@ describe("a typed field and a far click, filmed unhurried", () => {
       ).toBeLessThan(CAMERA_CHANGE);
       if (starved)
         ctx.skip(
-          `a starved screencast (DEM-253): the walk saw the last key drawn by ${Math.round(typedEnd)} ms of film, the bundle kept no frame until the one at ${Math.round(fullValueMs)} ms that shows the whole value; the real-time screencast delivered the paint late. ${inkSaid()}`,
+          `a starved screencast: the walk saw the last key drawn by ${Math.round(typedEnd)} ms of film, the bundle kept no frame until the one at ${Math.round(fullValueMs)} ms that shows the whole value; the real-time screencast delivered the paint late. ${inkSaid()}`,
         );
     },
     EXPORT_MS,

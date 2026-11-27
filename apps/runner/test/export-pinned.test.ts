@@ -6,7 +6,7 @@ import { type ExportDeps, exportTake } from "../src/executor/export.js";
 import { createLibrary } from "../src/executor/library.js";
 import { makeDiskTake } from "./disk-take.js";
 
-// `deps.pinned` (DEM-100): the studio's queue hands exportTake the scene it
+// `deps.pinned`: the studio's queue hands exportTake the scene it
 // read when the export was queued. What renders it is the studio lane's
 // (`studio-export-revision.test.ts`); these are the two ways a pin is wrong.
 

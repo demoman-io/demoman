@@ -89,7 +89,7 @@ describe("library: revisions, leases, delete, outputs", () => {
     }
   });
 
-  // Review of DEM-115. Red: drop keepMigrationNotes from putSceneIf — the
+  // Found in review. Red: drop keepMigrationNotes from putSceneIf — the
   // save writes the current schema, the next read migrates nothing, and the
   // note that a mask may have moved is gone for good.
   it("keeps what reading an older scene said across a save, once, and says a notes file that will not read", async () => {
