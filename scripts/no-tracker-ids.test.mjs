@@ -24,7 +24,9 @@ const list = (cwd, prefix) =>
       (f) =>
         !BINARY.test(f) &&
         !f.includes("/fixtures/") &&
-        !f.startsWith("internal/docs/superpowers/"),
+        // Both are dated records kept as written.
+        !f.startsWith("internal/docs/superpowers/") &&
+        !f.startsWith("internal/docs/research/"),
     );
 
 const product = list(ROOT, "");
