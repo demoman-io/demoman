@@ -248,8 +248,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     if ("kind" in where) return where;
     return chooseAccount(await findAccounts(where.from), target, named);
   }
-  /** The frame rate a run or probe records at, decided once at its door
-   *  : a value that is not 30 or 60 refuses it, naming the file; a
+  /** The frame rate a run or probe records at, decided once at its door:
+   *  a value that is not 30 or 60 refuses it, naming the file; a
    *  file that will not read records at the default, carrying why. */
   async function frameRateFor(
     from: string,
