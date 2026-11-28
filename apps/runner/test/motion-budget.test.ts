@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FrameBundle } from "@demoman/compositor";
-import { CAPTURE_MOTION_BUDGET_BYTES } from "@demoman/replay-engine";
+import { CAPTURE_MOTION_BUDGET_BYTES, jpegSize } from "@demoman/replay-engine";
 import type { BrandKitsRead, RunReport } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -96,7 +96,8 @@ const script = () => ({
 });
 
 /** What the mux was handed: each kept span's bytes as the encoder charged
- *  them, its parked JPEGs' bytes read back off disk, and its frame size. */
+ *  them, its parked JPEGs' bytes read back off disk, its frame size, and
+ *  the width each parked frame decodes at. */
 type Seen = {
   ref: string;
   charged: number;
@@ -105,6 +106,7 @@ type Seen = {
   startMs: number;
   endMs: number;
   width: number;
+  frameWidths: number[];
 }[];
 
 /** Every span the encoder opened, kept or not: why a premise below failed. */
@@ -179,6 +181,7 @@ async function take(motionBudgetBytes?: number): Promise<{
             startMs: span.startMs,
             endMs: span.endMs,
             width: span.width,
+            frameWidths: parked.map((p) => jpegSize(p.bytes).width),
           });
         }
         return muxSpans(input);
@@ -222,14 +225,20 @@ describe("a real-time take's motion budget", () => {
         expect(span.charged, evidence).toBe(span.parked);
       }
       // The scale the budget is sized at (`CAPTURE_SCALE.desktop`), not
-      // Chrome's 1x: the typing's spans. A loaded machine can also keep a
-      // span of a still's echo, at the still's 3x (seen under burners here,
-      // after the last step), said in the line below; any other width is red.
+      // Chrome's 1x, nor a full still's 3x: every frame each kept span
+      // parked, decoded. Before the walk dropped a still's echo
+      // (`stillEcho`), one at 3x sat inside a kept span in 4 of 5 takes here
+      // (2026-11-28), and under CI-like load two echoes and one frame of the
+      // page made a span of their own. The premise: the stills are at 3x, so an echo would
+      // show here by its width.
       expect(
-        seen.filter((s) => s.width !== 1280 * 2 && s.width !== 1280 * 3),
+        (bundle?.keyframes ?? []).some((k) => k.width === 1280 * 3),
+        evidence,
+      ).toBe(true);
+      expect(
+        seen.filter((s) => s.frameWidths.some((w) => w !== 1280 * 2)),
         evidence,
       ).toEqual([]);
-      const echoes = seen.filter((s) => s.width === 1280 * 3);
       const bytes = typed.reduce((sum, s) => sum + s.parked, 0);
       const frames = typed.reduce((sum, s) => sum + s.frames, 0);
       const seconds =
@@ -240,11 +249,7 @@ describe("a real-time take's motion budget", () => {
           `${(bytes / seconds / 1024).toFixed(0)} KB per second of motion: ` +
           `${(CAPTURE_MOTION_BUDGET_BYTES / (bytes / seconds) / 60).toFixed(1)} min ` +
           `in ${CAPTURE_MOTION_BUDGET_BYTES / 1024 / 1024} MB; ` +
-          `degradations [${report.frames.degradations.join(", ")}]; ` +
-          `${echoes.length} span(s) at the still's 3x` +
-          (echoes.length > 0
-            ? ` from ${echoes.map((s) => Math.round(s.startMs)).join(", ")} ms`
-            : ""),
+          `degradations [${report.frames.degradations.join(", ")}]`,
       );
     },
     TAKE_MS,

@@ -13,7 +13,11 @@ import {
   STEP_SETTLE_MARKER,
   STILL_DRAIN_MS,
 } from "../../src/index.js";
-import { ECHO_WINDOW_MS } from "../../src/step-settle.js";
+import {
+  ECHO_WINDOW_MS,
+  STILL_ECHO_FRAMES,
+  STILL_ECHO_WINDOW_MS,
+} from "../../src/step-settle.js";
 import {
   type CdpFake,
   createCdpFake,
@@ -667,6 +671,142 @@ describe("frames a page screen keeps out of the film", () => {
     ).toBeGreaterThanOrEqual(3);
     expect(pushed, pushed.join(",")).not.toContain("1280x800");
     expect(pushed, pushed.join(",")).not.toContain("2400x1500");
+  });
+
+  /**
+   * A take whose full stills come back at 3840 while the screencast draws
+   * at 2560. The second still (the first filmed) echoes a frame painted
+   * during it; on the walk's next call, a frame of the page, an echo
+   * painted before it that arrives after it, the page moving, then `late`
+   * frames at the still's size past the window, then the page again.
+   * `openingEcho`: the opening still echoes too, before filming, and the
+   * page paints nothing between it and the next still.
+   */
+  async function stillEchoTake(late: number, openingEcho = false) {
+    const d = deps();
+    const OWN = fakeScreenshotBase64(2560, 1600);
+    const STILL = fakeScreenshotBase64(3840, 2400);
+    const frame = (sessionId: number, data: string, paintedMs: number) =>
+      d.cdp.emit("Page.screencastFrame", {
+        sessionId,
+        data,
+        metadata: { timestamp: paintedMs / 1000 },
+      });
+    let stills = 0;
+    let echoesSent = 0;
+    let afterDue = false;
+    let lateAt = -1;
+    /** Sent one a call, as frames arrive: a burst in one call is thinned
+     *  by the recorder's in-flight admission. */
+    const queued: (() => void)[] = [];
+    const send = d.cdp.send.bind(d.cdp);
+    d.cdp.send = async (method, params = {}) => {
+      // The page painting itself in, at the screencast's own 2x: before
+      // the opening still only, when the opening echoes.
+      if (
+        method === "Runtime.evaluate" &&
+        String(params.expression).includes("__demomanSettlePaint") &&
+        (!openingEcho || stills === 0)
+      ) {
+        d.cdp.emit("Page.screencastFrame", { sessionId: 1, data: OWN });
+      }
+      if (method !== "Page.screencastFrameAck") queued.shift()?.();
+      if (afterDue && method !== "Page.screencastFrameAck") {
+        afterDue = false;
+        const now = d.clock.now();
+        frame(3, OWN, now + 2);
+        frame(4, STILL, now + 1);
+        echoesSent++;
+        for (let i = 0; i < 4; i++)
+          queued.push(() => frame(5 + i, OWN, now + 3 + i));
+        lateAt = now + STILL_ECHO_WINDOW_MS + 500;
+        for (let i = 0; i < late; i++)
+          queued.push(() => frame(9 + i, STILL, lateAt + i));
+        queued.push(() => frame(9 + late, OWN, lateAt + late));
+      }
+      if (method === "Page.captureScreenshot" && params.format === "jpeg") {
+        stills++;
+        // The first is the opening's, before filming; the next is filmed.
+        if (stills === 1 && openingEcho) {
+          frame(2, STILL, d.clock.now());
+          echoesSent++;
+        }
+        if (stills === 2) {
+          frame(2, STILL, d.clock.now());
+          echoesSent++;
+          afterDue = true;
+        }
+        await send(method, params);
+        return { data: STILL };
+      }
+      return send(method, params);
+    };
+    const result = await runReplay(scene(), d);
+    const pushed = vi
+      .mocked(d.encoder.push)
+      .mock.calls.map(([f]) => `${f.width}x${f.height}`);
+    const said = result.degradations.filter(
+      (x) => x.kind === "surfaceMismatch",
+    );
+    const evidence = JSON.stringify({ pushed, said, stills, echoesSent });
+    // The premises: the stills came back at 3840, the echoes were sent,
+    // and the page's own frames around them were filmed.
+    expect(result.outcome, evidence).toBe("complete");
+    expect(
+      result.bundle?.keyframes.map((k) => k.width),
+      evidence,
+    ).toContain(3840);
+    expect(echoesSent, evidence).toBe(openingEcho ? 3 : 2);
+    expect(lateAt, evidence).toBeGreaterThan(0);
+    expect(queued, evidence).toEqual([]);
+    expect(
+      pushed.filter((p) => p === "2560x1600").length,
+      evidence,
+    ).toBeGreaterThan(0);
+    return { result, pushed, said, evidence };
+  }
+
+  // Red without `stillEcho` in the walk: under CI-like load a frame painted
+  // during a full still and one painted after it, arriving after a frame of
+  // the screencast's own, joined a frame of the page in a span kept at the
+  // still's 3840 while the page stood still (2026-11-28). One painted past
+  // the window is refused too, and said at its paint.
+  it("keeps a full still's echo out of the motion, in any arrival order, and says one painted long after", async () => {
+    const { pushed, said, evidence } = await stillEchoTake(1);
+    expect(pushed, evidence).not.toContain("3840x2400");
+    // The two in the window go unsaid; the late one is said.
+    expect(said, evidence).toHaveLength(1);
+    const note = said[0]?.note ?? "";
+    expect(note, evidence).toContain(
+      "refused a screencast frame at 3840x2400, a full still's size and not the screencast's own 2560x1600",
+    );
+    expect(note, evidence).toContain(`painted at ${said[0]?.startMs} ms`);
+    // By its paint, not its arrival: 500 ms past the window.
+    const after = Number(/(\d+) ms after the still/.exec(note)?.[1]);
+    expect(after, evidence).toBeGreaterThanOrEqual(STILL_ECHO_WINDOW_MS + 500);
+    expect(after, evidence).toBeLessThan(STILL_ECHO_WINDOW_MS + 600);
+  });
+
+  // Red when the walk keeps refusing: a screencast that draws at the
+  // still's size for good would lose the rest of the take's motion.
+  it("takes the still's size as the screencast's own once more frames come late than a still echoes", async () => {
+    const { pushed, said, evidence } = await stillEchoTake(
+      STILL_ECHO_FRAMES + 2,
+    );
+    expect(said, evidence).toHaveLength(STILL_ECHO_FRAMES);
+    expect(
+      pushed.filter((p) => p === "3840x2400"),
+      evidence,
+    ).toHaveLength(2);
+  });
+
+  // Red when a frame before filming is taken as the page's size whatever
+  // it is: the opening still's echo became the screencast's own, and the
+  // next still's echo was filmed.
+  it("does not take the opening still's echo as the screencast's size", async () => {
+    const { pushed, said, evidence } = await stillEchoTake(0, true);
+    expect(pushed, evidence).not.toContain("3840x2400");
+    expect(said, evidence).toEqual([]);
   });
 
   // At display scale 1 the window's unscaled surface is the page

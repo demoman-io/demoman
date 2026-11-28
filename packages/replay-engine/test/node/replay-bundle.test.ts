@@ -1,6 +1,7 @@
 import type { FrameBundle } from "@demoman/compositor";
 import type { SceneAction } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
+import { jpegSizeOfBase64 } from "../../src/image.js";
 import {
   buildCaptureBundle,
   chooseActiveBundle,
@@ -8,6 +9,7 @@ import {
   jpegSize,
   tagKeyframes,
 } from "../../src/index.js";
+import { fakeScreenshotBase64 } from "../helpers/cdp-fake";
 import { scene as sceneFixture } from "../helpers/replay-scene";
 
 const actions = [
@@ -123,6 +125,26 @@ describe("chooseActiveBundle", () => {
 
   it("has nothing to offer when neither exists", () => {
     expect(chooseActiveBundle(null, null, false, "demo")).toBeNull();
+  });
+});
+
+describe("jpegSizeOfBase64", () => {
+  // Red if the head is all it reads: a start-of-frame past it is the
+  // whole frame's to find.
+  it("reads the size from the head, and from the whole when it lies past it", () => {
+    expect(jpegSizeOfBase64(fakeScreenshotBase64(2560, 1600))).toEqual({
+      width: 2560,
+      height: 1600,
+    });
+    const head = atob(fakeScreenshotBase64(3840, 2400));
+    // An APP1 segment of 9000 bytes before the start-of-frame.
+    const pad =
+      String.fromCharCode(0xff, 0xe1, 9002 >> 8, 9002 & 0xff) +
+      "\0".repeat(9000);
+    const far = btoa(head.slice(0, 2) + pad + head.slice(2));
+    // The premise: the head alone does not hold it.
+    expect(() => jpegSize(decodeBase64(far.slice(0, 8192)))).toThrow();
+    expect(jpegSizeOfBase64(far)).toEqual({ width: 3840, height: 2400 });
   });
 });
 

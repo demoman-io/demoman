@@ -111,7 +111,7 @@ import {
 } from "./geometry.js";
 import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
-import { decodeBase64, jpegSize, pngSize } from "./image.js";
+import { decodeBase64, jpegSize, jpegSizeOfBase64, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { holdModifiers, maskOf, pressCombo, releaseKeeping } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
@@ -133,9 +133,12 @@ import {
   capturedAway,
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
+  STILL_ECHO_FRAMES,
   type StepSettleReport,
+  type StillWindow,
   SURFACE_CROP_WINDOW_MS,
   stepSettleExpression,
+  stillEcho,
 } from "./step-settle.js";
 import type {
   CdpSession,
@@ -1496,15 +1499,27 @@ export async function runWalk(
       await fileStill(frame.bytes, actionId, at());
       return;
     }
-    const reply = await gate.capture(() =>
-      watching(() =>
-        cdp.send("Page.captureScreenshot", {
-          format: "jpeg",
-          quality: KEYFRAME_QUALITY,
-        }),
-      ),
-    );
+    // Its echo (`stillEcho`) is judged from here, and from its answer by
+    // the time read for `captureEndedMs`: no clock read of its own.
+    pageFrames.stillAsked();
+    const reply = await gate
+      .capture(() =>
+        watching(() =>
+          cdp.send("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: KEYFRAME_QUALITY,
+          }),
+        ),
+      )
+      .catch((error: unknown) => {
+        pageFrames.stillAnswered(null, null);
+        throw error;
+      });
     captureEndedMs = at();
+    pageFrames.stillAnswered(
+      String(reply.data ?? ""),
+      captureEndedMs + started,
+    );
     if (sealed) return;
     await fileStill(decodeBase64(String(reply.data ?? "")), actionId, at());
   };
@@ -1761,12 +1776,19 @@ export async function runWalk(
    * frame composited just before RELEASE can still be stamped after it and
    * kept: at most one frame of a hidden caret or held spinner. A frame
    * without a stamp is placed at its arrival.
+   *
+   * A full still's echo (`stillEcho`) is dropped the same way, by its stamp
+   * and its size: frames at the still's scale, not the screencast's, from
+   * the still on. One painted long after a still is refused too, and said.
    */
   const pageFrames = (() => {
     let capture: CaptureWindow | null = null;
+    let still: StillWindow | null = null;
+    /** How many frames after the latest still were refused late. */
+    let lateFrames = 0;
     const sizeOf = (data: string): string | null => {
       try {
-        const { width, height } = jpegSize(decodeBase64(data));
+        const { width, height } = jpegSizeOfBase64(data);
         return `${width}x${height}`;
       } catch {
         // Not a frame anyone can measure; it is judged as a stray.
@@ -1799,8 +1821,65 @@ export async function runWalk(
         )
           capture.inputMs = clock.now();
       },
+      stillAsked(): void {
+        const newest = latest === null ? null : sizeOf(latest);
+        const ownSize = (): string | null =>
+          newest !== null && newest === still?.still && still.own !== null
+            ? still.own
+            : newest;
+        lateFrames = 0;
+        still = {
+          taking: true,
+          toMs: still?.toMs ?? null,
+          // A frame at the still's size kept before filming (the opening
+          // still's echo, seen before its size was known) is not the
+          // screencast's own: the one before stands.
+          own: ownSize(),
+          still: still?.still ?? null,
+        };
+      },
+      /** The still's own bytes and when it answered, on the clock; both
+       *  null when it was refused. */
+      stillAnswered(data: string | null, atMs: number | null): void {
+        if (still === null) return;
+        still.taking = false;
+        if (atMs !== null) still.toMs = atMs;
+        if (data !== null) still.still = sizeOf(data) ?? still.still;
+      },
       dropping(data: string, paintedMs: number): boolean {
-        return capturedAway(paintedMs, () => sizeOf(data), capture);
+        let size: string | null | undefined;
+        const measured = (): string | null => {
+          if (size === undefined) size = sizeOf(data);
+          return size;
+        };
+        if (capturedAway(paintedMs, measured, capture)) return true;
+        const echo = stillEcho(paintedMs, measured, still);
+        if (echo === "late" && still !== null) {
+          // More than a still echoes: the screencast draws at this size
+          // now, so it is its own from here, and this frame is filmed.
+          if (++lateFrames > STILL_ECHO_FRAMES) {
+            still.own = still.still;
+            return false;
+          }
+          // Refused, as it is not the screencast's scale; said, because
+          // this long after the still it may be the page moving, and that
+          // is then not in the video. One entry per frame, at its paint, as
+          // `refuseSurface` says its own: a stretch from one to the next
+          // would read as unkept motion between them.
+          const ms = Math.round(paintedMs - started);
+          counters.droppedMotionFrames++;
+          counters.surfaceMismatchFrames++;
+          degradations.push(
+            degradation(
+              "surfaceMismatch",
+              ms,
+              ms,
+              `refused a screencast frame at ${still.still}, a full still's size and not the screencast's own ${still.own}, ` +
+                `painted at ${ms} ms, ${Math.round(paintedMs - (still.toMs ?? paintedMs))} ms after the still before it answered`,
+            ),
+          );
+        }
+        return echo !== null;
       },
     };
   })();

@@ -1290,7 +1290,7 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   pageNeverSettled:
     "the page never settled before a step, so a frame may show it mid-change",
   surfaceMismatch:
-    "a stretch of motion is missing — Chrome returned frames of the window rather than the page, and they were refused",
+    "a stretch of motion is missing — Chrome returned frames of the window, or at a full still's size, rather than the page's, and they were refused",
   encodeRefused: "a stretch of motion is missing — the encoder refused it",
   screencastStopped:
     "motion may be missing from partway through — a screencast frame could not be acknowledged, and the browser sends no more until one is",
