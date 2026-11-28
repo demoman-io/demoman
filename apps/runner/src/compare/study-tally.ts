@@ -25,6 +25,26 @@ const textOf = (content: unknown): string =>
       ? content.map((c) => (c as { text?: string }).text ?? "").join("")
       : "";
 
+/** A tool result's answer. Claude Code (2.1.332) hands an isError result
+ *  over as `<tool_use_error>…</tool_use_error>` around the server's text,
+ *  cut to 10,000 characters, head and tail: the object is read between its
+ *  outer braces, or, when the cut broke it, from the first `outcome` or
+ *  `reason`, which open every Demoman answer. Null: not a Demoman answer. */
+export function answerOf(text: string): Record<string, unknown> | null {
+  for (const json of [
+    text,
+    text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1),
+  ]) {
+    try {
+      return JSON.parse(json);
+    } catch {
+      // the next reading, or the first key below
+    }
+  }
+  const key = /"(outcome|reason)": "([^"]+)"/.exec(text);
+  return key === null ? null : { [key[1] as string]: key[2] };
+}
+
 /** Reads `claude -p --output-format stream-json` lines. A run still going
  *  answers `stillRunning`; the `report` result for its id replaces that. */
 export function tallyStream(lines: string[]): Tally {
@@ -67,12 +87,8 @@ export function tallyStream(lines: string[]): Tally {
         }
       }
       if (b.type !== "tool_result") continue;
-      let a: Record<string, unknown>;
-      try {
-        a = JSON.parse(textOf(b.content));
-      } catch {
-        continue; // not a demoman JSON answer
-      }
+      const a = answerOf(textOf(b.content));
+      if (a === null) continue; // not a demoman JSON answer
       const slot = b.tool_use_id ? runSlot.get(b.tool_use_id) : undefined;
       if (slot !== undefined) {
         setRun(slot, a);

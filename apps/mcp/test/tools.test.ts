@@ -241,6 +241,90 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
+  // Red if a run that did not end cleanly answers as a success: a client
+  // keyed on isError counts it as a video made (CLAUDE.md, "Report before
+  // you forgive"). The report stays whole, so an agent still reads it.
+  it("flags a run that did not end cleanly isError, its report whole", async () => {
+    const reports = [
+      {
+        outcome: "refusedBeforeRun",
+        reason: "invalidScript",
+        detail: "steps[0]: unknown kind",
+      },
+      { outcome: "refused", refused: { reason: "mutating", routes: [] } },
+      { outcome: "stopped", stopped: { reason: "notFound", at: { index: 1 } } },
+      { outcome: "threw", error: "disk full" },
+      // Every step played, the video could not be kept.
+      { outcome: "complete", stopped: { reason: "portFailure" } },
+    ];
+    for (const report of reports) {
+      const { client } = await connect({
+        run: async () => ({ ok: true, value: report }),
+      });
+      const r = await client.callTool({
+        name: "run",
+        arguments: { script: {} },
+      });
+      expect(r.isError, JSON.stringify(report)).toBe(true);
+      expect(textOf(r)).toEqual(report);
+    }
+    // The same answer read later through report.
+    let finish: (o: Outcome) => void = () => {};
+    const { client } = await connect(
+      {
+        run: () =>
+          new Promise<Outcome>((r) => {
+            finish = r;
+          }),
+      },
+      150,
+    );
+    const first = await client.callTool({
+      name: "run",
+      arguments: { script: {} },
+    });
+    // Premise: the answer below comes through report, not the run call.
+    expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    finish({ ok: true, value: { outcome: "stopped" } });
+    const later = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(later.isError).toBe(true);
+    expect(textOf(later)).toEqual({ outcome: "stopped" });
+  });
+
+  // Red if a probe that stopped is flagged: its answer is the targets where
+  // it stopped, which a client cutting an error's text would lose. Red too
+  // if one refused at the door is not.
+  it("flags a probe only when it was refused at the door", async () => {
+    const stopped = {
+      targets: [],
+      steps: { played: 1, of: 3 },
+      stopped: { at: 2, reason: "notFound", detail: "no such button" },
+    };
+    const refused = {
+      outcome: "refusedBeforeRun",
+      reason: "invalidScript",
+      detail: "steps[0]: unknown kind",
+    };
+    const answers: Array<[unknown, boolean]> = [
+      [stopped, false],
+      [refused, true],
+    ];
+    for (const [value, flagged] of answers) {
+      const { client } = await connect({
+        probe: async () => ({ ok: true, value }),
+      });
+      const r = await client.callTool({
+        name: "probe",
+        arguments: { script: {} },
+      });
+      expect(r.isError === true, JSON.stringify(value)).toBe(flagged);
+      expect(textOf(r)).toEqual(value);
+    }
+  });
+
   // Red if the tool's schema still requires `script`, or drops `flow` on
   // the way to the executor (which keeps its own name for it, `video`).
   it("passes run({ flow }) through to the CLI's executor as its video, with no script", async () => {
@@ -2253,6 +2337,23 @@ describe("the final still on a run or probe answer", () => {
       mimeType: "image/png",
     });
     expect(blocks(r)).toHaveLength(2);
+  });
+
+  // Red if a stopped run's answer claims an image an error result does not
+  // carry in Claude Code: the agent would think it had seen the frame.
+  it("a stopped run is flagged isError and names its still, unattached", async () => {
+    const { client } = await connect({
+      run: async () => ({
+        ok: true,
+        value: { outcome: "stopped", still: { path: stillPath } },
+      }),
+    });
+    const r = await client.callTool({ name: "run", arguments: { script: {} } });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toMatchObject({
+      still: { path: stillPath, attached: false },
+    });
+    expect(blocks(r).map((b) => b.type)).toEqual(["text"]);
   });
 
   it("a probe's answer carries its still too", async () => {

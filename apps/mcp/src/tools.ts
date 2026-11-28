@@ -163,11 +163,22 @@ function videoArgs(args: Record<string, unknown>): ToolResult | null {
  * an image block. The value carries only the path, so the bytes never reach
  * report.json, status or the secret sweep. A file that cannot be read is
  * said in the text; an answer with no `still.path` is answered as it came.
+ * `attach` false names the file only (`runAnswer` says when).
  */
-async function withStill(o: Outcome): Promise<ToolResult> {
+async function withStill(o: Outcome, attach = true): Promise<ToolResult> {
   const v = o.ok ? (o.value as Record<string, unknown> | null) : null;
   const still = v?.still as { path?: unknown } | undefined;
   if (v === null || typeof still?.path !== "string") return fromOutcome(o);
+  if (!attach) {
+    return ok({
+      ...v,
+      still: {
+        ...still,
+        attached: false,
+        why: "an error result carries no image in some clients: open still.path",
+      },
+    });
+  }
   let bytes: Buffer;
   try {
     bytes = await readFile(still.path);
@@ -188,6 +199,31 @@ async function withStill(o: Outcome): Promise<ToolResult> {
     mimeType: "image/png",
   });
   return shown;
+}
+
+/** A run that did not end cleanly: any outcome but `complete`, or a
+ *  `complete` with a stop reason (every step played, the video unstorable).
+ *  Answered as the report, whole, but flagged `isError`, or a client that
+ *  keys on that flag counts a run that made no video as a success. Claude
+ *  Code (2.1.332) reads an error's text only and keeps 10,000 characters of
+ *  it, half head and half tail; `summary`, `outcome` and `stopped` open the
+ *  report, so they survive the cut (stopped reports measured on the Mac,
+ *  2026-11-27: median 6,848 characters, 1 of 15 over). Its still is named,
+ *  not attached, since that image would not arrive. A probe is flagged only
+ *  when refused at the door: a stopped probe's answer is the targets where
+ *  it stopped, which the agent needs whole. */
+const RUN_FAILED = new Set(["refusedBeforeRun", "refused", "stopped", "threw"]);
+
+async function runAnswer(op: string, o: Outcome): Promise<ToolResult> {
+  const said = served(op, o);
+  const v = said.ok
+    ? (said.value as { outcome?: unknown; stopped?: unknown } | null)
+    : null;
+  const failed =
+    (typeof v?.outcome === "string" && RUN_FAILED.has(v.outcome)) ||
+    (op === "run" && typeof v?.stopped === "object" && v.stopped !== null);
+  if (!failed) return withStill(said);
+  return { ...(await withStill(said, false)), isError: true };
 }
 
 /** A progress value as Claude Code 2.1.302 draws it. A collapsed call line
@@ -585,7 +621,7 @@ export function registerTools(
       : op === "export"
         ? fromOutcome(served(op, await withLinks(o)))
         : op === "run" || op === "probe"
-          ? withStill(served(op, o))
+          ? runAnswer(op, o)
           : fromOutcome(served(op, o));
 
   const longCall = async (

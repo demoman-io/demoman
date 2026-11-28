@@ -245,19 +245,19 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    `holder`: use its `id` or another name. The report's `flow`
    says what was made; `flow.otherRepo`: joined another
    repo's flow; say so.
-1. `run(script, flow)`. It answers the run's report, or
+1. `run(script, flow)` answers its report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
    `report(id)` until the outcome is not `running` or `stillRunning`.
-2. The report's `outcome`:
-   - `refusedBeforeRun` - the door refused before opening anything; `reason`
+2. The report's `outcome`, an error result unless `complete` with no `stopped`:
+   - `refusedBeforeRun` - refused before opening anything; `reason`
      and `field` name what to fix (section 7).
    - `refused` - the replay policy refused; `refused.routes` names the
      user's move. Tell them.
    - `stopped` - `stopped.at` names the step, `stopped.sentence` why.
-     A `steps[i].pageUrl` on a sign-in page means the app sent this browser
-     to sign in mid-run: tell the user; keep the targets.
-     (A run stopped short on the site's recorded sign-in page is relabelled
-     `signedOut` (section 7); its detail ends "The run itself stopped at script step N: ...".)
+     A `steps[i].pageUrl` on a sign-in page: the app sent this browser
+     to sign in mid-run; tell the user, keep the targets.
+     (Stopped on the site's recorded sign-in page: relabelled
+     `signedOut`; its detail ends "The run itself stopped at script step N: ...".)
    - `complete` - read `verdict`: `verdict.kind` is `"matches"` or
      `"diverged"`, and `verdict.diverged[]` lists each step the video does not
      show as the script asked. `still`, the image after the text, is

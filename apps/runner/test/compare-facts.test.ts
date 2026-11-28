@@ -151,6 +151,18 @@ describe("parseAnswer — a tool's text is never lost to a SyntaxError", () => {
     });
   });
 
+  // Red if a run flagged isError for stopping is read as a tool error: the
+  // compare would print the report's text instead of "stopped".
+  it("keeps a run's report that the server flagged isError", () => {
+    const report = { outcome: "stopped", stopped: { reason: "notFound" } };
+    expect(
+      parseAnswer({
+        isError: true,
+        content: [{ text: JSON.stringify(report) }],
+      }),
+    ).toEqual(report);
+  });
+
   it("parses an ordinary answer", () => {
     expect(
       parseAnswer({
