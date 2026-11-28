@@ -61,6 +61,9 @@ export function createParkingEncoder(
     frameMs: number[];
     width: number;
     height: number;
+    /** The bytes of its frames parked so far: what the motion budget is
+     *  charged at close. */
+    bytes: number;
   } | null = null;
   let spanIndex = 0;
   let nextFrameIndex = 0;
@@ -86,6 +89,7 @@ export function createParkingEncoder(
     nextFrameIndex++;
     span.frameCount++;
     span.frameMs.push(frame.ms);
+    span.bytes += frame.bytes.byteLength;
     span.width = frame.width;
     span.height = frame.height;
   };
@@ -102,6 +106,7 @@ export function createParkingEncoder(
         frameMs: [],
         width: 0,
         height: 0,
+        bytes: 0,
       };
     },
 
@@ -150,13 +155,13 @@ export function createParkingEncoder(
         height: span.height,
         fps: spanFps(span.frameCount, span.startMs, endMs),
         frames: span.frameCount,
-        // Not known here: the frames on disk are parked JPEGs, not an
-        // encoded mp4, so the real byte count only exists once Task 11's
-        // mux has produced it. That task patches the bundle's
-        // `motionSpans[i].byteLength` after muxing. A fabricated number here
-        // would be one nobody measured, and the storage lifecycle reads
-        // this field — so it is 0 until the mux writes the true one.
-        byteLength: 0,
+        // The bytes this span parked, which is what the motion recorder
+        // charges against its budget (`CAPTURE_MOTION_BUDGET_BYTES`, parked
+        // bytes per take). This was 0 until 2026-11-27, waiting for the
+        // mux's real number, so the budget added up zeros and never tripped.
+        // The mux replaces it with the encoded mp4's size
+        // (`bundleSpan.byteLength` in `mux.ts`).
+        byteLength: span.bytes,
       };
     },
 

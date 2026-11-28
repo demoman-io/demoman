@@ -1521,6 +1521,130 @@ describe("runReplay", () => {
     expect(result.counters.budgetBreaches).toBe(0);
   });
 
+  // Chrome sends no frame after one it has not had acknowledged, so a
+  // refused ack mid-run can leave the rest of the take with no motion. Red
+  // if that refusal is swallowed: the take would read as a page that held
+  // still.
+  it("says an ack refused while the run is live, once, up to the run's end", async () => {
+    const d = deps();
+    const resolve = d.page.resolve;
+    let fired = false;
+    d.page = {
+      resolve: async (anchors) => {
+        if (!fired) {
+          fired = true;
+          d.cdp.emit("Page.screencastFrame", frame(77));
+          d.cdp.emit("Page.screencastFrame", frame(78));
+        }
+        return resolve(anchors);
+      },
+    };
+    const send = d.cdp.send.bind(d.cdp);
+    let refused = 0;
+    d.cdp.send = (method, params) => {
+      if (method === "Page.screencastFrameAck") {
+        refused++;
+        return Promise.reject(new Error("Target closed"));
+      }
+      return send(method, params);
+    };
+
+    const result = await runReplay(oneClick(), d);
+
+    // The premise: both acks were sent and both refused.
+    expect(refused).toBe(2);
+    const stopped = result.degradations.filter(
+      (g) => g.kind === "screencastStopped",
+    );
+    expect(stopped, JSON.stringify(result.degradations)).toHaveLength(1);
+    expect(stopped[0]?.note).toContain("Target closed");
+    // From the refusal to the run's end: the click after it is inside.
+    const evidence = JSON.stringify({ stopped, counters: result.counters });
+    expect(stopped[0]?.endMs ?? 0, evidence).toBeGreaterThan(
+      stopped[0]?.startMs ?? 0,
+    );
+    expect(stopped[0]?.endMs, evidence).toBe(result.counters.durationMs);
+    // The run goes on: the refusal is said, not a failure.
+    expect(result.outcome).toBe("complete");
+  });
+
+  // Red if a refusal the screencast recovered from is said: a later ack
+  // landed, so Chrome went on sending, and the take lost nothing.
+  it("says nothing of a refused ack when a later one lands", async () => {
+    const d = deps();
+    const resolve = d.page.resolve;
+    let fired = false;
+    d.page = {
+      resolve: async (anchors) => {
+        if (!fired) {
+          fired = true;
+          d.cdp.emit("Page.screencastFrame", frame(77));
+          d.cdp.emit("Page.screencastFrame", frame(78));
+        }
+        return resolve(anchors);
+      },
+    };
+    const send = d.cdp.send.bind(d.cdp);
+    const acks: string[] = [];
+    d.cdp.send = (method, params) => {
+      if (method === "Page.screencastFrameAck") {
+        if (params?.sessionId === 77) {
+          acks.push("refused");
+          return Promise.reject(new Error("Target closed"));
+        }
+        acks.push("landed");
+      }
+      return send(method, params);
+    };
+
+    const result = await runReplay(oneClick(), d);
+
+    // The premise: the first was refused and the second landed.
+    expect(acks).toEqual(["refused", "landed"]);
+    expect(
+      result.degradations.map((g) => g.kind),
+      JSON.stringify(result.degradations),
+    ).not.toContain("screencastStopped");
+  });
+
+  // Red if an ack the closing session refuses is said: that is teardown,
+  // not a take that lost its motion.
+  it("says nothing of an ack refused once teardown has begun", async () => {
+    const d = deps();
+    const resolve = d.page.resolve;
+    let fired = false;
+    d.page = {
+      resolve: async (anchors) => {
+        if (!fired) {
+          fired = true;
+          d.cdp.emit("Page.screencastFrame", frame(77));
+        }
+        return resolve(anchors);
+      },
+    };
+    const send = d.cdp.send.bind(d.cdp);
+    let refuse: ((error: Error) => void) | null = null;
+    d.cdp.send = (method, params) => {
+      if (method === "Page.screencastFrameAck") {
+        return new Promise((_, reject) => {
+          refuse = reject;
+        });
+      }
+      return send(method, params);
+    };
+
+    const result = await runReplay(oneClick(), d);
+    // The premise: the ack was still waiting as the run returned.
+    expect(refuse).not.toBeNull();
+    (refuse as unknown as (error: Error) => void)(new Error("Target closed"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(
+      result.degradations.map((g) => g.kind),
+      JSON.stringify(result.degradations),
+    ).not.toContain("screencastStopped");
+  });
+
   // --- the cross-frame lookup --------------------------------------------
   // Step 1's hard part: an anchor parked inside an iframe lives on THAT
   // frame's window, so the evaluate has to name that frame's default context.

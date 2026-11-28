@@ -206,6 +206,13 @@ const DegradationSchema = z.object({
     // failed, which is the only one of the three a fix belongs in this
     // codebase for.
     "encodeRefused",
+    // A real-time screencast frame's acknowledgement was refused while the
+    // run was live, and no later one landed. Chrome sends no more frames
+    // until one is acknowledged, so motion after it may be missing; the note
+    // says when and why. Not unkept motion (`isUnkeptMotion`): nothing says
+    // the page moved after it, and calling the rest of the run motion would
+    // keep its idle stretches from tightening as they would without it.
+    "screencastStopped",
     // The sharp still a real-time replay takes when the page goes quiet
     // could not be taken. The stretch it would have served shows the last
     // motion frame instead — softer, not missing. Not unkept motion: the

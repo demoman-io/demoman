@@ -184,6 +184,9 @@ export interface RunDeps {
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
+  /** Tests only: a real-time take's motion budget in bytes, so a test can
+   *  spend it. Defaults to `CAPTURE_MOTION_BUDGET_BYTES`. */
+  motionBudgetBytes?: number;
   /** Renders the take's film at its end (`finalStillFor`), never throwing.
    *  Absent, the report says no still was made. */
   finalStill?: (takeId: string) => Promise<FinalStill>;

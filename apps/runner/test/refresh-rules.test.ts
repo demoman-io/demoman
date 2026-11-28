@@ -64,6 +64,7 @@ describe("runVerdict", () => {
     "clickUnconfirmed",
     "encodeRefused",
     "surfaceMismatch",
+    "screencastStopped",
   ])("fails a run whose %s may leave the video wrong", (kind) => {
     const got = verdictOf({ frames: { spans: 2, degradations: [kind] } });
     expect(got.kind).toBe("failed");

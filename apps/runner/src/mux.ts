@@ -222,8 +222,8 @@ async function readChunkInPage(
  *
  * **A span that fails to mux is REMOVED from `bundle.motionSpans`, not
  * left in it.** Fix round 1: a reviewer found that a failed span used to
- * stay in the bundle carrying its placeholder `byteLength: 0` and a `ref`
- * with no bytes ever written under it — `MotionSpanSchema`'s `byteLength`
+ * stay in the bundle carrying the encoder's close-time `byteLength` (then
+ * a placeholder 0) and a `ref` with no bytes ever written under it — `MotionSpanSchema`'s `byteLength`
  * is `.nonnegative()`, not `.positive()`, so that row validates silently
  * and is schema-indistinguishable from a legitimately unmeasured one. A
  * bundle that validates, names a motion span, and cannot serve it is
@@ -369,8 +369,8 @@ export async function muxSpans(input: {
 
         await store.putSpan(span.ref, bytes);
         // Not fabricated: this is the number `sink.finish()` actually
-        // produced, read back and measured, over the `0` `encoder.ts`
-        // wrote at close time because the real one did not exist yet.
+        // produced, read back and measured, over the parked JPEG bytes
+        // `encoder.ts` wrote at close time for the motion budget.
         bundleSpan.byteLength = bytes.byteLength;
         bundleSpan.width = size.width;
         bundleSpan.height = size.height;

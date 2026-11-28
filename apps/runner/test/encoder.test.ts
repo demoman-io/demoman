@@ -177,14 +177,21 @@ describe("the parking encoder", () => {
     expect(encoder.spans()[0]).toMatchObject({ frames: 0, kept: false });
   });
 
-  it("names the byteLength as unknown at close time, for the mux to patch later", async () => {
-    // Not 0 by coincidence: the frames on disk are parked JPEGs, not an
-    // encoded mp4, so no real byte count exists until Task 11 muxes them. A
-    // non-zero value here would be a number nobody measured.
+  it("counts the bytes it parked at close, for the motion budget", async () => {
+    // The motion recorder charges this number against the take's budget.
+    // It was 0 until the mux patched it, so the budget never tripped.
+    // Red if the close stops counting a frame, or counts one twice.
     const encoder = createParkingEncoder(store, "s1", 1);
+    const a = jpeg();
+    const b = largeJpeg();
     encoder.openSpan(0);
-    await encoder.push({ bytes: jpeg(), ms: 0, width: 10, height: 10 });
-    const span = await encoder.closeSpan(16);
-    expect(span?.byteLength).toBe(0);
+    await encoder.push({ bytes: a, ms: 0, width: 100, height: 50 });
+    await encoder.push({ bytes: b, ms: 16, width: 100, height: 50 });
+    const span = await encoder.closeSpan(32);
+    expect(span?.byteLength).toBe(a.byteLength + b.byteLength);
+    // A second span starts from nothing.
+    encoder.openSpan(40);
+    await encoder.push({ bytes: a, ms: 40, width: 100, height: 50 });
+    expect((await encoder.closeSpan(56))?.byteLength).toBe(a.byteLength);
   });
 });

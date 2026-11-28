@@ -646,6 +646,9 @@ export interface EngineDeps {
    * asks for `"continuous"`; its `replay` command takes the default.
    */
   recording?: "continuous" | "sampled";
+  /** Continuous recording only: parked motion bytes before the rest of the
+   *  run is stills. Tests only; absent, `CAPTURE_MOTION_BUDGET_BYTES`. */
+  motionBudgetBytes?: number;
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */
   room?: RoomPolicy;
   /**
@@ -2316,6 +2319,9 @@ export async function runWalk(
           applyMetrics,
           onSpan: (entry) => motionSpans.push(entry),
           mode: continuous ? "continuous" : "sampled",
+          ...(deps.motionBudgetBytes === undefined
+            ? {}
+            : { motionBudgetBytes: deps.motionBudgetBytes }),
           // A quiet page earns a sharp still when what just ended was motion, or
           // when a verb has happened since the last still and so the page may
           // look different. Not for every blip: a focused field's caret repaints
@@ -2329,15 +2335,37 @@ export async function runWalk(
         })
       : null;
 
+  /** Set as teardown begins: from then on a refused ack is the session
+   *  closing, and says nothing about the take. */
+  let tornDown = false;
+  /** The first ack refused while the run was live and not followed by one
+   *  that landed: Chrome sends no frame until one is acknowledged, so the
+   *  screencast may have stopped there. Said once the run ends. Cast, not
+   *  annotated: set only in callbacks, so an annotation would narrow it to
+   *  null where teardown reads it. */
+  let ackRefused = null as { atMs: number; why: string } | null;
   const offFrame = cdp.on("Page.screencastFrame", (params) => {
     // Ack first and unconditionally: Chrome stops sending frames until the
     // previous one is acknowledged, so an ack skipped because no span was
-    // open would stall the *next* span too. A session torn down mid-flight
-    // rejects the ack, and an unhandled rejection during teardown is noise
-    // over a run that already ended.
+    // open would stall the *next* span too. A refused ack is forgiven (the
+    // run goes on) and, while the run is live, said: a take with no motion
+    // from there must not read as a page that stood still. A later ack that
+    // lands means the frames came back, and nothing is said. During
+    // teardown the session is closing and a refusal is expected.
     void cdp
       .send("Page.screencastFrameAck", { sessionId: params.sessionId })
-      .catch(() => undefined);
+      .then(
+        () => {
+          if (!tornDown) ackRefused = null;
+        },
+        (error: unknown) => {
+          if (tornDown || ackRefused !== null) return;
+          ackRefused = {
+            atMs: Math.max(0, at()),
+            why: describeSettleError(error),
+          };
+        },
+      );
     // Continuous: the film starts at the opening still. What paints before
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
@@ -4417,6 +4445,7 @@ export async function runWalk(
     // The step that threw after it was marked did not happen.
     unmarkInFlight();
   } finally {
+    tornDown = true;
     offFrame();
     offContext();
     offNavigated();
@@ -4520,6 +4549,18 @@ export async function runWalk(
   counters.completed = completed;
   counters.replayThrough = total === 0 ? 1 : completed / total;
   counters.durationMs = at();
+  // To the run's end: no frame may have come after it.
+  if (ackRefused !== null) {
+    const { atMs, why } = ackRefused;
+    degradations.push(
+      degradation(
+        "screencastStopped",
+        atMs,
+        Math.max(atMs, counters.durationMs),
+        `a screencast frame could not be acknowledged at ${(atMs / 1000).toFixed(1)} s (${why}) and no later one landed, so the page may have sent no motion from there`,
+      ),
+    );
+  }
   counters.keyframes = keyframes.length;
   counters.occlusionPauses = deps.occlusion?.pauses() ?? 0;
   counters.occlusionMs = deps.occlusion?.pausedMs() ?? 0;
