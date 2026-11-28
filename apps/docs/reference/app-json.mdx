@@ -45,6 +45,12 @@ services, the refusal names each with its port, to start them yourself. In CI
 it always starts its own, and the workflow gives the job the services,
 corepack (pnpm, yarn) and bun when the commands use them.
 
+The install, start and reset commands inherit refresh's environment without
+Demoman's own secrets: no `DEMOMAN_SECRET_*` unless `secrets` names it, and in
+GitHub Actions no `GH_TOKEN` or `GITHUB_TOKEN`. The workflow's checkout keeps
+no token in `.git/config`. These commands still run in the same job as the
+push, so code you do not trust should not run in them.
+
 If a workflow of yours already starts the app before `demoman refresh` (a
 "Start your app" step, or `wait-on`), delete that step: both would use the
 same port.

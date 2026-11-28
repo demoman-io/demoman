@@ -61,7 +61,7 @@ describe(".demoman/app.json", () => {
   });
 
   it("refuses secret names GitHub would not take", () => {
-    for (const name of ["GITHUB_TOKEN", "lower"]) {
+    for (const name of ["GITHUB_TOKEN", "GH_TOKEN", "lower"]) {
       const r = invalid(withChange({ secrets: [name] }));
       expect(r.field).toBe("secrets.0");
       expect(r.detail).toContain("A-Z");

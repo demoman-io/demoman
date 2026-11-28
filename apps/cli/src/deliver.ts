@@ -30,6 +30,26 @@ const BEHIND = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
 
 type GhResult = Awaited<ReturnType<Gh>>;
 
+// Answers the GitHub server with GH_TOKEN, read only when asked: the token
+// is in no config, and the workflow's checkout keeps none in .git/config,
+// where the app's install, start and reset could read it.
+const TOKEN_HELPER =
+  '!f() { [ "$1" = get ] || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f';
+
+/** `git` for deliver's fetches and pushes. On Actions with GH_TOKEN, the
+ *  workflow's server gets that token, and only from this helper: the empty
+ *  one first drops any other, a helper written into the checkout included,
+ *  which would be handed the token to store. Elsewhere `git`, as given. */
+export const withPushToken = (
+  git: GitRunner,
+  env: NodeJS.ProcessEnv = process.env,
+): GitRunner => {
+  if (env.GITHUB_ACTIONS !== "true" || !env.GH_TOKEN) return git;
+  const key = `credential.${env.GITHUB_SERVER_URL || "https://github.com"}.helper`;
+  return (args, cwd, e) =>
+    git(["-c", `${key}=`, "-c", `${key}=${TOKEN_HELPER}`, ...args], cwd, e);
+};
+
 export interface Delivered {
   delivered: "pr" | "main" | "nothing";
   /** False when delivery was attempted and failed: the CLI exits non-zero. */
