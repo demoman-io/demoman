@@ -135,19 +135,60 @@ function shapeRefusal(h: Record<string, unknown>): string | null {
   )
     return "files must list a string path and stored for each";
   if (!strings(h.folders)) return "folders must list strings";
-  const videos = (h.result as { videos?: unknown } | null)?.videos;
-  if (
-    !Array.isArray(videos) ||
-    !videos.every(
-      (v) =>
-        strings(v?.outputs) &&
-        typeof v.file === "string" &&
-        typeof v.name === "string",
-    )
-  )
-    return "result.videos must each name a file, a name and outputs";
+  const result = h.result as Record<string, unknown> | null;
+  if (typeof result !== "object" || result === null)
+    return "result is not an object";
+  if (result.listError !== undefined && typeof result.listError !== "string")
+    return "result.listError is not a string";
+  if (!Array.isArray(result.videos)) return "result.videos is not a list";
+  for (const [i, v] of result.videos.entries()) {
+    if (typeof v !== "object" || v === null)
+      return `result.videos[${i}] is not an object`;
+    const bad = VIDEO_FIELDS.find(([k, , ok]) => !ok(v[k]));
+    if (bad)
+      return `result.videos[${i}] (${String(v.name)}): ${bad[0]} is not ${bad[1]}`;
+  }
   return null;
 }
+
+const str = (x: unknown) => typeof x === "string";
+const OUTCOMES: unknown[] = [
+  "changed",
+  "added",
+  "uncompared",
+  "unchanged",
+  "failed",
+];
+/** Every field of a video that deliver() and refreshLines read, with its type. */
+const VIDEO_FIELDS: [string, string, (x: unknown) => boolean][] = [
+  ["name", "a string", str],
+  ["file", "a string", str],
+  ["detail", "a string", str],
+  ["outcome", `one of ${OUTCOMES.join(", ")}`, (x) => OUTCOMES.includes(x)],
+  [
+    "deliver",
+    '"commit", "files" or null',
+    (x) => x === "commit" || x === "files" || x === null,
+  ],
+  ["outputs", "a list of strings", strings],
+  ["line", "a string or null", (x) => x === null || str(x)],
+  ["notes", "a list of strings", strings],
+  ["fix", "a string or absent", (x) => x === undefined || str(x)],
+  [
+    "evidence",
+    "absent or { folder, noStill }",
+    (x) => {
+      if (x === undefined) return true;
+      const e = x as { folder?: unknown; noStill?: unknown } | null;
+      return (
+        typeof e === "object" &&
+        e !== null &&
+        str(e.folder) &&
+        (e.noStill === null || str(e.noStill))
+      );
+    },
+  ],
+];
 
 /** The deliver job's read of what the refresh job left. The refresh job ran
  *  the app's code, so every path is checked against the kept flows of this
@@ -250,21 +291,54 @@ export async function readHandOff(
     if (disagree.length > 0)
       return no(`the hand-off and its result disagree on ${disagree[0]}`);
 
-    for (const f of h.files) {
-      // lstat, not stat: a symlink would carry whatever it points at.
-      const s = /^files\/[^/]+$/.test(f.stored)
-        ? await lstat(join(dir, f.stored)).catch(() => null)
-        : null;
-      if (!s?.isFile())
-        return no(`${f.stored} for ${f.path} is missing or not a plain file`);
+    // Neither the record nor its folder may be a link: lstat on files/<n>
+    // looks only at <n>, and would read through a linked files/.
+    for (const top of ["handoff.json", "files"]) {
+      const s = await lstat(join(dir, top)).catch(() => null);
+      if (s?.isSymbolicLink())
+        return no(
+          `the hand-off's ${top} is a symlink, which a hand-off never holds`,
+        );
     }
 
+    for (const f of h.files) {
+      // lstat, not stat: a symlink would carry whatever it points at.
+      const why = !/^files\/[^/]+$/.test(f.stored)
+        ? "outside files/"
+        : await lstat(join(dir, f.stored)).then(
+            (s) =>
+              s.isFile()
+                ? null
+                : s.isSymbolicLink()
+                  ? "a symlink"
+                  : s.isDirectory()
+                    ? "a folder"
+                    : "not a plain file",
+            (e: NodeJS.ErrnoException) => e.code ?? said(e),
+          );
+      if (why !== null)
+        return no(
+          `${f.stored} for ${f.path} is missing or not a plain file (${why})`,
+        );
+    }
+
+    // Two levels, not a recursive readdir, which follows a linked folder.
+    // Nothing deeper can be listed: files/<n> is a plain file or refused.
     const listed = new Set([
       "handoff.json",
       "files",
       ...h.files.map((f) => f.stored),
     ]);
-    for (const entry of await readdir(dir, { recursive: true }))
+    const held = [
+      ...(await readdir(dir)),
+      ...(
+        await readdir(join(dir, "files")).catch((e: NodeJS.ErrnoException) => {
+          if (e.code === "ENOENT") return [];
+          throw e;
+        })
+      ).map((n) => `files/${n}`),
+    ];
+    for (const entry of held)
       if (!listed.has(entry))
         return no(
           `the hand-off holds ${entry}, which its handoff.json does not list`,

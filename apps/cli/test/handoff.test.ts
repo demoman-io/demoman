@@ -1,11 +1,13 @@
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -222,13 +224,19 @@ describe("readHandOff", () => {
   };
   const read2 = () =>
     readHandOff(dir, { repoRoot: repo, version: "1.2.3", git: execGit });
+  const read2Stored = (): string[] =>
+    JSON.parse(readFileSync(join(dir, "handoff.json"), "utf8")).files.map(
+      (f: { stored: string }) => f.stored,
+    );
   const edit = (fn: (h: HandOff) => void) => {
     const h = JSON.parse(readFileSync(join(dir, "handoff.json"), "utf8"));
     fn(h);
     writeFileSync(join(dir, "handoff.json"), JSON.stringify(h));
   };
-  const refused = async (why: string) => {
-    expect(await read2()).toEqual({ refused: why });
+  const refused = async (why: string | RegExp) => {
+    expect(await read2()).toEqual({
+      refused: typeof why === "string" ? why : expect.stringMatching(why),
+    });
     // The premise of every refusal: nothing in the checkout moved.
     expect(await git("status", "--porcelain")).toBe("");
   };
@@ -293,13 +301,11 @@ describe("readHandOff", () => {
 
   it("refuses a missing or unparsable handoff.json", async () => {
     rmSync(join(dir, "handoff.json"));
-    expect(await read2()).toMatchObject({
-      refused: expect.stringMatching(
-        new RegExp(
-          `^the hand-off at ${dir} has no readable handoff\\.json \\(.*ENOENT`,
-        ),
+    await refused(
+      new RegExp(
+        `^the hand-off at ${dir} has no readable handoff\\.json \\(.*ENOENT`,
       ),
-    });
+    );
     writeFileSync(join(dir, "handoff.json"), "{");
     await refused(
       `the hand-off at ${dir} has no readable handoff.json (${(() => {
@@ -403,11 +409,9 @@ describe("readHandOff", () => {
     });
     rmSync(join(dir, "files"), { recursive: true });
     mkdirSync(join(dir, "files"));
-    expect(await read2()).toMatchObject({
-      refused: expect.stringMatching(
-        /^the hand-off delivers x \(\.demoman\/flows\/x\.json\), which is not a commit flow here \(\.demoman\/flows\/x\.json: is not valid JSON/,
-      ),
-    });
+    await refused(
+      /^the hand-off delivers x \(\.demoman\/flows\/x\.json\), which is not a commit flow here \(\.demoman\/flows\/x\.json: is not valid JSON/,
+    );
   });
 
   it("refuses an output with no files entry", async () => {
@@ -428,17 +432,86 @@ describe("readHandOff", () => {
   it("refuses a stored file that is a symlink", async () => {
     rmSync(join(dir, "files/0"));
     symlinkSync("/etc/hosts", join(dir, "files/0"));
-    await refused("files/0 for docs/x.mp4 is missing or not a plain file");
-  });
-
-  it("refuses a stored file outside files/", async () => {
-    edit((h) => {
-      (h.files[0] as { stored: string }).stored = "../handoff.json";
-    });
     await refused(
-      "../handoff.json for docs/x.mp4 is missing or not a plain file",
+      "files/0 for docs/x.mp4 is missing or not a plain file (a symlink)",
     );
   });
+
+  it("refuses a stored file outside files/, though it is there", async () => {
+    const stored = "../repo/.demoman/flows/x.json";
+    // The premise: the target is a plain file, so only the files/ rule refuses it.
+    expect(statSync(join(dir, stored)).isFile()).toBe(true);
+    edit((h) => {
+      (h.files[0] as { stored: string }).stored = stored;
+    });
+    await refused(
+      `${stored} for docs/x.mp4 is missing or not a plain file (outside files/)`,
+    );
+  });
+
+  it("names a stored file that is missing", async () => {
+    rmSync(join(dir, "files/0"));
+    await refused(
+      "files/0 for docs/x.mp4 is missing or not a plain file (ENOENT)",
+    );
+  });
+
+  it("refuses a linked files folder whose entries are all listed", async () => {
+    // A folder elsewhere holding exactly what handoff.json lists, plain files.
+    const elsewhere = join(dir, "..", "elsewhere");
+    cpSync(join(dir, "files"), elsewhere, { recursive: true });
+    rmSync(join(dir, "files"), { recursive: true });
+    symlinkSync(elsewhere, join(dir, "files"));
+    expect(readdirSync(elsewhere).sort()).toEqual(
+      read2Stored()
+        .map((n) => n.slice("files/".length))
+        .sort(),
+    );
+    await refused(
+      "the hand-off's files is a symlink, which a hand-off never holds",
+    );
+  });
+
+  it("refuses files linked to the checkout's .git", async () => {
+    rmSync(join(dir, "files"), { recursive: true });
+    symlinkSync(join(repo, ".git"), join(dir, "files"));
+    edit((h) => {
+      h.files = [{ path: "docs/x.mp4", stored: "files/config" }];
+      h.folders = [];
+      (h.result.videos[0] as { outputs: string[] }).outputs = ["docs/x.mp4"];
+    });
+    expect(statSync(join(dir, "files/config")).isFile()).toBe(true);
+    await refused(
+      "the hand-off's files is a symlink, which a hand-off never holds",
+    );
+  });
+
+  it("refuses a folder no commit flow declares", async () => {
+    edit((h) => {
+      h.folders.push("src");
+      (h.result.videos[0] as { outputs: string[] }).outputs.push("src");
+    });
+    await refused(
+      `the hand-off names src, which no commit flow at ${sha} declares`,
+    );
+  });
+
+  for (const [field, value, want] of [
+    ["line", 5, "a string or null"],
+    ["notes", [1], "a list of strings"],
+    ["detail", null, "a string"],
+    ["outcome", "won", "one of changed, added, uncompared, unchanged, failed"],
+    ["evidence", { folder: 1 }, "absent or { folder, noStill }"],
+  ] as const)
+    it(`refuses a video whose ${field} is not ${want}`, async () => {
+      edit((h) => {
+        (h.result.videos[0] as unknown as Record<string, unknown>)[field] =
+          value;
+      });
+      await refused(
+        `the hand-off at ${dir} has no readable handoff.json (result.videos[0] (x): ${field} is not ${want})`,
+      );
+    });
 
   it("refuses an entry its handoff.json does not list", async () => {
     writeFileSync(join(dir, "files/extra"), "X");
