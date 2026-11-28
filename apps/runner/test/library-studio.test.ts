@@ -162,6 +162,48 @@ describe("library: revisions, leases, delete, outputs", () => {
     expect(broken?.notes[0]).toContain("would not read");
   });
 
+  // Red: drop the `gone` filter from keepMigrationNotes — the note that the
+  // take carries unknown fields is kept, and said on every read after the
+  // write that removed them.
+  it("a write over a take with fields this build does not know keeps no note about them", async () => {
+    const lib = createLibrary(home);
+    const doc = scene();
+    await lib.putScene(doc);
+    const file = join(lib.takeDir(doc.meta.id), "scene.json");
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.newerField = true;
+    await writeFile(file, JSON.stringify(raw));
+    // Premise: reading it says so.
+    const read = await lib.getSceneRead(doc.meta.id);
+    expect(read?.notes.join(" ")).toContain("newerField");
+
+    await lib.putScene(doc);
+    expect((await lib.getSceneRead(doc.meta.id))?.notes).toEqual([]);
+  });
+
+  it("putSceneIf over a take with fields this build does not know answers them and writes nothing", async () => {
+    const lib = createLibrary(home);
+    const doc = scene();
+    await lib.putScene(doc);
+    const file = join(lib.takeDir(doc.meta.id), "scene.json");
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    raw.meta.newerField = 1;
+    await writeFile(file, JSON.stringify(raw));
+    const before = await readFile(file);
+    const read = await lib.getSceneRead(doc.meta.id);
+
+    const put = await lib.putSceneIf(
+      read?.scene as SceneDocument,
+      read?.revision ?? "",
+    );
+    expect(put).toEqual({
+      ok: false,
+      current: read?.revision,
+      unknownFields: ["meta.newerField"],
+    });
+    expect((await readFile(file)).equals(before)).toBe(true);
+  });
+
   it("a live lease makes deleteTake answer holders and keeps the folder", async () => {
     const lib = createLibrary(home);
     const doc = scene();

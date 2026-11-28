@@ -20,8 +20,10 @@ import {
 } from "@demoman/run-core";
 import {
   migrateToCurrent,
+  newerFieldsNote,
   type SceneDocument,
   SchemaVersionError,
+  unknownFields,
 } from "@demoman/scene-schema";
 import { createFileFrameStore, type RunnerStore } from "../frame-store.js";
 import { messageOf } from "../report.js";
@@ -71,7 +73,10 @@ export type DeleteAnswer =
 
 export type PutSceneIfAnswer =
   | { ok: true; revision: string }
-  | { ok: false; current: string | null };
+  | { ok: false; current: string | null }
+  /** The take on disk carries fields this build does not know (a newer
+   *  Demoman wrote it), and `doc` was read without them. */
+  | { ok: false; current: string; unknownFields: string[] };
 
 export interface Library {
   readonly root: string;
@@ -88,7 +93,10 @@ export interface Library {
     revision: string;
     notes: string[];
   } | null>;
-  /** Writes `doc` only when `scene.json` still hashes to `ifMatch`. */
+  /** Writes `doc` only when `scene.json` still hashes to `ifMatch` and
+   *  carries no field this build does not know (`unknownFields`: `doc` was
+   *  read without them, so writing it would drop them). Throws
+   *  `libraryUnreadable` when that file will not read. */
   putSceneIf(doc: SceneDocument, ifMatch: string): Promise<PutSceneIfAnswer>;
   lease(
     id: string,
@@ -322,7 +330,11 @@ export function createLibrary(
       return;
     }
     const saved = await savedNotes(id);
-    const fresh = notes.filter((n) => !saved.includes(n));
+    // Fields a newer Demoman wrote are true of the file this write replaces,
+    // not of the take after it.
+    const newer = unknownFields(raw);
+    const gone = newer.length > 0 ? newerFieldsNote(newer) : null;
+    const fresh = notes.filter((n) => !saved.includes(n) && n !== gone);
     if (fresh.length === 0) return;
     await write(notesPath(id), JSON.stringify([...saved, ...fresh]));
   }
@@ -384,9 +396,9 @@ export function createLibrary(
     async putSceneIf(doc, ifMatch) {
       guard(doc.meta.id, "libraryUnwritable");
       const path = join(takeDir(doc.meta.id), "scene.json");
-      let current: string | null;
+      let text: string | null;
       try {
-        current = sha256(await readFile(path, "utf8"));
+        text = await readFile(path, "utf8");
       } catch (error) {
         if (!isMissing(error)) {
           throw new LibraryError(
@@ -394,16 +406,28 @@ export function createLibrary(
             `could not read ${path} (${messageOf(error)})`,
           );
         }
-        current = null;
+        text = null;
       }
-      if (current !== ifMatch) return { ok: false, current };
+      const current = text === null ? null : sha256(text);
+      if (text === null || current !== ifMatch) return { ok: false, current };
+      let unknown: string[];
+      try {
+        unknown = unknownFields(JSON.parse(text));
+      } catch (error) {
+        throw new LibraryError(
+          "libraryUnreadable",
+          `${path} is not a video (${messageOf(error)})`,
+        );
+      }
+      if (unknown.length > 0)
+        return { ok: false, current: ifMatch, unknownFields: unknown };
       // Check-then-rename is not atomic across processes. That is accepted:
       // the studio is the only scene writer for an existing take and it
       // serialises saves per take, so no second writer races this gap.
-      const text = JSON.stringify(doc);
+      const next = JSON.stringify(doc);
       await keepMigrationNotes(doc.meta.id);
-      await write(path, text);
-      return { ok: true, revision: sha256(text) };
+      await write(path, next);
+      return { ok: true, revision: sha256(next) };
     },
     async lease(id, holder) {
       guard(id, "libraryUnwritable");

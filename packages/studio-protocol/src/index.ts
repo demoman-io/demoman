@@ -148,6 +148,9 @@ export type StudioReason =
   | "sceneInvalid"
   | "changedElsewhere"
   | "sceneNotSaved"
+  /** The take on disk carries fields this Studio does not know (a newer
+   *  Demoman wrote them): no save of it can keep them, so none is taken. */
+  | "sceneFieldsUnknown"
   | "takeBusy"
   /** Another video in the same repo already has this name (spec §1). */
   | "nameTaken"
