@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -140,5 +141,37 @@ describe("writeHandOff", () => {
   it("writes an empty hand-off when nothing is to be committed", async () => {
     expect(await writeHandOff(out, args(mk([])))).toEqual({ written: 0 });
     expect(read().files).toEqual([]);
+  });
+
+  it("names a subfolder inside a screens folder instead of dropping it", async () => {
+    mkdirSync(join(root, "docs/x-screens/sub"));
+    const r = await writeHandOff(out, args(mk([changed()])));
+    expect(r).toEqual({
+      failed: "docs/x-screens/sub in a screens folder is not a plain file",
+    });
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("carries a path two videos both output once", async () => {
+    await writeHandOff(out, args(mk([changed(), changed()])));
+    const h = read();
+    expect(h.files).toHaveLength(5);
+    expect(h.folders).toEqual(["docs/x-screens"]);
+  });
+
+  it("names the step when a copy fails and leaves nothing behind", async () => {
+    // chmod 000 refuses the read for a non-root user; root would read it anyway.
+    chmodSync(join(root, "docs/x.mp4"), 0o000);
+    const r = await writeHandOff(out, args(mk([changed()])));
+    chmodSync(join(root, "docs/x.mp4"), 0o644);
+    expect(r).toMatchObject({
+      failed: expect.stringMatching(/^copying docs\/x\.mp4: .*EACCES/),
+    });
+    expect(existsSync(out)).toBe(false);
+    expect(
+      readdirSync(join(out, "..")).filter((n) =>
+        n.startsWith(".demoman-handoff-"),
+      ),
+    ).toEqual([]);
   });
 });

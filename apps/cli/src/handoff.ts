@@ -53,6 +53,7 @@ export async function writeHandOff(
     const folders: string[] = [];
     // Every carried file is also a numbered copy: names under the hand-off never start with a dot.
     const carry = async (path: string) => {
+      if (files.some((f) => f.path === path)) return;
       const stored = `files/${files.length}`;
       step = `copying ${path}`;
       await copyFile(join(a.repoRoot, path), join(tmp as string, stored));
@@ -71,12 +72,18 @@ export async function writeHandOff(
           await carry(out);
           continue;
         }
-        folders.push(out);
+        if (!folders.includes(out)) folders.push(out);
         const entries = await readdir(join(a.repoRoot, out), {
           withFileTypes: true,
         });
-        for (const e of entries)
-          if (e.isFile()) await carry(`${out}/${e.name}`);
+        for (const e of entries) {
+          if (!e.isFile())
+            return await undo(
+              tmp,
+              `${out}/${e.name} in a screens folder is not a plain file`,
+            );
+          await carry(`${out}/${e.name}`);
+        }
       }
     }
     step = "writing handoff.json";
