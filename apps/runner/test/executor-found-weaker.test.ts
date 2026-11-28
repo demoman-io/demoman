@@ -88,8 +88,11 @@ describe("a run whose target is found by a weaker tier", () => {
 
       expect(report?.foundWeaker, evidence).toHaveLength(1);
       const [note] = report?.foundWeaker ?? [];
-      expect(note).toContain(`anchor "${wait?.anchorId}"`);
-      expect(note).toContain("not by its stable id");
+      expect(note, evidence).toContain(`anchor "${wait?.anchorId}"`);
+      expect(note, evidence).toContain("found by its text");
+      expect(note, evidence).toContain("not by its stable id");
+      // A report field, not a log line.
+      expect(note, evidence).not.toMatch(/^demoman:/);
     },
     CASE_MS,
   );

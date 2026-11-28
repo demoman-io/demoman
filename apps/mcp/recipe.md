@@ -266,8 +266,8 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
      not say): its text is kept nowhere. Re-filming or deriving that video
-     asks for a demo value. `landing.startedElsewhere`: where the start URL went; `landing.unchecked`: no sign-in check. `notStored` with `what: "session"` means the saved
-     session could not be refreshed: name it to the user.
+     asks for a demo value. `landing.startedElsewhere`: where the start URL went; `landing.unchecked`: no sign-in check. `notStored` with `what: "session"`: the saved
+     session could not be refreshed; name it to the user.
    - `threw` - a fault in the run; report `error`.
    - Then read `frames.degradations` and `frames.storageRefused`, about the
      video (`surfaceMismatch`: wrong-size frames; `dragPictureMissing`: a
@@ -297,7 +297,7 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    - `video.pacing: "planned"`: `plannedMs` is its length before trim, `recordedMs` how long it ran. `video.unplacedBeats`: pauses played as recorded, named in `frames.unplacedBeats[].step`.
    - `dialogs` lists each dialog answered: `step`, `kind`, `message`, `answer`, `by` (script or default), `drawn`.
    - `recording` is `{ "unavailable": … }` or
-     `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
+     `{ recordingVideoId, steps[], notInRecording[] }`: the run against
      the video a derived script came from.
 
    | Finding | Whose | The move |
@@ -314,8 +314,8 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    A finding that is Demoman's earns no run and is not passed on (the
    user can change it in the Studio). A step's `roomMs` is pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
-   than the target you named. `foundWeaker` names each `steps[k].anchorId`
-   the page changed under mid-step: check the video shows it.
+   than the target you named. `foundWeaker` names each anchor (`steps[k].anchorId`, or a drag's
+   end) the page changed under mid-step: check the video shows it.
 
 **Stop after three runs**, done or not, then export: each drives the
 user's real app. A video zooms on every click and starts from `look.kit`, else the
@@ -353,8 +353,8 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
 3. `renderFailed` - export **once** more; never re-run the script for it.
    `saveFailed` - its `error` names the folder and why it cannot be
    written: tell the user; export again only once fixed. A stills export that
-   stopped partway carries `partial: { folder, written, notWritten }`; the
-   stills in `written` are whole PNGs.
+   stopped partway carries `partial: { folder, written, notWritten }`;
+   those `written` are whole PNGs.
 4. `pathUnknown`, `refusedBeforeExport` or `threw` - report it, quoting
    `detail` or `error`. Do not retry.
 5. An export is not one of the three runs.
@@ -525,7 +525,7 @@ Studio exports go to the Export folder (Settings).
 | `clickNotDelivered` | `run`² | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
 | `signedOut` | `run`² | The app sent this browser to sign-in. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run once they have. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
 | `windowClosed` | `run`² | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
-| `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
+| `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs there; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman: tell the user. |
 | `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way, not the script. Probe once more; quote `detail` if it repeats. |
