@@ -25,6 +25,7 @@ import {
   NOISE,
   PAGE,
   PIN,
+  pageFrames,
   pageRegion,
   type Recorded,
   record as recordIn,
@@ -53,6 +54,8 @@ let bUrl: string;
 let bSameSite: string;
 /** What the other site's page printed, by label, as epoch milliseconds. */
 const printed: { label: string; t: number }[] = [];
+/** What `/unseen`'s page and frame said of themselves, as query strings. */
+const premises: string[] = [];
 const was = process.env.DEMOMAN_HELD_CLOCK;
 
 beforeAll(async () => {
@@ -119,7 +122,15 @@ beforeAll(async () => {
     const asked = new URL(req.url ?? "/", "http://x");
     const path = asked.pathname;
     res.writeHead(200, { "content-type": "text/html" });
-    if (path === "/go-spin")
+    if (path === "/premise") {
+      premises.push(asked.search);
+      res.end();
+    } else if (path === "/unseen") res.end(UNSEEN);
+    else if (path === "/unseen-frame")
+      res.end(
+        `<!doctype html><link rel=icon href="data:,"><body style="margin:0"><script>${PLAY_STREAM}(document.body).then((v) => fetch("/premise?frame=" + (v.paused ? "paused" : "playing")))</script>`,
+      );
+    else if (path === "/go-spin")
       res.end(
         `<!doctype html><link rel=icon href="data:,"><a id=go href="${bUrl}/spin?wait=${asked.searchParams.get("wait")}" style="position:absolute;left:40px;top:40px;width:160px;height:40px;display:block;background:#eee">Go</a>`,
       );
@@ -213,6 +224,36 @@ const apartIn = (x: string, y: string): string => {
 const changes = (frames: string[]): number =>
   frames.filter((f, i) => i > 0 && f !== frames[i - 1]).length;
 const hash = (s: string) => createHash("sha1").update(s).digest("hex");
+
+/** Page script: a function that plays a muted video of a drawn canvas in
+ *  `parent` and answers it once playing. */
+const PLAY_STREAM = `((parent) => {
+  const c = document.createElement("canvas");
+  c.getContext("2d").fillRect(0, 0, 10, 10);
+  const v = document.createElement("video");
+  v.muted = true;
+  v.srcObject = c.captureStream();
+  v.style.cssText = "width:160px;height:90px";
+  parent.append(v);
+  return v.play().then(() => v);
+})`;
+/** A spinner (left 40-120, top 120-200) that a click pauses by script, a
+ *  video playing in an open shadow root, and one in a same-origin frame:
+ *  what the pin cannot see. Each says what it is at `/premise`. */
+const UNSEEN = `<!doctype html><link rel=icon href="data:,"><style>body{margin:0}@keyframes s{to{transform:rotate(360deg)}}#spin{position:absolute;left:40px;top:120px;width:80px;height:80px;background:linear-gradient(90deg,#c00,#00c);animation:s 1s linear infinite}</style>
+<button id=ok style="position:absolute;left:40px;top:40px;width:160px;height:40px">Ok</button><div id=spin></div>
+<div id=host style="position:absolute;left:40px;top:300px"></div>
+<iframe src="/unseen-frame" style="position:absolute;left:300px;top:300px;width:200px;height:120px;border:0"></iframe>
+<script>
+${PLAY_STREAM}(document.getElementById("host").attachShadow({ mode: "open" })).then((v) =>
+  fetch("/premise?shadow=" + (v.paused ? "paused" : "playing") + "&own=" + document.querySelectorAll("video").length));
+document.getElementById("ok").addEventListener("click", () => {
+  const a = document.getElementById("spin").getAnimations()[0];
+  const before = a.playState;
+  a.pause();
+  fetch("/premise?before=" + before + "&after=" + a.playState);
+});
+</script>`;
 
 /** Navigations recorded in a row: enough to see the held frames agree
  *  (20 did, 2026-11-15); the wait that falls between two looks, 1 in 20,
@@ -546,6 +587,63 @@ describe("a held recording", () => {
     expect(said, JSON.stringify(r.bundle.degradations)).toHaveLength(1);
     expect(said[0]?.note).toContain(new URL(bUrl).origin);
     expect(said[0]?.note).toMatch(/timers, animations and requests/);
+  }, 120_000);
+
+  // The pin read only this document's own videos and could not tell a
+  // script's pause() of an animation it holds from its own: a spinner the
+  // page paused played on, and videos in a shadow root and in a frame were
+  // neither held nor said, so the take read as held. Red if any of the
+  // three is unsaid; the picture shows the spinner did play on.
+  it("says a spinner the page paused, and videos in a shadow root and a frame", async () => {
+    premises.length = 0;
+    const r = await record(`${aUrl}/unseen`, [
+      { do: "click", on: { stableId: "ok" }, zoom: false },
+      { do: "pause", ms: 600 },
+    ]);
+    const click = r.bundle.markers[0]?.actEndSourceTimeMs ?? Number.NaN;
+    const frames = await pageFrames(r, [
+      50 / 1280,
+      130 / 800,
+      110 / 1280,
+      190 / 800,
+    ]);
+    const after = frames.filter((f) => f.ms > click).map((f) => f.grey);
+    const before = frames.filter((f) => f.ms <= click).map((f) => f.grey);
+    const evidence = JSON.stringify({
+      premises,
+      degradations: r.bundle.degradations,
+      click,
+      frames: frames.length,
+      before: [before.length, moves(before)],
+      after: [after.length, moves(after)],
+    });
+    // Premise: the page paused a spinner the pin already held paused (so
+    // the pause changed nothing the pin could read), and neither video is
+    // the document's own, and both played.
+    expect([...premises].sort(), evidence).toEqual([
+      "?before=paused&after=paused",
+      "?frame=playing",
+      "?shadow=playing&own=0",
+    ]);
+    expect(
+      r.bundle.degradations
+        .filter((d) => d.kind === "animationUnpinned")
+        .map((d) => d.note)
+        .sort(),
+      evidence,
+    ).toEqual([
+      "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+      "a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+      "s on div: the page paused it, and it played on: the held clock does not see a script's pause",
+    ]);
+    // It played on, as said: the spinner moves after the click as it did
+    // before it (held, it would not move at all). Premise: it moved
+    // before, and the take has frames on both sides.
+    expect(before.length, evidence).toBeGreaterThanOrEqual(10);
+    expect(after.length, evidence).toBeGreaterThanOrEqual(10);
+    const rate = (f: string[]) => moves(f) / (f.length - 1);
+    expect(rate(before), evidence).toBeGreaterThan(0.3);
+    expect(rate(after), evidence).toBeGreaterThan(rate(before) * 0.7);
   }, 120_000);
 
   // The author's ruling, 2026-11-16: smooth scrolling stays off, and the

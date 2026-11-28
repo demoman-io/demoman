@@ -2278,6 +2278,61 @@ describe("PIN_ANIMATIONS", () => {
     ]);
   });
 
+  // A script's pause() of an animation the pin holds looked like the pin's
+  // own, so it played on unsaid. Through the frames script's real wrapper,
+  // so red if the page's call is not marked, or if the pin's own pause is.
+  it("says an animation the page's script paused, once, and not its own pauses", () => {
+    class Animation {
+      currentTime: number | null = null;
+      playState = "running";
+      timeline = new DocumentTimeline();
+      effect = {
+        getComputedTiming: () => ({ endTime: Number.POSITIVE_INFINITY }),
+        target: { tagName: "DIV" },
+      };
+      animationName = "spin";
+      pause() {
+        this.playState = "paused";
+      }
+    }
+    const window: Record<string, unknown> = {
+      requestAnimationFrame: () => 0,
+      cancelAnimationFrame: () => undefined,
+      frames: [],
+      Animation,
+    };
+    window.parent = window;
+    const document = { querySelectorAll: () => [] };
+    new Function("window", "document", HELD_FRAMES_SCRIPT)(window, document);
+    const spin = new Animation();
+    const fresh = new Animation();
+    const pin = pinner([spin], window);
+    expect(pin(100)).toEqual([]);
+    // The pin's own pause is not the page's.
+    expect(pin(150)).toEqual([]);
+    // Nor a pause the page took back in the same frame (pause, then play:
+    // a restart).
+    spin.pause();
+    spin.playState = "running";
+    expect(pin(150)).toEqual([]);
+    // Premise: the pin holds it, paused, and the page's pause changes
+    // nothing it can read.
+    expect([spin.playState, spin.currentTime]).toEqual(["paused", 50]);
+    spin.pause();
+    expect(spin.playState).toBe("paused");
+    expect(pin(200)).toEqual([
+      "spin on div: the page paused it, and it played on: the held clock does not see a script's pause",
+    ]);
+    expect(spin.currentTime).toBe(100);
+    spin.pause();
+    expect(pin(300)).toEqual([]);
+    // One the page paused before the pin first saw it stays where it is.
+    const later = pinner([fresh], window);
+    fresh.pause();
+    expect(later(400)).toEqual([]);
+    expect(fresh.currentTime).toBe(null);
+  });
+
   it("names an animation it cannot pin, once, and pins the rest", () => {
     const bad = animation(300, { animationName: "fade" });
     Object.defineProperty(bad, "currentTime", {
@@ -2368,7 +2423,13 @@ describe("HELD_FRAMES_SCRIPT", () => {
       "document",
       "location",
       HELD_FRAMES_SCRIPT,
-    )(window, { now: () => 0 }, () => undefined, {}, { href: "http://x/" });
+    )(
+      window,
+      { now: () => 0 },
+      () => undefined,
+      { querySelectorAll: () => [] },
+      { href: "http://x/" },
+    );
     return {
       scrollTo: (o: { top: number; behavior?: string }) =>
         (window.scrollTo as (o: unknown) => void).call(window, o),
@@ -2513,6 +2574,92 @@ describe("HELD_FRAMES_SCRIPT", () => {
     ]);
     q.scrollTo({ top: 0, behavior: "smooth" });
     expect(q.flushAt(3 * F)).toEqual([]);
+  });
+
+  // A video the pin does not see (it reads this document's own videos):
+  // one in an open shadow root, or in a same-origin frame, was neither
+  // held nor said. Red if either is unsaid, said twice, or said paused.
+  it("says a playing video in a shadow root or in a frame, once", () => {
+    const video = (paused: boolean) => ({
+      tagName: "VIDEO",
+      paused,
+      ended: false,
+    });
+    const playing = video(false);
+    const inner = { querySelectorAll: () => [playing] };
+    const host = { tagName: "DIV", shadowRoot: inner };
+    // Nested: the video's root hangs off an element of another root.
+    const outer = {
+      querySelectorAll: () => [{ tagName: "X", shadowRoot: inner }],
+    };
+    const nest = { tagName: "DIV", shadowRoot: outer };
+    for (const elements of [[host], [nest]]) {
+      const p = page({ elements });
+      expect(p.flushAt(F)).toEqual([
+        "a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+      ]);
+      expect(p.flushAt(2 * F)).toEqual([]);
+    }
+    // Premise for the cases below: the same look over a paused one says nothing.
+    const stillRoot = { querySelectorAll: () => [video(true)] };
+    expect(
+      page({ elements: [{ tagName: "DIV", shadowRoot: stillRoot }] }).flushAt(
+        F,
+      ),
+    ).toEqual([]);
+    // This document's own video is the pin's to say, not this script's.
+    expect(page({ elements: [playing] }).flushAt(F)).toEqual([]);
+    // In a frame: its own videos are the ones nobody sees.
+    const parent = { __demomanFlushFrames: () => [] };
+    expect(page({ parent, elements: [playing] }).flushAt(F)).toEqual([
+      "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+    ]);
+  });
+
+  // Review: an autoplay video still fetching waits on a clock ahead of real
+  // time, frozen, and the look counted only playing ones; and the walk ran
+  // on every frame. Red if it is unsaid, or looked at off the 15-frame
+  // stride.
+  it("says a waiting video, and looks every 15th frame", () => {
+    const waiting = {
+      tagName: "VIDEO",
+      paused: true,
+      ended: false,
+      autoplay: true,
+      played: { length: 0 },
+      readyState: 2,
+      networkState: 2,
+      error: null,
+    };
+    const shown: object[] = [];
+    const p = page({
+      elements: [
+        { tagName: "DIV", shadowRoot: { querySelectorAll: () => shown } },
+      ],
+    });
+    expect(p.flushAt(F)).toEqual([]);
+    shown.push(waiting);
+    const said = Array.from({ length: 20 }, (_, k) =>
+      p.flushAt((k + 2) * F).map((w) => `${k + 2}: ${w}`),
+    ).flat();
+    expect(said).toEqual([
+      "16: a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+    ]);
+  });
+
+  // Report before you forgive: a look that throws says it could not look.
+  it("says it could not look for an unseen video", () => {
+    const broken = {
+      tagName: "DIV",
+      get shadowRoot(): never {
+        throw new Error("denied");
+      },
+    };
+    const p = page({ elements: [broken] });
+    expect(p.flushAt(F)).toEqual([
+      "the held clock could not look for a video in the page's shadow roots (denied): one playing there would not be said",
+    ]);
+    expect(p.flushAt(2 * F)).toEqual([]);
   });
 
   it("names a frame it cannot reach, once", () => {
