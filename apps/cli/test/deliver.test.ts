@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,6 +13,8 @@ import { join } from "node:path";
 import { execGit, type RefreshResult } from "@demoman/runner/package";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deliver, offBase, withPushToken } from "../src/deliver.js";
+import { afterRefresh, deliverCommand } from "../src/deliver-command.js";
+import { writeHandOff } from "../src/handoff.js";
 
 const FAKE_GH = join(__dirname, "../../runner/test/fake-gh.mjs");
 const PERSON = ["-c", "user.name=Pat", "-c", "user.email=pat@example.com"];
@@ -872,5 +875,206 @@ describe("withPushToken", () => {
     const git = async () => ({ code: 0, stdout: "", stderr: "" });
     expect(withPushToken(git, { GH_TOKEN: "x" })).toBe(git);
     expect(withPushToken(git, { GITHUB_ACTIONS: "true" })).toBe(git);
+  });
+});
+
+describe("deliverCommand", () => {
+  const FLOW = ".demoman/flows/add-task.json";
+  let handOff: string;
+  let head: string;
+
+  // A hand-off of `videos` written from this repo's working tree, then the tree reset
+  // to what the deliver job's checkout holds: the commit alone.
+  const handOffOf = async (videos: Partial<Video>[]) => {
+    const flow = {
+      keptVersion: 2,
+      flow: "11111111-1111-4111-8111-111111111111",
+      deliver: "commit",
+      name: "Add a task",
+      script: {
+        scriptVersion: 1,
+        name: "Add a task",
+        target: "http://localhost/app",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      },
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        {
+          path: "docs/add-task.mp4",
+          fileType: "mp4",
+          aspect: "auto",
+          quality: "share",
+        },
+      ],
+      report: null,
+    };
+    mkdirSync(join(repo, ".demoman/flows"), { recursive: true });
+    writeFileSync(join(repo, FLOW), JSON.stringify(flow));
+    // Only the flow is committed; the new video stays an uncommitted change.
+    git(repo, "add", FLOW);
+    git(repo, ...PERSON, "commit", "-m", "flow");
+    git(repo, "push", "origin", "main");
+    head = git(repo, "rev-parse", "HEAD");
+    handOff = join(dir, "demoman-handoff");
+    const r = result();
+    r.videos = [
+      { ...r.videos[0], file: FLOW },
+      ...videos.map((v) => ({ ...r.videos[0], ...v })),
+    ] as RefreshResult["videos"];
+    expect(
+      await writeHandOff(handOff, {
+        repoRoot: repo,
+        result: r,
+        named: false,
+        commit: head,
+        version: "9.9.9",
+      }),
+    ).toEqual({ written: 1 });
+    git(repo, "checkout", "--", "docs/add-task.mp4");
+    git(repo, "clean", "-fdq");
+    expect(readFileSync(join(repo, "docs/add-task.mp4"), "utf8")).toBe("old");
+  };
+
+  const command = async (route: "pr" | "main") => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await deliverCommand([route, handOff], {
+      cwd: repo,
+      git: execGit,
+      gh,
+      env: {},
+      version: "9.9.9",
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    return { code, out: out.join(""), err: err.join("") };
+  };
+  const remoteLog = () => git(remote, "log", "--format=%s", "main");
+
+  it("places the hand-off and commits it on main", async () => {
+    await handOffOf([]);
+    const before = Number(git(remote, "rev-list", "--count", "main"));
+    const r = await command("main");
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(Number(git(remote, "rev-list", "--count", "main"))).toBe(before + 1);
+    expect(remoteLog().split("\n")[0]).toBe("Refresh demo videos");
+    expect(git(remote, "show", "main:docs/add-task.mp4")).toBe("new");
+    expect(r.out).toContain("Add a task: changed");
+    expect(r.out).toMatch(/^delivered: main: /m);
+  });
+
+  it("opens a pull request on the pr route", async () => {
+    await handOffOf([]);
+    script = {
+      "pr list": { stdout: "[]" },
+      "pr create": { stdout: "https://github.com/o/r/pull/1" },
+    };
+    const r = await command("pr");
+    expect(r.code).toBe(0);
+    expect(
+      calls().filter((c) => c[0] === "pr" && c[1] === "create"),
+    ).toHaveLength(1);
+    expect(r.out).toMatch(/^delivered: pr: /m);
+  });
+
+  it("commits only the changed video when another failed, and exits 0", async () => {
+    await handOffOf([
+      { name: "Broken", outcome: "failed", detail: "boom", outputs: [] },
+    ]);
+    const r = await command("main");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("boom");
+    expect(
+      git(remote, "show", "--name-only", "--format=", "main").split("\n"),
+    ).toEqual(["docs/add-task.mp4"]);
+  });
+
+  it("refuses a hand-off from another demoman, saying nothing was delivered", async () => {
+    await handOffOf([]);
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await deliverCommand(["main", handOff], {
+      cwd: repo,
+      git: execGit,
+      gh,
+      env: {},
+      version: "1.0.0",
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    expect(code).toBe(1);
+    expect(err.join("")).toBe(
+      "demoman deliver: nothing delivered: the hand-off was written by demoman 9.9.9, delivered by 1.0.0; the workflow must pin one version\n",
+    );
+    expect(git(remote, "rev-list", "--count", "main")).toBe("2");
+  });
+
+  it("exits 2 on a wrong route or a missing folder", async () => {
+    const deps = {
+      cwd: repo,
+      git: execGit,
+      gh,
+      env: {},
+      version: "9.9.9",
+      out: () => {},
+      err: () => {},
+    };
+    expect(await deliverCommand(["both", "x"], deps)).toBe(2);
+    expect(await deliverCommand(["main"], deps)).toBe(2);
+  });
+});
+
+describe("afterRefresh", () => {
+  const run = async (r: RefreshResult, handOff: string) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await afterRefresh(r, [], {
+      handOff,
+      repoRoot: repo,
+      named: false,
+      git: execGit,
+      env: {},
+      version: "9.9.9",
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    return { code, out: out.join(""), err: err.join("") };
+  };
+
+  it("leaves the hand-off of the changed video, then exits 1 for the failed one", async () => {
+    const r = result();
+    r.videos = [
+      ...r.videos,
+      { ...r.videos[0], name: "Broken", outcome: "failed", outputs: [] },
+    ] as RefreshResult["videos"];
+    // Premise: one video changed and one failed.
+    expect(r.videos.map((v) => v.outcome)).toEqual(["changed", "failed"]);
+    const into = join(dir, "handoff");
+    const a = await run(r, into);
+    expect(a.code).toBe(1);
+    expect(a.out).toContain("handed off 1 video(s) to ");
+    expect(readFileSync(join(into, "handoff.json"), "utf8")).toContain(
+      "docs/add-task.mp4",
+    );
+  });
+
+  it("hands off nothing when the list could not be read, and says why", async () => {
+    const into = join(dir, "handoff");
+    const a = await run({ ...result(), listError: "no library" }, into);
+    expect(a.code).toBe(1);
+    expect(a.err).toBe("demoman refresh: no library\n");
+    expect(existsSync(into)).toBe(false);
+  });
+
+  it("says a hand-off it cannot write and exits 1", async () => {
+    const a = await run(result(), dir);
+    expect(a.code).toBe(1);
+    expect(a.err).toBe(
+      `demoman refresh: the hand-off could not be written: ${dir} already exists\n`,
+    );
   });
 });

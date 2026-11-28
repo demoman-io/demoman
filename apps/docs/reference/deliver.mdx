@@ -1,0 +1,26 @@
+---
+title: "deliver"
+description: "Commit the videos a refresh handed off, on main or in a pull request."
+---
+
+```bash
+npx demoman deliver <pr|main> <folder>
+```
+
+Takes the folder `refresh --hand-off` wrote and delivers it, in a job that
+has write access and never ran your app. The workflow `setup --ci` writes
+runs it.
+
+It checks the folder against this checkout first, and stops with
+`demoman deliver: nothing delivered: <why>` and exit 1 when anything is off:
+the folder came from another Demoman version or another commit, or holds a
+path no flow of this checkout writes. Nothing is written until the folder
+passes.
+
+Then it prints each flow's line as refresh did, and commits only the files
+that changed: `main` pushes one `Refresh demo videos` commit to the checked-out
+branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one
+pull request. It exits 1 if delivery fails. A flow that failed does not make
+it fail: the refresh job is red already.
+
+It exits 2 when it is not given `pr` or `main` and a folder.

@@ -1,8 +1,13 @@
 import { parseArgs } from "node:util";
 
+/** What `--deliver` says now that delivery runs in a job of its own. */
+export const DELIVER_MOVED =
+  "--deliver now runs in a job of its own, apart from the app. Delete .github/workflows/demoman.yml on the default branch and run `npx demoman setup --ci` again.";
+
 export type RefreshArgs = {
   only: string[];
-  route?: "pr" | "main";
+  /** `--hand-off`: the folder the files and result are left in for `demoman deliver`. */
+  handOff?: string;
   baseUrl?: string;
   outDir?: string;
   previous?: string;
@@ -21,6 +26,7 @@ export function parseRefreshArgs(
   let values: {
     "base-url"?: string;
     deliver?: string;
+    "hand-off"?: string;
     "out-dir"?: string;
     previous?: string;
     failures?: string;
@@ -34,6 +40,7 @@ export function parseRefreshArgs(
       options: {
         "base-url": { type: "string" },
         deliver: { type: "string" },
+        "hand-off": { type: "string" },
         "out-dir": { type: "string" },
         previous: { type: "string" },
         failures: { type: "string" },
@@ -46,10 +53,11 @@ export function parseRefreshArgs(
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+  if (values.deliver !== undefined) return { error: DELIVER_MOVED };
   if (
     values.check === true &&
     (positionals.length > 0 ||
-      values.deliver !== undefined ||
+      values["hand-off"] !== undefined ||
       values["base-url"] !== undefined ||
       values["out-dir"] !== undefined ||
       values.failures !== undefined)
@@ -59,8 +67,6 @@ export function parseRefreshArgs(
     return { error: "--since goes only with --check" };
   if (values.since !== undefined && !/^[0-9a-f]{7,40}$/.test(values.since))
     return { error: `--since is a commit sha, not "${values.since}"` };
-  if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
-    return { error: `--deliver is pr or main, not "${values.deliver}"` };
   let baseUrl: string | undefined;
   const given = values["base-url"];
   if (given !== undefined) {
@@ -73,9 +79,9 @@ export function parseRefreshArgs(
   }
   return {
     only: positionals,
-    ...(values.deliver === undefined
+    ...(values["hand-off"] === undefined
       ? {}
-      : { route: values.deliver as "pr" | "main" }),
+      : { handOff: values["hand-off"] }),
     ...(baseUrl === undefined ? {} : { baseUrl }),
     ...(values["out-dir"] === undefined ? {} : { outDir: values["out-dir"] }),
     ...(values.previous === undefined ? {} : { previous: values.previous }),

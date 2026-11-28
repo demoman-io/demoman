@@ -88,7 +88,8 @@ An app that shows today's date changes every day. Pin its clock with `now`
 
 ## Where changed videos go
 
-`--deliver` picks how a refresh delivers in CI:
+`demoman deliver pr` or `demoman deliver main` delivers what a refresh
+handed off with `--hand-off`, in a CI job of its own:
 
 - **`pr`**: force-pushes `demoman/refresh` and opens or updates one pull
   request, "Refresh demo videos", listing each changed video and any flow
