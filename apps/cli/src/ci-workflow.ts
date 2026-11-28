@@ -154,9 +154,9 @@ function servicesBlock(app: AppSpec | null): string {
 export function ciWorkflow(o: CiOptions): string {
   const { deployment, kind } = shapeOf(o);
   for (const n of secretNames(o)) {
-    if (!SECRET_NAME.test(n) || n.startsWith("GITHUB_")) {
+    if (!SECRET_NAME.test(n) || n.startsWith("GITHUB_") || n === "GH_TOKEN") {
       throw new Error(
-        `the secret name "${n}" is not A-Z, 0-9 and _, or starts with GITHUB_; a workflow cannot pass it through`,
+        `the secret name "${n}" is not A-Z, 0-9 and _, starts with GITHUB_, or is GH_TOKEN (the workflow's own); a workflow cannot pass it through`,
       );
     }
   }
@@ -490,7 +490,10 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
         with:
           fetch-depth: 0
           # A committed video in LFS is compared, not replaced as a pointer.
-          lfs: true${ref}
+          lfs: true
+          # The app's install, start and reset run in this checkout: no token
+          # left in .git/config for them to read. Refresh pushes with GH_TOKEN.
+          persist-credentials: false${ref}
 ${
   guarded
     ? `      - name: ${loopGuard ? (onDefault ? "Skip commits off the default branch, and Demoman's own" : "Skip Demoman's own commits") : "Skip commits off the default branch"}

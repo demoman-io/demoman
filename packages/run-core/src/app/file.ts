@@ -8,7 +8,7 @@ import { looksLikeSecret } from "../secrets.js";
 export const APP_FILE = ".demoman/app.json";
 const APP_VERSION = 1;
 const SECRET_NAME_RULE =
-  "a secret name is A-Z, 0-9 and _, not starting with a digit or GITHUB_";
+  "a secret name is A-Z, 0-9 and _, not starting with a digit or GITHUB_, and not GH_TOKEN (the workflow's own)";
 const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
 const INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -107,7 +107,10 @@ const AppSchema = z
         z
           .string()
           .refine(
-            (n) => SECRET_NAME.test(n) && !n.startsWith("GITHUB_"),
+            (n) =>
+              SECRET_NAME.test(n) &&
+              !n.startsWith("GITHUB_") &&
+              n !== "GH_TOKEN",
             SECRET_NAME_RULE,
           ),
       )

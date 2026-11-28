@@ -68,7 +68,7 @@ import type { CiDeps } from "./ci-setup.js";
 import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
-import { deliver, offBase } from "./deliver.js";
+import { deliver, offBase, withPushToken } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
@@ -718,7 +718,7 @@ async function refresh(args: string[]): Promise<void> {
     route === "pr"
       ? await offBase(
           repo.repo.root,
-          { git: execGit, gh: realGh(repo.repo.root) },
+          { git: withPushToken(execGit), gh: realGh(repo.repo.root) },
           // The workflow's own record of the default branch it checked.
           process.env.DEMOMAN_DEFAULT_BRANCH || undefined,
         )
@@ -804,7 +804,7 @@ async function refresh(args: string[]): Promise<void> {
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },
     {
-      git: execGit,
+      git: withPushToken(execGit),
       gh: realGh(repo.repo.root),
     },
   );

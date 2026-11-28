@@ -553,6 +553,17 @@ describe("ciWorkflow", () => {
     }
   });
 
+  it("no checkout leaves its token in .git/config, where the app's commands could read it", () => {
+    for (const y of every) {
+      const checkouts = y.split("uses: actions/checkout@v4\n").slice(1);
+      expect(checkouts.length).toBeGreaterThan(0);
+      for (const c of checkouts)
+        expect(c.split("\n      - ")[0]).toContain(
+          "          persist-credentials: false",
+        );
+    }
+  });
+
   it("guards the push job against its own commits", () => {
     expect(push).toContain("[skip demoman]");
     expect(push).toContain("github.actor != 'github-actions[bot]'");
@@ -2050,7 +2061,7 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
   });
 
   it("refuses a secret name a workflow cannot carry", () => {
-    for (const bad of ["a b", "GITHUB_TOKEN", "X\n  Y: z"]) {
+    for (const bad of ["a b", "GITHUB_TOKEN", "GH_TOKEN", "X\n  Y: z"]) {
       expect(() =>
         ciWorkflow({
           version: "0.2.0",

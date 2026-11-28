@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execGit, type RefreshResult } from "@demoman/runner/package";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deliver, offBase } from "../src/deliver.js";
+import { deliver, offBase, withPushToken } from "../src/deliver.js";
 
 const FAKE_GH = join(__dirname, "../../runner/test/fake-gh.mjs");
 const PERSON = ["-c", "user.name=Pat", "-c", "user.email=pat@example.com"];
@@ -799,5 +799,78 @@ describe("deliver", () => {
       expect(a.ok).toBe(false);
       expect(a.detail).toContain("HTTP 401");
     });
+  });
+});
+
+describe("withPushToken", () => {
+  const CI = { GITHUB_ACTIONS: "true", GH_TOKEN: "ghs_t0ken" };
+  const argsOf = (env: NodeJS.ProcessEnv): string[] => {
+    let args: string[] = [];
+    void withPushToken(async (a) => {
+      args = a;
+      return { code: 0, stdout: "", stderr: "" };
+    }, env)(["credential", "fill"], ".");
+    return args;
+  };
+  /** Real git's answer for `host`, run in an empty folder, with no system or
+   *  global config and a helper planted in the repo's own config. */
+  const fill = (args: string[], host: string): string => {
+    const home = mkdtempSync(join(tmpdir(), "demoman-push-token-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: home });
+      execFileSync(
+        "git",
+        [
+          "config",
+          "credential.helper",
+          "!f() { echo username=planted; echo password=planted; }; f",
+        ],
+        { cwd: home },
+      );
+      return execFileSync("git", args, {
+        cwd: home,
+        input: `protocol=https\nhost=${host}\n\n`,
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_TERMINAL_PROMPT: "0",
+          GH_TOKEN: "ghs_t0ken",
+        },
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+
+  it("on Actions, git asks GH_TOKEN for GitHub's credential, never a helper the checkout names", () => {
+    // Premise: the planted helper answers when nothing drops it.
+    expect(fill(["credential", "fill"], "github.com")).toContain(
+      "password=planted\n",
+    );
+    const out = fill(argsOf(CI), "github.com");
+    expect(out).toContain("username=x-access-token\n");
+    expect(out).toContain("password=ghs_t0ken\n");
+  });
+
+  it("another host never gets the token", () => {
+    expect(fill(argsOf(CI), "gitlab.com")).not.toContain("ghs_t0ken");
+  });
+
+  it("names the workflow's own server", () => {
+    expect(
+      fill(
+        argsOf({ ...CI, GITHUB_SERVER_URL: "https://ghe.example.com" }),
+        "ghe.example.com",
+      ),
+    ).toContain("password=ghs_t0ken\n");
+  });
+
+  it("off Actions, or without GH_TOKEN, git is as given", () => {
+    const git = async () => ({ code: 0, stdout: "", stderr: "" });
+    expect(withPushToken(git, { GH_TOKEN: "x" })).toBe(git);
+    expect(withPushToken(git, { GITHUB_ACTIONS: "true" })).toBe(git);
   });
 });
