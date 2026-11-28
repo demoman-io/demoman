@@ -634,6 +634,17 @@ const Meta = z.object({
      * Optional, as `displayScale` is: no schema bump, no migration.
      */
     browser: z.string().min(1).optional(),
+    /**
+     * The IANA time zone (`Europe/Berlin`) and the locale (`de-DE`) the
+     * page was pinned to: the machine's that first recorded the flow, carried
+     * from take to take so every later run and refresh records in them
+     * (ruling 2026-11-28). Both or neither. Absent on a take recorded before
+     * they were pinned: its flow keeps recording in each machine's own, as
+     * it always did, so its video does not change. Optional, as
+     * `displayScale` is: no schema bump, no migration.
+     */
+    timeZone: z.string().min(1).optional(),
+    locale: z.string().min(1).optional(),
   }),
   /**
    * Which render this scene wants: `screen` serves the frames the take
@@ -1037,6 +1048,21 @@ export const SceneDocumentSchema = z
         seen.add(item.id);
       });
     };
+    // A take pinned to a time zone pins the locale with it: half a pin
+    // would replay one of the two in each machine's own.
+    const { timeZone, locale } = doc.meta.capture;
+    if ((timeZone === undefined) !== (locale === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "meta.capture names a time zone and a locale together, or neither",
+        path: [
+          "meta",
+          "capture",
+          timeZone === undefined ? "timeZone" : "locale",
+        ],
+      });
+    }
     unique(doc.anchors, "anchor", ["anchors"]);
     unique(doc.actions, "action", ["actions"]);
     unique(doc.camera, "camera event", ["camera"]);

@@ -842,6 +842,7 @@ async function buildKept(
     );
   }
   const { scene } = read;
+  const { timeZone, locale } = scene.meta.capture;
   const bundle = await deps.library
     .frameStore(built.takeId)
     .getBundle(built.takeId);
@@ -999,6 +1000,11 @@ async function buildKept(
     name: video.name,
     script: script.data,
     scale: scale ?? 1,
+    // The take's pins, for refresh's run to record in; none on a take from
+    // before them, whose flow refresh records in the machine's own.
+    ...(timeZone === undefined || locale === undefined
+      ? {}
+      : { region: { timeZone, locale } }),
     logo,
     wallpaper,
     deliver: a.deliver,

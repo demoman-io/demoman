@@ -1,6 +1,8 @@
 import type { FrameBundle } from "@demoman/compositor";
 import { messageOf } from "../report.js";
+import { findKept } from "./kept-flows.js";
 import type { Library } from "./library.js";
+import { NOT_PINNED_WHY, type RegionPlan } from "./pins.js";
 import type { VideoRecord, VideoStore } from "./videos.js";
 
 /** A flow's latest video, as `latestOf` answers it. */
@@ -105,6 +107,61 @@ export async function flowScaleOf(
       why: `the flow's latest video could not be read (${messageOf(error)})`,
     };
   }
+}
+
+/**
+ * Whose time zone and locale a flow's run pins its page to (ruling
+ * 2026-11-28): the ones its latest video recorded, carried from the
+ * machine that first recorded the flow; with no video in this library, or
+ * one that cannot be read, the ones the repo's kept file names (how
+ * refresh, in a library of its own, reads them); a flow with neither records
+ * this machine's, as its first run does, and its take then carries them. A
+ * video or kept file recorded before the pins names none, and its flow stays
+ * unpinned so its video does not change. Every record that could not be
+ * read is named in `why`, beside the answer it fell back to.
+ */
+export async function flowRegionOf(
+  store: VideoStore,
+  library: Library,
+  video: VideoRecord,
+  known?: Promise<LatestVideo>,
+): Promise<RegionPlan> {
+  const unread: string[] = [];
+  try {
+    const latest = await (known ?? latestOf(store, video));
+    if (latest !== undefined) {
+      const scene = await library.getScene(latest.takeId);
+      if (scene !== null) {
+        const { timeZone, locale } = scene.meta.capture;
+        return timeZone === undefined || locale === undefined
+          ? { pin: "none", why: NOT_PINNED_WHY }
+          : { pin: { timeZone, locale } };
+      }
+      unread.push(`video ${latest.takeId} is missing`);
+    }
+  } catch (error) {
+    unread.push(
+      `the flow's latest video could not be read (${messageOf(error)})`,
+    );
+  }
+  const why = () => (unread.length === 0 ? {} : { why: unread.join("; ") });
+  if (video.kept === undefined) return { pin: "thisMachine", ...why() };
+  try {
+    const found = await findKept(video.kept.root, video.id);
+    if (found !== null && "kept" in found) {
+      return found.kept.region === undefined
+        ? { pin: "none", why: NOT_PINNED_WHY }
+        : { pin: found.kept.region };
+    }
+    unread.push(
+      `the repo's DemoScript for the flow could not be read (${found === null ? `no file keeps flow ${video.id}` : "duplicate" in found ? `${found.duplicate.join(" and ")} both keep it` : found.unreadable.join("; ")})`,
+    );
+  } catch (error) {
+    unread.push(
+      `the repo's DemoScript for the flow could not be read (${messageOf(error)})`,
+    );
+  }
+  return { pin: "thisMachine", ...why() };
 }
 
 /**

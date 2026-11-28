@@ -138,6 +138,8 @@ let dirty: boolean;
 let storedDates: string[] | null;
 /** Whether the fake run leaves out the pin it was asked for. */
 let dropPin: boolean;
+/** The time zone and locale the fake run says its page had. */
+let servedRegion: Record<string, unknown> | undefined;
 /** Whether the fake run leaves no report.json behind. */
 let noStoredReport: boolean;
 /** Every line refresh logged. */
@@ -174,6 +176,7 @@ beforeEach(async () => {
   dirty = false;
   storedDates = null;
   dropPin = false;
+  servedRegion = undefined;
   noStoredReport = false;
   logged = [];
 });
@@ -214,7 +217,10 @@ const deps = (): RefreshDeps => ({
               verdict: { kind: "matches" },
               frames: { degradations: [] },
               steps: [{}],
-              run: { startedAt: Date.parse(STARTED) },
+              run: {
+                startedAt: Date.parse(STARTED),
+                ...(servedRegion === undefined ? {} : { region: servedRegion }),
+              },
               provenance: { takeId: "t-new" },
               filmedCode: {
                 commit: FILMED,
@@ -1092,6 +1098,48 @@ describe("the files route", () => {
     expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");
     // Premise: only the commit flow was filmed.
     expect(runs.map((a) => a.video)).toEqual([{ id: FLOW }]);
+  });
+});
+
+// Red when refresh's check of the run's time zone and locale is removed:
+// a video recorded in the CI machine's would replace the flow's.
+describe("the kept file's time zone and locale", () => {
+  const region = { timeZone: "Asia/Tokyo", locale: "de-DE" };
+
+  it("a run that recorded in them is delivered", async () => {
+    await writeWithScreens({ ...recipe(), region });
+    same = false;
+    servedRegion = { ...region, from: "flow" };
+    const v = await one();
+    expect(v.outcome, JSON.stringify(v)).toBe("changed");
+  });
+
+  it("a run that recorded in this machine's fails, naming both, and replaces nothing", async () => {
+    await writeWithScreens({ ...recipe(), region });
+    same = false;
+    servedRegion = {
+      timeZone: "UTC",
+      locale: "en-US",
+      from: "thisMachine",
+      why: "no file keeps flow x",
+    };
+    const before = await receiptOf();
+    const v = await one();
+    const said = JSON.stringify(v);
+    expect(v.outcome, said).toBe("failed");
+    expect(v.detail, said).toContain("Asia/Tokyo");
+    expect(v.detail, said).toContain("UTC");
+    expect(v.detail, said).toContain(FILE);
+    expect(await receiptOf(), said).toEqual(before);
+  });
+
+  // A file kept before the pins asks for none, so its run is not held to any.
+  it("a file kept before them is delivered whatever its run recorded in", async () => {
+    await writeWithScreens();
+    expect(recipe().region).toBeUndefined();
+    same = false;
+    servedRegion = { timeZone: "UTC", locale: "en-US", from: "notPinned" };
+    expect((await one()).outcome).toBe("changed");
   });
 });
 

@@ -1,5 +1,13 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FLOWS_DIR, type KeptVideo, serializeKept } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
-import { flowScaleOf, flowSizeOf } from "../src/executor/flow-size.js";
+import {
+  flowRegionOf,
+  flowScaleOf,
+  flowSizeOf,
+} from "../src/executor/flow-size.js";
 import type { Library } from "../src/executor/library.js";
 import type { VideoRecord, VideoStore } from "../src/executor/videos.js";
 
@@ -138,5 +146,113 @@ describe("flowScaleOf", () => {
   it("has nothing to carry for a flow with no video", async () => {
     const { store, library } = scenes([], {});
     expect(await flowScaleOf(store, library, video)).toEqual({});
+  });
+});
+
+describe("flowRegionOf", () => {
+  const region = { timeZone: "Asia/Tokyo", locale: "de-DE" };
+  const library = (capture: Record<string, unknown> | null) =>
+    ({
+      getScene: async () => (capture === null ? null : { meta: { capture } }),
+    }) as unknown as Library;
+  const store = (versions: ReturnType<typeof take>[]) =>
+    ({ versions: async () => versions }) as unknown as VideoStore;
+
+  // Red when the latest take's pins are not read: a later run would pin
+  // whichever machine it ran on.
+  it("pins the latest video's time zone and locale", async () => {
+    expect(
+      await flowRegionOf(store([take("a")]), library(region), video),
+    ).toEqual({ pin: region });
+  });
+
+  // Decide once: a flow recorded before the pins stays unpinned, so its
+  // video does not change. Red when it pins this machine's instead.
+  it("leaves a flow whose video names none unpinned, saying why", async () => {
+    const plan = await flowRegionOf(store([take("a")]), library({}), video);
+    expect(plan.pin).toBe("none");
+    expect("why" in plan && plan.why).toContain("recorded before");
+  });
+
+  it("pins this machine's for a flow with no video and no kept file", async () => {
+    expect(await flowRegionOf(store([]), library(null), video)).toEqual({
+      pin: "thisMachine",
+    });
+  });
+
+  // Report before you forgive: a missing take pins this machine's and says so.
+  it("says why when the latest video is missing", async () => {
+    const plan = await flowRegionOf(store([take("a")]), library(null), video);
+    expect(plan).toEqual({ pin: "thisMachine", why: "video a is missing" });
+  });
+
+  /** A repo whose kept file for the flow names `kept` (absent: no region). */
+  const keptRepo = async (region?: KeptVideo["region"]) => {
+    const root = await mkdtemp(join(tmpdir(), "demoman-flow-region-"));
+    const id = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
+    const kept: KeptVideo = {
+      keptVersion: 2,
+      flow: id,
+      name: "Flow",
+      script: {
+        scriptVersion: 1,
+        name: "Flow",
+        target: "http://localhost:4000/",
+        steps: [{ do: "waitForLoad" }],
+      } as KeptVideo["script"],
+      scale: 2,
+      ...(region === undefined ? {} : { region }),
+      logo: null,
+      wallpaper: null,
+      deliver: "commit",
+      outputs: [
+        {
+          path: "docs/f.mp4",
+          fileType: "mp4",
+          aspect: "auto",
+          quality: "share",
+        },
+      ],
+      report: null,
+    };
+    await mkdir(join(root, FLOWS_DIR), { recursive: true });
+    await writeFile(join(root, FLOWS_DIR, "flow.json"), serializeKept(kept));
+    const adopted = {
+      id,
+      name: "Flow",
+      kept: { root, file: `${FLOWS_DIR}/flow.json` },
+    } as VideoRecord;
+    return { adopted, done: () => rm(root, { recursive: true, force: true }) };
+  };
+
+  // How refresh reads them, in a library with no video of the flow. Red
+  // when the kept-file branch is dropped: every pinned refresh would fail.
+  it("pins the kept file's for a flow with no video here, and leaves one kept before them unpinned", async () => {
+    const pinned = await keptRepo(region);
+    const old = await keptRepo();
+    try {
+      expect(
+        await flowRegionOf(store([]), library(null), pinned.adopted),
+      ).toEqual({ pin: region });
+      expect(
+        (await flowRegionOf(store([]), library(null), old.adopted)).pin,
+      ).toBe("none");
+    } finally {
+      await pinned.done();
+      await old.done();
+    }
+  });
+
+  // A video that cannot be read falls back to the kept file, not to this
+  // machine's, which its take would then record as the flow's for good.
+  it("reads the kept file when the latest video is missing", async () => {
+    const pinned = await keptRepo(region);
+    try {
+      expect(
+        await flowRegionOf(store([take("a")]), library(null), pinned.adopted),
+      ).toEqual({ pin: region });
+    } finally {
+      await pinned.done();
+    }
   });
 });

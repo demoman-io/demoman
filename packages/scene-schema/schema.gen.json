@@ -222,6 +222,14 @@
             "browser": {
               "type": "string",
               "minLength": 1
+            },
+            "timeZone": {
+              "type": "string",
+              "minLength": 1
+            },
+            "locale": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "required": [

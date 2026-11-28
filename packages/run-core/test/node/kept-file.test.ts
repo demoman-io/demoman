@@ -142,6 +142,37 @@ describe("the kept file", () => {
     expect(refusal(withChange({ deliver: "ftp" }))).toContain("deliver");
   });
 
+  // Red when parseKept or serializeKept drops the pins: refresh would
+  // record a flow in the CI machine's time zone and locale.
+  it("reads absent pins as none, round-trips them, and refuses half of them", () => {
+    const plain = JSON.parse(serializeKept(kept));
+    expect(plain).not.toHaveProperty("timeZone");
+    const read = parseKept(serializeKept(kept), "f.json");
+    expect(read.ok && read.kept.region).toBeUndefined();
+
+    const region = { timeZone: "Europe/Berlin", locale: "de-DE" };
+    const text = serializeKept({ ...kept, region });
+    expect(JSON.parse(text)).toMatchObject(region);
+    const back = parseKept(text, "f.json");
+    expect(back.ok && back.kept.region).toEqual(region);
+
+    expect(refusal(withChange({ timeZone: "Europe/Berlin" }))).toContain(
+      "locale must be a non-empty string beside timeZone",
+    );
+    expect(refusal(withChange({ locale: "de-DE", timeZone: "" }))).toContain(
+      "timeZone must be a non-empty string",
+    );
+    // Red when parseKept stops asking Intl: a hand-edited zone would fail
+    // every refresh as a browser that could not prepare the page.
+    for (const bad of [
+      { timeZone: "Berlin", locale: "de-DE" },
+      { timeZone: "Europe/Berlin", locale: "not a locale!" },
+    ])
+      expect(refusal(withChange(bad)), JSON.stringify(bad)).toContain(
+        "must be an IANA time zone and a BCP 47 locale",
+      );
+  });
+
   // A file kept before wallpapers has no key: it reads as none, and a
   // file with none writes no key, so it stays byte for byte as it was.
   it("reads an absent wallpaper as none, and round-trips one", () => {
