@@ -175,6 +175,7 @@ function stagedOn(
       screen: async () => ({ width: 1440, height: 900, scale: screenScale }),
       screenUnknown: () => null,
       filmScale: () => filmScale,
+      version: () => "151.0.7922.34",
     } as unknown as BrowserSession,
     log: () => undefined,
     sessions: [],
@@ -221,6 +222,22 @@ describe("prepareStage's word on the scale", () => {
     expect(out.ok && out.size.error).toBe(
       "The flow's recorded scale could not be read (video t1 is missing), so this run recorded at 2x.",
     );
+  });
+});
+
+describe("prepareStage's browser", () => {
+  // Red when prepareStage stops reading the version, or names one it could
+  // not read.
+  it("carries the version the session names, and says when it names none", async () => {
+    const out = await prepareStage(sized, stagedOn(1, 2));
+    expect(out.ok && out.browser).toBe("151.0.7922.34");
+    const said: string[] = [];
+    const deps = stagedOn(1, 2, { log: (l: string) => void said.push(l) });
+    Object.assign(deps.session, { version: () => null });
+    const none = await prepareStage(sized, deps);
+    expect(none.ok, JSON.stringify(none)).toBe(true);
+    expect(none.ok && "browser" in none).toBe(false);
+    expect(said.join("\n")).toContain("version could not be read");
   });
 });
 

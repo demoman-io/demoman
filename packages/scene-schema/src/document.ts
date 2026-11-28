@@ -629,7 +629,8 @@ const Meta = z.object({
     /**
      * The version of the browser that recorded this take, as it names
      * itself (`151.0.7922.34`), so a video that changed can be traced to a
-     * browser update. Absent on takes recorded before it was written.
+     * browser update. Absent on takes recorded before it was written, and on
+     * one whose run found no browser connected to ask (its log says so).
      * Optional, as `displayScale` is: no schema bump, no migration.
      */
     browser: z.string().min(1).optional(),

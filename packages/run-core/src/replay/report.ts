@@ -208,7 +208,8 @@ export interface RunReport {
     recording?: RunRecording;
     /** The version of the browser that recorded the take, as it names
      *  itself (`meta.capture.browser` holds the same). Absent when the run
-     *  stopped before its stage was prepared. */
+     *  stopped before its stage was prepared, or when no browser was
+     *  connected to ask (the run's log says so). */
     browser?: string;
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */

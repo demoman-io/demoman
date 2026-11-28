@@ -323,6 +323,11 @@ export async function prepareStage(
   // Read once the stage is up, after any relaunch above: the browser that
   // records the take. The run report and the take both carry this one read.
   const browser = deps.session.version();
+  // Said, not dropped: a take without it reads as one recorded before it.
+  if (browser === null)
+    deps.log(
+      "the browser's version could not be read (no browser was connected to ask), so this take and its run report do not name it",
+    );
   return {
     ok: true,
     stage: launched,
