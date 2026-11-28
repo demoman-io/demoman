@@ -172,7 +172,7 @@ describe("startApp", () => {
     );
     expect(isRefusal(r) && r.reason).toBe("appNeverAnswered");
     const f = r as AppStartRefusal;
-    expect(f.detail).toContain(url);
+    expect(f.detail).toContain(`nothing answered at ${url}`);
     expect(f.detail).toContain("1 s");
     expect(f.tail).toContain("never listening hi");
     const pid = children[0]?.pid;
@@ -221,11 +221,14 @@ describe("startApp", () => {
   });
 
   describe("ready is Playwright's rule", () => {
+    let answered = 0;
     const answering = (status: number): AppStartDeps["fetch"] => {
       let calls = 0;
+      answered = 0;
       // The first call is the before-start probe: nothing answers yet.
       return (async () => {
         if (calls++ === 0) throw new Error("ECONNREFUSED");
+        answered++;
         return new Response(null, { status });
       }) as AppStartDeps["fetch"];
     };
@@ -247,14 +250,25 @@ describe("startApp", () => {
         expect(started(r).reused).toBe(false);
       });
     }
-    for (const status of [404, 500]) {
-      it(`not ready on ${status}`, async () => {
+    // The refusal names the status the app answered, not "nothing
+    // answered", and a 404 asks about the port.
+    for (const [status, remedy] of [
+      [404, "another port"],
+      [500, "the app started but fails"],
+    ] as const) {
+      it(`not ready on ${status}, and says it answered ${status}`, async () => {
         const r = await startApp(
           app({ start: "sleep 30", timeoutSeconds: 1 }),
           opts(),
           { spawn: spawnSpy.fn, fetch: answering(status), ...clock },
         );
+        // Premise: the app did answer, on every poll after the first.
+        expect(answered).toBeGreaterThan(1);
         expect(isRefusal(r) && r.reason).toBe("appNeverAnswered");
+        const f = r as AppStartRefusal;
+        expect(f.detail).toContain(`${url} still answered ${status} after 1 s`);
+        expect(f.detail).toContain(remedy);
+        expect(f.detail).not.toContain("nothing answered");
       });
     }
   });

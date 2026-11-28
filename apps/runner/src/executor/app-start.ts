@@ -211,14 +211,19 @@ export async function startApp(
     for (const v of secretValues) out = out.replaceAll(v, "<redacted>");
     return out;
   };
+  // The last poll's status, null when it got no answer: a refusal names an
+  // app that answered 500 or 404, not "nothing answered".
+  let lastStatus: number | null = null;
   const ready = async () => {
     try {
       const r = await d.fetch(app.url, {
         redirect: "manual",
         signal: AbortSignal.timeout(PROBE_MS),
       });
+      lastStatus = r.status;
       return r.status >= 200 && r.status <= 403;
     } catch {
+      lastStatus = null;
       return false;
     }
   };
@@ -416,9 +421,15 @@ export async function startApp(
     }
     if (await ready()) break;
     if (d.now() >= deadline) {
+      const of = `of \`${app.start}\`${ex ? " (it exited with code 0)" : ""}`;
+      const after = `${app.url} still answered ${lastStatus} after ${app.timeoutSeconds} s ${of}`;
       return refuse(
         "appNeverAnswered",
-        `nothing answered at ${app.url} within ${app.timeoutSeconds} s of \`${app.start}\`${ex ? " (it exited with code 0)" : ""}; check the URL and timeoutSeconds in ${APP_FILE}, then run again`,
+        lastStatus === null
+          ? `nothing answered at ${app.url} within ${app.timeoutSeconds} s ${of}; check the URL and timeoutSeconds in ${APP_FILE}, then run again`
+          : lastStatus === 404
+            ? `${after}: is the dev server on another port, or is the URL's path wrong? Check the app's output and the url in ${APP_FILE}, then run again`
+            : `${after}, never 2xx, 3xx or 400-403: the app started but fails; its output says why; fix it, then run again`,
         started.output(),
       );
     }
