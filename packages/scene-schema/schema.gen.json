@@ -218,6 +218,10 @@
             "displayScale": {
               "type": "number",
               "exclusiveMinimum": 0
+            },
+            "browser": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "required": [

@@ -206,6 +206,11 @@ export interface RunReport {
      *  when 60 was set but the run recorded in real time. Absent when the
      *  run stopped before its stage was prepared. */
     recording?: RunRecording;
+    /** The version of the browser that recorded the take, as it names
+     *  itself (`meta.capture.browser` holds the same). Absent when the run
+     *  stopped before its stage was prepared, or when no browser was
+     *  connected to ask (the run's log says so). */
+    browser?: string;
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";

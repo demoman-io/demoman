@@ -233,3 +233,22 @@ describe("an authored run's display scale", () => {
     expect(result.document?.meta.capture.displayScale).toBeUndefined();
   });
 });
+
+describe("an authored run's browser", () => {
+  it("writes the version its caller recorded with on the take", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(oneClick(), {
+      ...deps(cdp),
+      browser: "151.0.7922.34",
+    });
+    expect(result.completed, JSON.stringify(result.reason)).toBe(1);
+    expect(result.document?.meta.capture.browser).toBe("151.0.7922.34");
+  });
+
+  it("writes none when the caller does not know it", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(oneClick(), deps(cdp));
+    expect(result.document).not.toBeNull();
+    expect(result.document?.meta.capture.browser).toBeUndefined();
+  });
+});
