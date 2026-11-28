@@ -10,7 +10,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execGit, type RefreshResult } from "@demoman/runner/package";
+import {
+  execGit,
+  type GitRunner,
+  prLine,
+  type RefreshResult,
+} from "@demoman/runner/package";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deliver, offBase, withPushToken } from "../src/deliver.js";
 import { afterRefresh, deliverCommand } from "../src/deliver-command.js";
@@ -885,7 +890,16 @@ describe("deliverCommand", () => {
 
   // A hand-off of `videos` written from this repo's working tree, then the tree reset
   // to what the deliver job's checkout holds: the commit alone.
-  const handOffOf = async (videos: Partial<Video>[]) => {
+  // The line refresh writes for this flow, through attach's own prLine.
+  const LINE = prLine(
+    "Add a task",
+    { clause: "matches all 1 step", details: null },
+    "recorded at `abc1234`",
+  ).line;
+  const handOffOf = async (
+    videos: Partial<Video>[],
+    first: Partial<Video> = {},
+  ) => {
     const flow = {
       keptVersion: 2,
       flow: "11111111-1111-4111-8111-111111111111",
@@ -917,11 +931,14 @@ describe("deliverCommand", () => {
     git(repo, "add", FLOW);
     git(repo, ...PERSON, "commit", "-m", "flow");
     git(repo, "push", "origin", "main");
+    expect(git(repo, "status", "--porcelain", "docs/add-task.mp4")).toBe(
+      "M docs/add-task.mp4",
+    );
     head = git(repo, "rev-parse", "HEAD");
     handOff = join(dir, "demoman-handoff");
     const r = result();
     r.videos = [
-      { ...r.videos[0], file: FLOW },
+      { ...r.videos[0], file: FLOW, line: LINE, ...first },
       ...videos.map((v) => ({ ...r.videos[0], ...v })),
     ] as RefreshResult["videos"];
     expect(
@@ -938,12 +955,16 @@ describe("deliverCommand", () => {
     expect(readFileSync(join(repo, "docs/add-task.mp4"), "utf8")).toBe("old");
   };
 
-  const command = async (route: "pr" | "main") => {
+  const command = async (
+    route: "pr" | "main",
+    gitRunner: GitRunner = execGit,
+    args: string[] = [route, handOff],
+  ) => {
     const out: string[] = [];
     const err: string[] = [];
-    const code = await deliverCommand([route, handOff], {
+    const code = await deliverCommand(args, {
       cwd: repo,
-      git: execGit,
+      git: gitRunner,
       gh,
       env: {},
       version: "9.9.9",
@@ -953,6 +974,7 @@ describe("deliverCommand", () => {
     return { code, out: out.join(""), err: err.join("") };
   };
   const remoteLog = () => git(remote, "log", "--format=%s", "main");
+  const remoteCount = () => git(remote, "rev-list", "--count", "main");
 
   it("places the hand-off and commits it on main", async () => {
     await handOffOf([]);
@@ -981,6 +1003,67 @@ describe("deliverCommand", () => {
     expect(r.out).toMatch(/^delivered: pr: /m);
   });
 
+  it("carries the flow's own name, its line as written, and its notes in code spans", async () => {
+    await handOffOf([], {
+      name: "[Approve](https://evil)",
+      notes: ["[click](https://evil) @org/admins"],
+    });
+    script = {
+      "pr list": { stdout: "[]" },
+      "pr create": { stdout: "https://github.com/o/r/pull/1" },
+    };
+    const r = await command("pr");
+    expect(r.code).toBe(0);
+    const body = bodyOf(
+      calls().find((c) => c[0] === "pr" && c[1] === "create"),
+    );
+    expect(body).toContain(`- ${LINE}\n`);
+    expect(body).toContain("  - `[click](https://evil) org/admins`");
+    expect(body).not.toContain("@org/admins");
+    expect(body).not.toContain("[Approve]");
+    expect(git(repo, "log", "-1", "--format=%B", "demoman/refresh")).toContain(
+      "- Add a task",
+    );
+  });
+
+  it("says a checkout whose HEAD cannot be read, and exits 1", async () => {
+    await handOffOf([]);
+    const before = remoteCount();
+    const r = await command("main", (a, cwd, e) =>
+      a.length === 2 && a[0] === "rev-parse" && a[1] === "HEAD"
+        ? Promise.resolve({ code: 128, stdout: "", stderr: "fatal: bad HEAD" })
+        : execGit(a, cwd, e),
+    );
+    expect(r.code).toBe(1);
+    expect(r.err).toBe(
+      "demoman deliver: nothing delivered: this checkout's HEAD could not be read (fatal: bad HEAD)\n",
+    );
+    expect(remoteCount()).toBe(before);
+  });
+
+  it("says a hand-off it could not place, and exits 1", async () => {
+    await handOffOf([]);
+    const before = remoteCount();
+    // A read-only file refuses the copy over it, for a user who is not root.
+    chmodSync(join(repo, "docs/add-task.mp4"), 0o444);
+    const r = await command("main");
+    chmodSync(join(repo, "docs/add-task.mp4"), 0o644);
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(
+      /^demoman deliver: nothing delivered: placing docs\/add-task\.mp4: .*EACCES.*\n$/,
+    );
+    expect(remoteCount()).toBe(before);
+  });
+
+  it("says a throw in its own words, and exits 1", async () => {
+    await handOffOf([]);
+    const r = await command("main", (a, cwd, e) =>
+      a[0] === "push" ? Promise.reject(new Error("boom")) : execGit(a, cwd, e),
+    );
+    expect(r.code).toBe(1);
+    expect(r.err).toBe("demoman deliver: nothing delivered: boom\n");
+  });
+
   it("commits only the changed video when another failed, and exits 0", async () => {
     await handOffOf([
       { name: "Broken", outcome: "failed", detail: "boom", outputs: [] },
@@ -995,6 +1078,7 @@ describe("deliverCommand", () => {
 
   it("refuses a hand-off from another demoman, saying nothing was delivered", async () => {
     await handOffOf([]);
+    const before = remoteCount();
     const out: string[] = [];
     const err: string[] = [];
     const code = await deliverCommand(["main", handOff], {
@@ -1010,21 +1094,17 @@ describe("deliverCommand", () => {
     expect(err.join("")).toBe(
       "demoman deliver: nothing delivered: the hand-off was written by demoman 9.9.9, delivered by 1.0.0; the workflow must install one release\n",
     );
-    expect(git(remote, "rev-list", "--count", "main")).toBe("2");
+    expect(remoteCount()).toBe(before);
   });
 
-  it("exits 2 on a wrong route or a missing folder", async () => {
-    const deps = {
-      cwd: repo,
-      git: execGit,
-      gh,
-      env: {},
-      version: "9.9.9",
-      out: () => {},
-      err: () => {},
-    };
-    expect(await deliverCommand(["both", "x"], deps)).toBe(2);
-    expect(await deliverCommand(["main"], deps)).toBe(2);
+  it("exits 2 on a wrong route or a missing folder, saying what it wants", async () => {
+    for (const args of [["both", "x"], ["main"], ["pr", "x", "y"]]) {
+      const r = await command("main", execGit, args);
+      expect(r.code, args.join(" ")).toBe(2);
+      expect(r.err).toBe(
+        "demoman: deliver wants pr or main, then the hand-off folder\n",
+      );
+    }
   });
 });
 

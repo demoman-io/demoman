@@ -18,10 +18,10 @@ const BOT = ["-c", `user.name=${BOT_NAME}`, "-c", `user.email=${BOT_EMAIL}`];
 const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
 /** A failure's detail in the pull request, in characters; the job log has
  *  all of it. */
-const DETAIL_MAX = 500;
+export const DETAIL_MAX = 500;
 /** `text` as a code span on GitHub (attach's rule): shown literally, so a
  *  page's text cannot post a link, an image or a mention. */
-const codeSpan = (text: string, max: number): string => {
+export const codeSpan = (text: string, max: number): string => {
   const t = codeSpanText(text, max);
   return t === "" ? "(nothing said)" : `\`${t}\``;
 };

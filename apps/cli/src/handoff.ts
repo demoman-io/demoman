@@ -17,6 +17,7 @@ import {
   repoRelative,
 } from "@demoman/run-core";
 import {
+  commentBody,
   type GitRunner,
   type RefreshResult,
   readKeptFlows,
@@ -39,6 +40,20 @@ export type HandOff = {
 
 const said = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+const codeOf = (e: unknown): string =>
+  (e as NodeJS.ErrnoException).code ?? said(e);
+
+/** Why `dir` cannot take a new hand-off, or null when nothing is there.
+ *  Refresh asks before it records, and writeHandOff again before it writes. */
+export async function handOffRefusal(dir: string): Promise<string | null> {
+  return stat(dir).then(
+    () => `${dir} already exists`,
+    (e: unknown) =>
+      codeOf(e) === "ENOENT"
+        ? null
+        : `${dir} could not be checked (${codeOf(e)})`,
+  );
+}
 
 export async function writeHandOff(
   dir: string,
@@ -50,11 +65,8 @@ export async function writeHandOff(
     version: string;
   },
 ): Promise<{ written: number } | { failed: string }> {
-  const exists = await stat(dir).then(
-    () => true,
-    () => false,
-  );
-  if (exists) return { failed: `${dir} already exists` };
+  const taken = await handOffRefusal(dir);
+  if (taken !== null) return { failed: taken };
   let tmp: string | null = null;
   let step = "creating the temporary folder";
   try {
@@ -73,11 +85,15 @@ export async function writeHandOff(
     for (const v of a.result.videos.filter(toCommit)) {
       for (const out of v.outputs) {
         step = `reading ${out}`;
-        const s = await stat(join(a.repoRoot, out)).catch(() => null);
-        if (!s)
+        const s = await stat(join(a.repoRoot, out)).catch((e: unknown) =>
+          codeOf(e),
+        );
+        if (typeof s === "string")
           return await undo(
             tmp,
-            `${out}, which refresh says it wrote, is not in the checkout`,
+            s === "ENOENT"
+              ? `${out}, which refresh says it wrote, is not in the checkout`
+              : `${out}, which refresh says it wrote, could not be read (${s})`,
           );
         if (!s.isDirectory()) {
           await carry(out);
@@ -126,6 +142,7 @@ const strings = (v: unknown): v is string[] =>
 
 /** Why a parsed handoff.json is not a hand-off this reader can check, or null. */
 function shapeRefusal(h: Record<string, unknown>): string | null {
+  if (typeof h.named !== "boolean") return "named is not true or false";
   const files = h.files as { path?: unknown; stored?: unknown }[];
   if (
     !Array.isArray(files) ||
@@ -206,6 +223,13 @@ export async function readHandOff(
 > {
   const no = (refused: string) => ({ refused });
   let raw: Record<string, unknown>;
+  // Looked at before it is read: a linked record would be read, and its
+  // parse error would quote whatever file it points at.
+  const record = await lstat(join(dir, "handoff.json")).catch(() => null);
+  if (record?.isSymbolicLink())
+    return no(
+      "the hand-off's handoff.json is a symlink, which a hand-off never holds",
+    );
   try {
     raw = JSON.parse(await readFile(join(dir, "handoff.json"), "utf8"));
     if (typeof raw !== "object" || raw === null || Array.isArray(raw))
@@ -267,14 +291,33 @@ export async function readHandOff(
         `the hand-off names ${undeclared[0]}, which no commit flow at ${at} declares`,
       );
 
+    // The name is this checkout's: the pull request and the commit carry it.
+    for (const v of h.result.videos) {
+      const e = entries.find((e) => e.file === v.file);
+      if (e && "kept" in e) v.name = e.kept.name;
+    }
     const videos = h.result.videos.filter(toCommit);
     for (const v of videos) {
       const e = entries.find((e) => e.file === v.file);
-      if (e && "kept" in e && e.kept.deliver === "commit") continue;
-      const why = e && "unreadable" in e ? ` (${e.unreadable})` : "";
-      return no(
-        `the hand-off delivers ${v.name} (${v.file}), which is not a commit flow here${why}`,
-      );
+      if (!(e && "kept" in e && e.kept.deliver === "commit")) {
+        const why = e && "unreadable" in e ? ` (${e.unreadable})` : "";
+        return no(
+          `the hand-off delivers ${v.name} (${v.file}), which is not a commit flow here${why}`,
+        );
+      }
+      // Each video's files are its own flow's, not any commit flow's.
+      const own = commitPathsOf(e.kept, e.file);
+      for (const out of v.outputs) {
+        const folder = h.folders.includes(out);
+        if (folder ? out !== own.screens : !own.files.includes(out))
+          return no(
+            `the hand-off carries ${out} for ${v.name}${folder ? " as a folder" : ""}, which ${v.file} does not declare`,
+          );
+      }
+      if (v.line !== null && !lineRefreshWrites(v.line, v.name))
+        return no(
+          `the hand-off's line for ${v.name} (${v.file}) is not one refresh writes`,
+        );
     }
 
     const outputs = new Set(videos.flatMap((v) => v.outputs));
@@ -293,13 +336,11 @@ export async function readHandOff(
 
     // Neither the record nor its folder may be a link: lstat on files/<n>
     // looks only at <n>, and would read through a linked files/.
-    for (const top of ["handoff.json", "files"]) {
-      const s = await lstat(join(dir, top)).catch(() => null);
-      if (s?.isSymbolicLink())
-        return no(
-          `the hand-off's ${top} is a symlink, which a hand-off never holds`,
-        );
-    }
+    const s = await lstat(join(dir, "files")).catch(() => null);
+    if (s?.isSymbolicLink())
+      return no(
+        "the hand-off's files is a symlink, which a hand-off never holds",
+      );
 
     for (const f of h.files) {
       // lstat, not stat: a symlink would carry whatever it points at.
@@ -348,6 +389,19 @@ export async function readHandOff(
   } catch (e) {
     return no(`reading the hand-off at ${dir}: ${said(e)}`);
   }
+}
+
+/** The words prLine's clauses and code clauses are made of, and a short
+ *  sha in a code span: nothing GitHub renders as a link, an image, HTML or
+ *  a mention, and no second line. */
+const LINE_REST = /^(?:[A-Za-z0-9 ,:'?·]|`[0-9a-f]{7}`)*$/;
+
+/** Whether `line` is one prLine writes for the flow `name`: its label is
+ *  the flow's own name as commentBody writes it, and the rest is plain. A
+ *  line is refused, not rewritten, so a real one reaches the PR unchanged. */
+function lineRefreshWrites(line: string, name: string): boolean {
+  const label = `${commentBody(name)} · `;
+  return line.startsWith(label) && LINE_REST.test(line.slice(label.length));
 }
 
 /** Empties each carried folder, then copies each stored file to its path. */

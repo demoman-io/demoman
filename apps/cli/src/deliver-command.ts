@@ -3,7 +3,14 @@ import {
   type RefreshResult,
   readRepo,
 } from "@demoman/runner/package";
-import { deliver, offBase, toCommit, withPushToken } from "./deliver.js";
+import {
+  codeSpan,
+  DETAIL_MAX,
+  deliver,
+  offBase,
+  toCommit,
+  withPushToken,
+} from "./deliver.js";
 import type { Gh } from "./gh-run.js";
 import { readHandOff, writeHandOff } from "./handoff.js";
 import { refreshLines } from "./refresh-lines.js";
@@ -39,6 +46,21 @@ export async function deliverCommand(
     deps.err(`demoman deliver: nothing delivered: ${why}\n`);
     return 1;
   };
+  // A throw (git that would not start, a full disk) says its reason in the
+  // command's own shape, not as a stack trace.
+  try {
+    return await checkAndDeliver(route, dir, deps, refuse);
+  } catch (e) {
+    return refuse(said(e));
+  }
+}
+
+async function checkAndDeliver(
+  route: "pr" | "main",
+  dir: string,
+  deps: Io & { cwd: string; gh: Gh },
+  refuse: (why: string) => number,
+): Promise<number> {
   const repo = await readRepo(deps.cwd, deps.git);
   if (!repo.ok) return refuse(`${repo.none}; run deliver inside the repo`);
   const root = repo.repo.root;
@@ -52,6 +74,10 @@ export async function deliverCommand(
   if ("failed" in placed) return refuse(placed.failed);
   const { result, named } = read.handOff;
   for (const line of refreshLines(result, []).lines) deps.out(`${line}\n`);
+  // The notes quote the recorded page, written by a job that ran the app:
+  // in code spans, as the failed videos' are, before the PR body takes them.
+  for (const v of result.videos.filter(toCommit))
+    v.notes = v.notes.map((n) => codeSpan(n, DETAIL_MAX));
   const {
     GITHUB_SERVER_URL: server,
     GITHUB_REPOSITORY: slug,

@@ -70,6 +70,7 @@ import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
 import { afterRefresh, deliverCommand } from "./deliver-command.js";
 import { realGh } from "./gh-run.js";
+import { handOffRefusal } from "./handoff.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
@@ -710,6 +711,13 @@ async function refresh(args: string[]): Promise<void> {
       }),
     );
   }
+  // Asked before the app starts: a folder that is there would be found only
+  // after every flow had recorded.
+  const taken = handOff === undefined ? null : await handOffRefusal(handOff);
+  if (taken !== null)
+    return fail(
+      `the hand-off could not be written: ${taken}; nothing was recorded`,
+    );
   requirePageBundles(
     join(fileURLToPath(new URL(".", import.meta.url)), "page"),
     (line) => fail(line),

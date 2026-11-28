@@ -13,9 +13,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execGit, type RefreshResult } from "@demoman/runner/package";
+import { execGit, prLine, type RefreshResult } from "@demoman/runner/package";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type HandOff, readHandOff, writeHandOff } from "../src/handoff.js";
+import {
+  type HandOff,
+  handOffRefusal,
+  readHandOff,
+  writeHandOff,
+} from "../src/handoff.js";
 
 type Video = RefreshResult["videos"][number];
 const base = {
@@ -134,6 +139,29 @@ describe("writeHandOff", () => {
     ).toEqual([]);
   });
 
+  it("names a folder it cannot check rather than calling it absent", async () => {
+    // A path under a plain file: stat answers ENOTDIR, not ENOENT.
+    const under = join(root, "docs/x.mp4", "handoff");
+    const r = await writeHandOff(under, args(mk([changed()])));
+    expect(r).toEqual({
+      failed: `${under} could not be checked (ENOTDIR)`,
+    });
+  });
+
+  it("names an output it cannot read rather than calling it missing", async () => {
+    // Premise: docs/x.mp4 is a plain file, so a path under it answers ENOTDIR.
+    expect(statSync(join(root, "docs/x.mp4")).isFile()).toBe(true);
+    const r = await writeHandOff(
+      out,
+      args(mk([{ outcome: "changed", outputs: ["docs/x.mp4/sub"] }])),
+    );
+    expect(r).toEqual({
+      failed:
+        "docs/x.mp4/sub, which refresh says it wrote, could not be read (ENOTDIR)",
+    });
+    expect(existsSync(out)).toBe(false);
+  });
+
   it("refuses an existing folder and leaves it alone", async () => {
     mkdirSync(out);
     writeFileSync(join(out, "keep"), "K");
@@ -177,6 +205,18 @@ describe("writeHandOff", () => {
         n.startsWith(".demoman-handoff-"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("handOffRefusal", () => {
+  it("is null for a folder that is not there, and says any other answer", async () => {
+    expect(await handOffRefusal(out)).toBeNull();
+    mkdirSync(out);
+    expect(await handOffRefusal(out)).toBe(`${out} already exists`);
+    const under = join(root, "docs/x.mp4", "handoff");
+    expect(await handOffRefusal(under)).toBe(
+      `${under} could not be checked (ENOTDIR)`,
+    );
   });
 });
 
@@ -249,6 +289,7 @@ describe("readHandOff", () => {
     mkdirSync(repo);
     at(repo, ".demoman/flows/x.json", flow("x", "commit", ["docs/x.mp4"]));
     at(repo, ".demoman/flows/f.json", flow("f", "files", ["f.mp4"]));
+    at(repo, ".demoman/flows/y.json", flow("y", "commit", ["docs/y.mp4"]));
     at(repo, `${SCREENS}/old.png`, "OLD");
     await git("init", "-q");
     await git("add", ".");
@@ -380,7 +421,7 @@ describe("readHandOff", () => {
       (h.result.videos[0] as { file: string }).file = ".demoman/flows/f.json";
     });
     await refused(
-      "the hand-off delivers x (.demoman/flows/f.json), which is not a commit flow here",
+      "the hand-off delivers f (.demoman/flows/f.json), which is not a commit flow here",
     );
   });
 
@@ -512,6 +553,123 @@ describe("readHandOff", () => {
         `the hand-off at ${dir} has no readable handoff.json (result.videos[0] (x): ${field} is not ${want})`,
       );
     });
+
+  // Each video is bound to its own flow: y is a commit flow here, so the
+  // union of every commit flow's paths would let x carry y's files.
+  for (const [what, from, to] of [
+    ["video", "docs/x.mp4", "docs/y.mp4"],
+    ["receipt", RECEIPT, ".demoman/receipts/y.json"],
+  ] as const)
+    it(`refuses a video carrying another commit flow's ${what}`, async () => {
+      edit((h) => {
+        const f = h.files.find((f) => f.path === from);
+        if (f === undefined) throw new Error(`no ${from} in the hand-off`);
+        (f as { path: string }).path = to;
+        const v = h.result.videos[0] as { outputs: string[] };
+        v.outputs = v.outputs.map((o) => (o === from ? to : o));
+      });
+      await refused(
+        `the hand-off carries ${to} for x, which .demoman/flows/x.json does not declare`,
+      );
+    });
+
+  it("refuses a video carrying another commit flow's screens folder", async () => {
+    const theirs = ".demoman/receipts/y.screens";
+    edit((h) => {
+      h.folders = [theirs];
+      const f = h.files.find((f) => f.path === `${SCREENS}/a.png`);
+      if (f === undefined) throw new Error("no screen in the hand-off");
+      (f as { path: string }).path = `${theirs}/a.png`;
+      const v = h.result.videos[0] as { outputs: string[] };
+      v.outputs = v.outputs.map((o) => (o === SCREENS ? theirs : o));
+    });
+    await refused(
+      `the hand-off carries ${theirs} for x as a folder, which .demoman/flows/x.json does not declare`,
+    );
+  });
+
+  it("takes each video's name from its own flow, not the hand-off", async () => {
+    edit((h) => {
+      (h.result.videos[0] as { name: string }).name = "[Approve](https://e)";
+    });
+    const r = await read2();
+    if (!("handOff" in r)) throw new Error(JSON.stringify(r));
+    expect(r.handOff.result.videos[0]?.name).toBe("x");
+  });
+
+  // Lines exactly as refresh writes them, through attach's own prLine.
+  const lines = [
+    prLine(
+      "x",
+      { clause: "matches all 1 step", details: null },
+      "recorded at `abc1234`",
+    ),
+    prLine(
+      "x",
+      { clause: "matches all 3 steps, with notes", details: "n" },
+      "commit unknown",
+    ),
+    prLine(
+      "x",
+      { clause: "refused: notSignedIn", details: "n" },
+      "commit not recorded",
+    ),
+    prLine(
+      "x",
+      { clause: "stopped after step ? of ?", details: "n" },
+      "filmed from uncommitted changes on `abc1234`",
+    ),
+    prLine(
+      "x",
+      { none: "the run's record is incomplete" },
+      "recorded at `abc1234`, not the PR's head `def5678`",
+    ),
+  ].map((l) => l.line);
+  for (const line of lines)
+    it(`keeps a line refresh writes: ${line}`, async () => {
+      edit((h) => {
+        (h.result.videos[0] as { line: string }).line = line;
+      });
+      const r = await read2();
+      if (!("handOff" in r)) throw new Error(JSON.stringify(r));
+      expect(r.handOff.result.videos[0]?.line).toBe(line);
+    });
+
+  for (const line of [
+    "[Approve](https://evil) @org/admins ![x](y)",
+    "Demo: `x` · [Approve](https://evil) · recorded at `abc1234`",
+    "Demo: `x` · matches all 1 step · recorded at `abc1234`\n\n@org/admins",
+    "Demo: `x` · <img src=x> · recorded at `abc1234`",
+    "Demo: `x` · matches all 1 step · recorded at `[a](b)`",
+    "Demo: `y` · matches all 1 step · recorded at `abc1234`",
+  ])
+    it(`refuses a line Demoman never writes: ${JSON.stringify(line)}`, async () => {
+      edit((h) => {
+        (h.result.videos[0] as { line: string }).line = line;
+      });
+      await refused(
+        "the hand-off's line for x (.demoman/flows/x.json) is not one refresh writes",
+      );
+    });
+
+  it("refuses a named that is not true or false", async () => {
+    edit((h) => {
+      (h as { named: unknown }).named = "yes";
+    });
+    await refused(
+      `the hand-off at ${dir} has no readable handoff.json (named is not true or false)`,
+    );
+  });
+
+  it("refuses a linked handoff.json without reading it", async () => {
+    const elsewhere = join(dir, "..", "elsewhere.txt");
+    writeFileSync(elsewhere, "secret-token-value");
+    rmSync(join(dir, "handoff.json"));
+    symlinkSync(elsewhere, join(dir, "handoff.json"));
+    await refused(
+      "the hand-off's handoff.json is a symlink, which a hand-off never holds",
+    );
+  });
 
   it("refuses an entry its handoff.json does not list", async () => {
     writeFileSync(join(dir, "files/extra"), "X");
