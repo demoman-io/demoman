@@ -1,4 +1,5 @@
 import { planScene, resolvePlan } from "@demoman/compositor";
+import { cdp, page } from "@vitest/browser/context";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { proceduralBundle } from "../../../../../packages/replay-engine/test/helpers/bundles";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
@@ -52,6 +53,7 @@ function mount(scene = readonlyScene(), snapping = true) {
   root.style.marginLeft = "120px";
   document.body.append(root);
   const gestures: Gesture[] = []; // recorded, never spied on console
+  const seeks: number[] = [];
   const draw = () =>
     renderTimeline(
       root,
@@ -65,7 +67,7 @@ function mount(scene = readonlyScene(), snapping = true) {
       },
       {
         onSelect: vi.fn(),
-        onSeek: vi.fn(),
+        onSeek: (ms) => seeks.push(ms),
         onSeekStart: vi.fn(),
         onGesture: (g) => gestures.push(g),
         onViewport: vi.fn(),
@@ -77,7 +79,7 @@ function mount(scene = readonlyScene(), snapping = true) {
     );
   draw();
   /** The same render again, as the folder watch's refresh asks for one. */
-  return { root, model, gestures, again: draw };
+  return { root, model, gestures, seeks, again: draw };
 }
 
 const at = (node: Element, fraction: number): number => {
@@ -439,6 +441,169 @@ describe("a render while a drag is held", () => {
       new PointerEvent("pointerup", { bubbles: true, clientX: at(track, 0.3) }),
     );
     expect(gestures, "a later tap drops nothing").toEqual([]);
+  });
+});
+
+// A touch the browser takes back ends in pointercancel, never pointerup. The
+// scrub ended only on pointerup, so the playhead went on following every
+// later move. Driven through Chrome's own input pipeline (CDP), not a
+// synthetic event at a reference: the cancel the browser fires is the one
+// the scrub has to hear.
+describe("a scrub the browser cancels", () => {
+  // CDP speaks in the top page's CSS px; the test runs in an iframe there.
+  const toTop = (x: number, y: number) => {
+    const frame = window.frameElement?.getBoundingClientRect();
+    const scale = frame ? frame.width / window.innerWidth : 1;
+    return {
+      x: (frame?.left ?? 0) + x * scale,
+      y: (frame?.top ?? 0) + y * scale,
+    };
+  };
+  /** Every finger still down, as CDP wants them: `[x, y]` per finger. */
+  const touch = (
+    type: "touchStart" | "touchMove" | "touchCancel",
+    ...fingers: [number, number][]
+  ) =>
+    cdp().send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: fingers.map(([x, y], id) => ({ ...toTop(x, y), id })),
+    });
+
+  it("stops following the pointer once the touch is cancelled", async () => {
+    const before = { width: window.innerWidth, height: window.innerHeight };
+    // Wide enough to hold the 1000px timeline: a point past the frame's
+    // edge is the top page's, and a move there never reaches this window.
+    await page.viewport(1280, 720);
+    const { root, model, seeks } = mount();
+    // No pan or pinch of Chrome's own, so two fingers stay two pointers and
+    // the only cancel is the one this test sends.
+    document.documentElement.style.touchAction = "none";
+    try {
+      const ruler = root.querySelector<HTMLElement>(
+        "[data-ruler]",
+      ) as HTMLElement;
+      // Below every root the earlier cases left in the body, so brought into
+      // view: a touch past the frame's bottom never reaches this window either.
+      ruler.scrollIntoView({ block: "center" });
+      const box = ruler.getBoundingClientRect();
+      const y = box.top + 4;
+      expect(
+        { right: box.right, bottom: box.bottom },
+        `premise: on screen in ${window.innerWidth}x${window.innerHeight}`,
+      ).toEqual({
+        right: expect.toSatisfy((r: number) => r < window.innerWidth),
+        bottom: expect.toSatisfy((b: number) => b < window.innerHeight),
+      });
+      const cancels: string[] = [];
+      window.addEventListener(
+        "pointercancel",
+        (e) => cancels.push(e.pointerType),
+        { once: true },
+      );
+
+      // The input is Chrome's; only the bookkeeping is watched. The pointer
+      // filter keeps a later pointer from seeking, so what a lost cancel
+      // leaves behind is the scrub's listeners, armed for good.
+      const adds = vi.spyOn(window, "addEventListener");
+      const removes = vi.spyOn(window, "removeEventListener");
+      await touch("touchStart", [at(ruler, 0.2), y]);
+      const armed = adds.mock.calls.map(([type, fn]) => ({ type, fn }));
+      expect(
+        armed.map((l) => l.type),
+        "premise: the touch armed the scrub on window",
+      ).toEqual(expect.arrayContaining(["pointermove", "pointerup"]));
+      await touch("touchMove", [at(ruler, 0.4), y]);
+      expect(
+        seeks.length,
+        "premise: the touch pressed the ruler",
+      ).toBeGreaterThan(0);
+      const held = seeks.at(-1) ?? Number.NaN;
+      expect(held, `premise: the touch scrubbed; seeks ${seeks}`).toBeCloseTo(
+        model.durationMs * 0.4,
+        -2,
+      );
+
+      // A second finger lands off the ruler and moves: it is not the
+      // scrub's pointer, so the playhead stays where the first one holds it.
+      const off = [at(ruler, 0.6), box.top - 40] as [number, number];
+      expect(
+        ruler.contains(document.elementFromPoint(off[0], off[1])),
+        "premise: the second finger is off the ruler",
+      ).toBe(false);
+      const ids = new Set<number>();
+      const onTouchMove = (e: PointerEvent) => ids.add(e.pointerId);
+      window.addEventListener("pointermove", onTouchMove);
+      await touch("touchStart", [at(ruler, 0.4), y], off);
+      await touch("touchMove", [at(ruler, 0.4), y], [at(ruler, 0.7), off[1]]);
+      window.removeEventListener("pointermove", onTouchMove);
+      expect(ids.size, "premise: the second finger moved").toBeGreaterThan(0);
+      expect(
+        seeks.at(-1),
+        `a second finger seeks nothing; seeks ${seeks}`,
+      ).toBe(held);
+
+      expect(cancels, "premise: nothing was cancelled before").toEqual([]);
+      await touch("touchCancel");
+      expect(cancels, "premise: Chrome fired the cancel").toEqual(["touch"]);
+      const removed = new Set(removes.mock.calls.map(([, fn]) => fn));
+      expect(
+        armed.filter((l) => !removed.has(l.fn)).map((l) => l.type),
+        "the cancel ended the scrub: none of its listeners left",
+      ).toEqual([]);
+      const after = seeks.length;
+      // A real mouse crossing the page afterwards, as the next hand would.
+      const moves: string[] = [];
+      const onMove = (e: PointerEvent) => moves.push(e.pointerType);
+      window.addEventListener("pointermove", onMove);
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        ...toTop(at(ruler, 0.8), y),
+      });
+      window.removeEventListener("pointermove", onMove);
+      expect(moves, "premise: the mouse move reached the page").toContain(
+        "mouse",
+      );
+      expect(seeks.slice(after), "no seek after the cancel").toEqual([]);
+      expect(seeks.at(-1), `the playhead stays; seeks ${seeks}`).toBe(held);
+    } finally {
+      vi.restoreAllMocks();
+      document.documentElement.style.touchAction = "";
+      root.remove();
+      await page.viewport(before.width, before.height);
+    }
+  });
+
+  // A right press paused and seeked, then stayed armed behind the context
+  // menu that took its release.
+  it("does not scrub on a right press", async () => {
+    const before = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(1280, 720);
+    const { root, seeks } = mount();
+    try {
+      const ruler = root.querySelector<HTMLElement>(
+        "[data-ruler]",
+      ) as HTMLElement;
+      ruler.scrollIntoView({ block: "center" });
+      const at02 = toTop(at(ruler, 0.2), ruler.getBoundingClientRect().top + 4);
+      const downs: number[] = [];
+      const onDown = (e: PointerEvent) => downs.push(e.button);
+      ruler.addEventListener("pointerdown", onDown);
+      const mouse = { ...at02, button: "right" as const, clickCount: 1 };
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        ...mouse,
+      });
+      await cdp().send("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        ...mouse,
+      });
+      ruler.removeEventListener("pointerdown", onDown);
+      expect(downs, "premise: the right press reached the ruler").toEqual([2]);
+      expect(seeks, "a right press seeks nothing").toEqual([]);
+    } finally {
+      root.remove();
+      await page.viewport(before.width, before.height);
+    }
   });
 });
 

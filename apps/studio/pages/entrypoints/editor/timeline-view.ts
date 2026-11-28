@@ -379,6 +379,9 @@ function armScrub(
   handlers: TimelineHandlers,
 ): void {
   surface.addEventListener("pointerdown", (down: PointerEvent) => {
+    // A right or middle press would pause and seek, then stay armed behind
+    // the context menu that swallows its pointerup.
+    if (down.button !== 0) return;
     down.preventDefault();
     // Or a press on the handle would reach the lane beneath it and select
     // whatever clip happens to be under the playhead.
@@ -400,15 +403,31 @@ function armScrub(
     handlers.onSeekStart();
     handlers.onSeek(msAt(down.clientX));
 
-    const onMove = (move: PointerEvent): void =>
-      handlers.onSeek(msAt(move.clientX));
-    const onUp = (up: PointerEvent): void => {
+    // Only the pointer that pressed steers or ends the scrub: a second
+    // finger, or a pen the browser cancels beside it, is not this gesture.
+    const ours = (e: PointerEvent): boolean => e.pointerId === down.pointerId;
+    const onMove = (move: PointerEvent): void => {
+      if (ours(move)) handlers.onSeek(msAt(move.clientX));
+    };
+    const off = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+    const onUp = (up: PointerEvent): void => {
+      if (!ours(up)) return;
+      off();
       handlers.onSeek(msAt(up.clientX));
+    };
+    // A touch or pen the browser took back (a pan, a palm, a system
+    // gesture) ends the scrub where the last move left it; without this the
+    // playhead followed every later move until some other press released.
+    const onCancel = (cancel: PointerEvent): void => {
+      if (ours(cancel)) off();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   });
 }
 
