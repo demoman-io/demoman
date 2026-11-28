@@ -512,6 +512,7 @@ describe("commands", () => {
         "hook",
         "add",
         "join-flow",
+        "deliver",
         "mcp",
         "remove",
         "refresh",

@@ -1,7 +1,7 @@
 // `demoman setup --ci`: the GitHub Actions workflow that records the repo's
 // flows again after each successful deployment, each published release, once
-// a day, or on each merge to main, and delivers what changed with
-// `demoman refresh --deliver`.
+// a day, or on each merge to main, read-only, and hands what changed to a
+// job of its own that runs `demoman deliver` and none of the app's code.
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -27,9 +27,9 @@ import type { Watched } from "./ci-watch.js";
 import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
-/** setup-bun by commit, not tag: it runs in the job that can push and open
- *  pull requests, and a tag can be moved to other code. The tag
- *  rides in the workflow's comment. `gh api
+/** setup-bun by commit, not tag: it runs in the refresh job, beside the
+ *  app's secrets and the artifact deliver commits from, and a tag can be
+ *  moved to other code. The tag rides in the workflow's comment. `gh api
  *  repos/oven-sh/setup-bun/git/ref/tags/<tag>` gives a newer one's sha. */
 export const SETUP_BUN = "0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0";
 
@@ -76,6 +76,18 @@ if [ "$code" -eq 1 ]; then
 elif [ "$code" -ne 0 ]; then
   echo "::error::Could not tell whether $SHA is on $DEFAULT_BRANCH (git merge-base exited $code), so nothing was refreshed."
   exit "$code"
+fi`;
+
+/** The hand-off step's script: refresh writes demoman-handoff/handoff.json
+ *  on every path that would deliver, so a green refresh without one is a
+ *  defect, and a red one has said why it stopped. */
+export const HANDOFF_SCRIPT = `if [ -f demoman-handoff/handoff.json ]; then
+  echo "present=true" >> "$GITHUB_OUTPUT"
+elif [ "$REFRESH_OUTCOME" = success ]; then
+  echo "::error::refresh exited 0 but wrote no hand-off, so nothing can be delivered"
+  exit 1
+else
+  echo "::notice::The job stopped before handing off (the refresh step's outcome: $REFRESH_OUTCOME), so nothing is delivered."
 fi`;
 
 export const RELEASE_MAIN =
@@ -151,6 +163,50 @@ function servicesBlock(app: AppSpec | null): string {
   return `    services:\n${out.join("\n")}\n`;
 }
 
+/** The commit a job checks out: the deployed sha or the released tag. */
+function checkoutRef(kind: string): string {
+  return kind === "deployment"
+    ? `\n          ref: ${expr("github.event.deployment.sha")}`
+    : kind === "release"
+      ? `\n          ref: ${expr("github.event.release.tag_name")}`
+      : "";
+}
+
+/** The job that delivers the refresh job's hand-off. It can push and open
+ *  pull requests, so it runs nothing of the app's and restores no cache:
+ *  the refresh job could have written one. */
+function deliverJob(o: CiOptions): string {
+  const { kind, onDefault } = shapeOf(o);
+  return `    needs: refresh
+    if: ${expr("!cancelled() && needs.refresh.outputs.handoff == 'true'")}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # git add turns a video into an LFS pointer only with LFS set up.
+          lfs: true
+          # deliver pushes with GH_TOKEN; none is left in .git/config.
+          persist-credentials: false${checkoutRef(kind)}
+      # Plain, at v4: this job restores no cache (the refresh job could have
+      # written it), and setup-node v5 restores npm's on its own.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: demoman-handoff
+          path: demoman-handoff
+      - name: Deliver what the refresh changed
+        run: npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version} deliver ${o.route} demoman-handoff
+        env:
+          GH_TOKEN: ${expr("github.token")}${onDefault ? `\n          DEMOMAN_DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}` : ""}
+`;
+}
+
 export function ciWorkflow(o: CiOptions): string {
   const { deployment, kind } = shapeOf(o);
   for (const n of secretNames(o)) {
@@ -199,6 +255,19 @@ export function ciWorkflow(o: CiOptions): string {
   const refreshIf = expr(
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );
+  // The group is taken before any job's `if`: a run the refresh job would
+  // skip (a preview's deployment status, Demoman's own push), or one by hand
+  // off the branch that offBranchStep refuses, gets a group of its own, or it
+  // could replace a pending run that would refresh.
+  const refreshes = [
+    guard === null ? null : `(${guard})`,
+    runsByHand(o.trigger)
+      ? `(github.event_name != 'workflow_dispatch' || github.ref_name == '${branch}')`
+      : null,
+  ].filter((c) => c !== null);
+  const group = expr(
+    `github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ${refreshes.length === 0 ? "'demoman-refresh'" : `${refreshes.join(" && ")} && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)`}`,
+  );
   // A deployment trigger records the deployed app (--base-url): nothing to serve.
   const services = deployment === null ? servicesBlock(o.app) : "";
   return `name: Demoman
@@ -206,28 +275,29 @@ on:
 ${on}
   pull_request:
     paths: [".github/workflows/demoman.yml", ".demoman/**"]
+# One group for the whole run: a newer refresh never lands between an older
+# run's refresh and its deliver. The check runs one per ref, the newest.
+concurrency:
+  group: ${group}
+  cancel-in-progress: ${expr("github.event_name == 'pull_request'")}
 jobs:
   refresh:
     if: ${refreshIf}
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      pull-requests: write${o.artifact === true || kind === "daily" ? "\n      actions: read" : ""}
-    concurrency:
-      group: demoman-refresh
-      cancel-in-progress: false
+      contents: read${o.artifact === true || kind === "daily" ? "\n      actions: read" : ""}
+    outputs:
+      handoff: ${expr("steps.ready.outputs.ready")}
 ${services}    steps:
 ${refreshSteps(o, {
   deliver: true,
   outDir: `${o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : ""} --failures demoman-failed`,
-})}  check:
+})}  deliver:
+${deliverJob(o)}  check:
     if: ${expr("github.event_name == 'pull_request'")}
     runs-on: ubuntu-24.04
     permissions:
       contents: read${deployment === null ? "" : "\n      deployments: read"}
-    concurrency:
-      group: demoman-check-${expr("github.ref")}
-      cancel-in-progress: true
 ${services}    steps:
 ${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check --failures demoman-check/failed" })}      - name: Gather the files a commit flow would write
         if: always()
@@ -258,7 +328,8 @@ export type FoundWorkflow =
   | { unreadable: string };
 
 export function foundWorkflow(text: string): FoundWorkflow {
-  const route = /\brefresh --deliver (pr|main)\b/.exec(text)?.[1] as
+  // `refresh --deliver pr` before the deliver job, `demoman@x deliver pr` since.
+  const route = /\bdeliver (pr|main)\b/.exec(text)?.[1] as
     | "pr"
     | "main"
     | undefined;
@@ -289,9 +360,9 @@ export function foundWorkflow(text: string): FoundWorkflow {
   };
 }
 
-/** The steps both jobs share. `deliver` is the refresh job; without it these
- *  are the self-check's steps, which run on the setup pull request and
- *  deliver nothing. */
+/** The steps both jobs share. `deliver` is the refresh job, whose hand-off
+ *  the deliver job delivers; without it these are the self-check's steps,
+ *  which run on the setup pull request and deliver nothing. */
 function refreshSteps(
   o: CiOptions,
   { deliver, outDir }: { deliver: boolean; outDir: string },
@@ -310,12 +381,7 @@ function refreshSteps(
   const sha = expr(
     deployment === null ? "github.sha" : "github.event.deployment.sha",
   );
-  const ref =
-    kind === "deployment"
-      ? `\n          ref: ${expr("github.event.deployment.sha")}`
-      : kind === "release"
-        ? `\n          ref: ${expr("github.event.release.tag_name")}`
-        : "";
+  const ref = checkoutRef(kind);
   // Whether a later step runs: null when nothing before it can skip the job.
   // The daily run's check (`refresh --check`) skips what follows it when
   // every flow was recorded at this commit.
@@ -463,6 +529,9 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
   const secretEnv = secretNames(o)
     .map((n) => `\n          ${n}: ${expr(`secrets.${n}`)}`)
     .join("");
+  // The refresh job's refresh gets no token: it makes no GitHub call, and
+  // the app it starts inherits its environment. The check keeps its own.
+  const refreshEnv = `${deliver ? "" : `\n          GH_TOKEN: ${expr("github.token")}`}${baseUrlEnv}${secretEnv}`;
   const forkStep =
     secretNames(o).length === 0
       ? ""
@@ -492,7 +561,7 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
           # A committed video in LFS is compared, not replaced as a pointer.
           lfs: true
           # The app's install, start and reset run in this checkout: no token
-          # left in .git/config for them to read. Refresh pushes with GH_TOKEN.
+          # left in .git/config for them to read.
           persist-credentials: false${ref}
 ${
   guarded
@@ -515,10 +584,8 @@ ${kind === "daily" ? `${fetch}${freshStep}` : ""}${tools}      - uses: actions/c
         run: ${npx} setup --browser-only
       - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${kind === "daily" ? "" : fetch}${deployedStep}      - name: Refresh the repo's flows${ifRun}
-        run: ${npx} refresh${deliver ? ` --deliver ${o.route}` : ""}${baseUrl}${outDir}
-        env:
-          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${onDefault ? `\n          DEMOMAN_DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}` : ""}${secretEnv}
+${kind === "daily" ? "" : fetch}${deployedStep}      - name: Refresh the repo's flows${deliver ? "\n        id: refresh" : ""}${ifRun}
+        run: ${npx} refresh${deliver ? " --hand-off demoman-handoff" : ""}${baseUrl}${outDir}${refreshEnv === "" ? "" : `\n        env:${refreshEnv}`}
 ${
   deliver && o.artifact === true
     ? `      - uses: actions/upload-artifact@v4
@@ -540,6 +607,29 @@ ${
           name: demoman-failed
           path: demoman-failed
           if-no-files-found: ignore
+      - name: Hand off to the deliver job
+        id: handoff
+        if: ${expr(skipCond === null ? "!cancelled()" : `!cancelled() && ${skipCond}`)}
+        env:
+          REFRESH_OUTCOME: ${expr("steps.refresh.outcome")}
+        run: |
+${HANDOFF_SCRIPT.split("\n")
+  .map((l) => `          ${l}`)
+  .join("\n")}
+      # !cancelled(): a red refresh (a flow failed) still hands off the rest.
+      - uses: actions/upload-artifact@v4
+        id: upload
+        if: ${expr("!cancelled() && steps.handoff.outputs.present == 'true'")}
+        with:
+          name: demoman-handoff
+          path: demoman-handoff
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+      - name: Ready for the deliver job
+        id: ready
+        if: ${expr("!cancelled() && steps.upload.outcome == 'success'")}
+        run: echo "ready=true" >> "$GITHUB_OUTPUT"
 `
     : ""
 }`;

@@ -187,9 +187,9 @@ export async function startApp(
   // demo account's secret and a token that can write to the repo, and the
   // install and reset run third-party code. One app.json names under secrets
   // is passed on purpose (parseApp refuses the tokens there).
-  // shortcut: this keeps them out of what the app inherits, not out of its
-  // reach: on a runner it can read refresh's own environment (/proc, sudo).
-  // Out of reach needs the push in a job that never runs the app.
+  // In the workflow the job that runs the app holds only a read token and the
+  // push runs in a job of its own. Off CI, the token in a shell is the
+  // person's own.
   const withheld = Object.keys(inherited).filter(
     (k) =>
       (k.startsWith("DEMOMAN_SECRET_") && !app.secrets.includes(k)) ||

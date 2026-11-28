@@ -13,6 +13,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { ReplayStopReason } from "@demoman/replay-engine";
 import {
+  commitPathsOf,
   committedRunReport,
   DEGRADATION_WORDS,
   type ExportAnswer,
@@ -29,7 +30,6 @@ import {
   type PageScreens,
   parseFilmedCode,
   prVerdict,
-  RECEIPT_DIR,
   RECEIPT_VERSION,
   REFRESH_LIST_FILE,
   type RefreshListEntry,
@@ -167,6 +167,8 @@ type Job = {
   /** What a note calls `previous`: its receipt, or the v1 file it came from. */
   previousAt: string;
   receiptFile: string;
+  /** The folder of screen images beside the receipt. */
+  screensAt: string;
   file: string;
   script: DemoScript;
   /** What a reader must hear before the film: the library ahead (local
@@ -539,20 +541,14 @@ export async function refreshKept(
     }
     // A files flow's receipt sits beside its outputs, not under the repo.
     // Named after the recipe's own file, never the flow's current name.
-    const receiptFile = toFolder
-      ? `${n.replace(/\.json$/, "")}.receipt.json`
-      : `${RECEIPT_DIR}/${n}`;
+    const commit = toFolder ? null : commitPathsOf(kept, file);
+    const receiptFile =
+      commit?.receipt ?? `${n.replace(/\.json$/, "")}.receipt.json`;
     const outside: string[] = [];
     // A files flow's outputs, report and receipt are bare names (the parser
     // holds them to it); its logo and wallpaper are repo paths, read here.
     for (const p of [
-      ...(toFolder
-        ? []
-        : [
-            ...kept.outputs.map((o) => o.path),
-            ...(kept.report === null ? [] : [kept.report]),
-            receiptFile,
-          ]),
+      ...(commit?.files ?? []),
       ...(kept.logo === null ? [] : [kept.logo]),
       ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
     ]) {
@@ -619,6 +615,9 @@ export async function refreshKept(
               : receiptFile
             : file,
         receiptFile,
+        screensAt:
+          commit?.screens ??
+          join(dirname(receiptFile), screensDirOf(receiptFile)),
         file,
         script,
         notes,
@@ -1111,14 +1110,13 @@ async function deliverOne(
   }: Filmed,
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
-  const { kept, previous, receiptFile, file, to } = job;
+  const { kept, previous, receiptFile, screensAt, file, to } = job;
   // Every video is filmed before any is delivered: this one waited for them.
   times.mark("queued");
   const notes: string[] = [...job.notes];
   const { screens } = shots;
   // Beside the receipt, named after it; a repo path, or a files flow's name.
   const screensDir = screensDirOf(receiptFile);
-  const screensAt = join(dirname(receiptFile), screensDir);
   // Null when unknown; the receipt gets the reason, a malformed one said.
   const filmedCode = parseFilmedCode(report.filmedCode);
   const receiptCode = filmedCodeIn(report);

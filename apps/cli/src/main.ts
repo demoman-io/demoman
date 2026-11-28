@@ -68,13 +68,14 @@ import type { CiDeps } from "./ci-setup.js";
 import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
-import { deliver, offBase, withPushToken } from "./deliver.js";
+import { afterRefresh, deliverCommand } from "./deliver-command.js";
 import { realGh } from "./gh-run.js";
+import { handOffRefusal } from "./handoff.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshCheck } from "./refresh-check.js";
-import { appRefusal, refreshLines } from "./refresh-lines.js";
+import { appRefusal } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
   ciPrompts,
@@ -132,12 +133,14 @@ const USAGE = `demoman ${VERSION}
   npx demoman remove <flow>  remove a flow from the repo: its DemoScript and receipt go, its exports stay
   npx demoman join-flow <from> <into>
                              move a flow's videos into the repo flow that has its name, and remove the flow
-  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>] [--failures <folder>]
+  npx demoman refresh [<flow>…] [--base-url <origin>] [--hand-off <folder>] [--out-dir <folder>] [--previous <folder>] [--failures <folder>]
                              record the repo's flows again and replace the exports whose picture changed;
-                             --deliver commits them on main, or opens a pull request (CI);
+                             --hand-off leaves the changed files and the result in a folder for deliver (CI);
                              --out-dir writes the files flows and demoman-refresh.json there,
                              --previous is the folder the last --out-dir was kept in,
                              --failures keeps each failed flow's run report and last still there
+  npx demoman deliver <pr|main> <folder>
+                             commit what a refresh --hand-off left in the folder on main, or open a pull request (CI)
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -689,7 +692,7 @@ async function refresh(args: string[]): Promise<void> {
   };
   const parsed = parseRefreshArgs(args);
   if ("error" in parsed) return usage(parsed.error);
-  const { only, route, baseUrl, outDir, previous, failures } = parsed;
+  const { only, handOff, baseUrl, outDir, previous, failures } = parsed;
   const fail = (detail: string): never => {
     process.stderr.write(`demoman refresh: ${detail}\n`);
     process.exit(1);
@@ -708,22 +711,17 @@ async function refresh(args: string[]): Promise<void> {
       }),
     );
   }
+  // Asked before the app starts: a folder that is there would be found only
+  // after every flow had recorded.
+  const taken = handOff === undefined ? null : await handOffRefusal(handOff);
+  if (taken !== null)
+    return fail(
+      `the hand-off could not be written: ${taken}; nothing was recorded`,
+    );
   requirePageBundles(
     join(fileURLToPath(new URL(".", import.meta.url)), "page"),
     (line) => fail(line),
   );
-  // deliver would refuse this checkout after every flow was recorded: say so
-  // before recording.
-  const target =
-    route === "pr"
-      ? await offBase(
-          repo.repo.root,
-          { git: withPushToken(execGit), gh: realGh(repo.repo.root) },
-          // The workflow's own record of the default branch it checked.
-          process.env.DEMOMAN_DEFAULT_BRANCH || undefined,
-        )
-      : undefined;
-  if (target !== undefined && "refused" in target) return fail(target.refused);
   // Decodes the exports to compare them, out of sight.
   const session = createBrowserSession({
     headless: true,
@@ -783,35 +781,18 @@ async function refresh(args: string[]): Promise<void> {
       );
   }
   if ("threw" in result) return fail(result.threw);
-  const { lines, code } = refreshLines(result, appLines);
-  for (const line of lines) process.stdout.write(`${line}\n`);
-  // The finished flows are said first; the list's failure then fails the run.
-  if (result.listError !== undefined) return fail(result.listError);
-  if (route === undefined) process.exit(code);
-  const {
-    GITHUB_SERVER_URL: server,
-    GITHUB_REPOSITORY: slug,
-    GITHUB_RUN_ID: id,
-  } = process.env;
-  const delivered = await deliver(
-    {
-      route,
+  process.exit(
+    await afterRefresh(result, appLines, {
+      ...(handOff === undefined ? {} : { handOff }),
       repoRoot: repo.repo.root,
-      result,
       named: only.length > 0,
-      ...(target === undefined ? {} : { target }),
-      runUrl:
-        server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
-    },
-    {
-      git: withPushToken(execGit),
-      gh: realGh(repo.repo.root),
-    },
+      git: execGit,
+      env: process.env,
+      version: VERSION,
+      out: (t) => process.stdout.write(t),
+      err: (t) => process.stderr.write(t),
+    }),
   );
-  process.stdout.write(
-    `delivered: ${delivered.delivered}: ${delivered.detail}\n`,
-  );
-  process.exit(code === 0 && delivered.ok ? 0 : 1);
 }
 
 /** `demoman join-flow`: this library's flow `from` joins the kept flow `into`. */
@@ -869,6 +850,19 @@ switch (command) {
     break;
   case "refresh":
     await refresh(rest);
+    break;
+  case "deliver":
+    process.exit(
+      await deliverCommand(rest, {
+        cwd: process.cwd(),
+        git: execGit,
+        gh: realGh(process.cwd()),
+        env: process.env,
+        version: VERSION,
+        out: (t) => process.stdout.write(t),
+        err: (t) => process.stderr.write(t),
+      }),
+    );
     break;
   case "join-flow":
     await joinFlow(rest);

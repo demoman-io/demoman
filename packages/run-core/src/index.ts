@@ -12,6 +12,7 @@ export * from "./export/report.js";
 export * from "./export/target.js";
 export * from "./flow-search.js";
 export * from "./keep-footage.js";
+export * from "./kept/commit-paths.js";
 export * from "./kept/file.js";
 export * from "./kept/receipt.js";
 export * from "./logo-file.js";

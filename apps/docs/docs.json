@@ -83,6 +83,7 @@
               "reference/remove",
               "reference/join-flow",
               "reference/refresh",
+              "reference/deliver",
               "reference/mcp",
               "reference/hook"
             ]

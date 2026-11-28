@@ -100,7 +100,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** A repo-relative posix path: not absolute, no `..`, no backslashes. */
-const repoRelative = (p: unknown): p is string =>
+export const repoRelative = (p: unknown): p is string =>
   typeof p === "string" &&
   p !== "" &&
   !p.startsWith("/") &&

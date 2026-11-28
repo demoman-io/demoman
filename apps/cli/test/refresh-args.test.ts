@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRefreshArgs } from "../src/refresh-args.js";
+import { DELIVER_MOVED, parseRefreshArgs } from "../src/refresh-args.js";
 
 describe("parseRefreshArgs", () => {
   it("passes --out-dir, --previous and --failures on to refreshKept's arguments", () => {
@@ -28,7 +28,7 @@ describe("parseRefreshArgs", () => {
       error: '--since is a commit sha, not "not a sha"',
     });
     for (const more of [
-      ["--deliver", "pr"],
+      ["--hand-off", "h"],
       ["a-flow"],
       ["--out-dir", "o"],
       ["--failures", "f"],
@@ -42,11 +42,28 @@ describe("parseRefreshArgs", () => {
       error: expect.stringContaining("--to"),
     });
   });
-  it("keeps --deliver and --base-url checked", () => {
-    expect(parseRefreshArgs(["--deliver", "x"])).toHaveProperty("error");
+  it("keeps --base-url checked", () => {
     expect(parseRefreshArgs(["--base-url", "ftp://a"])).toHaveProperty("error");
-    expect(
-      parseRefreshArgs(["--deliver", "pr", "--base-url", "http://a:3/x"]),
-    ).toEqual({ only: [], route: "pr", baseUrl: "http://a:3" });
+    expect(parseRefreshArgs(["--base-url", "http://a:3/x"])).toEqual({
+      only: [],
+      baseUrl: "http://a:3",
+    });
+  });
+  it("refuses --deliver with the line that says what to do", () => {
+    const moved =
+      "--deliver now runs in a job of its own, apart from the app. Delete .github/workflows/demoman.yml on the default branch and run `npx demoman setup --ci` again.";
+    expect(DELIVER_MOVED).toBe(moved);
+    for (const route of ["pr", "main", "x"])
+      expect(parseRefreshArgs(["--deliver", route])).toEqual({ error: moved });
+  });
+  it("takes --hand-off with the other flags, but not with --check", () => {
+    expect(parseRefreshArgs(["--hand-off", "x", "--out-dir", "o"])).toEqual({
+      only: [],
+      handOff: "x",
+      outDir: "o",
+    });
+    expect(parseRefreshArgs(["--check", "--hand-off", "x"])).toEqual({
+      error: "--check takes only --previous and --since",
+    });
   });
 });
