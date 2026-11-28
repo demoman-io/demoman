@@ -597,10 +597,13 @@ describe("the CLI's recipe", () => {
     expect(RECIPE).toMatch(
       /`outcome`, an error result unless `complete` with no `stopped`/,
     );
+    // Settled outcomes only: `exporting` and `attaching` are progress.
     expect(RECIPE).toMatch(
-      /the export report \(an error result unless `saved`\)/,
+      /none of `exporting`, `stillRunning`; any other but `saved` is an error result/,
     );
-    expect(RECIPE).toMatch(/anything but `attached` is an error result/);
+    expect(RECIPE).toMatch(
+      /not `attaching` or `stillRunning`; any other but `attached` is an error result/,
+    );
   });
 
   // Red if `No demo:` reaches past Attach again: Ask is the default since

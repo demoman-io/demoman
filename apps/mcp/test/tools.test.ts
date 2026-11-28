@@ -372,6 +372,36 @@ describe("demoman-mcp's tools", () => {
       );
       expect(textOf(r)).toEqual(value);
     }
+    // Red if what an agent acts on stops opening a flagged attach: a client
+    // keeps an error's head and tail, so a long nested export would cut it.
+    const partial = await connect({
+      attach: async () => ({
+        ok: true,
+        value: {
+          outcome: "notAttached",
+          reason: "partial",
+          detail: "gh failed, the video is there",
+          landed: "https://github.com/o/r/assets/1",
+          export: {
+            outcome: "saved",
+            warnings: { zooms: ["z".repeat(20000)] },
+          },
+          summary: "The video is on the PR: do not post it again.",
+        },
+      }),
+    });
+    const flagged = await partial.client.callTool({
+      name: "attach",
+      arguments: { videoId: "t1", into: "description" },
+    });
+    expect(flagged.isError).toBe(true);
+    const text = (flagged.content as Array<{ text: string }>)[0]?.text ?? "";
+    // Premise: the answer is past the 10,000 characters a client keeps.
+    expect(text.length).toBeGreaterThan(10_000);
+    const head = text.slice(0, 5_000);
+    for (const key of ["summary", "outcome", "reason", "detail", "landed"]) {
+      expect(head, key).toContain(`"${key}"`);
+    }
     // The same answer read later through report.
     let finish: (o: Outcome) => void = () => {};
     const { client } = await connect(

@@ -326,8 +326,8 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
 ## 5. Export and hand back
 
 1. `export(videoId)` with the accepted run's `provenance.videoId`. It answers
-   the export report (an error result unless `saved`), or `stillRunning`; then call `report(id)`
-   until the outcome is none of `exporting`, `stillRunning`.
+   the export report, or `stillRunning` with an `id`; then call `report(id)`
+   until the outcome is none of `exporting`, `stillRunning`; any other but `saved` is an error result.
    `fileType`, only if asked: `mp4` (default), `gif` or `stills`. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `maxMB: 9.5` fits GitHub's 10 MB drag-in, or says it could not.
@@ -346,16 +346,16 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`; `derive` then `run` if a verb changed).
    Re-record only on request. `untagged` and `taggedWithoutCommit` warnings: not the user's.
-   `links` holds one-click actions, each only where it works: `studio`, `file` and `copy` (the
-   file to the clipboard; none for stills). `linksError`, set instead, says
+   `links` holds one-click actions, each only where it works: `studio`, `file` and `copy` (to the
+   clipboard; none for stills). `linksError`, set instead, says
    why: tell the user.
-3. `renderFailed` - export **once** more; never re-run the script for it.
+3. `renderFailed` - export **once** more; never re-run the script.
    `saveFailed` - its `error` names the folder and why it cannot be
    written: tell the user; export again only once fixed. A stills export that
    stopped partway carries `partial: { folder, written, notWritten }`;
    those `written` are whole PNGs.
-4. `pathUnknown`, `refusedBeforeExport` or `threw` - report it, quoting
-   `detail` or `error`. Do not retry.
+4. `pathUnknown`, `refusedBeforeExport` or `threw` - quote `detail` or `error`;
+   do not retry.
 5. An export is not one of the three runs.
 
 ### Pull requests
@@ -370,12 +370,12 @@ say the video lacks it, quoting why. A later `gh pr edit --body` drops the video
 the PR says nothing of it. `attach`: with no video, the PR description gets
 one line, `No demo: <why>`, and so does the user.
 `attach` caps at 9.5 MB; `maxMB` sets another. On `stillRunning`, `report(id)`
-until the outcome is not `attaching` or `stillRunning`. On `busy`,
+until the outcome is not `attaching` or `stillRunning`; any other but `attached` is an error result. On `busy`,
 `report(id)` on the export in flight, then `attach`. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub`, `prUnreadable` or `copyFailed`, call
 `export({ videoId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused` or `prNotFound`, do as `detail` says. On `partial` or `unconfirmed`, do not
-post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does; anything but `attached` is an error result.
+post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only

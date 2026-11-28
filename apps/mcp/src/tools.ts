@@ -228,8 +228,13 @@ async function runAnswer(op: string, o: Outcome): Promise<ToolResult> {
 
 /** A settled export that saved nothing, or an attach that posted nothing
  *  (it answers an unsaved export as itself): the report, whole, flagged
- *  `isError` as `runAnswer` flags a run. `summary` and `outcome` open it.
- *  Progress (`exporting`, `attaching`) is not settled and is not flagged. */
+ *  `isError` as `runAnswer` flags a run. Progress (`exporting`,
+ *  `attaching`) is not settled and is not flagged. Against the 10,000-
+ *  character cut, what an agent acts on opens the answer: `summary`, then
+ *  `outcome`, `reason`, `detail`, `error` and `landed`; a `notAttached`
+ *  answer's nested `export` comes after them, and its `partial` and
+ *  `unconfirmed` summaries say not to post again, for a client that
+ *  retries on the flag. */
 const EXPORT_FAILED = new Set([
   "refusedBeforeExport",
   "renderFailed",
