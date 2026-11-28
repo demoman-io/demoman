@@ -215,8 +215,13 @@ describe("the headless PageAgent", () => {
     async () => {
       await openFixture();
       const reported: string[] = [];
-      const agent = createHeadlessPageAgent(page, (line) =>
-        reported.push(line),
+      const logged: string[] = [];
+      // An MCP run's own log is the server's: the note goes to the reporter
+      // the run report reads, not to that log.
+      const agent = createHeadlessPageAgent(
+        page,
+        (line) => logged.push(line),
+        (line) => reported.push(line),
       );
       // Recorded by its stable id (anchorOf's resolution), found by its path.
       const anchor = anchorOf("moved", { treePath: "body:1/button:2" });
@@ -230,6 +235,64 @@ describe("the headless PageAgent", () => {
       expect(reported[0]).toContain('anchor "moved"');
       expect(reported[0]).toContain("its position in the page");
       expect(reported[0]).toContain("not by its stable id");
+      expect(logged).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "says again when a later look finds the anchor by a weaker tier still",
+    async () => {
+      await openFixture();
+      const reported: string[] = [];
+      const agent = createHeadlessPageAgent(
+        page,
+        () => undefined,
+        (line) => reported.push(line),
+      );
+      // A button whose id is gone, found first by its text, then, once its
+      // text changes too, by its position.
+      const n = await page.evaluate(() => {
+        const b = document.createElement("button");
+        b.textContent = "Weaker still";
+        document.body.append(b);
+        return document.body.querySelectorAll(":scope > button").length;
+      });
+      const base = anchorOf("drifting", { treePath: `body:1/button:${n}` });
+      const anchor: SceneAnchor = {
+        ...base,
+        fingerprint: {
+          ...base.fingerprint,
+          stableId: "drifting-gone",
+          textContent: "Weaker still",
+        },
+      };
+      const [byText] = await agent.resolve([anchor]);
+      expect(byText?.strategy).toBe("text");
+      await page.evaluate(() => {
+        const b = document.body.lastElementChild as HTMLElement;
+        b.textContent = "Renamed";
+      });
+      const [byPath] = await agent.resolve([anchor]);
+      expect(byPath?.strategy).toBe("treePath");
+      expect(reported).toHaveLength(2);
+      expect(reported[0]).toContain("by its text");
+      expect(reported[1]).toContain("its position in the page");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "logs the weaker-tier note when given one reporter, as the replay command is",
+    async () => {
+      await openFixture();
+      const logged: string[] = [];
+      const agent = createHeadlessPageAgent(page, (line) => logged.push(line));
+      const anchor = anchorOf("moved", { treePath: "body:1/button:2" });
+      const [found] = await agent.resolve([anchor]);
+      expect(found?.strategy).toBe("treePath");
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toMatch(/^demoman: the element for anchor "moved"/);
     },
     TEST_TIMEOUT_MS,
   );
