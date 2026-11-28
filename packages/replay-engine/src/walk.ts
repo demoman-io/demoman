@@ -1498,26 +1498,27 @@ export async function runWalk(
       await fileStill(frame.bytes, actionId, at());
       return;
     }
-    // Marked inside the gate, where the still is asked for: its echo
-    // (`stillEcho`) is judged from there.
-    const reply = await gate.capture(async () => {
-      pageFrames.stillAsked();
-      let answered: Record<string, unknown> | null = null;
-      try {
-        answered = await watching(() =>
+    // Its echo (`stillEcho`) is judged from here, and from its answer by
+    // the time read for `captureEndedMs`: no clock read of its own.
+    pageFrames.stillAsked();
+    const reply = await gate
+      .capture(() =>
+        watching(() =>
           cdp.send("Page.captureScreenshot", {
             format: "jpeg",
             quality: KEYFRAME_QUALITY,
           }),
-        );
-        return answered;
-      } finally {
-        pageFrames.stillAnswered(
-          answered === null ? null : String(answered.data ?? ""),
-        );
-      }
-    });
+        ),
+      )
+      .catch((error: unknown) => {
+        pageFrames.stillAnswered(null, null);
+        throw error;
+      });
     captureEndedMs = at();
+    pageFrames.stillAnswered(
+      String(reply.data ?? ""),
+      captureEndedMs + started,
+    );
     if (sealed) return;
     await fileStill(decodeBase64(String(reply.data ?? "")), actionId, at());
   };
@@ -1823,16 +1824,18 @@ export async function runWalk(
       stillAsked(): void {
         late = null;
         still = {
-          fromMs: clock.now(),
-          toMs: null,
+          taking: true,
+          toMs: still?.toMs ?? null,
           own: latest === null ? null : sizeOf(latest),
           still: still?.still ?? null,
         };
       },
-      /** The still's own bytes, or null when it was refused. */
-      stillAnswered(data: string | null): void {
+      /** The still's own bytes and when it answered, on the clock; both
+       *  null when it was refused. */
+      stillAnswered(data: string | null, atMs: number | null): void {
         if (still === null) return;
-        still.toMs = clock.now();
+        still.taking = false;
+        if (atMs !== null) still.toMs = atMs;
         if (data !== null) still.still = sizeOf(data) ?? still.still;
       },
       dropping(data: string, paintedMs: number): boolean {

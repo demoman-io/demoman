@@ -268,13 +268,14 @@ export const SURFACE_CROP_WINDOW_MS = 1000;
 export const STILL_ECHO_WINDOW_MS = 1000;
 
 /**
- * A full still (`Page.captureScreenshot` at the still's scale), on the
- * walk's clock: when it was asked for and when it answered (null while it
- * is taken), the screencast's own frame size before it, and the size a
- * full still comes back at (null until one has).
+ * The latest full still (`Page.captureScreenshot` at the still's scale):
+ * whether it is being taken, when the latest to answer did, on the walk's
+ * clock (null before one has), the screencast's own frame size before it,
+ * and the size a full still comes back at (null until one has). No start
+ * time: reading the clock for one moves a walk's timings on a test's clock.
  */
 export interface StillWindow {
-  fromMs: number;
+  taking: boolean;
   toMs: number | null;
   own: string | null;
   still: string | null;
@@ -282,8 +283,7 @@ export interface StillWindow {
 
 /**
  * Whether a screencast frame is a full still's echo: a frame at the still's
- * size, which is not the screencast's own, painted once the still was asked
- * for. The screencast draws the window's surface, at the display's scale;
+ * size, which is not the screencast's own. The screencast draws the window's surface, at the display's scale;
  * only a still draws the page at its own, and Chrome sends a frame or two
  * of that drawing after it. Under CI-like load on the Mac (2026-11-28,
  * motion-budget's takes beside six background burners) every such frame
@@ -292,11 +292,11 @@ export interface StillWindow {
  * frame of the page made a span of `SPAN_MIN_FRAMES`, kept as motion at
  * the still's scale while the page stood still.
  *
- * "echo" within `STILL_ECHO_WINDOW_MS` of the still's answer, "late"
- * after it: still not the screencast's
- * scale, so still refused, but past where an echo was seen, so the walk
- * says it. null for any other frame. `size` is read only once a still has
- * been asked for: it decodes.
+ * "echo" while a still is taken and within `STILL_ECHO_WINDOW_MS` of the
+ * latest answer, "late" after it: still not the screencast's scale, so
+ * still refused, but past where an echo was seen, so the walk says it. null
+ * for any other frame. `size` is read only once a still has come back at
+ * another size than the screencast's: it decodes.
  */
 export function stillEcho(
   paintedMs: number,
@@ -308,11 +308,12 @@ export function stillEcho(
     still.still === null ||
     still.own === null ||
     still.own === still.still ||
-    paintedMs < still.fromMs ||
     size() !== still.still
   )
     return null;
-  return still.toMs === null || paintedMs <= still.toMs + STILL_ECHO_WINDOW_MS
+  return still.taking ||
+    still.toMs === null ||
+    paintedMs <= still.toMs + STILL_ECHO_WINDOW_MS
     ? "echo"
     : "late";
 }

@@ -91,7 +91,7 @@ describe("stillEcho", () => {
   const OWN = "2560x1600";
   const STILL = "3840x2400";
   const still: StillWindow = {
-    fromMs: 1000,
+    taking: false,
     toMs: 1400,
     own: OWN,
     still: STILL,
@@ -106,16 +106,17 @@ describe("stillEcho", () => {
     expect(stillEcho(1400 + STILL_ECHO_WINDOW_MS, sized(STILL), still)).toBe(
       "echo",
     );
-    // Still being taken: everything at its size since it was asked for.
-    expect(stillEcho(9000, sized(STILL), { ...still, toMs: null })).toBe(
+    // Another still being taken: everything at its size, however long
+    // after the one before.
+    expect(stillEcho(9000, sized(STILL), { ...still, taking: true })).toBe(
       "echo",
     );
   });
 
-  it("keeps the screencast's own frames, and frames painted before the still", () => {
+  it("keeps the screencast's own frames", () => {
     expect(stillEcho(1050, sized(OWN), still)).toBeNull();
     expect(stillEcho(1500, sized(OWN), still)).toBeNull();
-    expect(stillEcho(999, sized(STILL), still)).toBeNull();
+    expect(stillEcho(9000, sized(OWN), { ...still, taking: true })).toBeNull();
     // Another size altogether is the recorder's to judge (`coversViewport`).
     expect(stillEcho(1050, sized("1800x1104"), still)).toBeNull();
   });
@@ -135,14 +136,15 @@ describe("stillEcho", () => {
     expect(stillEcho(1050, sized(STILL), null)).toBeNull();
   });
 
-  it("reads a frame's size only once a still was asked for", () => {
+  it("reads a frame's size only once a still came back at another size", () => {
     let reads = 0;
     const counted = () => {
       reads++;
       return STILL;
     };
-    stillEcho(999, counted, still);
     stillEcho(1050, counted, null);
+    stillEcho(1050, counted, { ...still, still: null });
+    stillEcho(1050, counted, { ...still, own: STILL });
     expect(reads).toBe(0);
     stillEcho(1050, counted, still);
     expect(reads).toBe(1);
