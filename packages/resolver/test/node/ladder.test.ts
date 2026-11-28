@@ -172,3 +172,157 @@ describe("the text tier", () => {
     expect(report.element?.tagName).toBe("BUTTON");
   });
 });
+
+describe("a lower tier after a tie", () => {
+  /** The fingerprint a replay walks: role and name, plus whatever else the
+   *  case sets. */
+  const fingerprintOf = (
+    fields: Partial<SceneAnchor["fingerprint"]>,
+  ): SceneAnchor => ({
+    id: "a-tie",
+    fingerprint: {
+      stableId: null,
+      role: null,
+      accessibleName: null,
+      textContent: null,
+      treePath: null,
+      boundingRect: null,
+      imagePatchRef: null,
+      dataKey: null,
+      ...fields,
+    },
+    resolution: {
+      url: "https://app.example.com/",
+      actionIndex: 0,
+      entryState: true,
+      strategy: "roleName",
+      failureReason: null,
+      candidates: 1,
+    },
+  });
+
+  it("chooses only among the tied elements, and stays ambiguous when its find is not one", () => {
+    const doc = mount(
+      `<main><div><button>Edit</button></div><div><button>Edit</button></div>` +
+        `<div><button>Delete</button></div></main>`,
+    );
+    const del = Array.from(doc.querySelectorAll("button")).find(
+      (b) => b.textContent === "Delete",
+    ) as Element;
+    const anchor = fingerprintOf({
+      role: "button",
+      accessibleName: "Edit",
+      textContent: "Edit",
+      // The path now leads to a third button that neither tied tier picked.
+      treePath: serializeTreePath(buildTreePath(del, doc)),
+    });
+    // Premise: role and name tie between the two Edit buttons, and the path
+    // finds Delete, whose role agrees, so only the narrowing refuses it.
+    expect(
+      Array.from(doc.querySelectorAll("button")).filter(
+        (b) => computeName(b) === "Edit",
+      ),
+    ).toHaveLength(2);
+    expect(computeRole(del)).toBe("button");
+
+    const report = runLadder(anchor, doc, { root: doc });
+    expect(report.strategy).toBe("ambiguous");
+    expect(report.failureReason).toBe("ambiguousTie");
+    expect(report.candidates).toBe(2);
+  });
+
+  it("says which tier tied when it breaks the tie", () => {
+    const doc = mount(
+      `<main><button id="plain">Edit</button><button><span>Edit</span></button></main>`,
+    );
+    const plain = doc.querySelector("#plain") as Element;
+    const anchor = fingerprintOf({
+      role: "button",
+      accessibleName: "Edit",
+      textContent: "Edit",
+    });
+    // Premise: both buttons are role button named Edit (a tie the signals
+    // cannot break, both agreeing on role, name and text), and only the
+    // plain one is a text leaf.
+    const buttons = Array.from(doc.querySelectorAll("button"));
+    expect(buttons.map((b) => [computeRole(b), computeName(b)])).toEqual([
+      ["button", "Edit"],
+      ["button", "Edit"],
+    ]);
+
+    const report = runLadder(anchor, doc, { root: doc });
+    expect(report.strategy).toBe("text");
+    expect(report.element).toBe(plain);
+    expect(report.candidates).toBe(1);
+    expect(report.tiedAt).toEqual({ strategy: "roleName", count: 2 });
+  });
+
+  it("carries no tiedAt when nothing tied", () => {
+    const doc = mount(`<main><button>Edit</button></main>`);
+    const report = runLadder(
+      fingerprintOf({ role: "button", accessibleName: "Edit" }),
+      doc,
+      { root: doc },
+    );
+    expect(report.strategy).toBe("roleName");
+    expect(report).not.toHaveProperty("tiedAt");
+  });
+});
+
+describe("a text or path winner the fingerprint contradicts", () => {
+  const saveButton: SceneAnchor["fingerprint"] = {
+    stableId: null,
+    role: "button",
+    accessibleName: "Save",
+    textContent: "Save",
+    treePath: null,
+    boundingRect: null,
+    imagePatchRef: null,
+    dataKey: null,
+  };
+  const anchor: SceneAnchor = {
+    id: "a-save",
+    fingerprint: saveButton,
+    resolution: {
+      url: "https://app.example.com/",
+      actionIndex: 0,
+      entryState: true,
+      strategy: "roleName",
+      failureReason: null,
+      candidates: 1,
+    },
+  };
+
+  it("reports drifted when its role and name both disagree", () => {
+    const doc = mount(`<main><span>Save</span></main>`);
+    const span = doc.querySelector("span") as Element;
+    // Premise: the span carries the text and neither the role nor the name.
+    expect(computeRole(span)).toBeNull();
+    expect(computeName(span)).not.toBe("Save");
+
+    const report = runLadder(anchor, doc, { root: doc });
+    expect(report.strategy).toBe("broken");
+    expect(report.failureReason).toBe("drifted");
+    expect(report.element).toBeNull();
+    expect(report.candidates).toBe(1);
+    expect(report.corroboration).toEqual(
+      expect.arrayContaining([
+        { signal: "role", agreed: false },
+        { signal: "name", agreed: false },
+        { signal: "text", agreed: true },
+      ]),
+    );
+  });
+
+  it("still resolves a winner that keeps one of the two", () => {
+    const doc = mount(`<main><a href="#">Save</a></main>`);
+    const link = doc.querySelector("a") as Element;
+    // Premise: the role changed and the name did not.
+    expect(computeRole(link)).toBe("link");
+    expect(computeName(link)).toBe("Save");
+
+    const report = runLadder(anchor, doc, { root: doc });
+    expect(report.strategy).toBe("text");
+    expect(report.element).toBe(link);
+  });
+});

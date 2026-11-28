@@ -12,7 +12,9 @@ import {
   type AnchorIntent,
   type FrameHop,
   parseTreePath,
+  TIERS,
 } from "@demoman/resolver";
+import type { SceneAnchor } from "@demoman/scene-schema";
 import type { BrowserContext, Frame, Page } from "playwright";
 import { bundleEntry } from "./bundle-js.js";
 import { ENTRY_GLOBAL } from "./entry-globals.js";
@@ -267,6 +269,50 @@ function readReport(anchorId: string, report: SerializedReport): ResolveReport {
   };
 }
 
+/** How each tier found an element, in a note's words. */
+const FOUND_BY: Record<(typeof TIERS)[number], string> = {
+  stableId: "its stable id",
+  roleName: "its role and name",
+  text: "its text",
+  treePath: "its position in the page",
+  imagePatch: "its picture",
+};
+
+/**
+ * The note for a target found by a weaker tier than its own capture used,
+ * or null. A replay that still finds the element is a pass, and the drift
+ * under it must not read as one: a button found by its position after its
+ * role and name stopped naming it is the step a wrong click hides behind.
+ *
+ * Read here rather than in the resolver, which never reads an anchor's
+ * `resolution` (its `types.ts` says why): this is the one caller that holds
+ * both the recorded anchor and the report. An intent carries no
+ * `resolution`, and says nothing.
+ */
+export function weakerThanRecorded(
+  anchor: AnchorIntent,
+  report: SerializedReport,
+): string | null {
+  const recorded = (anchor as Partial<SceneAnchor>).resolution?.strategy;
+  const tiers: readonly string[] = TIERS;
+  const was = recorded === undefined ? -1 : tiers.indexOf(recorded);
+  const now = tiers.indexOf(report.strategy);
+  const recordedTier = TIERS[was];
+  const foundTier = TIERS[now];
+  if (recordedTier === undefined || foundTier === undefined || now <= was)
+    return null;
+  const tie =
+    report.tiedAt === undefined
+      ? ""
+      : ` among ${report.tiedAt.count} that share ${FOUND_BY[report.tiedAt.strategy]}`;
+  return (
+    `demoman: the element for anchor "${anchor.id}" was found by ` +
+    `${FOUND_BY[foundTier]}${tie}, not by ${FOUND_BY[recordedTier]} as ` +
+    "when it was recorded. The page has changed under it: check the video " +
+    "shows the element you meant."
+  );
+}
+
 /**
  * The `PageAgent` port with no extension behind it: the real resolver,
  * injected into the page, driven from node over Playwright.
@@ -394,6 +440,13 @@ export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
                   // refuses duplicate ids, but this reads what it is given). `resolveAll` preserves
                   // the order it was given.
                   readReport(anchorId, report);
+            const anchor = anchors[index];
+            const weaker =
+              anchor === undefined || report === undefined
+                ? null
+                : weakerThanRecorded(anchor, report);
+            // Once per anchor: a wait polls its target many times.
+            if (weaker !== null) reportOnce(`${anchorId} weaker`, weaker);
           });
         }),
       );

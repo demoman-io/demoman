@@ -16,16 +16,45 @@ import type {
   ImagePatchMatcher,
   ResolutionReport,
   ResolveEnv,
+  TiedAt,
 } from "./types.js";
 
+/** The tiers that find an element, strongest first: the ladder's order, and
+ *  the one a caller ranks a report's strategy by. */
+export const TIERS = [
+  "stableId",
+  "roleName",
+  "text",
+  "treePath",
+  "imagePatch",
+] as const;
+
 type Tier = {
-  strategy: "stableId" | "roleName" | "text" | "treePath";
+  strategy: Exclude<(typeof TIERS)[number], "imagePatch">;
   find: () => Element[];
 };
 
+/** How far below the best pixel score a runner-up still counts as the same
+ *  lookalike. The score is computed from computed style, not timing, so a
+ *  page scores the same on every run and nothing jitters across this. */
+const PATCH_TIE_EPSILON = 0.01;
+
+/**
+ * A winner contradicted on both role and name, when the fingerprint recorded
+ * both: found by its text or position, and by nothing else it was known by.
+ * The text and path tiers alone are held to this. A stable id is the author's
+ * own handle and outlives a rename; a role-name winner agrees by definition.
+ */
+function contradicted(signals: CorroborationSignal[]): boolean {
+  const role = signals.find((s) => s.signal === "role");
+  const name = signals.find((s) => s.signal === "name");
+  return role?.agreed === false && name?.agreed === false;
+}
+
 /**
  * Strict priority order decides the *reported* strategy (v8 §4). Corroboration
- * only breaks ties inside a tier — it never promotes or demotes one.
+ * breaks ties inside a tier and never promotes one; the one thing it can do
+ * besides is refuse a text or path winner it contradicts (`contradicted`).
  */
 export function runLadder(
   anchor: AnchorIntent,
@@ -110,38 +139,69 @@ export function runLadder(
     },
   ];
 
-  let ambiguousAt: { count: number; signals: CorroborationSignal[] } | null =
-    null;
+  // The first refusal, reported when no later tier resolves cleanly: a tie
+  // is a more useful report than "broken", and so is a drift.
+  let refused: {
+    failureReason: "ambiguousTie" | "drifted";
+    count: number;
+    signals: CorroborationSignal[];
+  } | null = null;
+  // Once a tier ties, a lower tier's job is to break that tie, never to pick
+  // something else: it chooses only among the tied elements, and the winner's
+  // report says which tier tied.
+  let tiedAt: TiedAt | null = null;
+  let tiedAmong: Set<Element> | null = null;
 
   for (const tier of tiers) {
-    const candidates = tier.find();
+    const found = tier.find();
+    const among: Set<Element> | null = tiedAmong;
+    const candidates: Element[] =
+      among === null ? found : found.filter((el) => among.has(el));
     if (candidates.length === 0) continue;
 
     const { winner, signals } = breakTie(candidates, fp, root);
-    if (winner !== null) {
-      return {
-        anchorId: anchor.id,
-        strategy: tier.strategy,
-        element: winner,
-        candidates: candidates.length,
-        failureReason: null,
-        corroboration: signals,
-        durationMs: performance.now() - started,
+    if (winner === null) {
+      refused ??= {
+        failureReason: "ambiguousTie",
+        count: candidates.length,
+        signals,
       };
+      tiedAt ??= { strategy: tier.strategy, count: candidates.length };
+      tiedAmong = new Set(candidates);
+      continue;
     }
-    // Remember the first unbreakable tie: if no later tier resolves cleanly,
-    // "ambiguous" is a more useful report than "broken".
-    ambiguousAt ??= { count: candidates.length, signals };
-  }
-
-  if (ambiguousAt !== null) {
+    if (
+      (tier.strategy === "text" || tier.strategy === "treePath") &&
+      contradicted(signals)
+    ) {
+      refused ??= {
+        failureReason: "drifted",
+        count: candidates.length,
+        signals,
+      };
+      continue;
+    }
     return {
       anchorId: anchor.id,
-      strategy: "ambiguous",
+      strategy: tier.strategy,
+      element: winner,
+      candidates: candidates.length,
+      failureReason: null,
+      corroboration: signals,
+      ...(tiedAt === null ? {} : { tiedAt }),
+      durationMs: performance.now() - started,
+    };
+  }
+
+  if (refused !== null) {
+    return {
+      anchorId: anchor.id,
+      strategy:
+        refused.failureReason === "ambiguousTie" ? "ambiguous" : "broken",
       element: null,
-      candidates: ambiguousAt.count,
-      failureReason: "ambiguousTie",
-      corroboration: ambiguousAt.signals,
+      candidates: refused.count,
+      failureReason: refused.failureReason,
+      corroboration: refused.signals,
       durationMs: performance.now() - started,
     };
   }
@@ -215,8 +275,40 @@ export async function runPatchTier(
   );
   const scored = await matcher.match(ref, candidates);
   const best = scored[0];
-  const winner = best === undefined ? undefined : candidates[best.index];
-  if (winner === undefined) return null;
+  if (best === undefined) return null;
+  // The refusal tiers 1-4 have. The tile is painted from colours and aspect
+  // alone, so every same-styled control on a design-system page scores
+  // alike: lookalikes within a hair of the best go to corroboration, and a
+  // tie it cannot break is a tie.
+  const lookalikes = scored
+    .filter((s) => best.score - s.score <= PATCH_TIE_EPSILON)
+    .map((s) => candidates[s.index])
+    .filter((el) => el !== undefined);
+  const { winner, signals } = breakTie(lookalikes, anchor.fingerprint, root);
+  if (winner === null) {
+    return {
+      anchorId: anchor.id,
+      strategy: "ambiguous",
+      element: null,
+      candidates: lookalikes.length,
+      failureReason: "ambiguousTie",
+      corroboration: signals,
+      durationMs: performance.now() - started,
+    };
+  }
+  // A picture alone is not a find: the winner needs one thing the page's DOM
+  // agrees with (its neighbourhood, role, name, text or path).
+  if (!signals.some((s) => s.agreed)) {
+    return {
+      anchorId: anchor.id,
+      strategy: "broken",
+      element: null,
+      candidates: lookalikes.length,
+      failureReason: "drifted",
+      corroboration: signals,
+      durationMs: performance.now() - started,
+    };
+  }
 
   return {
     anchorId: anchor.id,
@@ -224,7 +316,7 @@ export async function runPatchTier(
     element: winner,
     candidates: scored.length,
     failureReason: null,
-    corroboration: [],
+    corroboration: signals,
     durationMs: performance.now() - started,
   };
 }

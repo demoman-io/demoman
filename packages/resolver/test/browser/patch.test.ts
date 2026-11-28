@@ -215,4 +215,76 @@ describe("image patch matcher", () => {
     });
     expect(report.strategy).toBe("imagePatch");
   });
+
+  /** The brand tile's anchor with every DOM fingerprint but the rect gone. */
+  const pictureOnly = async (patch: ReturnType<typeof createCanvasMatcher>) => {
+    document.body.innerHTML = page;
+    const el = document.querySelector("[data-testid=brand-tile]") as Element;
+    const { anchor } = await captureAnchor(el, ctx, { root: document, patch });
+    // Premise: the rect is the one DOM signal left to agree or not.
+    expect(anchor.fingerprint.boundingRect).not.toBeNull();
+    return {
+      ...anchor,
+      fingerprint: {
+        ...anchor.fingerprint,
+        stableId: null,
+        role: null,
+        accessibleName: null,
+        textContent: null,
+        treePath: null,
+      },
+    } satisfies SceneAnchor;
+  };
+
+  it("refuses two lookalikes nothing in the DOM tells apart", async () => {
+    const patch = createCanvasMatcher();
+    const stripped = await pictureOnly(patch);
+    // Two identical tiles, both far from where the brand tile was: the
+    // picture ties and the rect agrees with neither.
+    const tile = `<div style="width:120px;height:40px;background:#1144cc"></div>`;
+    document.body.innerHTML = `<main style="padding-top:300px">${tile}${tile}</main>`;
+    const tiles = Array.from(document.querySelectorAll("main > div"));
+    const scores = await patch.match(
+      stripped.fingerprint.imagePatchRef as string,
+      tiles,
+    );
+    expect(scores).toHaveLength(2);
+    expect(scores[0]?.score).toBeGreaterThan(0.99);
+    expect(scores[1]?.score).toBe(scores[0]?.score);
+
+    const report = await resolveAnchor(stripped, { root: document, patch });
+    expect(report.strategy).toBe("ambiguous");
+    expect(report.failureReason).toBe("ambiguousTie");
+    expect(report.element).toBeNull();
+    expect(report.candidates).toBe(2);
+  });
+
+  it("lets the rect break a lookalike tie", async () => {
+    const patch = createCanvasMatcher();
+    const stripped = await pictureOnly(patch);
+    const tile = `<div style="width:120px;height:40px;background:#1144cc"></div>`;
+    // The first tile sits where the brand tile was, the second 300px down.
+    document.body.innerHTML = `<main>${tile}<div style="height:300px"></div>${tile}</main>`;
+    const first = document.querySelector("main > div") as Element;
+
+    const report = await resolveAnchor(stripped, { root: document, patch });
+    expect(report.strategy).toBe("imagePatch");
+    expect(report.element).toBe(first);
+    expect(report.corroboration).toContainEqual({
+      signal: "rect",
+      agreed: true,
+    });
+  });
+
+  it("reports drifted when the DOM agrees with nothing about the one lookalike", async () => {
+    const patch = createCanvasMatcher();
+    const stripped = await pictureOnly(patch);
+    document.body.innerHTML = `<main style="padding-top:300px"><div style="width:120px;height:40px;background:#1144cc"></div></main>`;
+
+    const report = await resolveAnchor(stripped, { root: document, patch });
+    expect(report.strategy).toBe("broken");
+    expect(report.failureReason).toBe("drifted");
+    expect(report.element).toBeNull();
+    expect(report.corroboration).toEqual([{ signal: "rect", agreed: false }]);
+  });
 });

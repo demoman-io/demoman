@@ -35,6 +35,7 @@ export interface Snapshot {
   settleNote: string | null;
   targets: SnapshotTarget[];
   unresolvable: number;
+  unlisted: number;
   notExamined: number;
   /** Set when `contains` was given and nothing matched it at all (no target,
    *  nothing left unexamined): an empty answer that must not read as "absent". */
@@ -236,6 +237,7 @@ export async function snapshotOnStage(
       settleNote: ready.note,
       targets: walk.targets,
       unresolvable: walk.unresolvable,
+      unlisted: walk.unlisted,
       notExamined: walk.notExamined,
       containsNote: containsNoteFor(
         contains,

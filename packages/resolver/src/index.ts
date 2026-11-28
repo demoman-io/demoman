@@ -2,12 +2,16 @@
 // Resolution runs in the pages `apps/runner` injects, at capture and at
 // replay. One implementation, one version, recorded per render.
 // Must equal package.json's `version` — boundary.test.ts compares them.
-export const RESOLVER_VERSION = "1.1.0";
+// A change to what an element's role or name is, or to which element a
+// fingerprint resolves to, is a bump: `dom-accessibility-api` is pinned
+// exactly for that reason, and moving it is one too.
+export const RESOLVER_VERSION = "1.2.0";
 
 export { computeName, computeRole } from "./accessibility.js";
 export { captureAnchor } from "./capture.js";
 export { anchorHealth } from "./health.js";
 export { isAuthoredIdentifier, readStableId } from "./identifiers.js";
+export { TIERS } from "./ladder.js";
 export { NO_FRAMES } from "./ports/frames.js";
 export { NO_PATCH } from "./ports/patch.js";
 export { createCanvasMatcher } from "./ports/patch-canvas.js";
@@ -44,4 +48,5 @@ export type {
   ResolveEnv,
   ShadowRegistry,
   SignalName,
+  TiedAt,
 } from "./types.js";

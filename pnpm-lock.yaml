@@ -261,7 +261,7 @@ importers:
         specifier: workspace:*
         version: link:../scene-schema
       dom-accessibility-api:
-        specifier: ^0.7.1
+        specifier: 0.7.1
         version: 0.7.1
     devDependencies:
       '@vitest/browser':

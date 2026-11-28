@@ -66,6 +66,12 @@ export interface ResolveEnv {
   patch?: ImagePatchMatcher;
 }
 
+/** A tier that tied, and how many elements it tied among. */
+export interface TiedAt {
+  strategy: Exclude<StrategyName, "ambiguous" | "broken">;
+  count: number;
+}
+
 export interface ResolutionReport {
   anchorId: string;
   strategy: StrategyName;
@@ -77,6 +83,10 @@ export interface ResolutionReport {
   // the tied candidates. A consumer should not read these signals as a fact
   // about the resolution in that case, only about one arbitrary candidate.
   corroboration: CorroborationSignal[];
+  /** Present when a stronger tier tied and this report's tier broke the tie:
+   *  `strategy` found the element among `tiedAt.count` that `tiedAt.strategy`
+   *  could not tell apart. Absent on every other report. */
+  tiedAt?: TiedAt;
   durationMs: number;
 }
 

@@ -436,6 +436,37 @@ describe("what an agent needs listed (spec B)", () => {
     expect(input?.value).toBe("42.00");
   });
 
+  // Red if the walk says nothing about what it left out: an icon wired up by
+  // script has no role, text, id or pointer cue, so it is not a candidate.
+  it("counts the shown elements nothing lists, once per region", async () => {
+    const html =
+      `<button type="button">Save</button>` +
+      `<div data-fixture="icon" style="width:20px;height:20px"><svg width="10" height="10"><path d="M0 0L10 5L0 10z"/></svg></div>` +
+      `<div data-fixture="empty" style="width:0;height:0"></div>` +
+      `<div data-fixture="hidden" style="display:none;width:20px;height:20px"></div>` +
+      `<button type="button"><svg width="10" height="10"></svg>Go</button>` +
+      `<button type="button"><span>Next</span><i data-fixture="chevron" style="display:inline-block;width:10px;height:10px"></i></button>`;
+    await walkHtml(html);
+    // Premises: the icon is shown and nothing about it is a candidate. The
+    // svg in Go and the chevron in Next belong to listed buttons, and the
+    // chevron sits beside a listed label, so its parent holds a candidate.
+    const icon = document.querySelector("[data-fixture=icon]") as Element;
+    expect(computeRole(icon)).toBeNull();
+    expect(icon.textContent).toBe("");
+    expect(icon.checkVisibility()).toBe(true);
+    expect(icon.querySelectorAll("*")).toHaveLength(2);
+    const chevron = document.querySelector("[data-fixture=chevron]") as Element;
+    expect(chevron.checkVisibility()).toBe(true);
+    const w = await walkHtml(html);
+    expect(w.targets.map((t) => t.text)).toEqual([
+      "Save",
+      "Go",
+      "Next",
+      "Next",
+    ]);
+    expect(w.unlisted).toBe(1);
+  });
+
   // Red if a select is not a credential field: its chosen option would be
   // listed and matched by contains.
   it("never lists or matches a credential select's value", async () => {

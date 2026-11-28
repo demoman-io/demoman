@@ -63,6 +63,7 @@ const WALK = {
   title: "KitchenLink",
   targets: [],
   unresolvable: 3,
+  unlisted: 5,
   notExamined: 0,
   walkMs: 12,
 };
@@ -141,6 +142,7 @@ describe("snapshotOnStage", () => {
         settleNote: null,
         targets: [],
         unresolvable: 3,
+        unlisted: 5,
         notExamined: 0,
         containsNote: null,
         walkMs: 12,

@@ -77,6 +77,11 @@ export interface SnapshotWalk {
   /** Examined and left out: not even its position names it (a capture that
    *  carries no treePath). */
   unresolvable: number;
+  /** Shown parts of the page the candidates leave out: an element with a
+   *  box, no role, text, stable id or pointer cue, none inside it, and no
+   *  candidate around it. Counted by the outermost one (an icon's svg and its
+   *  paths are one), over the whole page whatever `contains` asks. */
+  unlisted: number;
   /** Never examined: the cap or the budget ran out first. With `contains`,
    *  only the candidates that pass it count — its cheap name/text test is run
    *  over the remainder, so a positive count always means more matches are on
@@ -114,6 +119,42 @@ function fieldValue(el: Element): string | null {
   return clip(
     typeof value === "string" ? value : normalizeText(el.textContent),
   );
+}
+
+/**
+ * `SnapshotWalk.unlisted`. One pass in document order, so a parent is seen
+ * before its children: an element inside a candidate is that candidate's,
+ * and one inside a counted region is that region's.
+ */
+function countUnlisted(body: Element, candidates: Element[]): number {
+  const listed = new Set(candidates);
+  // Every element with a candidate somewhere inside it.
+  const holds = new Set<Element>();
+  for (const el of candidates) {
+    for (let up = el.parentElement; up !== null && !holds.has(up); ) {
+      holds.add(up);
+      up = up.parentElement;
+    }
+  }
+  const covered = new Set<Element>();
+  let count = 0;
+  for (const el of Array.from(body.querySelectorAll("*"))) {
+    const parent = el.parentElement;
+    if (
+      listed.has(el) ||
+      SKIP.has(el.tagName) ||
+      (parent !== null && covered.has(parent))
+    ) {
+      covered.add(el);
+      continue;
+    }
+    if (holds.has(el)) continue;
+    // Inside a silent region already counted by its outermost element.
+    if (parent !== body && (parent === null || !holds.has(parent))) continue;
+    const box = el.getBoundingClientRect();
+    if (el.checkVisibility() && box.width > 0 && box.height > 0) count += 1;
+  }
+  return count;
 }
 
 /** Elements whose text is not page text. */
@@ -341,6 +382,7 @@ export async function snapshotTargets(
       .toLowerCase()
       .includes(wanted);
 
+  const unlisted = doc.body === null ? 0 : countUnlisted(doc.body, candidates);
   const targets: SnapshotTarget[] = [];
   let unresolvable = 0;
   let notExamined = 0;
@@ -410,6 +452,7 @@ export async function snapshotTargets(
     title: doc.title,
     targets,
     unresolvable,
+    unlisted,
     notExamined,
     walkMs: Math.round(now() - started),
   };

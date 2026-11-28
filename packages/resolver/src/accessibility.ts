@@ -37,7 +37,16 @@ const TAG_ROLES: Record<string, string> = {
   ol: "list",
   li: "listitem",
   img: "img",
+  dialog: "dialog",
+  option: "option",
+  tr: "row",
+  article: "article",
 };
+
+/** Playwright's `hasExplicitAccessibleName`: a form or section is a landmark
+ *  only when it is named, and generic otherwise. */
+const namedExplicitly = (el: Element): boolean =>
+  el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby");
 
 // Own keys only. Both tables are read with page-controlled names, and a
 // bare `[]` lookup answers `Object.prototype`'s members for theirs:
@@ -61,6 +70,15 @@ export function computeRole(el: Element): string | null {
     const type = (el.getAttribute("type") ?? "text").toLowerCase();
     return roleFor(INPUT_ROLES, type);
   }
+  if (tag === "td") {
+    // A cell only inside a table, and a grid's cell is a gridcell.
+    const table = el.closest("table");
+    if (table === null) return null;
+    const role = normalizeText(table.getAttribute("role"));
+    return role === "grid" || role === "treegrid" ? "gridcell" : "cell";
+  }
+  if (tag === "form") return namedExplicitly(el) ? "form" : null;
+  if (tag === "section") return namedExplicitly(el) ? "region" : null;
   return roleFor(TAG_ROLES, tag);
 }
 
