@@ -20,7 +20,10 @@ import {
   createVideoStore,
   readRepo,
 } from "@demoman/runner/studio";
-import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  CURRENT_SCHEMA_VERSION,
+  type SceneDocument,
+} from "@demoman/scene-schema";
 import {
   type Addable,
   pathFor,
@@ -286,6 +289,51 @@ describe("takes and scenes", () => {
     });
     expect(r.status).toBe(400);
     expect((r.json() as { detail: string }).detail).toContain('"other"');
+  });
+
+  // Red: drop the unknown-field check from putSceneIf — the save answers 200
+  // and the fields a newer Demoman wrote are gone from disk, unsaid.
+  it("a take a newer Demoman wrote keeps its fields: opening it names them, and a save is refused naming them", async () => {
+    const onDisk = JSON.parse(await readFile(scenePath(), "utf8")) as Record<
+      string,
+      unknown
+    > & { schemaVersion: number; meta: Record<string, unknown> };
+    // Premise: the seeded take is at the schema this build writes, so it
+    // reads as current and nothing migrates the fields away first.
+    expect(onDisk.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    onDisk.newerTopLevel = { kept: true };
+    onDisk.meta.newerNested = "kept";
+    await writeFile(scenePath(), JSON.stringify(onDisk));
+    const before = await readFile(scenePath());
+
+    const read = (await h
+      .call(pathFor("sceneGet", { id: takeId }))
+      .then((r) => r.json())) as {
+      scene: Record<string, unknown> & { meta: Record<string, unknown> };
+      revision: string;
+      notes: string[];
+    };
+    // Premise: the scene served to the page has lost them, so a save of it
+    // would write them away.
+    expect(read.scene).not.toHaveProperty("newerTopLevel");
+    expect(read.scene.meta).not.toHaveProperty("newerNested");
+    expect(read.notes.join(" ")).toContain("newerTopLevel");
+    expect(read.notes.join(" ")).toContain("meta.newerNested");
+
+    const r = await h.call(pathFor("scenePut", { id: takeId }), {
+      method: "PUT",
+      headers: { "If-Match": read.revision },
+      body: JSON.stringify({
+        ...read.scene,
+        meta: { ...read.scene.meta, name: "edited in an older Studio" },
+      }),
+    });
+    expect(r.status).toBe(409);
+    const body = r.json() as { reason: string; detail: string };
+    expect(body.reason).toBe("sceneNotSaved");
+    expect(body.detail).toContain("newerTopLevel");
+    expect(body.detail).toContain("meta.newerNested");
+    expect(await readFile(scenePath())).toEqual(before);
   });
 
   it("a PUT to a deleted take is 404 takeNotFound, not a 409", async () => {

@@ -33,7 +33,11 @@ import {
   skippedOf,
   VideoError,
 } from "@demoman/runner/studio";
-import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
+import {
+  migrateToCurrent,
+  newerFieldsNote,
+  type SceneDocument,
+} from "@demoman/scene-schema";
 import {
   type Addable,
   type BundleAnswer,
@@ -691,6 +695,13 @@ export function createRoutes(o: {
         if (put.ok) {
           const answer: ScenePutAnswer = { revision: put.revision };
           return json(200, answer);
+        }
+        if ("unknownFields" in put) {
+          return refuse(
+            409,
+            "sceneNotSaved",
+            `The scene was not saved. ${newerFieldsNote(put.unknownFields)}`,
+          );
         }
         // No scene.json at all: the take was deleted, not edited.
         if (put.current === null) return noTake(library, id);

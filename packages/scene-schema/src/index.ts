@@ -94,7 +94,9 @@ export {
 export {
   migrateHoldsToGaps,
   migrateToCurrent,
+  newerFieldsNote,
   SchemaVersionError,
+  unknownFields,
 } from "./migrations.js";
 export { stepsInsideRemoved } from "./removed.js";
 export {

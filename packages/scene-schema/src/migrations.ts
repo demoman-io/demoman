@@ -548,6 +548,7 @@ export function migrateToCurrent(
   }
   let doc = raw as Record<string, unknown>;
   let version = doc.schemaVersion as number;
+  const readAsCurrent = version === CURRENT_SCHEMA_VERSION;
   if (version > CURRENT_SCHEMA_VERSION) {
     throw new SchemaVersionError(
       `document schemaVersion ${version} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
@@ -563,7 +564,51 @@ export function migrateToCurrent(
     doc = step(doc, notes);
     version = doc.schemaVersion as number;
   }
+  const parsed = SceneDocumentSchema.parse(doc);
+  // Only a current document: an older one's leftovers are the steps' to drop.
+  if (readAsCurrent) {
+    const unknown = droppedKeys(doc, parsed);
+    if (unknown.length > 0) notes.push(newerFieldsNote(unknown));
+  }
   // The one seam every reader shares, so the hold conversion runs here and
   // nowhere else. After the parse, so it works on a typed document.
-  return migrateHoldsToGaps(SceneDocumentSchema.parse(doc));
+  return migrateHoldsToGaps(parsed);
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The paths of the keys in `from` that the parse left out of `to`. */
+function droppedKeys(from: unknown, to: unknown, path = ""): string[] {
+  if (Array.isArray(from) && Array.isArray(to))
+    return from.flatMap((v, i) => droppedKeys(v, to[i], `${path}[${i}]`));
+  if (!isRecord(from) || !isRecord(to)) return [];
+  return Object.keys(from).flatMap((key) => {
+    const at = path === "" ? key : `${path}.${key}`;
+    return Object.hasOwn(to, key) ? droppedKeys(from[key], to[key], at) : [at];
+  });
+}
+
+/**
+ * The fields of a current-schema document this build does not know, as
+ * paths (`meta.newer`, `edits.zooms[0].newer`). Optional fields are added
+ * without a `schemaVersion` bump, so a newer build's take reads as current
+ * here, and the parse drops what it does not know: a writer checks this
+ * first rather than saving the take without them. Throws as
+ * `migrateToCurrent` does on a document that will not read.
+ */
+export function unknownFields(raw: unknown): string[] {
+  if (
+    (raw as { schemaVersion?: unknown })?.schemaVersion !==
+    CURRENT_SCHEMA_VERSION
+  )
+    return [];
+  return droppedKeys(raw, SceneDocumentSchema.parse(raw));
+}
+
+/** What a reader says about `unknownFields`, and a refused save with it. */
+export function newerFieldsNote(paths: string[]): string {
+  const shown = paths.slice(0, 5).join(", ");
+  const more = paths.length > 5 ? ` and ${paths.length - 5} more` : "";
+  return `This video was written by a newer Demoman, and this one does not know its fields ${shown}${more}: it leaves them out of what it shows and exports, and will not save over them. Update Demoman to edit this video.`;
 }
