@@ -48,8 +48,9 @@ corepack (pnpm, yarn) and bun when the commands use them.
 The install, start and reset commands inherit refresh's environment without
 Demoman's own secrets: no `DEMOMAN_SECRET_*` unless `secrets` names it, and in
 GitHub Actions no `GH_TOKEN` or `GITHUB_TOKEN`. The workflow's checkout keeps
-no token in `.git/config`. These commands still run in the same job as the
-push, so code you do not trust should not run in them.
+no token in `.git/config`. These commands run in a job whose token can only read.
+The push runs in a separate job that never runs them. Demo-account secrets
+that `secrets` names are still theirs to read.
 
 If a workflow of yours already starts the app before `demoman refresh` (a
 "Start your app" step, or `wait-on`), delete that step: both would use the

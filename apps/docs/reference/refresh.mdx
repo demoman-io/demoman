@@ -34,3 +34,11 @@ uses an app already answering at `url`, otherwise it runs `start`.
 | `--previous <folder>` | A copy of everything earlier `--out-dir` runs delivered, kept whole (such as your bucket synced back down), to compare `files` flows against. It may be the `--out-dir` itself |
 | `--failures <folder>` | Keep each failed flow's run report (`report.json`) and the last frame it recorded (`final-still.png`) in a folder of its own here, named after its file in `.demoman/flows/`. The flow's line names the folder, and says why when there is no still, such as a run that recorded no frame. A run refused before it started has neither, and its line says why |
 | `--check` | Record nothing; print each flow's state and exit 3 when every flow is current, else 0. A flow with no receipt, recorded from uncommitted changes, or that git cannot compare counts as changed. Accepts only `--previous` and `--since <sha>`, the commit the last successful refresh ran at. The daily workflow uses it |
+
+## Delivering
+
+Refresh does not commit. `demoman deliver <pr|main> <folder>` takes the
+folder `--hand-off` wrote and commits it, in a job of its own with write
+access that never runs your app. It checks the folder against the repo's flows
+first and refuses, committing nothing, when it holds a path no flow declares.
+See [deliver](/reference/deliver).
