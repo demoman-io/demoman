@@ -84,36 +84,45 @@ const PANNED = [1, 1.8, 1.8, 1];
 const RETURNED = [1, 1.8, 1, 1.8, 1];
 
 describe("a zoom that records how the camera arrives", () => {
-  // Red when `arrivesOf` ignores `seed.arrives` (its
-  // `if (seed.arrives !== null && !edited(before, seed))` branch): the clock
-  // would return here.
+  // Red when `arrivesOf` ignores `seed.arrives` (its `seed.arrives ??`):
+  // the clock would return here.
   it("pans on a recorded pan where the clock would return", () => {
     expect(clockReturns(RETURN_AT)).toBe(true);
     expect(scales(solve(RETURN_AT, undefined))).toEqual(RETURNED);
     expect(scales(solve(RETURN_AT, "pan"))).toEqual(PANNED);
   });
 
-  // Final review, Important 1: a recorded return with no room for one used
-  // to be obeyed, and the pull-out left 25 ms after the arrival, so the
-  // camera was a third of the way out at the click. Red if `arrivesOf`
-  // follows a recorded return that does not fit (its `!fits` test goes):
-  // the scales would be RETURNED and the keys the squeezed return's.
-  it("pans on a recorded return the gap has no room for, exactly as the clock does", () => {
+  // The record is final (author's ruling 2026-11-28): a recorded return the
+  // gap has no room for is drawn as a return, squeezed into the gap it has,
+  // never turned into a pan by the renderer. Red if `arrivesOf` puts back
+  // the `!fits` override: the keys would be the clock's pan.
+  it("draws a recorded return the gap has no room for as a return", () => {
     // Premise: the clock pans here (a 1600 ms gap against 3250 at this
     // smoothness), so the record and the clock disagree.
     expect(clockReturns(PAN_AT)).toBe(false);
-    const clock = solve(PAN_AT, undefined);
-    expect(scales(clock)).toEqual(PANNED);
+    expect(scales(solve(PAN_AT, undefined))).toEqual(PANNED);
     const recorded = solve(PAN_AT, "return");
-    expect(recorded.keys).toEqual(clock.keys);
-    // And the camera is settled at the first click: the pan to the second
-    // departs a plateau after the first beat has arrived and acted.
-    const [, first, second] = recorded.keys;
-    if (first === undefined || second === undefined)
+    expect(scales(recorded)).toEqual(RETURNED);
+    // Squeezed: the pull-out lands where the next push-in must set off, a
+    // plateau before it, so the camera is at full frame between the two.
+    const [, , pullOut, secondIn] = recorded.keys;
+    if (pullOut === undefined || secondIn === undefined)
       throw new Error(JSON.stringify(recorded.keys));
-    expect(second.outputTimeMs - second.transitionMs).toBeGreaterThanOrEqual(
-      Math.max(first.outputTimeMs, 1000) + CAMERA_DEFAULTS.neutral.minPlateauMs,
+    expect(pullOut.outputTimeMs).toBe(
+      secondIn.outputTimeMs -
+        secondIn.transitionMs -
+        CAMERA_DEFAULTS.neutral.minPlateauMs,
     );
+  });
+
+  // Red if `decidedArrives` loses its `!fits` test: the record's return
+  // would be written back, and the take keep a return it has no room for.
+  it("decides a pan for a recorded return the gap has no room for", () => {
+    expect(clockReturns(PAN_AT)).toBe(false); // premise
+    expect(solve(PAN_AT, "return").decided.get("z2")).toBe("pan");
+    // And keeps a recorded pan the clock would return on: the walk's.
+    expect(clockReturns(RETURN_AT)).toBe(true); // premise
+    expect(solve(RETURN_AT, "pan").decided.get("z2")).toBe("pan");
   });
 
   // Red if the record's return is dropped where it fits (the guard turned
@@ -123,6 +132,7 @@ describe("a zoom that records how the camera arrives", () => {
     expect(clockReturns(RETURN_AT)).toBe(true); // premise
     const recorded = solve(RETURN_AT, "return");
     expect(scales(recorded)).toEqual(RETURNED);
+    expect(recorded.decided.get("z2")).toBe("return");
     const [, firstIn, pullOut, secondIn] = recorded.keys;
     if (
       firstIn === undefined ||
@@ -139,18 +149,28 @@ describe("a zoom that records how the camera arrives", () => {
     ).toBeGreaterThanOrEqual(minPlateauMs);
   });
 
-  // Red when `arrivesOf` drops its `!edited` test: the recorded pan would
-  // stand across an authored gap that moved the beats it was decided on.
-  it("ignores the record when an authored gap follows the earlier step", () => {
-    expect(clockReturns(RETURN_AT)).toBe(true);
-    expect(scales(solve(RETURN_AT, "pan"))).toEqual(PANNED); // premise
-    expect(scales(solve(RETURN_AT, "pan", ["first"]))).toEqual(RETURNED);
+  // The first zoom has no zoom before it: nothing is decided for it.
+  it("decides nothing for the first zoom", () => {
+    expect(solve(RETURN_AT, "pan").decided.has("z1")).toBe(false);
+  });
+
+  // An authored gap moved the beats the record was decided on. The keys
+  // still draw the record (red if the renderer asks the clock across it);
+  // the decision asks again (red if `decidedArrives` drops its `!edited`
+  // test), and `decideCamera` writes it.
+  it("draws the record across an authored gap, and decides again across it", () => {
+    expect(clockReturns(RETURN_AT)).toBe(true); // premise
+    const gapped = solve(RETURN_AT, "pan", ["first"]);
+    expect(scales(gapped)).toEqual(PANNED);
+    expect(gapped.decided.get("z2")).toBe("return");
   });
 
   // Red when the range loses its upper bound (`ms < seed.actionMs`): a gap
   // after the later step does not touch this pair.
   it("keeps the record when the gap follows the later step", () => {
-    expect(scales(solve(RETURN_AT, "pan", ["second"]))).toEqual(PANNED);
+    const gapped = solve(RETURN_AT, "pan", ["second"]);
+    expect(scales(gapped)).toEqual(PANNED);
+    expect(gapped.decided.get("z2")).toBe("pan");
   });
 });
 
@@ -195,7 +215,8 @@ const solveCut = (cut: Timeline, arrives: "pan" | "return" | undefined) =>
 describe("a zoom with a removed piece before it", () => {
   // Red when `solveCamera`'s `edited` drops its removed-piece test
   // (`timeline.cuts.some(...)`): the recorded pan would stand across a
-  // piece the author removed, which moved the beats it was decided on.
+  // piece the author removed, which moved the beats it was decided on. The
+  // keys draw the record either way (red if the renderer decides over it).
   it("decides a recorded pan again when a removed piece lies between the two zooms", () => {
     // Between the two, and over the earlier zoom's own step.
     for (const [start, end] of [
@@ -206,8 +227,9 @@ describe("a zoom with a removed piece before it", () => {
       // Premise: the gap left after the cut is still on the return side of
       // the clock, so the record and the clock disagree.
       expect(clockReturns(RETURN_AT - (end - start))).toBe(true);
-      expect(scales(solveCut(timeline, "pan"))).toEqual(PANNED);
-      expect(scales(solveCut(cut, "pan"))).toEqual(RETURNED);
+      expect(solveCut(timeline, "pan").decided.get("z2")).toBe("pan");
+      expect(solveCut(cut, "pan").decided.get("z2")).toBe("return");
+      expect(scales(solveCut(cut, "pan"))).toEqual(PANNED);
     }
   });
 
@@ -219,7 +241,7 @@ describe("a zoom with a removed piece before it", () => {
     // Premise: there is a cut, and the clock would return.
     expect(cut.cuts).toHaveLength(1);
     expect(clockReturns(RETURN_AT)).toBe(true);
-    expect(scales(solveCut(cut, "pan"))).toEqual(PANNED);
+    expect(solveCut(cut, "pan").decided.get("z2")).toBe("pan");
   });
 });
 

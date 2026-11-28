@@ -22,9 +22,10 @@ import { decideZoom, type LastZoom } from "./auto-zoom.js";
  * not count (page paints, a scroll), which only widens it, less what the
  * designed clock counts that may play shorter: a journey's eased-out end
  * (measured 50–73 ms) and typing that runs ahead of its schedule. The margin
- * covers the first with room; a gap the second still takes below a return
- * renders as a pan (`arrivesOf` follows a recorded return only where one
- * fits), never as a squeezed return.
+ * covers the first with room; a gap the second still takes below a return is
+ * recorded as a pan when the take is assembled (`decideCamera`, which checks
+ * the walk's answer on the take's own timeline), never drawn as a squeezed
+ * return. The renderer draws the record and does not ask again.
  */
 export const PAN_MARGIN_MS = 300;
 

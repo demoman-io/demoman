@@ -99,6 +99,7 @@ export {
   cursorIdleAlpha,
   cursorMotionSpans,
   cursorRestSpans,
+  decideCamera,
   type LoweredZoom,
   type ResolvedCosmetic,
   type ResolvedDialogCard,

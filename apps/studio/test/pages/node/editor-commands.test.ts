@@ -1,3 +1,4 @@
+import { motionTimings, returnsBetween } from "@demoman/compositor";
 import { refilmScript } from "@demoman/run-core";
 import {
   MOTION_DEFAULTS,
@@ -5,6 +6,7 @@ import {
   SceneDocumentSchema,
 } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
+import { proceduralBundle } from "../../../../../packages/compositor/test/fixtures/bundle";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
 import { applyCommand } from "../../../pages/src/editor/commands";
 import { initEditor, runCommand, undo } from "../../../pages/src/editor/state";
@@ -93,7 +95,9 @@ describe("a planned take's record survives the editor", () => {
     const next = ids();
     let scene = planned;
     for (const edit of edits) {
-      scene = applyCommand(scene, edit, next);
+      // With the take's frames, as the session applies every edit: a gap is
+      // decided on them, and the only zoom has none before it to decide.
+      scene = applyCommand(scene, edit, next, proceduralBundle());
       expect(scene.pacing, edit.kind).toEqual(pacing);
       expect(scene.camera[0]?.arrives, edit.kind).toBe("return");
     }
@@ -749,10 +753,12 @@ describe("zoom edits are recorded for the script", () => {
   });
 });
 
-describe("a zoom edit makes the renderer decide each arrival again", () => {
-  // A zoom's `arrives` is about the zoom before it, so these edits can make
-  // every stored one stale. Red if the command's kind leaves
-  // `ZOOM_SET_EDITS` in commands.ts (the line that drops `arrives`).
+describe("an edit that moves the beats decides each arrival again, and records it", () => {
+  // The record is final (author's ruling 2026-11-28): the renderer draws a
+  // zoom's `arrives` and never decides over it, so an edit that can make one
+  // stale decides it again, once, on the take's frames, and writes it.
+  const bundle = proceduralBundle();
+  const timings = motionTimings(MOTION_DEFAULTS.smoothness);
   const planned = () => {
     let n = 0;
     const next = () => `z-${++n}`;
@@ -774,14 +780,28 @@ describe("a zoom edit makes the renderer decide each arrival again", () => {
       camera: scene.camera.map((c) => ({ ...c, arrives: "pan" as const })),
     });
   };
-  const carries = (s: SceneDocument) => s.camera.map((c) => "arrives" in c);
+  const arrives = (s: SceneDocument) => s.camera.map((c) => c.arrives);
 
-  it("the fixture's zooms carry arrives (the premise)", () => {
+  it("the fixture's premise: every zoom records a pan, and the clock returns into both after the first", () => {
     const scene = planned();
-    expect(scene.camera.length).toBe(3);
-    expect(carries(scene)).toEqual([true, true, true]);
+    expect(scene.camera.map((c) => c.marker.actionId)).toEqual([
+      "act-1",
+      "act-2",
+      "act-3",
+    ]);
+    expect(arrives(scene)).toEqual(["pan", "pan", "pan"]);
+    // The bundle's markers, which the zooms' times come from.
+    const at = new Map(bundle.markers.map((m) => [m.actionId, m.sourceTimeMs]));
+    expect([at.get("act-1"), at.get("act-2"), at.get("act-3")]).toEqual([
+      400, 3200, 9000,
+    ]);
+    // So a pair that keeps its pan below kept its record, not the clock's.
+    expect(returnsBetween(400, 3200, timings)).toBe(true);
+    expect(returnsBetween(3200, 9000, timings)).toBe(true);
   });
 
+  // Red if the command's kind leaves `ZOOM_SET_EDITS` in commands.ts: the
+  // stale pans would stand.
   it.each([
     [
       "addZoom",
@@ -802,29 +822,51 @@ describe("a zoom edit makes the renderer decide each arrival again", () => {
       },
     ],
     ["removeZoom", { kind: "removeZoom", id: "z-2" }],
-  ] as const)("%s leaves no zoom carrying arrives", (_name, command) => {
-    const after = applyCommand(planned(), command, () => "z-new");
+  ] as const)(
+    "%s decides every arrival from the clock and records it",
+    (_name, command) => {
+      const after = applyCommand(planned(), command, () => "z-new", bundle);
+      const last = after.camera.find((c) => c.marker.actionId === "act-3");
+      expect(last?.arrives).toBe("return");
+      // The first zoom has none before it: nothing decided, nothing recorded.
+      expect(after.camera[0]?.arrives).toBeUndefined();
+    },
+  );
+
+  // With no frames there is no timeline to decide on, so no stale record is
+  // left for the renderer to draw; the clock draws what deciding would have
+  // recorded. Red if `decideCameraAgain` keeps them.
+  it("with no bundle, leaves no zoom carrying arrives", () => {
+    const after = applyCommand(
+      planned(),
+      { kind: "removeZoom", id: "z-2" },
+      () => "z-new",
+    );
     expect(after.camera.length).toBeGreaterThan(0);
-    expect(carries(after).every((has) => !has)).toBe(true);
+    expect(arrives(after).every((a) => a === undefined)).toBe(true);
   });
 
   // Final review, Important 2: smoothness sets the push-in and pull-out, so
   // the gap a return needs. Red if `applyCommand` stops asking
   // `smoothnessChanged`: every arrival would keep the old smoothness's answer.
-  it("a smoothness change leaves no zoom carrying arrives", () => {
+  it("a smoothness change decides every arrival again", () => {
     const scene = planned();
-    // Premise: the edit really moves smoothness off what the take has.
+    // Premise: the edit really moves smoothness off what the take has, and
+    // the clock still returns into the last zoom at the new one.
     expect((scene.motion ?? MOTION_DEFAULTS).smoothness).not.toBe(1);
+    expect(returnsBetween(400, 3200, motionTimings(1))).toBe(false);
+    expect(returnsBetween(3200, 9000, motionTimings(1))).toBe(true);
     const after = applyCommand(
       scene,
       { kind: "setMotion", patch: { smoothness: 1 } },
       () => "z-new",
+      bundle,
     );
     expect(after.motion?.smoothness).toBe(1);
-    expect(carries(after)).toEqual([false, false, false]);
+    expect(arrives(after)).toEqual([undefined, "pan", "return"]);
   });
 
-  // Red if every `setMotion` clears them (asked of the command's kind
+  // Red if every `setMotion` decides again (asked of the command's kind
   // rather than of smoothness), or if writing the first motion block (the
   // defaults, smoothness included) reads as a change.
   it("a motion edit that keeps smoothness leaves arrives where it was", () => {
@@ -837,18 +879,83 @@ describe("a zoom edit makes the renderer decide each arrival again", () => {
       scene,
       { kind: "setMotion", patch: { blur: 0 } },
       () => "z-new",
+      bundle,
     );
     expect(after.motion).toEqual({ ...MOTION_DEFAULTS, blur: 0 });
-    expect(carries(after)).toEqual([true, true, true]);
+    expect(arrives(after)).toEqual(["pan", "pan", "pan"]);
   });
 
-  it("a gap edit leaves arrives where it was", () => {
-    // Red if `setGap` joined `ZOOM_SET_EDITS`.
-    const after = applyCommand(
+  // A gap or a removed piece moves the beats of the pair it lies between:
+  // that pair is decided again, every other keeps its record. Red if the
+  // command leaves `BEAT_EDITS` (the pair keeps its stale pan), or joins
+  // `ZOOM_SET_EDITS` (the first zoom's record would go too).
+  it.each([
+    ["setGap", { kind: "setGap", afterActionId: "act-2", durationMs: 900 }],
+    [
+      "removePiece",
+      {
+        kind: "removePiece",
+        start: { actionId: "act-2", sourceOffsetMs: 1000 },
+        end: { actionId: "act-2", sourceOffsetMs: 1500 },
+      },
+    ],
+  ] as const)(
+    "%s decides the pair it moves again, and keeps the rest",
+    (_name, command) => {
+      const after = applyCommand(planned(), command, () => "z-new", bundle);
+      expect(arrives(after)).toEqual(["pan", "pan", "return"]);
+    },
+  );
+
+  // A pair the edit stops lying across is decided again too: restoring a
+  // piece gives the pair its whole gap back, and the clock its say. Red if
+  // `decidePairsAgain` stops passing `before` to `decideCamera`: the pan
+  // decided across the removed piece would stand.
+  it("restorePiece decides the pair the piece lay across again", () => {
+    const removed = applyCommand(
       planned(),
-      { kind: "setGap", afterActionId: "act-1", durationMs: 900 },
-      () => "z-new",
+      {
+        kind: "removePiece",
+        start: { actionId: "act-2", sourceOffsetMs: 100 },
+        end: { actionId: "act-2", sourceOffsetMs: 5300 },
+      },
+      () => "piece-1",
+      bundle,
     );
-    expect(carries(after)).toEqual([true, true, true]);
+    // Premise: 600 ms is left between the two zooms, so the clock pans and
+    // the record stays a pan across the piece.
+    expect(returnsBetween(3200, 3800, timings)).toBe(false);
+    expect(arrives(removed)).toEqual(["pan", "pan", "pan"]);
+    const pieceId = removed.edits.removed?.[0]?.id;
+    expect(pieceId).toBeDefined();
+    const restored = applyCommand(
+      removed,
+      { kind: "restorePiece", id: pieceId as string },
+      () => "z-new",
+      bundle,
+    );
+    expect(restored.edits.removed ?? []).toEqual([]);
+    expect(arrives(restored)).toEqual(["pan", "pan", "return"]);
+  });
+
+  // Dropping the records with no frames to decide on would turn the walk's
+  // pans everywhere into the clock's answers, with nothing said. Red if
+  // `decidePairsAgain` stops refusing.
+  it("refuses a gap edit on a take with records and no frames, saying why", () => {
+    expect(() =>
+      applyCommand(
+        planned(),
+        { kind: "setGap", afterActionId: "act-2", durationMs: 900 },
+        () => "z-new",
+      ),
+    ).toThrow(/frames are not loaded/);
+    // A take with no record has nothing to go stale, and edits as before.
+    expect(
+      applyCommand(
+        readonlyScene(),
+        { kind: "setGap", afterActionId: "act-2", durationMs: 900 },
+        () => "z-new",
+      ).edits.gaps,
+    ).toHaveLength(1);
   });
 });

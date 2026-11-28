@@ -391,7 +391,7 @@ export function createSession(deps: SessionDeps) {
         // moments before it writes; that one can still go stale between its
         // own read and write. See `persist()`'s docblock.
         const before = state;
-        const next = runCommand(state, command, deps.newId);
+        const next = runCommand(state, command, deps.newId, bundle);
         if (next.scene === before.scene) {
           state = next;
           emit();

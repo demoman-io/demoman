@@ -383,9 +383,13 @@ const CameraEvent = z.object({
    */
   scaleSetBy: z.enum(["script", "author"]).optional(),
   /**
-   * How the camera reaches this zoom, decided once at record time from the
-   * beat plan: `pan` slides from the zoom before it, `return` pulls back to
-   * full frame first. Absent: the renderer's own clock (every earlier take).
+   * How the camera reaches this zoom: `pan` slides from the zoom before it,
+   * `return` pulls back to full frame first. Decided once when the take is
+   * assembled (the beat plan's answer, checked for fit on the take's own
+   * timeline) and again, once, when the author moves the beats in the
+   * Studio (`decideCamera`). The renderer draws it and never decides over
+   * it. Absent: the renderer's own clock (every take recorded before
+   * 2026-11-13 and never edited since).
    */
   arrives: z.enum(["pan", "return"]).optional(),
 });
