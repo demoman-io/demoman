@@ -13,7 +13,7 @@ import {
   STEP_SETTLE_MARKER,
   STILL_DRAIN_MS,
 } from "../../src/index.js";
-import { ECHO_WINDOW_MS } from "../../src/step-settle.js";
+import { ECHO_WINDOW_MS, STILL_ECHO_WINDOW_MS } from "../../src/step-settle.js";
 import {
   type CdpFake,
   createCdpFake,
@@ -667,6 +667,92 @@ describe("frames a page screen keeps out of the film", () => {
     ).toBeGreaterThanOrEqual(3);
     expect(pushed, pushed.join(",")).not.toContain("1280x800");
     expect(pushed, pushed.join(",")).not.toContain("2400x1500");
+  });
+
+  // Red without `stillEcho` in the walk: under CI-like load a frame painted
+  // during a full still and one painted after it, arriving after a frame of
+  // the screencast's own, joined a frame of the page in a span kept at the
+  // still's 3840 while the page stood still (2026-11-28). One painted past
+  // the window is refused too, and said.
+  it("keeps a full still's echo out of the motion, in any arrival order, and says one painted long after", async () => {
+    const d = deps();
+    const OWN = fakeScreenshotBase64(2560, 1600);
+    const STILL = fakeScreenshotBase64(3840, 2400);
+    const frame = (sessionId: number, data: string, paintedMs: number) =>
+      d.cdp.emit("Page.screencastFrame", {
+        sessionId,
+        data,
+        metadata: { timestamp: paintedMs / 1000 },
+      });
+    let stills = 0;
+    let echoesSent = 0;
+    let afterDue = false;
+    let lateAt = -1;
+    const send = d.cdp.send.bind(d.cdp);
+    d.cdp.send = async (method, params = {}) => {
+      // The page painting itself in before the opening still, at the
+      // screencast's own 2x.
+      if (
+        method === "Runtime.evaluate" &&
+        String(params.expression).includes("__demomanSettlePaint")
+      ) {
+        d.cdp.emit("Page.screencastFrame", { sessionId: 1, data: OWN });
+      }
+      if (afterDue && method !== "Page.screencastFrameAck") {
+        afterDue = false;
+        const now = d.clock.now();
+        // After the still answered: a frame of the page, then an echo
+        // painted before it that arrives after it, then the page moving.
+        frame(3, OWN, now + 2);
+        frame(4, STILL, now + 1);
+        echoesSent++;
+        for (let i = 0; i < 4; i++) frame(5 + i, OWN, now + 3 + i);
+        // Past the window: still the still's size, refused and said.
+        lateAt = now + STILL_ECHO_WINDOW_MS + 500;
+        frame(9, STILL, lateAt);
+        echoesSent++;
+        frame(10, OWN, lateAt + 1);
+      }
+      if (method === "Page.captureScreenshot" && params.format === "jpeg") {
+        // The first is the opening's, before filming; the next is filmed.
+        if (++stills === 2) {
+          frame(2, STILL, d.clock.now());
+          echoesSent++;
+          afterDue = true;
+        }
+        await send(method, params);
+        return { data: STILL };
+      }
+      return send(method, params);
+    };
+    const result = await runReplay(scene(), d);
+    const pushed = vi
+      .mocked(d.encoder.push)
+      .mock.calls.map(([f]) => `${f.width}x${f.height}`);
+    const said = result.degradations.filter(
+      (x) => x.kind === "surfaceMismatch",
+    );
+    const evidence = JSON.stringify({ pushed, said, stills, echoesSent });
+    // The premises: the stills came back at 3840, all three echoes were
+    // sent, and the page's own frames around them were filmed.
+    expect(result.outcome, evidence).toBe("complete");
+    expect(
+      result.bundle?.keyframes.map((k) => k.width),
+      evidence,
+    ).toContain(3840);
+    expect(echoesSent, evidence).toBe(3);
+    expect(
+      pushed.filter((p) => p === "2560x1600").length,
+      evidence,
+    ).toBeGreaterThan(0);
+    expect(pushed, evidence).not.toContain("3840x2400");
+    // The two in the window go unsaid; the late one is said, at its paint.
+    expect(said, evidence).toHaveLength(1);
+    expect(said[0]?.note, evidence).toContain(
+      "refused 1 screencast frame(s) at 3840x2400",
+    );
+    expect(said[0]?.note, evidence).toContain("2560x1600");
+    expect(said[0]?.startMs, evidence).toBeGreaterThan(STILL_ECHO_WINDOW_MS);
   });
 
   // At display scale 1 the window's unscaled surface is the page

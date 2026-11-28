@@ -134,8 +134,10 @@ import {
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   type StepSettleReport,
+  type StillWindow,
   SURFACE_CROP_WINDOW_MS,
   stepSettleExpression,
+  stillEcho,
 } from "./step-settle.js";
 import type {
   CdpSession,
@@ -1496,14 +1498,25 @@ export async function runWalk(
       await fileStill(frame.bytes, actionId, at());
       return;
     }
-    const reply = await gate.capture(() =>
-      watching(() =>
-        cdp.send("Page.captureScreenshot", {
-          format: "jpeg",
-          quality: KEYFRAME_QUALITY,
-        }),
-      ),
-    );
+    // Marked inside the gate, where the still is asked for: its echo
+    // (`stillEcho`) is judged from there.
+    const reply = await gate.capture(async () => {
+      pageFrames.stillAsked();
+      let answered: Record<string, unknown> | null = null;
+      try {
+        answered = await watching(() =>
+          cdp.send("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: KEYFRAME_QUALITY,
+          }),
+        );
+        return answered;
+      } finally {
+        pageFrames.stillAnswered(
+          answered === null ? null : String(answered.data ?? ""),
+        );
+      }
+    });
     captureEndedMs = at();
     if (sealed) return;
     await fileStill(decodeBase64(String(reply.data ?? "")), actionId, at());
@@ -1761,9 +1774,17 @@ export async function runWalk(
    * frame composited just before RELEASE can still be stamped after it and
    * kept: at most one frame of a hidden caret or held spinner. A frame
    * without a stamp is placed at its arrival.
+   *
+   * A full still's echo (`stillEcho`) is dropped the same way, by its stamp
+   * and its size: frames at the still's scale, not the screencast's, from
+   * the still on. One painted long after a still is refused too, and said.
    */
   const pageFrames = (() => {
     let capture: CaptureWindow | null = null;
+    let still: StillWindow | null = null;
+    /** What the latest still's late frames were said as, and how many. */
+    let late: { entry: Degradation; frames: number; afterMs: number } | null =
+      null;
     const sizeOf = (data: string): string | null => {
       try {
         const { width, height } = jpegSize(decodeBase64(data));
@@ -1799,8 +1820,50 @@ export async function runWalk(
         )
           capture.inputMs = clock.now();
       },
+      stillAsked(): void {
+        late = null;
+        still = {
+          fromMs: clock.now(),
+          toMs: null,
+          own: latest === null ? null : sizeOf(latest),
+          still: still?.still ?? null,
+        };
+      },
+      /** The still's own bytes, or null when it was refused. */
+      stillAnswered(data: string | null): void {
+        if (still === null) return;
+        still.toMs = clock.now();
+        if (data !== null) still.still = sizeOf(data) ?? still.still;
+      },
       dropping(data: string, paintedMs: number): boolean {
-        return capturedAway(paintedMs, () => sizeOf(data), capture);
+        let size: string | null | undefined;
+        const measured = (): string | null => {
+          if (size === undefined) size = sizeOf(data);
+          return size;
+        };
+        if (capturedAway(paintedMs, measured, capture)) return true;
+        const echo = stillEcho(paintedMs, measured, still);
+        if (echo === "late" && still !== null) {
+          // Refused, as it is not the screencast's scale; said, because
+          // this long after the still it may be the page moving, and that
+          // stretch is then not in the video. One entry per still, from the
+          // first such frame to the last.
+          const ms = Math.round(paintedMs - started);
+          if (late === null) {
+            late = {
+              entry: degradation("surfaceMismatch", ms, ms, ""),
+              frames: 0,
+              afterMs: Math.round(paintedMs - (still.toMs ?? paintedMs)),
+            };
+            degradations.push(late.entry);
+          }
+          late.frames++;
+          late.entry.endMs = Math.max(late.entry.endMs, ms);
+          late.entry.note =
+            `refused ${late.frames} screencast frame(s) at ${still.still}, a full still's size and not the screencast's own ${still.own}, ` +
+            `painted ${late.entry.startMs} to ${late.entry.endMs} ms, from ${late.afterMs} ms after the still before them answered`;
+        }
+        return echo !== null;
       },
     };
   })();
