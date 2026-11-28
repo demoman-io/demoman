@@ -5,13 +5,15 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RefreshResult } from "@demoman/runner/package";
+import { execGit, type RefreshResult } from "@demoman/runner/package";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type HandOff, writeHandOff } from "../src/handoff.js";
+import { type HandOff, readHandOff, writeHandOff } from "../src/handoff.js";
 
 type Video = RefreshResult["videos"][number];
 const base = {
@@ -173,5 +175,275 @@ describe("writeHandOff", () => {
         n.startsWith(".demoman-handoff-"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("readHandOff", () => {
+  // `src` is the refresh job's checkout, `repo` the deliver job's: the same
+  // commit, with the kept flows committed and an old screen in the checkout.
+  let src: string;
+  let repo: string;
+  let dir: string;
+  let sha: string;
+  const git = async (...a: string[]) => {
+    const r = await execGit(a, repo);
+    if (r.code !== 0) throw new Error(`git ${a.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  const flow = (name: string, deliver: string, outputs: string[]) =>
+    JSON.stringify({
+      keptVersion: 2,
+      flow: crypto.randomUUID(),
+      deliver,
+      name,
+      script: {
+        scriptVersion: 1,
+        name,
+        target: "http://localhost/app",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      },
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: outputs.map((path) => ({
+        path,
+        fileType: "mp4",
+        aspect: "auto",
+        quality: "share",
+      })),
+      report: deliver === "commit" ? "docs/x.json" : null,
+    });
+  const SCREENS = ".demoman/receipts/x.screens";
+  const OUTPUTS = ["docs/x.mp4", "docs/x.json", RECEIPT, SCREENS];
+  const at = (r: string, p: string, body: string) => {
+    mkdirSync(join(r, p, ".."), { recursive: true });
+    writeFileSync(join(r, p), body);
+  };
+  const read2 = () =>
+    readHandOff(dir, { repoRoot: repo, version: "1.2.3", git: execGit });
+  const edit = (fn: (h: HandOff) => void) => {
+    const h = JSON.parse(readFileSync(join(dir, "handoff.json"), "utf8"));
+    fn(h);
+    writeFileSync(join(dir, "handoff.json"), JSON.stringify(h));
+  };
+  const refused = async (why: string) => {
+    expect(await read2()).toEqual({ refused: why });
+    // The premise of every refusal: nothing in the checkout moved.
+    expect(await git("status", "--porcelain")).toBe("");
+  };
+
+  beforeEach(async () => {
+    const t = mkdtempSync(join(tmpdir(), "handoff-read-"));
+    src = join(t, "src");
+    repo = join(t, "repo");
+    dir = join(t, "demoman-handoff");
+    mkdirSync(repo);
+    at(repo, ".demoman/flows/x.json", flow("x", "commit", ["docs/x.mp4"]));
+    at(repo, ".demoman/flows/f.json", flow("f", "files", ["f.mp4"]));
+    at(repo, `${SCREENS}/old.png`, "OLD");
+    await git("init", "-q");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-qm",
+      "kept",
+    );
+    sha = await git("rev-parse", "HEAD");
+    at(src, "docs/x.mp4", "NEW VIDEO");
+    at(src, "docs/x.json", "NEW REPORT");
+    at(src, RECEIPT, "NEW RECEIPT");
+    at(src, `${SCREENS}/a.png`, "A");
+    const result = mk([
+      { outcome: "changed", outputs: OUTPUTS, file: ".demoman/flows/x.json" },
+    ]);
+    const w = await writeHandOff(dir, {
+      repoRoot: src,
+      result,
+      named: false,
+      commit: sha,
+      version: "1.2.3",
+    });
+    // The premise: a hand-off of four files whose first is the video.
+    expect(w).toEqual({ written: 4 });
+    expect(
+      JSON.parse(readFileSync(join(dir, "handoff.json"), "utf8")).files[0],
+    ).toEqual({
+      path: "docs/x.mp4",
+      stored: "files/0",
+    });
+  });
+
+  it("accepts a hand-off its flows declare and places it", async () => {
+    const r = await read2();
+    if (!("handOff" in r)) throw new Error(JSON.stringify(r));
+    expect(r.handOff.commit).toBe(sha);
+    expect(await git("status", "--porcelain")).toBe("");
+    expect(await r.place()).toEqual({ ok: true });
+    for (const p of ["docs/x.mp4", "docs/x.json", RECEIPT, `${SCREENS}/a.png`])
+      expect(readFileSync(join(repo, p), "utf8")).toBe(
+        readFileSync(join(src, p), "utf8"),
+      );
+    expect(readdirSync(join(repo, SCREENS))).toEqual(["a.png"]);
+  });
+
+  it("refuses a missing or unparsable handoff.json", async () => {
+    rmSync(join(dir, "handoff.json"));
+    expect(await read2()).toMatchObject({
+      refused: expect.stringMatching(
+        new RegExp(
+          `^the hand-off at ${dir} has no readable handoff\\.json \\(.*ENOENT`,
+        ),
+      ),
+    });
+    writeFileSync(join(dir, "handoff.json"), "{");
+    await refused(
+      `the hand-off at ${dir} has no readable handoff.json (${(() => {
+        try {
+          JSON.parse("{");
+        } catch (e) {
+          return (e as Error).message;
+        }
+      })()})`,
+    );
+  });
+
+  it("refuses another hand-off format, naming both", async () => {
+    edit((h) => {
+      (h as { handoffVersion: number }).handoffVersion = 2;
+    });
+    await refused(
+      "the hand-off was written by a hand-off format this Demoman does not read (format 2; this Demoman reads 1)",
+    );
+  });
+
+  it("refuses another demoman, naming both versions", async () => {
+    edit((h) => {
+      h.demoman = "0.0.0";
+    });
+    await refused(
+      "the hand-off was written by demoman 0.0.0, delivered by 1.2.3; the workflow must pin one version",
+    );
+  });
+
+  it("refuses a hand-off recorded at another commit, naming both", async () => {
+    const other = "0".repeat(40);
+    edit((h) => {
+      h.commit = other;
+    });
+    await refused(
+      `refresh recorded at ${other} and this checkout is at ${sha}`,
+    );
+  });
+
+  for (const path of [
+    "../x.mp4",
+    "/etc/x",
+    ".github/workflows/x.yml",
+    "a/.git/hooks/pre-push",
+  ])
+    it(`refuses ${path}, which no flow may write`, async () => {
+      edit((h) => {
+        (h.files[0] as { path: string }).path = path;
+      });
+      await refused(`the hand-off names ${path}, which no flow may write`);
+    });
+
+  it("refuses a folder no flow may write", async () => {
+    edit((h) => {
+      h.folders = [".git"];
+    });
+    await refused("the hand-off names .git, which no flow may write");
+  });
+
+  it("refuses a path no commit flow declares", async () => {
+    edit((h) => {
+      (h.files[0] as { path: string }).path = "src/index.ts";
+    });
+    await refused(
+      `the hand-off names src/index.ts, which no commit flow at ${sha} declares`,
+    );
+  });
+
+  it("refuses a video to commit that is a files flow", async () => {
+    edit((h) => {
+      (h.result.videos[0] as { file: string }).file = ".demoman/flows/f.json";
+    });
+    await refused(
+      "the hand-off delivers x (.demoman/flows/f.json), which is not a commit flow here",
+    );
+  });
+
+  it("refuses a video to commit whose kept file does not read, with the reader's words", async () => {
+    at(repo, ".demoman/flows/x.json", "{");
+    await git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-qam",
+      "broken",
+    );
+    const head = await git("rev-parse", "HEAD");
+    edit((h) => {
+      h.commit = head;
+    });
+    // Its paths are no flow's now: the declared set has nothing in it.
+    await refused(
+      `the hand-off names docs/x.mp4, which no commit flow at ${head} declares`,
+    );
+    edit((h) => {
+      h.files = [];
+      h.folders = [];
+    });
+    rmSync(join(dir, "files"), { recursive: true });
+    mkdirSync(join(dir, "files"));
+    expect(await read2()).toMatchObject({
+      refused: expect.stringMatching(
+        /^the hand-off delivers x \(\.demoman\/flows\/x\.json\), which is not a commit flow here \(\.demoman\/flows\/x\.json: is not valid JSON/,
+      ),
+    });
+  });
+
+  it("refuses an output with no files entry", async () => {
+    edit((h) => {
+      h.files = h.files.slice(1);
+    });
+    await refused("the hand-off and its result disagree on docs/x.mp4");
+  });
+
+  it("refuses a files entry that is no output", async () => {
+    edit((h) => {
+      const v = h.result.videos[0] as { outputs: string[] };
+      v.outputs = v.outputs.filter((o) => o !== "docs/x.mp4");
+    });
+    await refused("the hand-off and its result disagree on docs/x.mp4");
+  });
+
+  it("refuses a stored file that is a symlink", async () => {
+    rmSync(join(dir, "files/0"));
+    symlinkSync("/etc/hosts", join(dir, "files/0"));
+    await refused("files/0 for docs/x.mp4 is missing or not a plain file");
+  });
+
+  it("refuses a stored file outside files/", async () => {
+    edit((h) => {
+      (h.files[0] as { stored: string }).stored = "../handoff.json";
+    });
+    await refused(
+      "../handoff.json for docs/x.mp4 is missing or not a plain file",
+    );
+  });
+
+  it("refuses an entry its handoff.json does not list", async () => {
+    writeFileSync(join(dir, "files/extra"), "X");
+    await refused(
+      "the hand-off holds files/extra, which its handoff.json does not list",
+    );
   });
 });
