@@ -256,10 +256,17 @@ export function ciWorkflow(o: CiOptions): string {
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );
   // The group is taken before any job's `if`: a run the refresh job would
-  // skip (a preview's deployment status, Demoman's own push) gets a group of
-  // its own, or it could replace a pending run that would refresh.
+  // skip (a preview's deployment status, Demoman's own push), or one by hand
+  // off the branch that offBranchStep refuses, gets a group of its own, or it
+  // could replace a pending run that would refresh.
+  const refreshes = [
+    guard === null ? null : `(${guard})`,
+    runsByHand(o.trigger)
+      ? `(github.event_name != 'workflow_dispatch' || github.ref_name == '${branch}')`
+      : null,
+  ].filter((c) => c !== null);
   const group = expr(
-    `github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ${guard === null ? "'demoman-refresh'" : `(${guard}) && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)`}`,
+    `github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ${refreshes.length === 0 ? "'demoman-refresh'" : `${refreshes.join(" && ")} && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)`}`,
   );
   // A deployment trigger records the deployed app (--base-url): nothing to serve.
   const services = deployment === null ? servicesBlock(o.app) : "";

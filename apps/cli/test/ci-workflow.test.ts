@@ -1226,6 +1226,9 @@ describe("refresh hands off; a job that never runs the app delivers", () => {
   });
 });
 
+const OFF_BRANCH_IDLES =
+  "(github.event_name != 'workflow_dispatch' || github.ref_name == 'main')";
+
 describe("the workflow's shape", () => {
   // Review Focus 6: red when either job keeps a group of its own, where a
   // newer run's refresh could land between an older run's two jobs.
@@ -1235,6 +1238,7 @@ describe("the workflow's shape", () => {
     const idle =
       " && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)";
     let guarded = 0;
+    let byHand = 0;
     for (const y of every) {
       // The refresh job's own guard, the one source the group reads.
       const guard =
@@ -1242,9 +1246,14 @@ describe("the workflow's shape", () => {
           parse(y).jobs.refresh.if,
         )?.[1];
       if (guard !== undefined) guarded++;
+      // A run by hand off the watched branch is refused by its first step.
+      const hand =
+        "workflow_dispatch" in parse(y).on ? OFF_BRANCH_IDLES : undefined;
+      if (hand !== undefined) byHand++;
+      const refreshes = [guard, hand].filter((c) => c !== undefined);
       expect(parse(y).concurrency).toEqual({
         group: expr(
-          `${check}${guard === undefined ? "'demoman-refresh'" : `${guard}${idle}`}`,
+          `${check}${refreshes.length === 0 ? "'demoman-refresh'" : `${refreshes.join(" && ")}${idle}`}`,
         ),
         "cancel-in-progress": expr("github.event_name == 'pull_request'"),
       });
@@ -1253,8 +1262,10 @@ describe("the workflow's shape", () => {
       ))
         expect(job.concurrency, name).toBeUndefined();
     }
-    // Premise: push and deployment, 4 variants each, have a guard.
+    // Premise: push and deployment, 4 variants each, have a guard; push,
+    // daily and manual, 4 each, run by hand.
     expect(guarded).toBe(8);
+    expect(byHand).toBe(12);
   });
   // Important 1 of the review: red when a run the refresh job skips (a
   // preview's deployment status, Demoman's own push) can take the
@@ -1266,7 +1277,7 @@ describe("the workflow's shape", () => {
       " && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)";
     expect(parse(push).concurrency.group).toBe(
       expr(
-        `${check}(!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]')${idle}`,
+        `${check}(!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]') && ${OFF_BRANCH_IDLES}${idle}`,
       ),
     );
     expect(parse(deploy).concurrency.group).toBe(
@@ -1274,15 +1285,28 @@ describe("the workflow's shape", () => {
         `${check}(github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')${idle}`,
       ),
     );
-    // Release, daily and manual runs all refresh, or say why they did not.
+    // A release always refreshes.
+    expect(parse(releaseY).concurrency.group).toBe(
+      expr(`${check}'demoman-refresh'`),
+    );
+    // A daily or manual run refreshes unless it was started by hand off the
+    // watched branch, which its first step refuses.
     for (const y of [
-      releaseY,
       dailyY,
       ciWorkflow({ version: "0.2.0", trigger: "manual", route: "pr" }),
     ])
       expect(parse(y).concurrency.group).toBe(
-        expr(`${check}'demoman-refresh'`),
+        expr(`${check}${OFF_BRANCH_IDLES}${idle}`),
       );
+    const master = ciWorkflow({
+      version: "0.2.0",
+      trigger: "daily",
+      route: "pr",
+      branch: "master",
+    });
+    expect(parse(master).concurrency.group).toContain(
+      "github.ref_name == 'master'",
+    );
   });
   it("watches the branch it is given, main by default", () => {
     expect(push).toContain("branches: [main]");
