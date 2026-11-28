@@ -480,6 +480,9 @@ export interface Played {
    *  on the page it stopped on; false when unasked or
    *  unanswered (the log says why). */
   closedShadowRoot: boolean;
+  /** `RunReport.foundWeaker`: each target found by a weaker tier than its
+   *  capture, in the page agent's words. */
+  foundWeaker: string[];
 }
 
 /** The walk on a prepared stage, and the checks straight after it. Throws
@@ -524,6 +527,8 @@ export async function playOnStage(
   // The walk's own `failed` note: a port that threw mid-run says what it
   // threw only here (walk.ts), and the result carries the reason alone.
   let failedNote: string | undefined;
+  // Logged as before, and kept for the report: the log is the server's.
+  const foundWeaker: string[] = [];
 
   // Asked by the walk before its first frame (launch C): a string stops
   // the run as `signedOut` with those words. A page that cannot be read
@@ -563,7 +568,10 @@ export async function playOnStage(
   try {
     authored = await runAuthored(script, {
       cdp,
-      page: createHeadlessPageAgent(page, log),
+      page: createHeadlessPageAgent(page, log, (line) => {
+        log(line);
+        foundWeaker.push(line);
+      }),
       captureResolved: pageCapture(page, log),
       encoder,
       store,
@@ -723,6 +731,7 @@ export async function playOnStage(
     heldFailed,
     landingNote,
     arrival,
+    foundWeaker,
   };
 }
 

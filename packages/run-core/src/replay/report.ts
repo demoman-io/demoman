@@ -310,6 +310,11 @@ export interface RunReport {
    *  showed none or could not be read. Refresh's evidence for saying a
    *  replaced video's dates may be why; never served to agents. */
   datesOnScreen?: string[];
+  /** One sentence per target the run found by a weaker tier than its
+   *  capture had (the page changed mid-step), naming its `anchorId`: the
+   *  step still passed, so this is the only place the drift is said.
+   *  Absent when there was none. */
+  foundWeaker?: string[];
   /** The instant the run's page clock was pinned to. Set when the
    *  run was given one: prepareStage stops a run whose pin cannot be
    *  installed, so a report that has it was pinned. Refresh confirms the pin

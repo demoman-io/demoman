@@ -279,8 +279,8 @@ const FOUND_BY: Record<(typeof TIERS)[number], string> = {
 };
 
 /**
- * The note for a target found by a weaker tier than its own capture used,
- * or null. A replay that still finds the element is a pass, and the drift
+ * The sentence for a target found by a weaker tier than its own capture
+ * used, or null. A replay that still finds the element is a pass, and the drift
  * under it must not read as one: a button found by its position after its
  * role and name stopped naming it is the step a wrong click hides behind.
  *
@@ -306,7 +306,7 @@ export function weakerThanRecorded(
       ? ""
       : ` among ${report.tiedAt.count} that share ${FOUND_BY[report.tiedAt.strategy]}`;
   return (
-    `demoman: the element for anchor "${anchor.id}" was found by ` +
+    `the element for anchor "${anchor.id}" was found by ` +
     `${FOUND_BY[foundTier]}${tie}, not by ${FOUND_BY[recordedTier]} as ` +
     "when it was recorded. The page has changed under it: check the video " +
     "shows the element you meant."
@@ -331,13 +331,24 @@ export function weakerThanRecorded(
  * can never match. (It would still park in the right realm; that half was
  * fixed in `resolveForReplay` on 2026-09-07, after the spike that found it.)
  */
-export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
+export function createHeadlessPageAgent(
+  page: Page,
+  report: Report,
+  /** Where the weaker-tier sentence goes: an MCP run's `report` is the
+   *  server's log, which the agent never reads, so its run report carries
+   *  these. Absent, `report` takes it as a log line. */
+  reportWeaker: Report = (sentence) => report(`demoman: ${sentence}`),
+): PageAgent {
   const said = new Set<string>();
-  const reportOnce: ReportOnce = (key, line) => {
-    if (said.has(key)) return;
-    said.add(key);
-    report(line);
-  };
+  const once =
+    (to: Report): ReportOnce =>
+    (key, line) => {
+      if (said.has(key)) return;
+      said.add(key);
+      to(line);
+    };
+  const reportOnce = once(report);
+  const reportWeakerOnce = once(reportWeaker);
   return {
     async resolve(anchors: AnchorIntent[]): Promise<ResolveReport[]> {
       const routed = await Promise.all(
@@ -445,8 +456,10 @@ export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
               anchor === undefined || report === undefined
                 ? null
                 : weakerThanRecorded(anchor, report);
-            // Once per anchor: a wait polls its target many times.
-            if (weaker !== null) reportOnce(`${anchorId} weaker`, weaker);
+            // Once per sentence: a wait polls its target many times, and a
+            // later poll that finds it weaker still says so again.
+            if (weaker !== null)
+              reportWeakerOnce(`${anchorId} ${weaker}`, weaker);
           });
         }),
       );
