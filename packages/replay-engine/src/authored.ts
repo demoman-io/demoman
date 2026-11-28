@@ -26,6 +26,7 @@
 import {
   type CursorSegment,
   cursorEntryPoint,
+  decideCamera,
   type FrameBundle,
   heldThroughEndMs,
   heldUntilOf,
@@ -1403,7 +1404,7 @@ export function assembleAuthored(
 } {
   if (args.actions.length === 0) return { document: null, error: null };
 
-  const untrimmed: SceneDocument = {
+  let untrimmed: SceneDocument = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: {
       id: args.sceneId,
@@ -1497,6 +1498,11 @@ export function assembleAuthored(
     // take keeps its frames, and only what needs the planned timeline (the
     // trim, a held zoom's end, the steps' video times) is left out and said.
     try {
+      // The walk decided pan or return on the designed clock; the take's
+      // record is final (the renderer never decides over it), so the record
+      // is checked here, once, on the timeline the take renders on: a
+      // return with no room for one is recorded as the pan it will draw.
+      untrimmed = decideCamera(untrimmed, bundle);
       filmedThrough = placeOnPlan(
         untrimmed,
         bundle,

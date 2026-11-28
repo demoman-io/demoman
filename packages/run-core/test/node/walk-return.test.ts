@@ -10,6 +10,7 @@ import {
   type AuthoredDeps,
   type EngineDeps,
   type PageAgent,
+  type RoomPolicy,
   runAuthored,
   STILL_DRAIN_MS,
 } from "@demoman/replay-engine";
@@ -76,8 +77,13 @@ const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
 });
 
 /** `navigates`: the first click's release starts and commits a new
- *  top-frame document, as a link to another page does. */
-async function walk(steps: DemoScript["steps"], navigates = false) {
+ *  top-frame document, as a link to another page does. `room` alters the
+ *  real room policy. */
+async function walk(
+  steps: DemoScript["steps"],
+  navigates = false,
+  room: (policy: RoomPolicy) => RoomPolicy = (policy) => policy,
+) {
   const cdp = createCdpFake();
   let clock = 0;
   let navigated = false;
@@ -152,7 +158,8 @@ async function walk(steps: DemoScript["steps"], navigates = false) {
     viewport: PAGE_,
     startingBranding: BRANDING_DEFAULTS,
     cameraFor: zoomsForClicks,
-    roomFor: (vp, intentOf) => createRoomPolicy(vp, MOTION_DEFAULTS, intentOf),
+    roomFor: (vp, intentOf) =>
+      room(createRoomPolicy(vp, MOTION_DEFAULTS, intentOf)),
     beats: {
       restBefore: rest,
       afterScroll,
@@ -171,8 +178,8 @@ async function walk(steps: DemoScript["steps"], navigates = false) {
 describe("a zoomed click paced as a return just short of one", () => {
   // Red if the walk drops its `if (returnShortMs > 0) planRoom(...)` (or
   // the rule stops adding `returnShortMs`): the plan keeps the 2500 ms gap,
-  // the recorded return no longer fits, and the camera pans (`arrivesOf`'s
-  // guard) instead of returning.
+  // the recorded return no longer fits, and the take records a pan
+  // (`decideCamera` at assembly) instead of the return.
   it("plans the whole return with its margin, and the camera holds, returns and is in before the click", async () => {
     // A pause that puts the second click 2500 ms after the first on the
     // designed clock with nothing added: inside the band.
@@ -258,6 +265,57 @@ describe("a zoomed click paced as a return just short of one", () => {
     expect(secondIn.outputTimeMs, keysEvidence).toBeLessThanOrEqual(
       toOutputMs(timeline, secondClick.sourceTimeMs),
     );
+  });
+});
+
+// The record is final (author's ruling 2026-11-28): the renderer draws it,
+// so the take checks the walk's answer where it records it. Red if
+// `assembleAuthored` stops calling `decideCamera` on a planned take: the
+// walk's return would be written, and drawn squeezed through the click.
+describe("a return the walk recorded with no room for one", () => {
+  it("is recorded as the pan the take's timing decides, and drawn as one", async () => {
+    const B: DemoScript["steps"][number] = {
+      do: "click",
+      on: { stableId: "b" },
+    };
+    const C: DemoScript["steps"][number] = {
+      do: "click",
+      on: { stableId: "c" },
+    };
+    // A walk that calls every click a return and plans no room for one; the
+    // same steps under the real policy pan into the second (the next
+    // describe's premise).
+    const pause: DemoScript["steps"][number] = { do: "pause", ms: 1500 };
+    const { result } = await walk([B, pause, C], false, (policy) => ({
+      ...policy,
+      arrives: () => "return",
+      returnShortMs: () => 0,
+    }));
+    const evidence = JSON.stringify({
+      outcome: result.outcome,
+      reason: result.reason,
+      decided: [...(result.decided ?? new Map())],
+      camera: result.document?.camera,
+    });
+    expect(result.outcome, evidence).toBe("complete");
+    const document = result.document;
+    const bundle = result.bundle;
+    if (document === null || bundle === null) throw new Error(evidence);
+    // Premise: both clicks zoomed, and the walk called the second a return.
+    const second = document.camera[1];
+    expect(document.camera, evidence).toHaveLength(2);
+    if (second === undefined) throw new Error(evidence);
+    expect(result.decided?.get(second.marker.actionId), evidence).toMatchObject(
+      { arrives: "return" },
+    );
+    // The take records the pan, and the camera draws one: in, and still in
+    // at the second click.
+    expect(second.arrives, evidence).toBe("pan");
+    const { cameraKeys } = resolvePlan(planScene(document), bundle, document);
+    expect(
+      cameraKeys.map((k) => (k.scale > 1 ? "in" : "out")),
+      `${evidence} keys ${JSON.stringify(cameraKeys)}`,
+    ).toEqual(["out", "in", "in", "out"]);
   });
 });
 

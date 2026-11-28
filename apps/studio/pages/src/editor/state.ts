@@ -1,3 +1,4 @@
+import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { sameBranding } from "./branding";
 import { applyCommand, type EditCommand } from "./commands";
@@ -44,10 +45,12 @@ export function runCommand(
   state: EditorState,
   command: EditCommand,
   newId: IdSource,
+  /** The take's frames, for an edit that decides the camera again. */
+  bundle: FrameBundle | null = null,
 ): EditorState {
   let next: SceneDocument;
   try {
-    next = applyCommand(state.scene, command, newId);
+    next = applyCommand(state.scene, command, newId, bundle);
   } catch (error) {
     return {
       ...state,

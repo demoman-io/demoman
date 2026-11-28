@@ -1,4 +1,8 @@
-import { CAMERA_DEFAULTS } from "@demoman/compositor";
+import {
+  CAMERA_DEFAULTS,
+  decideCamera,
+  type FrameBundle,
+} from "@demoman/compositor";
 import type {
   SceneAspect,
   SceneCursor,
@@ -546,11 +550,16 @@ export function applyCommand(
   scene: SceneDocument,
   command: EditCommand,
   newId: IdSource,
+  /** The take's frames, which pan or return is decided on. Null: none is
+   *  loaded, and an edit that moves the beats leaves no record. */
+  bundle: FrameBundle | null = null,
 ): SceneDocument {
   const next = reduce(scene, command, newId);
+  const forget =
+    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next);
   return SceneDocumentSchema.parse(
-    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next)
-      ? decideCameraAgain(next)
+    forget || BEAT_EDITS.has(command.kind)
+      ? decideCameraAgain(next, bundle, forget)
       : next,
   );
 }
@@ -568,17 +577,44 @@ export function smoothnessChanged(
 }
 
 // A zoom's `arrives` is the decision about the zoom BEFORE it, so adding,
-// moving, re-timing or removing a zoom can make any of them stale. The
-// renderer follows a stored one, so drop them all and let it decide again.
+// moving, re-timing or removing a zoom can make any of them stale: every
+// one is decided again from the clock.
 const ZOOM_SET_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
   "addZoom",
   "setZoomRange",
   "removeZoom",
 ]);
 
-export function decideCameraAgain(scene: SceneDocument): SceneDocument {
-  return {
-    ...scene,
-    camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
-  };
+// These move the beats between two zooms (an authored gap, a removed
+// piece): the pairs they lie between are decided again from the clock, and
+// every other pair keeps its record (`solveCamera`'s `edited`).
+const BEAT_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
+  "setGap",
+  "clearGap",
+  "removePiece",
+  "restorePiece",
+  "setRemovedEdge",
+]);
+
+/**
+ * Pan or return decided again, once, and recorded (author's ruling
+ * 2026-11-28: the record is final, and the renderer never decides over it).
+ * `forget` drops every record first, so every pair asks the clock. With no
+ * bundle there is no timeline to decide on: every record is dropped, and
+ * the renderer's clock draws the take as it draws one recorded before
+ * records existed, rather than a record the edit made stale.
+ */
+export function decideCameraAgain(
+  scene: SceneDocument,
+  bundle: FrameBundle | null,
+  forget: boolean,
+): SceneDocument {
+  const kept =
+    forget || bundle === null
+      ? {
+          ...scene,
+          camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
+        }
+      : scene;
+  return bundle === null ? kept : decideCamera(kept, bundle);
 }

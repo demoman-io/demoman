@@ -86,6 +86,10 @@ export interface ResolvedPlan {
    */
   cameraFollow: FollowStretch[];
   cameraSegments: CameraSegment[];
+  /** `solveCamera`'s `decided`: pan or return by zoom id, as this take's
+   *  timing decides it. What `decideCamera` records; the keys draw the
+   *  record instead. */
+  cameraDecided: Map<string, "pan" | "return">;
   /** Source-time cursor samples: replay's own, or synthesized for frozen frames. */
   cursor: CursorSample[];
   /**
@@ -1142,6 +1146,7 @@ export function resolvePlan(
     cameraKeys: camera.keys,
     cameraFollow,
     cameraSegments: camera.segments,
+    cameraDecided: camera.decided,
     cursor: bridged,
     clickOutputMs,
     ...keyMarks,
@@ -1163,3 +1168,28 @@ export function resolvePlan(
 }
 
 export { sampleCamera };
+
+/**
+ * Pan or return for every zoom, decided once on the take's own timeline and
+ * written into its `arrives` (spec 2026-11-13, author's ruling 2026-11-28:
+ * the record is final). The renderer draws the record and never decides
+ * over it, so this is called where the choice is recorded: once when a take
+ * is assembled (the walk's answer, checked for fit on the timeline the take
+ * renders on) and once when the author moves the beats in the Studio (a gap,
+ * a removed piece, a zoom, a smoothness). A zoom the camera does not place
+ * (no marker, no target, or the first, with no zoom before it) keeps what it
+ * carried.
+ */
+export function decideCamera(
+  scene: SceneDocument,
+  bundle: FrameBundle,
+): SceneDocument {
+  const { cameraDecided } = resolvePlan(planScene(scene), bundle, scene);
+  return {
+    ...scene,
+    camera: scene.camera.map((c) => {
+      const arrives = cameraDecided.get(c.id);
+      return arrives === undefined ? c : { ...c, arrives };
+    }),
+  };
+}

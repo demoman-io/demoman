@@ -818,9 +818,11 @@ export function previewScene(
   };
   // As releasing the drag will (`applyCommand`): a smoothness the pans and
   // returns were not decided at decides them again, so the preview shows the
-  // camera the edit ends on.
+  // camera the edit ends on. With every record dropped the renderer's clock
+  // draws exactly what the release records from it, so no bundle is needed
+  // here, and the drag does not resolve the take twice a frame.
   return smoothnessChanged(stored, layered)
-    ? decideCameraAgain(layered)
+    ? decideCameraAgain(layered, null, true)
     : layered;
 }
 
