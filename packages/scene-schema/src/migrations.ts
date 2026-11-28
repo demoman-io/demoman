@@ -610,5 +610,5 @@ export function unknownFields(raw: unknown): string[] {
 export function newerFieldsNote(paths: string[]): string {
   const shown = paths.slice(0, 5).join(", ");
   const more = paths.length > 5 ? ` and ${paths.length - 5} more` : "";
-  return `This video was written by a newer Demoman, and this one does not know its fields ${shown}${more}: it leaves them out of what it shows and exports, and will not save over them. Update Demoman to edit this video.`;
+  return `This video carries fields this Demoman does not know: ${shown}${more}. A newer Demoman wrote them, or they were added to scene.json by hand. This one leaves them out of what it shows and exports, and will not save over them: update Demoman, or take them out of scene.json, to edit this video.`;
 }

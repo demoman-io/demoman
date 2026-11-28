@@ -23,8 +23,9 @@ describe("fields a newer Demoman wrote", () => {
     // Premise: the fixture reads as current, with no unknown keys of its own.
     expect(doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(unknownFields(doc)).toEqual([]);
-    expect(doc.actions.length).toBeGreaterThan(1);
-    doc.actions[1].newer = 1;
+    const second = doc.actions[1];
+    if (second === undefined) throw new Error("the fixture has one step");
+    second.newer = 1;
     doc.later = true;
 
     expect(unknownFields(doc)).toEqual(["actions[1].newer", "later"]);

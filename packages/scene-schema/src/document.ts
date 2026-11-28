@@ -4,6 +4,10 @@ import { CaptureDeviceSchema } from "./device.js";
 import { isKeyName, ModifierSchema } from "./keys.js";
 import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
+/** An optional field may be added without a bump; removing one may not. At
+ *  this version a key the parse drops reads as a newer build's
+ *  (`unknownFields`), and the Studio will not save the take, so a removed
+ *  field needs a bump and a step that drops it. */
 export const CURRENT_SCHEMA_VERSION = 17;
 
 const Rect = z.object({

@@ -20,6 +20,7 @@ import {
 } from "@demoman/run-core";
 import {
   migrateToCurrent,
+  newerFieldsNote,
   type SceneDocument,
   SchemaVersionError,
   unknownFields,
@@ -92,7 +93,10 @@ export interface Library {
     revision: string;
     notes: string[];
   } | null>;
-  /** Writes `doc` only when `scene.json` still hashes to `ifMatch`. */
+  /** Writes `doc` only when `scene.json` still hashes to `ifMatch` and
+   *  carries no field this build does not know (`unknownFields`: `doc` was
+   *  read without them, so writing it would drop them). Throws
+   *  `libraryUnreadable` when that file will not read. */
   putSceneIf(doc: SceneDocument, ifMatch: string): Promise<PutSceneIfAnswer>;
   lease(
     id: string,
@@ -326,7 +330,11 @@ export function createLibrary(
       return;
     }
     const saved = await savedNotes(id);
-    const fresh = notes.filter((n) => !saved.includes(n));
+    // Fields a newer Demoman wrote are true of the file this write replaces,
+    // not of the take after it.
+    const newer = unknownFields(raw);
+    const gone = newer.length > 0 ? newerFieldsNote(newer) : null;
+    const fresh = notes.filter((n) => !saved.includes(n) && n !== gone);
     if (fresh.length === 0) return;
     await write(notesPath(id), JSON.stringify([...saved, ...fresh]));
   }

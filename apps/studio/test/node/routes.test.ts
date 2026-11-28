@@ -330,7 +330,7 @@ describe("takes and scenes", () => {
     });
     expect(r.status).toBe(409);
     const body = r.json() as { reason: string; detail: string };
-    expect(body.reason).toBe("sceneNotSaved");
+    expect(body.reason).toBe("sceneFieldsUnknown");
     expect(body.detail).toContain("newerTopLevel");
     expect(body.detail).toContain("meta.newerNested");
     expect(await readFile(scenePath())).toEqual(before);

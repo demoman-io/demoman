@@ -699,7 +699,7 @@ export function createRoutes(o: {
         if ("unknownFields" in put) {
           return refuse(
             409,
-            "sceneNotSaved",
+            "sceneFieldsUnknown",
             `The scene was not saved. ${newerFieldsNote(put.unknownFields)}`,
           );
         }
