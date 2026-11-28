@@ -237,7 +237,7 @@ describe("prepareStage's browser", () => {
     const none = await prepareStage(sized, deps);
     expect(none.ok, JSON.stringify(none)).toBe(true);
     expect(none.ok && "browser" in none).toBe(false);
-    expect(said.join("\n")).toContain("version could not be read");
+    expect(said.join("\n")).toContain("build could not be read");
   });
 });
 

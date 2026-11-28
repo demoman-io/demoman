@@ -326,7 +326,7 @@ export async function prepareStage(
   // Said, not dropped: a take without it reads as one recorded before it.
   if (browser === null)
     deps.log(
-      "the browser's version could not be read (no browser was connected to ask), so this take and its run report do not name it",
+      "the browser's build could not be read (no browser was connected to ask), so this video and its run report do not name it",
     );
   return {
     ok: true,
