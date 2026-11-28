@@ -325,6 +325,77 @@ describe("demoman-mcp's tools", () => {
     }
   });
 
+  // Red if an export that saved nothing, or an attach that posted nothing,
+  // answers as a success: a client keyed on isError counts a video never
+  // saved, or never posted, as done. Red too if a saved or attached one is
+  // flagged.
+  it("flags an export or attach that saved or posted nothing isError, its report whole", async () => {
+    const unsaved = [
+      { outcome: "refusedBeforeExport", reason: "busy", detail: "in flight" },
+      { outcome: "renderFailed", error: "boom" },
+      { outcome: "saveFailed", error: "the folder is read-only" },
+      { outcome: "pathUnknown", name: "a.mp4", detail: "not found" },
+      { outcome: "threw", error: "disk full" },
+    ];
+    const answers: Array<["export" | "attach", unknown, boolean]> = [
+      ...unsaved.map((v) => ["export", v, true] as const),
+      ["export", { outcome: "saved", file: { path: "/D/a.mp4" } }, false],
+      // An attach answers an unsaved export as itself.
+      ...unsaved.map((v) => ["attach", v, true] as const),
+      [
+        "attach",
+        { outcome: "refusedBeforeAttach", reason: "ghMissing", detail: "x" },
+        true,
+      ],
+      [
+        "attach",
+        { outcome: "notAttached", reason: "uploadRefused", detail: "x" },
+        true,
+      ],
+      ["attach", { outcome: "attached", assetUrl: "https://x" }, false],
+    ];
+    for (const [op, value, flagged] of answers) {
+      const { client } = await connect({
+        [op]: async () => ({ ok: true, value }),
+      });
+      const r = await client.callTool({
+        name: op,
+        arguments:
+          op === "attach"
+            ? { videoId: "t1", into: "description" }
+            : { videoId: "t1" },
+      });
+      expect(r.isError === true, `${op} ${JSON.stringify(value)}`).toBe(
+        flagged,
+      );
+      expect(textOf(r)).toEqual(value);
+    }
+    // The same answer read later through report.
+    let finish: (o: Outcome) => void = () => {};
+    const { client } = await connect(
+      {
+        export: () =>
+          new Promise<Outcome>((r) => {
+            finish = r;
+          }),
+      },
+      150,
+    );
+    const first = await client.callTool({
+      name: "export",
+      arguments: { videoId: "t1" },
+    });
+    // Premise: the answer below comes through report, not the export call.
+    expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    finish({ ok: true, value: { outcome: "renderFailed", error: "boom" } });
+    const later = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(later.isError).toBe(true);
+    expect(textOf(later)).toEqual({ outcome: "renderFailed", error: "boom" });
+  });
+
   // Red if the tool's schema still requires `script`, or drops `flow` on
   // the way to the executor (which keeps its own name for it, `video`).
   it("passes run({ flow }) through to the CLI's executor as its video, with no script", async () => {

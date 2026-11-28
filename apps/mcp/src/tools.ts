@@ -226,6 +226,34 @@ async function runAnswer(op: string, o: Outcome): Promise<ToolResult> {
   return { ...(await withStill(said, false)), isError: true };
 }
 
+/** A settled export that saved nothing, or an attach that posted nothing
+ *  (it answers an unsaved export as itself): the report, whole, flagged
+ *  `isError` as `runAnswer` flags a run. `summary` and `outcome` open it.
+ *  Progress (`exporting`, `attaching`) is not settled and is not flagged. */
+const EXPORT_FAILED = new Set([
+  "refusedBeforeExport",
+  "renderFailed",
+  "saveFailed",
+  "pathUnknown",
+  "threw",
+]);
+const ATTACH_FAILED = new Set([
+  ...EXPORT_FAILED,
+  "refusedBeforeAttach",
+  "notAttached",
+]);
+
+function exportAnswer(op: "export" | "attach", said: Outcome): ToolResult {
+  const outcome = said.ok
+    ? (said.value as { outcome?: unknown } | null)?.outcome
+    : undefined;
+  const failed =
+    typeof outcome === "string" &&
+    (op === "export" ? EXPORT_FAILED : ATTACH_FAILED).has(outcome);
+  const answered = fromOutcome(said);
+  return failed ? { ...answered, isError: true } : answered;
+}
+
 /** A progress value as Claude Code 2.1.302 draws it. A collapsed call line
  *  ("Calling demoman…") shows `message`, plus " (NN%)" when `total` is
  *  sent; the expanded view draws a bar from `total` instead. Without a
@@ -619,10 +647,12 @@ export function registerTools(
     op === "add" || op === "ci"
       ? repoAnswer(o)
       : op === "export"
-        ? fromOutcome(served(op, await withLinks(o)))
-        : op === "run" || op === "probe"
-          ? runAnswer(op, o)
-          : fromOutcome(served(op, o));
+        ? exportAnswer(op, served(op, await withLinks(o)))
+        : op === "attach"
+          ? exportAnswer(op, served(op, o))
+          : op === "run" || op === "probe"
+            ? runAnswer(op, o)
+            : fromOutcome(served(op, o));
 
   const longCall = async (
     op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp,

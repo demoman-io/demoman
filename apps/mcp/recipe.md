@@ -326,7 +326,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
 ## 5. Export and hand back
 
 1. `export(videoId)` with the accepted run's `provenance.videoId`. It answers
-   the export report, or `stillRunning` with an `id`; then call `report(id)`
+   the export report (an error result unless `saved`), or `stillRunning`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
    `fileType`, only if asked: `mp4` (default), `gif` or `stills`. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
@@ -334,8 +334,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    A GIF is as wide as fits 10 MB (`warnings.gifSize`: how wide, which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take optional `stills: { width, zoom }`; by
    default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Only when asked.
-2. `saved` - the file is at `file.path`, absolute: in `status.exportsTo`. For `stills`, `fileType`
-   is `stills` and the answer carries `folder: { path, files }` instead of
+2. `saved` - the file is at `file.path`, absolute: in `status.exportsTo`. For `stills`, the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
    with no still. `summary` is one
    sentence: what was saved and what was asked for but is missing (a logo, motion, a still, an edit). `warnings` holds more:
@@ -347,9 +346,9 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`; `derive` then `run` if a verb changed).
    Re-record only on request. `untagged` and `taggedWithoutCommit` warnings: not the user's.
-   `links` holds one-click actions, each only where it works: `studio`, `file` (the file itself) and `copy` (the
+   `links` holds one-click actions, each only where it works: `studio`, `file` and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
-   why there are none: tell the user.
+   why: tell the user.
 3. `renderFailed` - export **once** more; never re-run the script for it.
    `saveFailed` - its `error` names the folder and why it cannot be
    written: tell the user; export again only once fixed. A stills export that
@@ -376,7 +375,7 @@ until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `ghOutdated`, `ghSignedOut`, `notGitHub`, `prUnreadable` or `copyFailed`, call
 `export({ videoId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused` or `prNotFound`, do as `detail` says. On `partial` or `unconfirmed`, do not
-post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
+post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does; anything but `attached` is an error result.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only

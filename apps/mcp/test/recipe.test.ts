@@ -589,6 +589,20 @@ describe("the CLI's recipe", () => {
     expect(RECIPE).toMatch(/not the user's to act on: do not pass them on/);
   });
 
+  // Red if the recipe stops saying which run, export and attach answers
+  // come back as error results (tools.ts flags them): an agent told only
+  // "a refusal is an error result" would read a failed export's report as
+  // a refusal missing its reason.
+  it("says which reports come back as error results", () => {
+    expect(RECIPE).toMatch(
+      /`outcome`, an error result unless `complete` with no `stopped`/,
+    );
+    expect(RECIPE).toMatch(
+      /the export report \(an error result unless `saved`\)/,
+    );
+    expect(RECIPE).toMatch(/anything but `attached` is an error result/);
+  });
+
   // Red if `No demo:` reaches past Attach again: Ask is the default since
   // d9949b38, so it would land in every PR of everyone who never chose it
   // (author, 2026-10-22).

@@ -54,8 +54,9 @@ export interface SnapshotAnswer extends Answer {
 
 /**
  * A tool result as an answer. A refusal the server structured (`isError`
- * with `{reason, detail}` JSON) is kept as it is, and so is a run that did
- * not complete (`isError` with its report, which names an `outcome`); anything else that is an
+ * with `{reason, detail}` JSON) is kept as it is, and so is a run, export or
+ * attach that did not finish (`isError` with its report, which names an
+ * `outcome`); anything else that is an
  * error, or is not JSON, becomes a `toolError` refusal carrying the tool's
  * text verbatim — never a SyntaxError about the text.
  */
