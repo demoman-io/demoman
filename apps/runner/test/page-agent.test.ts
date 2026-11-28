@@ -211,6 +211,30 @@ async function parkedPerRealm(
 
 describe("the headless PageAgent", () => {
   it(
+    "says once when an anchor is found by a weaker tier than it was recorded by",
+    async () => {
+      await openFixture();
+      const reported: string[] = [];
+      const agent = createHeadlessPageAgent(page, (line) =>
+        reported.push(line),
+      );
+      // Recorded by its stable id (anchorOf's resolution), found by its path.
+      const anchor = anchorOf("moved", { treePath: "body:1/button:2" });
+      expect(anchor.resolution.strategy).toBe("stableId");
+
+      const [first] = await agent.resolve([anchor]);
+      expect(first?.strategy).toBe("treePath");
+      // A wait polls its target: the second look says nothing new.
+      await agent.resolve([anchor]);
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toContain('anchor "moved"');
+      expect(reported[0]).toContain("its position in the page");
+      expect(reported[0]).toContain("not by its stable id");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "resolves an anchor in the top document, and parks it there",
     async () => {
       const realms = await openFixture();

@@ -417,7 +417,8 @@
                       "frameGone",
                       "frameUnreachable",
                       "patchUnavailable",
-                      "ambiguousTie"
+                      "ambiguousTie",
+                      "drifted"
                     ]
                   },
                   {

@@ -49,6 +49,10 @@ export const FailureReason = z.enum([
   "frameUnreachable",
   "patchUnavailable",
   "ambiguousTie",
+  // Found by its text, position or picture alone, and contradicted by what
+  // else the fingerprint knew (both role and name, or every DOM signal for a
+  // picture): a lookalike, refused rather than clicked.
+  "drifted",
 ]);
 
 export type StrategyName = z.infer<typeof ResolutionStrategy>;

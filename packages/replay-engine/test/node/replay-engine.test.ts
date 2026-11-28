@@ -400,6 +400,8 @@ describe("runReplay", () => {
     // Not in the tree *yet* — a virtualized row the app can be asked to
     // scroll to. Not the same as gone.
     expect(await stopFor("notInTree")).toBe("anchorNotRendered");
+    // Something was found and refused: a lookalike, not a missing element.
+    expect(await stopFor("drifted")).toBe("anchorDrifted");
     // Everything else means the element could not be found.
     expect(await stopFor("closedShadowRoot")).toBe("unresolvedAnchor");
     expect(await stopFor(null)).toBe("unresolvedAnchor");

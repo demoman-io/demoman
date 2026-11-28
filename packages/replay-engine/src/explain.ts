@@ -35,6 +35,10 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
   // well enough to be found again.
   ambiguousAnchor:
     "several elements matched this step, so replay stopped rather than risk clicking the wrong one — name the target more precisely (a stableId, or a role with a fuller name, from a snapshot of the page)",
+  // Something WAS found, and the sentence must not say otherwise: the page
+  // shows the step's text or its position, held by a different control.
+  anchorDrifted:
+    "only a lookalike of this step's element was found — something with its text or in its place that is a different control now — so replay stopped rather than click it; pick the target again from a snapshot of the page",
   // Usually nothing is wrong with the take. A virtualized row that has not
   // been rendered yet; the app can be asked to scroll it into view. The
   // resolver reports it separately precisely because it is recoverable, and

@@ -776,6 +776,8 @@ export function stopForResolveFailure(
   switch (failureReason) {
     case "ambiguousTie":
       return "ambiguousAnchor";
+    case "drifted":
+      return "anchorDrifted";
     case "notInTree":
       return "anchorNotRendered";
     case "pageSilent":

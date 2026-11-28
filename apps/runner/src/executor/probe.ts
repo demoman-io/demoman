@@ -225,6 +225,7 @@ export async function probeOp(
           title: "",
           targets: [],
           unresolvable: 0,
+          unlisted: 0,
           notExamined: 0,
           walkMs: 0,
         },
@@ -273,6 +274,7 @@ export async function probeOp(
     settleNote: ready.note,
     targets: walk.targets,
     unresolvable: walk.unresolvable,
+    unlisted: walk.unlisted,
     notExamined: walk.notExamined,
     containsNote: containsNoteFor(
       contains,

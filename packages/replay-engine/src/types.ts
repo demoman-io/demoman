@@ -249,6 +249,12 @@ export type ReplayStopReason =
    *  Clicking one of them is how a replay clicks the wrong row of a table, so
    *  it stops instead. The author's move is to disambiguate the anchor. */
   | "ambiguousAnchor"
+  /** Only a lookalike was found: an element with the step's text or
+   *  position that names itself as something else (role and name both
+   *  differ), or a picture match the page's DOM agrees with nowhere. The
+   *  resolver's `drifted`. Clicking it is how a replay clicks the wrong
+   *  control, so it stops; the author's move is to re-pick the target. */
+  | "anchorDrifted"
   /** The element is not in the tree *yet* — a virtualized list row, which the
    *  app can still be asked to scroll into view. Distinct from gone, and the
    *  distinction is the whole reason the resolver reports `notInTree`. */

@@ -202,6 +202,7 @@ const SCRIPT_REFUSALS = new Set([
 const SCRIPT_STOPS: Record<ReplayStopReason, boolean> = {
   unresolvedAnchor: true,
   ambiguousAnchor: true,
+  anchorDrifted: true,
   anchorNotRendered: true,
   anchorFrameMismatch: true,
   redactedWithoutReplacement: true,

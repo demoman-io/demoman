@@ -36,6 +36,19 @@ describe("package boundary", () => {
     }
   });
 
+  // Role and name are what a target resolves by, and this library computes
+  // the name. A range lets a lockfile refresh change names while the
+  // resolver's version stands still, so it is pinned, and moving it is a
+  // RESOLVER_VERSION bump (src/index.ts).
+  it("pins the library that computes accessible names exactly", () => {
+    const pkg = JSON.parse(
+      readFileSync(join(__dirname, "..", "..", "package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> };
+    expect(pkg.dependencies["dom-accessibility-api"]).toMatch(
+      /^\d+\.\d+\.\d+$/,
+    );
+  });
+
   it("exports the surface SP4, SP5 and SP8 depend on", () => {
     // Stamped on every scene as `toolchain.resolverVersion`, so it has to be
     // the package's own — package.json said 1.0.0 under a 1.1.0 constant
@@ -66,6 +79,7 @@ describe("package boundary", () => {
       "buildTreePath",
       "parseTreePath",
       "serializeTreePath",
+      "TIERS",
     ]) {
       expect(resolver, `missing export: ${name}`).toHaveProperty(name);
     }

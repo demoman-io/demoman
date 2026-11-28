@@ -56,15 +56,14 @@ export function fixtureScene(): SceneDocument {
         { x: 164, y: 18, width: 320, height: 36 },
         0,
       ),
-      // <tr data-testid="row-8891"> inside the invoices table. Rows have no
-      // implicit role in this resolver's (deliberately partial) role table,
-      // so role is null. It has children (<td>s), and captureAnchor only
-      // records textContent for leaves, so textContent is null too — only
-      // its computed accessible name (name-from-content) is real.
+      // <tr data-testid="row-8891"> inside the invoices table: role "row",
+      // and its name from its content. It has children (<td>s), and
+      // captureAnchor only records textContent for leaves, so textContent
+      // is null.
       anchor(
         "a-row",
         "row-8891",
-        null,
+        "row",
         "INV-8891 Northwind Traders Paid $1,200.00",
         null,
         { x: 248, y: 186, width: 1004, height: 56 },

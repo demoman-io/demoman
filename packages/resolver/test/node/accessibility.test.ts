@@ -24,6 +24,37 @@ describe("computeRole", () => {
     expect(computeRole(el(`<h2>Title</h2>`))).toBe("heading");
   });
 
+  it("maps dialogs, options, rows, cells, articles and named landmarks", () => {
+    const at = (html: string, selector: string): string | null => {
+      const found = mount(html).querySelector(selector);
+      if (found === null) throw new Error(`fixture has no ${selector}`);
+      return computeRole(found);
+    };
+    expect(computeRole(el(`<dialog open>Hi</dialog>`))).toBe("dialog");
+    expect(at(`<select><option>One</option></select>`, "option")).toBe(
+      "option",
+    );
+    expect(at(`<table><tr><td>A</td></tr></table>`, "tr")).toBe("row");
+    expect(at(`<table><tr><td>A</td></tr></table>`, "td")).toBe("cell");
+    expect(at(`<table role="grid"><tr><td>A</td></tr></table>`, "td")).toBe(
+      "gridcell",
+    );
+    expect(computeRole(el(`<article>Post</article>`))).toBe("article");
+    expect(computeRole(el(`<form aria-label="Sign up"></form>`))).toBe("form");
+    expect(computeRole(el(`<section aria-label="Plans"></section>`))).toBe(
+      "region",
+    );
+  });
+
+  // An unnamed form or section is generic, as in Playwright's table: a role
+  // every wrapper `<section>` shared would tie on the role tier for nothing.
+  it("leaves an unnamed form or section, and a stray cell, without a role", () => {
+    expect(computeRole(el(`<form></form>`))).toBeNull();
+    expect(computeRole(el(`<section>Plans</section>`))).toBeNull();
+    const cell = mount(`<div></div>`).createElement("td");
+    expect(computeRole(cell)).toBeNull();
+  });
+
   it("returns null for an element with no role", () => {
     expect(computeRole(el(`<span>text</span>`))).toBeNull();
   });
