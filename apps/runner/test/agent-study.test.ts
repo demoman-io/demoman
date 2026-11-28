@@ -10,7 +10,7 @@ import {
   skipLine,
   studyPrompt,
 } from "../src/compare/study-briefs.js";
-import { tallyStream } from "../src/compare/study-tally.js";
+import { answerOf, tallyStream } from "../src/compare/study-tally.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BRIEFS = join(here, "..", "compare", "briefs");
@@ -71,6 +71,47 @@ it("tallies probes, runs, outcomes and the export path from a stream", () => {
     exportPath: "/tmp/x.mp4",
     finalReport: "Done. The video is at /tmp/x.mp4.",
   });
+});
+
+// Red if an answer Claude Code delivered as an error is skipped: a stopped
+// or refused run would tally as "unanswered", a call that never came back.
+it("reads a run's answer that Claude Code wrapped as an error, whole or cut", () => {
+  const report = {
+    summary: "Stopped at step 2.",
+    outcome: "stopped",
+    steps: ["a long middle".repeat(20)],
+  };
+  const text = JSON.stringify(report, null, 2);
+  expect(answerOf(`<tool_use_error>${text}</tool_use_error>`)).toEqual(report);
+  // Cut in the middle, as a long error is: the object no longer parses.
+  const middle = text.indexOf('"steps"') + 20;
+  const cut = `<tool_use_error>${text.slice(0, middle)} ... [200 characters truncated] ... ${text.slice(-5)}</tool_use_error>`;
+  expect(() =>
+    JSON.parse(cut.slice(cut.indexOf("{"), cut.lastIndexOf("}") + 1)),
+  ).toThrow();
+  expect(answerOf(cut)).toEqual({ outcome: "stopped" });
+  expect(answerOf("No such tool")).toBeNull();
+  const lines = [
+    {
+      message: {
+        content: [{ type: "tool_use", id: "t1", name: "mcp__demoman__run" }],
+      },
+    },
+    {
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            content: `<tool_use_error>${text}</tool_use_error>`,
+          },
+        ],
+      },
+    },
+  ].map((l) => JSON.stringify(l));
+  expect(tallyStream(lines).runOutcomes).toEqual([
+    { outcome: "stopped", verdict: null },
+  ]);
 });
 
 it("names an unreachable app and how to start it", async () => {

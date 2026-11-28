@@ -54,7 +54,8 @@ export interface SnapshotAnswer extends Answer {
 
 /**
  * A tool result as an answer. A refusal the server structured (`isError`
- * with `{reason, detail}` JSON) is kept as it is; anything else that is an
+ * with `{reason, detail}` JSON) is kept as it is, and so is a run that did
+ * not complete (`isError` with its report, which names an `outcome`); anything else that is an
  * error, or is not JSON, becomes a `toolError` refusal carrying the tool's
  * text verbatim — never a SyntaxError about the text.
  */
@@ -76,7 +77,12 @@ export function parseAnswer<T extends Answer>(r: {
   }
   if (typeof parsed !== "object" || parsed === null)
     return { reason: "toolError", detail: text } as T;
-  if (r.isError === true && (parsed as Answer).reason === undefined)
+  const answer = parsed as Answer;
+  if (
+    r.isError === true &&
+    answer.reason === undefined &&
+    answer.outcome === undefined
+  )
     return { reason: "toolError", detail: text } as T;
   return parsed as T;
 }
