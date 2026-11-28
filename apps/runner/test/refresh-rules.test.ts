@@ -266,12 +266,39 @@ describe("recordWithRetry", () => {
     expect(got.answer).toBe(clean);
     expect(got.verdict).toEqual({ kind: "clean" });
     expect(logs.at(-1)).toContain(`"Flow" recorded with ${STILL}`);
+    // Red when a pass on the second recording reads as a clean pass: the
+    // first recording's problems are kept, in a note of their own.
+    expect(got.retry).toBe(
+      `clean only on a second try; the first try had ${STILL}`,
+    );
+  });
+  it("says nothing of a retry when it recorded once", async () => {
+    expect((await recordWithRetry(runs(clean).run, "Flow", log)).retry).toBe(
+      undefined,
+    );
+  });
+  // Red when a clean retry drops the note a retaken held frame earned.
+  it("keeps a retaken frame's note when the retry is clean", async () => {
+    const retaken = {
+      ...clean,
+      frames: { spans: 2, degradations: ["frameRetaken"] },
+    };
+    const r = runs(retaken, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+    expect(got.verdict).toEqual({ kind: "clean" });
+    expect(got.retry).toContain(
+      `${DEGRADATION_WORDS.frameRetaken} (frameRetaken)`,
+    );
   });
   it("delivers a second degraded run, naming its problems", async () => {
     const r = runs(degraded, degraded);
     const got = await recordWithRetry(r.run, "Flow", log);
     expect(r.count()).toBe(2);
     expect(got.verdict).toMatchObject({ kind: "degraded" });
+    expect(got.retry).toBe(
+      `recorded a second time; the first try had ${STILL}`,
+    );
   });
   // Review, finding 3. Red when a retry that fails throws away a first
   // recording that could be delivered.
@@ -281,6 +308,36 @@ describe("recordWithRetry", () => {
     expect(r.count()).toBe(2);
     expect(got.answer).toBe(degraded);
     expect(got.verdict).toMatchObject({ kind: "degraded" });
+    // Red when the retry's own failure is dropped: it is said, in the log
+    // and in a note, as a code span (it can quote the page).
+    const why = runVerdict(diverged);
+    if (why.kind !== "failed") throw new Error("premise: the retry fails");
+    expect(logs.at(-1)).toBe(
+      `refresh: "Flow": the second try failed, so the first stands: ${why.detail}`,
+    );
+    expect(got.retry).toBe(
+      `recorded a second time, which failed, so the first stands: \`${why.detail}\``,
+    );
+    // Red when the second's script failure no longer asks to record again.
+    expect(got.rerecord).toBe(true);
+  });
+  // Red when a page's words reach the note raw: a backtick would end the
+  // code span in the pull request body, an `@` would mention someone.
+  it("quotes a failed retry's detail safely", async () => {
+    const quoted = {
+      ...diverged,
+      summary: "Stopped at `Save`\nfor @team",
+    };
+    const why = runVerdict(quoted);
+    // The premise: the detail carries all three.
+    if (why.kind !== "failed") throw new Error("premise: the retry fails");
+    expect(why.detail).toMatch(/`[\s\S]*\n[\s\S]*@/);
+    const got = await recordWithRetry(runs(degraded, quoted).run, "Flow", log);
+    expect(got.retry).toBe(
+      "recorded a second time, which failed, so the first stands: `Stopped at Save for team — " +
+        `${why.detail.split(" — ")[1]}\``,
+    );
+    expect(logs.at(-1)).toContain(why.detail);
   });
   // Review of 2026-11-16. Red when a held recording of a page with a frame
   // from another site, a playing video or a quiet connection is recorded

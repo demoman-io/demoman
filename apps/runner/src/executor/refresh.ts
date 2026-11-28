@@ -352,15 +352,28 @@ export function degradedNote(problems: string[]): string {
     : `recorded with problems Demoman could not avoid on this machine: ${problems.join("; ")}`;
 }
 
+/** How the note opens when only the second recording was clean: a flake,
+ *  said of the recording, since the flow can still fail after it. */
+export const CLEAN_ON_RETRY = "clean only on a second try";
+
 /** Records a flow, and once more when the first recording is degraded: on a
  *  busy runner a soft still or a starved screencast is usually a one-off.
  *  Answers the run that stands and its verdict; a second degraded
- *  run stands too, and the caller delivers it with a note. */
+ *  run stands too, and the caller delivers it with a note. When it recorded
+ *  twice, `retry` is the note that says so: a pass on the second recording
+ *  is a flake, never a clean pass, and a failed second keeps its reason.
+ *  `rerecord`: the second failed because the script no longer fits the
+ *  page, so the caller says how to record it again. */
 export async function recordWithRetry(
   run: () => Promise<Record<string, unknown>>,
   name: string,
   log: (line: string) => void,
-): Promise<{ answer: Record<string, unknown>; verdict: RunVerdict }> {
+): Promise<{
+  answer: Record<string, unknown>;
+  verdict: RunVerdict;
+  retry?: string;
+  rerecord?: true;
+}> {
   const first = await run();
   const verdict = runVerdict(first);
   if (verdict.kind !== "degraded") return { answer: first, verdict };
@@ -372,10 +385,26 @@ export async function recordWithRetry(
   );
   const answer = await run();
   const second = runVerdict(answer);
-  // A retry that fails keeps the first run, which can still be delivered.
-  return second.kind === "failed"
-    ? { answer: first, verdict }
-    : { answer, verdict: second };
+  // A retry that fails keeps the first run, which can still be delivered;
+  // the first's problems are its own note, and the second's failure is this.
+  // The detail can quote the page, so it is a code span.
+  if (second.kind === "failed") {
+    log(
+      `refresh: "${name}": the second try failed, so the first stands: ${second.detail}`,
+    );
+    return {
+      answer: first,
+      verdict,
+      retry: `recorded a second time, which failed, so the first stands: \`${codeSpanText(second.detail, 500)}\``,
+      ...(second.rerecord === true ? { rerecord: true as const } : {}),
+    };
+  }
+  return {
+    answer,
+    verdict: second,
+    // A clean second is a flake's pass; a degraded one has its own note.
+    retry: `${second.kind === "clean" ? CLEAN_ON_RETRY : "recorded a second time"}; the first try had ${verdict.problems.join("; ")}`,
+  };
 }
 
 /**
@@ -844,9 +873,16 @@ async function filmOne(
       ? (out.value as Record<string, unknown>)
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
   };
-  const { answer, verdict } = await recordWithRetry(run, kept.name, deps.log);
+  const { answer, verdict, retry, rerecord } = await recordWithRetry(
+    run,
+    kept.name,
+    deps.log,
+  );
   // The group's first run includes the browser launch.
   times.mark("record");
+  // Said whatever this film's outcome: a failure later in it keeps notes too.
+  if (retry !== undefined) job.notes.push(retry);
+  if (rerecord === true) job.notes.push(rerecordFix(kept.name, job.file));
   if (verdict.kind === "failed")
     return {
       failed: verdict.detail,

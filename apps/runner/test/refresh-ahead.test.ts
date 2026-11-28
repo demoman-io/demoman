@@ -225,6 +225,64 @@ describe("a refresh says when the library is ahead of the file", () => {
   });
 });
 
+describe("a refresh that records a flow twice", () => {
+  // Red when a film drops the retry's note: here the second recording makes
+  // no video, so the flow fails, and its notes must still say the first
+  // recording had a problem.
+  it("says so in the flow's notes", async () => {
+    const answer = (degradations: string[]) => ({
+      outcome: "complete",
+      summary: "Complete.",
+      verdict: { kind: "matches" },
+      frames: { spans: 2, degradations },
+      provenance: { takeId: null },
+    });
+    const answers = [answer(["stillFailed"]), answer([])];
+    const d = deps();
+    d.executor = () =>
+      ({
+        request: async () => ({ ok: true, value: answers.shift() }),
+        close: async () => undefined,
+      }) as unknown as ReturnType<RefreshDeps["executor"]>;
+    const v = (await refreshKept({ repoRoot: repo, library: "throwaway" }, d))
+      .videos[0];
+    // The premise: both recordings were made, and the second failed late.
+    expect(answers, JSON.stringify(v)).toEqual([]);
+    expect(v?.detail).toBe("the run is clean but made no video");
+    expect(v?.notes).toEqual([
+      expect.stringMatching(
+        /^clean only on a second try; the first try had .*\(stillFailed\)$/,
+      ),
+    ]);
+  });
+  // Red when a second recording the page no longer fits stops asking for
+  // the flow to be recorded again: the first stands, with its note.
+  it("asks to record it again when the second no longer fits the page", async () => {
+    const first = {
+      outcome: "complete",
+      summary: "Complete.",
+      verdict: { kind: "matches" },
+      frames: { spans: 2, degradations: ["stillFailed"] },
+      provenance: { takeId: null },
+    };
+    const answers = [first, { ...first, verdict: { kind: "diverged" } }];
+    const d = deps();
+    d.executor = () =>
+      ({
+        request: async () => ({ ok: true, value: answers.shift() }),
+        close: async () => undefined,
+      }) as unknown as ReturnType<RefreshDeps["executor"]>;
+    const v = (await refreshKept({ repoRoot: repo, library: "throwaway" }, d))
+      .videos[0];
+    expect(answers, JSON.stringify(v)).toEqual([]);
+    expect(v?.notes).toEqual([
+      expect.stringMatching(/^recorded a second time, which failed/),
+      `Ask your agent to record \`${NAME}\` again, then commit \`${FILE}\`.`,
+      expect.stringMatching(/^recorded with problems Demoman could not avoid/),
+    ]);
+  });
+});
+
 describe("a kept file that does not parse", () => {
   it("is one failure when `only` names it, not also a missing video", async () => {
     await writeFile(join(repo, FILE), "{ not json");

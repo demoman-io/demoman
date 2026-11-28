@@ -52,6 +52,7 @@ import {
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import {
+  CLEAN_ON_RETRY,
   type RefreshDeps,
   type RefreshResult,
   type RefreshVideo,
@@ -77,6 +78,11 @@ import { sampleMp4 } from "./mp4-probe.js";
 // gradient), and the file's cases 26-81 s, 1168 s in all; CI took 1.5-2.5x
 // those. Each limit is at least 1.6x 2.5 times its slowest GPU-off case.
 const SETUP_MS = 60_000;
+/** A flow's notes without the one a second recording adds: on a loaded
+ *  runner a first recording can degrade and the retry pass, which is said
+ *  and is not what these cases test. */
+const firstTry = (notes: string[]) =>
+  notes.filter((n) => !n.startsWith(CLEAN_ON_RETRY));
 const BOTH_MS = 300_000;
 /** The grey-text case records three takes before its refresh: 53 s here,
  *  333 s on CI once (PR #67, 2026-11-11: 33 s past BOTH_MS, then passed). */
@@ -930,7 +936,9 @@ export const firstFilm = () => {
         ].sort(),
       );
       expect(a.detail).toBe("nothing to compare against; delivered as new");
-      expect(a.notes).toEqual([`${RECEIPT_DIR}/${keptFileName(A)} is missing`]);
+      expect(firstTry(a.notes)).toEqual([
+        `${RECEIPT_DIR}/${keptFileName(A)} is missing`,
+      ]);
       // The recipe is the committed one, byte for byte.
       expect(
         execFileSync("git", ["status", "--porcelain", KEPT_DIR], { cwd: repo })
@@ -1507,7 +1515,9 @@ export const compareFailures = () => {
       const r = await refresh([B]);
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("added");
-      expect(b.notes).toEqual([`${receiptFile} predates page screens`]);
+      expect(firstTry(b.notes)).toEqual([
+        `${receiptFile} predates page screens`,
+      ]);
       expect(b.detail).toBe("recorded again and not compared");
       expect(b.sameAs).toBeNull();
       expect(b.outputs).toContain(out.bMp4);
