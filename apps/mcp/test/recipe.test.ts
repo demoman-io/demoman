@@ -566,6 +566,12 @@ describe("the CLI's recipe", () => {
     expect(RECIPE).toContain(`it keeps the last ${JOBS_KEPT} finished`);
   });
 
+  // Claude Code cuts server instructions past 4,096 characters; the cap
+  // leaves room under it so a cut never drops the closing lines.
+  it("keeps the server instructions within Claude Code's 4,096-character cut", () => {
+    expect(INSTRUCTIONS_CLI.length).toBeLessThanOrEqual(3_500);
+  });
+
   it("keeps the CLI recipe within Codex's 10,000-token cut", () => {
     expect(Buffer.byteLength(RECIPE, "utf8")).toBeLessThanOrEqual(40_000);
   });
