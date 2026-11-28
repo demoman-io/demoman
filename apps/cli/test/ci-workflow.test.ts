@@ -1042,6 +1042,15 @@ describe("refresh hands off; a job that never runs the app delivers", () => {
       expect(stringify(jobs(bunApp).refresh), a).toContain(a);
     for (const y of [...every, bunApp, routeMain]) {
       const deliver = jobs(y).deliver;
+      // No container, defaults, env or extra run step can join it unseen.
+      expect(Object.keys(deliver ?? {})).toEqual([
+        "needs",
+        "if",
+        "runs-on",
+        "permissions",
+        "steps",
+      ]);
+      expect(deliver?.steps).toHaveLength(4);
       expect(deliver?.steps.map((s) => s.uses).filter(Boolean)).toEqual([
         "actions/checkout@v4",
         "actions/setup-node@v4",
@@ -1154,7 +1163,20 @@ describe("refresh hands off; a job that never runs the app delivers", () => {
 
   // Review Focus 1: the three things the hand-off step can find.
   describe("the hand-off step", () => {
+    /** Under sh -e, and bash -eo pipefail as Actions runs it: both agree. */
     const run = (o: { file: boolean; outcome: string }) => {
+      const [sh, bash] = [
+        ["sh", "-e"],
+        ["bash", "-eo", "pipefail"],
+      ].map(([cmd, ...flags]) => once(o, cmd ?? "", flags));
+      expect(sh).toEqual(bash);
+      return bash as ReturnType<typeof once>;
+    };
+    const once = (
+      o: { file: boolean; outcome: string },
+      cmd: string,
+      flags: string[],
+    ) => {
       const dir = mkdtempSync(join(tmpdir(), "handoff-"));
       if (o.file) {
         mkdirSync(join(dir, "demoman-handoff"));
@@ -1162,7 +1184,7 @@ describe("refresh hands off; a job that never runs the app delivers", () => {
       }
       const out = join(dir, "out");
       writeFileSync(out, "");
-      const r = spawnSync("sh", ["-e", "-c", HANDOFF_SCRIPT], {
+      const r = spawnSync(cmd, [...flags, "-c", HANDOFF_SCRIPT], {
         cwd: dir,
         encoding: "utf8",
         env: {
@@ -1172,7 +1194,7 @@ describe("refresh hands off; a job that never runs the app delivers", () => {
         },
       });
       return {
-        ...r,
+        status: r.status,
         said: r.stdout + r.stderr,
         out: readFileSync(out, "utf8"),
       };
@@ -1208,10 +1230,21 @@ describe("the workflow's shape", () => {
   // Review Focus 6: red when either job keeps a group of its own, where a
   // newer run's refresh could land between an older run's two jobs.
   it("serialises whole runs: one group for the workflow, none for a job", () => {
+    const check =
+      "github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ";
+    const idle =
+      " && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)";
+    let guarded = 0;
     for (const y of every) {
+      // The refresh job's own guard, the one source the group reads.
+      const guard =
+        /^\$\{\{ github\.event_name != 'pull_request' && (\(.+\)) \}\}$/.exec(
+          parse(y).jobs.refresh.if,
+        )?.[1];
+      if (guard !== undefined) guarded++;
       expect(parse(y).concurrency).toEqual({
         group: expr(
-          "github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || 'demoman-refresh'",
+          `${check}${guard === undefined ? "'demoman-refresh'" : `${guard}${idle}`}`,
         ),
         "cancel-in-progress": expr("github.event_name == 'pull_request'"),
       });
@@ -1220,6 +1253,36 @@ describe("the workflow's shape", () => {
       ))
         expect(job.concurrency, name).toBeUndefined();
     }
+    // Premise: push and deployment, 4 variants each, have a guard.
+    expect(guarded).toBe(8);
+  });
+  // Important 1 of the review: red when a run the refresh job skips (a
+  // preview's deployment status, Demoman's own push) can take the
+  // refresh group, where it replaces a pending run that would refresh.
+  it("a run that will not refresh queues in a group of its own", () => {
+    const check =
+      "github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ";
+    const idle =
+      " && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)";
+    expect(parse(push).concurrency.group).toBe(
+      expr(
+        `${check}(!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]')${idle}`,
+      ),
+    );
+    expect(parse(deploy).concurrency.group).toBe(
+      expr(
+        `${check}(github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')${idle}`,
+      ),
+    );
+    // Release, daily and manual runs all refresh, or say why they did not.
+    for (const y of [
+      releaseY,
+      dailyY,
+      ciWorkflow({ version: "0.2.0", trigger: "manual", route: "pr" }),
+    ])
+      expect(parse(y).concurrency.group).toBe(
+        expr(`${check}'demoman-refresh'`),
+      );
   });
   it("watches the branch it is given, main by default", () => {
     expect(push).toContain("branches: [main]");

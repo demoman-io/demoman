@@ -87,7 +87,7 @@ elif [ "$REFRESH_OUTCOME" = success ]; then
   echo "::error::refresh exited 0 but wrote no hand-off, so nothing can be delivered"
   exit 1
 else
-  echo "::notice::The refresh step stopped before handing off (its outcome: $REFRESH_OUTCOME), so nothing is delivered."
+  echo "::notice::The job stopped before handing off (the refresh step's outcome: $REFRESH_OUTCOME), so nothing is delivered."
 fi`;
 
 export const RELEASE_MAIN =
@@ -191,6 +191,8 @@ function deliverJob(o: CiOptions): string {
           lfs: true
           # deliver pushes with GH_TOKEN; none is left in .git/config.
           persist-credentials: false${checkoutRef(kind)}
+      # Plain, at v4: this job restores no cache (the refresh job could have
+      # written it), and setup-node v5 restores npm's on its own.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -253,6 +255,12 @@ export function ciWorkflow(o: CiOptions): string {
   const refreshIf = expr(
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );
+  // The group is taken before any job's `if`: a run the refresh job would
+  // skip (a preview's deployment status, Demoman's own push) gets a group of
+  // its own, or it could replace a pending run that would refresh.
+  const group = expr(
+    `github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || ${guard === null ? "'demoman-refresh'" : `(${guard}) && 'demoman-refresh' || format('demoman-idle-{0}', github.run_id)`}`,
+  );
   // A deployment trigger records the deployed app (--base-url): nothing to serve.
   const services = deployment === null ? servicesBlock(o.app) : "";
   return `name: Demoman
@@ -263,7 +271,7 @@ ${on}
 # One group for the whole run: a newer refresh never lands between an older
 # run's refresh and its deliver. The check runs one per ref, the newest.
 concurrency:
-  group: ${expr("github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || 'demoman-refresh'")}
+  group: ${group}
   cancel-in-progress: ${expr("github.event_name == 'pull_request'")}
 jobs:
   refresh:
