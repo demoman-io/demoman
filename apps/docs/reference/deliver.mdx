@@ -14,7 +14,8 @@ runs it.
 It checks the folder against this checkout first, and stops with
 `demoman deliver: nothing delivered: <why>` and exit 1 when anything is off:
 the folder came from another Demoman release or another commit, or holds a
-path no flow of this checkout writes. Nothing is written until the folder
+path no flow of this checkout writes, or a file under a flow that does not
+declare it. Nothing is written until the folder
 passes.
 
 Then it prints each flow's line as refresh did, and commits only the files
@@ -22,5 +23,11 @@ that changed: `main` pushes one `Refresh demo videos` commit to the checked-out
 branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one
 pull request. It exits 1 if delivery fails. A flow that failed does not make
 it fail: the refresh job is red already.
+
+If the branch moves while the refresh records, `main` commits its videos again
+on top of the new tip and pushes once more, and says which of its files those
+commits also changed; a video a commit during the run deleted is left out. A
+checkout with commits origin lacks, or a rewritten history, stops with the
+reason.
 
 It exits 2 when it is not given `pr` or `main` and a folder.
