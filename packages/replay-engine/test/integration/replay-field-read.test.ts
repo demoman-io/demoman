@@ -198,10 +198,10 @@ describe("a field whose last key is never seen painted", () => {
 
 describe("a field whose last key paints late", () => {
   // The type's act ends only once the page has drawn the frames after the last
-  // key; this field's second one comes 600 ms late. Read off the act's own end,
-  // not the film, so a starved screencast cannot fake it (unhurried-beats skips
-  // on that). Red if the walk stops waiting for the frames (`lastKeyPainted`):
-  // the act then ends at the key, before the late frame finished.
+  // key; this field holds them until 700 ms after it. Read off the act's own
+  // end, not the film, so a starved screencast cannot fake it (unhurried-beats
+  // skips on that). Red, in most runs, if the walk stops waiting for the
+  // frames (`lastKeyPainted`): the act then ends at the key, before them.
   it("ends the type's act after the page drew the frames after the last key", async () => {
     await runTypes(
       [{ do: "type", into: { stableId: "slowpaint" }, text: "a" }],
@@ -213,8 +213,8 @@ describe("a field whose last key paints late", () => {
         const acted =
           (marker?.actEndSourceTimeMs ?? Number.NaN) -
           (marker?.sourceTimeMs ?? Number.NaN);
-        // Wall-clock ms, as the walk's clock here: pressed, keyed, and the
-        // late frame's end.
+        // Wall-clock ms: the page's Date.now() and the walk's clock here are
+        // this machine's one clock. Pressed, keyed, and the first held frame.
         const times = await page.evaluate(
           () =>
             (window as { slowPaint?: Record<string, number> }).slowPaint ?? {},
@@ -225,14 +225,18 @@ describe("a field whose last key paints late", () => {
           drawnAt = Number.NaN,
         } = times;
         const said = JSON.stringify({ acted, marker, times });
-        // The premises: the field was pressed, then keyed, and its frame
-        // came at least the 600 ms late it busy-waits for.
+        // The premises: the field was pressed, then keyed, and its frames
+        // came at least the 700 ms after the key the page holds them for.
         expect(Number.isFinite(acted), said).toBe(true);
         expect(keyAt - pressedAt, said).toBeGreaterThanOrEqual(0);
-        expect(drawnAt - keyAt, said).toBeGreaterThanOrEqual(600);
+        expect(drawnAt - keyAt, said).toBeGreaterThanOrEqual(700);
         // The marker is stamped before the press, so an act that ends after
         // the late frame lasts at least from the press to that frame, however
-        // slow the machine; without the wait it ends at the key, ~600 short.
+        // slow the machine. Without the wait it ends at the key's read, or at
+        // the last motion the recorder saw after it, which can carry it past
+        // the frames: red without the wait in 9 of 12 runs (2026-11-28, 6 of
+        // them under 6 background burners), so a removed wait shows within
+        // a run or two, not on every one.
         expect(acted, said).toBeGreaterThanOrEqual(drawnAt - pressedAt);
         expect(result.steps[0]?.lastKeyPaint, said).toBeUndefined();
       },

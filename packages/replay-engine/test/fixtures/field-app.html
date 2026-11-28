@@ -17,9 +17,11 @@
   <input id="frozen" type="text">
   <!-- Navigates on its first key: the document the key went into is gone. -->
   <input id="leave" type="text">
-  <!-- Its second frame after a key comes 600 ms late (that frame busy-waits
-       first): the type verb waits two frames after its last key. The page
-       writes when it was pressed and when that frame finished on
+  <!-- Its animation frames after a key come no sooner than 700 ms after it:
+       the type verb waits two frames after its last key. They are held, not
+       busy-waited for: a busy page would hold the verb's read of the field
+       too, and end even a verb that does not wait after the frame. The page
+       writes `pressedAt`, `keyAt` and `drawnAt` (the first held frame) on
        `window.slowPaint`, in Date.now(), the clock the walk's test runs on. -->
   <input id="slowpaint" type="text">
   <script>
@@ -47,14 +49,19 @@
       window.slowPaint.pressedAt = Date.now();
     });
     slow.addEventListener("input", () => {
-      window.slowPaint.keyAt = Date.now();
-      raf(() =>
-        raf(() => {
-          const t = performance.now();
-          while (performance.now() - t < 600) {}
-          window.slowPaint.drawnAt = Date.now();
-        }),
-      );
+      const keyAt = Date.now();
+      window.slowPaint.keyAt = keyAt;
+      window.requestAnimationFrame = (cb) => {
+        setTimeout(
+          () =>
+            raf((t) => {
+              window.slowPaint.drawnAt ??= Date.now();
+              cb(t);
+            }),
+          keyAt + 700 - Date.now(),
+        );
+        return 0;
+      };
     });
     document.getElementById("leave").addEventListener("input", () => {
       location.replace(location.href.split("?")[0] + "?left=1");
