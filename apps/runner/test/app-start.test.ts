@@ -172,7 +172,7 @@ describe("startApp", () => {
     );
     expect(isRefusal(r) && r.reason).toBe("appNeverAnswered");
     const f = r as AppStartRefusal;
-    expect(f.detail).toContain(url);
+    expect(f.detail).toContain(`nothing answered at ${url}`);
     expect(f.detail).toContain("1 s");
     expect(f.tail).toContain("never listening hi");
     const pid = children[0]?.pid;
@@ -223,7 +223,7 @@ describe("startApp", () => {
   describe("ready is Playwright's rule", () => {
     const answering = (status: number): AppStartDeps["fetch"] => {
       let calls = 0;
-      // The first call is the before-start probe: nothing answers yet.
+      // The first poll gets no answer yet.
       return (async () => {
         if (calls++ === 0) throw new Error("ECONNREFUSED");
         return new Response(null, { status });
@@ -247,16 +247,136 @@ describe("startApp", () => {
         expect(started(r).reused).toBe(false);
       });
     }
-    for (const status of [404, 500]) {
-      it(`not ready on ${status}`, async () => {
-        const r = await startApp(
-          app({ start: "sleep 30", timeoutSeconds: 1 }),
-          opts(),
-          { spawn: spawnSpy.fn, fetch: answering(status), ...clock },
-        );
-        expect(isRefusal(r) && r.reason).toBe("appNeverAnswered");
-      });
-    }
+  });
+
+  describe("a URL never ready says what the polls saw", () => {
+    type Answer = number | "refused" | "timeout";
+    /** Answers each poll from `answers` in turn, repeating the last, and
+     *  keeps what each poll got for the premise checks. */
+    const polls = (...answers: Answer[]) => {
+      const seen: Answer[] = [];
+      const fetch = (async () => {
+        const a = answers[Math.min(seen.length, answers.length - 1)] as Answer;
+        seen.push(a);
+        if (a === "refused") throw new TypeError("fetch failed");
+        if (a === "timeout")
+          throw new DOMException("The operation timed out.", "TimeoutError");
+        return new Response(null, { status: a });
+      }) as AppStartDeps["fetch"];
+      return { fetch, seen };
+    };
+    let t = 0;
+    const clock = {
+      now: () => t,
+      sleep: async (ms: number) => {
+        t += ms;
+        await new Promise((r) => setImmediate(r));
+      },
+    };
+    const never = async (
+      p: ReturnType<typeof polls>,
+      mode: "own" | "reuse" = "own",
+    ) => {
+      const r = await startApp(
+        app({ start: "sleep 30", timeoutSeconds: 1 }),
+        opts({ mode }),
+        { spawn: spawnSpy.fn, fetch: p.fetch, ...clock },
+      );
+      expect(isRefusal(r) && r.reason).toBe("appNeverAnswered");
+      return (r as AppStartRefusal).detail;
+    };
+
+    it("names a 500 on every poll, and says the app fails", async () => {
+      const p = polls(500);
+      const detail = await never(p);
+      // Premise: several polls, every one answered 500.
+      expect(p.seen.length).toBeGreaterThan(1);
+      expect(new Set(p.seen)).toEqual(new Set([500]));
+      expect(detail).toContain(`${url} answered 500 within 1 s`);
+      expect(detail).toContain("the app started but fails");
+      expect(detail).not.toContain("nothing answered");
+    });
+
+    it("a 404 off CI asks about another port", async () => {
+      const p = polls(404);
+      const detail = await never(p, "reuse");
+      expect(new Set(p.seen)).toEqual(new Set([404]));
+      expect(detail).toContain(`${url} answered 404 within 1 s`);
+      expect(detail).toContain("another port");
+    });
+
+    it("a 404 on CI asks only about the path: the port was free", async () => {
+      const p = polls(404);
+      const detail = await never(p, "own");
+      expect(new Set(p.seen)).toEqual(new Set([404]));
+      expect(detail).toContain("is the URL's path right?");
+      expect(detail).not.toContain("another port");
+    });
+
+    it("a 503 reads as still starting, and names timeoutSeconds", async () => {
+      const p = polls(503);
+      const detail = await never(p);
+      expect(new Set(p.seen)).toEqual(new Set([503]));
+      expect(detail).toContain(`${url} answered 503 within 1 s`);
+      expect(detail).toContain("may still be starting");
+      expect(detail).toContain("timeoutSeconds");
+    });
+
+    it("a 500 and then no answer still names the 500", async () => {
+      const p = polls(500, 500, "refused");
+      const detail = await never(p);
+      // Premise: it answered 500, and the final poll was refused.
+      expect(p.seen.slice(0, 2)).toEqual([500, 500]);
+      expect(p.seen.at(-1)).toBe("refused");
+      expect(detail).toContain(`${url} answered 500, then stopped answering`);
+      expect(detail).not.toContain("nothing answered");
+    });
+
+    it("a 500 and then a poll that timed out says so", async () => {
+      const p = polls(500, "timeout");
+      const detail = await never(p);
+      expect(p.seen[0]).toBe(500);
+      expect(p.seen.at(-1)).toBe("timeout");
+      expect(detail).toContain(
+        `${url} answered 500, then did not respond within 2 s`,
+      );
+    });
+
+    it("polls that only time out read as slow, not as nothing there", async () => {
+      const p = polls("timeout");
+      const detail = await never(p);
+      expect(new Set(p.seen)).toEqual(new Set(["timeout"]));
+      expect(detail).toContain(`${url} did not respond within 2 s`);
+      expect(detail).toContain("timeoutSeconds");
+      expect(detail).not.toContain("nothing answered");
+    });
+
+    it("refused polls read as nothing answered", async () => {
+      const p = polls("refused");
+      const detail = await never(p);
+      expect(new Set(p.seen)).toEqual(new Set(["refused"]));
+      expect(detail).toContain(`nothing answered at ${url} within 1 s`);
+    });
+
+    it("a start that exits after answering 500 says it answered", async () => {
+      const p = polls(500);
+      // Only the exit can end the wait: the sleep never resolves.
+      const r = await startApp(
+        app({ start: "sleep 0.2; exit 1", timeoutSeconds: 120 }),
+        opts(),
+        {
+          spawn: spawnSpy.fn,
+          fetch: p.fetch,
+          now: () => 0,
+          sleep: () => new Promise(() => {}),
+        },
+      );
+      expect(p.seen).toContain(500);
+      expect(isRefusal(r) && r.reason).toBe("appStartExited");
+      expect((r as AppStartRefusal).detail).toContain(
+        `exited with code 1 after ${url} answered 500`,
+      );
+    });
   });
 
   describe("when the URL already answers before anything starts", () => {

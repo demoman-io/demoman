@@ -156,7 +156,8 @@ export async function withApp<T>(
         ok: false,
         refusal: {
           ...started,
-          detail: `${started.detail}; ${APP_FILE} needs ${named.join(" and ")}: start them, then run refresh again`,
+          // One instruction to run again, the hint's, not two in a row.
+          detail: `${started.detail.replace(/, then run again$/, "")}; ${APP_FILE} needs ${named.join(" and ")}: start them, then run refresh again`,
         },
       };
     return { ok: false, refusal: started };

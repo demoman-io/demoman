@@ -323,7 +323,8 @@ describe("withApp", () => {
     };
     const refuse = (reason: "appNeverAnswered") => async () => ({
       reason,
-      detail: "the app did not answer on http://localhost:3000",
+      detail:
+        "the app did not answer on http://localhost:3000; fix it, then run again",
       tail: "",
     });
     const withServices = await withApp(
@@ -335,7 +336,7 @@ describe("withApp", () => {
     expect(withServices).toMatchObject({
       ok: false,
       refusal: {
-        detail: `the app did not answer on http://localhost:3000; ${APP_FILE} needs postgres (5432) and redis (6379): start them, then run refresh again`,
+        detail: `the app did not answer on http://localhost:3000; fix it; ${APP_FILE} needs postgres (5432) and redis (6379): start them, then run refresh again`,
       },
     });
     const without = await withApp(
@@ -346,7 +347,10 @@ describe("withApp", () => {
     );
     expect(without).toMatchObject({
       ok: false,
-      refusal: { detail: "the app did not answer on http://localhost:3000" },
+      refusal: {
+        detail:
+          "the app did not answer on http://localhost:3000; fix it, then run again",
+      },
     });
   });
 });
