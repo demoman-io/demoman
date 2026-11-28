@@ -1368,8 +1368,9 @@ describe("demoman-mcp's tools", () => {
     expect(calls).toEqual([]);
   });
 
-  // Measured in the planning session (see recipe.test.ts): descriptions past
-  // about 2 KB are cut. Red if any tool's grows past it.
+  // Claude Code cuts a description loaded upfront past 4,096 characters
+  // (2,048 before v2.1.296); 2,000 keeps older clients whole. Red if any
+  // tool's grows past it.
   it("keeps every tool description under 2000 characters", async () => {
     const { client } = await connect({});
     const tools = (await client.listTools()).tools;

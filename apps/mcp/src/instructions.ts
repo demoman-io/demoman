@@ -1,9 +1,9 @@
 // apps/mcp/src/instructions.ts
 //
 // The server's MCP instructions: a preface Claude Code delivers whole up to
-// 4,096 characters (its MCP docs; 2,048 before v2.1.296); recipe.test.ts
-// holds it to 3,500 for headroom. The recipe itself is the `recipe` tool
-// (`recipe.md`).
+// 4,096 characters (its MCP docs; 2,048 before v2.1.296, so an older client
+// loses the last lines); recipe.test.ts holds it to 3,500 for headroom. The
+// recipe itself is the `recipe` tool (`recipe.md`).
 /** The preface (spec 2026-10-12 §1; cli-launch.md project A). The first line
  *  names the recipe on its own: Pi shows a server only its first line. (The
  *  extension executor's own preface, INSTRUCTIONS, was archived with it on
