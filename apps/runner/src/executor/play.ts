@@ -33,6 +33,7 @@ import {
   messageOf,
   newId,
   type RunRecording,
+  type RunRegion,
   type RunReport,
   type RunSize,
   restBefore,
@@ -64,6 +65,7 @@ import {
 } from "./landing.js";
 import { measureViewport, pageCapture } from "./page-ops.js";
 import { pinnedClockSource, pinnedOffsetMs } from "./pinned-clock.js";
+import { pinStage } from "./pins.js";
 import type { RunDeps } from "./run.js";
 import { type SessionFile, samePage } from "./sessions.js";
 
@@ -83,6 +85,7 @@ export type PlayDeps = Pick<
   | "signinCommand"
   | "account"
   | "pinnedNow"
+  | "region"
   | "readDates"
   | "flowSize"
   | "flowSizeUnread"
@@ -108,6 +111,9 @@ export type Prepared =
       /** The recording browser's version (`meta.capture.browser`); absent
        *  when no browser was connected to ask. */
       browser?: string;
+      /** The time zone and locale the page was given, and whose
+       *  (`RunReport.run.region`). */
+      region: RunRegion;
       /** The held clock, already holding the page, and what feeds it. */
       held?: { clock: HeldClock; network: NetworkWatch };
     }
@@ -209,6 +215,17 @@ export async function prepareStage(
         detail: `the page's clock could not be pinned to ${deps.pinnedNow} (${messageOf(error)})`,
       };
     }
+  }
+
+  // Before the first navigation too: scrollbars, Math.random, and the time
+  // zone and locale decided at the door (`flowRegionOf`); a first run, or a
+  // caller that decided nothing, pins this machine's.
+  const pinned = await pinStage(
+    launched.cdp,
+    deps.region ?? { pin: "thisMachine" },
+  );
+  if (!pinned.ok) {
+    return { ok: false, reason: "portFailure", detail: pinned.detail };
   }
 
   // The executor loaded the saved sessions into the context `ensure()` gave
@@ -337,6 +354,7 @@ export async function prepareStage(
     ...(recordedAt === undefined ? {} : { recordedAt }),
     recording,
     ...(browser === null ? {} : { browser }),
+    region: pinned.region,
     ...(held === undefined ? {} : { held }),
   };
 }
@@ -619,6 +637,16 @@ export async function playOnStage(
       // The browser that recorded it, so a video that changed can be traced
       // to a browser update (the run report's `run.browser` says the same).
       ...(prepared.browser === undefined ? {} : { browser: prepared.browser }),
+      // What the flow's later runs and refresh pin to; none when this one
+      // was left unpinned, so its flow stays as it always recorded.
+      ...(prepared.region.from === "notPinned"
+        ? {}
+        : {
+            region: {
+              timeZone: prepared.region.timeZone,
+              locale: prepared.region.locale,
+            },
+          }),
       // Spec 2026-10-01 §1: the take starts as a recorded one does — the
       // author's kit and a zoom on every click.
       startingBranding,

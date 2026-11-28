@@ -318,3 +318,78 @@ describe("a flow's later runs read its scale", () => {
     }
   }, 150_000); // measured 11.2 s: 15 s x 10
 });
+
+// Ruling 2026-11-28: a flow records in the time zone and locale of the
+// machine that first recorded it, and a flow recorded before that keeps
+// each machine's own. "Another machine" is the first take's record,
+// rewritten as one made elsewhere would have written it.
+describe("a flow's later runs read its time zone and locale", () => {
+  const elsewhere = { timeZone: "Pacific/Chatham", locale: "de-DE" };
+  const captureOf = async (report: RunReport) =>
+    (await createLibrary(home).getScene(report.provenance.takeId as string))
+      ?.meta.capture;
+
+  // Red when `runJob` stops passing `flowRegionOf`'s plan, or the take
+  // stops recording the pins: the second run would pin this machine's.
+  it("pins a later run to its first take's, and leaves a flow recorded before them unpinned", async () => {
+    const executor = onDisplay("1280x800@2");
+    const first = await runOn(executor, {
+      callId: "flow-region-1",
+      video: { new: newFlow("Zoned flow") },
+      script: script(),
+    });
+    // A first run pins this machine's, and its take records them.
+    expect(first.run.region, JSON.stringify(first.run)).toMatchObject({
+      from: "thisMachine",
+    });
+    const mine = first.run.region;
+    // Premise: this machine is not in Chatham speaking German, so a pin to
+    // them can only have come from the record.
+    expect(mine?.timeZone).not.toBe(elsewhere.timeZone);
+    expect(mine?.locale).not.toBe(elsewhere.locale);
+    expect(await captureOf(first)).toMatchObject({
+      timeZone: mine?.timeZone,
+      locale: mine?.locale,
+    });
+
+    const library = createLibrary(home);
+    const takeId = first.provenance.takeId as string;
+    const doc = await library.getScene(takeId);
+    if (doc === null) throw new Error(`take ${takeId} is missing`);
+    await library.putScene({
+      ...doc,
+      meta: { ...doc.meta, capture: { ...doc.meta.capture, ...elsewhere } },
+    });
+    const flow = { id: first.videoVersion?.id };
+    const again = await runOn(executor, {
+      callId: "flow-region-2",
+      video: flow,
+      script: script(),
+    });
+    expect(again.run.region).toEqual({ ...elsewhere, from: "flow" });
+    expect(await captureOf(again)).toMatchObject(elsewhere);
+
+    // A take recorded before the pins names neither.
+    const latest = again.provenance.takeId as string;
+    const pinned = await library.getScene(latest);
+    if (pinned === null) throw new Error(`take ${latest} is missing`);
+    const { timeZone: _t, locale: _l, ...unpinned } = pinned.meta.capture;
+    await library.putScene({
+      ...pinned,
+      meta: { ...pinned.meta, capture: unpinned },
+    });
+    const old = await runOn(executor, {
+      callId: "flow-region-3",
+      video: flow,
+      script: script(),
+    });
+    expect(old.run.region).toMatchObject({
+      timeZone: mine?.timeZone,
+      locale: mine?.locale,
+      from: "notPinned",
+    });
+    const oldCapture = await captureOf(old);
+    expect(oldCapture?.timeZone).toBeUndefined();
+    expect(oldCapture?.locale).toBeUndefined();
+  }, 350_000); // measured 33.8 s: 35 s x 10
+});

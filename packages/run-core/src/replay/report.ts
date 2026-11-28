@@ -191,6 +191,21 @@ export type RunRecording =
       frameRateUnread?: string;
     };
 
+/**
+ * The time zone and locale a run's page had (`RunReport.run.region`), and
+ * whose they were: `flow`, the ones its flow's take or kept file recorded;
+ * `thisMachine`, this machine's, pinned because the flow had none recorded
+ * yet (its first run), with `why` when a record could not be read; and
+ * `notPinned`, this machine's, left unpinned because the flow's video was
+ * recorded before Demoman pinned them, so it records as it always did.
+ */
+export interface RunRegion {
+  timeZone: string;
+  locale: string;
+  from: "flow" | "thisMachine" | "notPinned";
+  why?: string;
+}
+
 /** A run's or probe's last picture on disk, or why there is none. */
 export type FinalStill = { path: string } | { unavailable: string };
 
@@ -211,6 +226,9 @@ export interface RunReport {
      *  stopped before its stage was prepared, or when no browser was
      *  connected to ask (the run's log says so). */
     browser?: string;
+    /** The time zone and locale the page had, and whose they were. Absent
+     *  when the run stopped before its stage was prepared. */
+    region?: RunRegion;
   };
   /** Never derived from `steps` — see `buildRunReport`'s docblock, rule 1. */
   outcome: "complete" | "stopped" | "refused";

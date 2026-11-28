@@ -17,6 +17,7 @@ below is the same format your agent passes to the `run` tool.
 | `name` | The flow's name, and the file's |
 | `script` | What a run plays: the [script fields](#script-fields) below |
 | `scale` | The device pixel ratio the video was recorded at |
+| `timeZone`, `locale` | The time zone (`Europe/Berlin`) and locale (`de-DE`) of the machine that first recorded the flow. A refresh records in them on any machine. Absent for a flow first recorded before Demoman pinned them: it keeps each machine's own |
 | `logo` | A logo's path in the repo (`.demoman/flows/logos/`), or `null` |
 | `wallpaper` | An uploaded background image's path in the repo, or `null` for a built-in one or a colour |
 | `deliver` | `commit` (exports are committed) or `files` (exports go to refresh's `--out-dir`) |

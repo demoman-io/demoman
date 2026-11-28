@@ -75,6 +75,11 @@ export interface KeptVideo {
   name: string;
   script: DemoScript;
   scale: number;
+  /** The time zone and locale the flow records in (`meta.capture.timeZone`
+   *  and `.locale` of its take), which refresh's run pins the page to. Absent
+   *  for a flow recorded before they were pinned, which refresh records in
+   *  the machine's own, as it always did. */
+  region?: { timeZone: string; locale: string };
   logo: string | null;
   /** An uploaded image background's repo path, copied in by keep as the
    *  logo is; null for a built-in, a colour, or a file kept before
@@ -151,6 +156,21 @@ export function parseKept(text: string, file: string): Parsed {
   }
   if (typeof raw.scale !== "number" || !(raw.scale > 0))
     return bad("scale must be a positive number");
+  const { timeZone, locale } = raw;
+  if (timeZone !== undefined || locale !== undefined) {
+    if (typeof timeZone !== "string" || timeZone === "")
+      return bad("timeZone must be a non-empty string beside locale");
+    if (typeof locale !== "string" || locale === "")
+      return bad("locale must be a non-empty string beside timeZone");
+    // In the file's own words, not as a browser that would not start.
+    try {
+      new Intl.DateTimeFormat(locale, { timeZone });
+    } catch {
+      return bad(
+        `timeZone ${JSON.stringify(timeZone)} and locale ${JSON.stringify(locale)} must be an IANA time zone and a BCP 47 locale, such as "Europe/Berlin" and "de-DE"`,
+      );
+    }
+  }
   if (raw.logo !== null && !repoRelative(raw.logo))
     return bad("logo must be null or a repo-relative path without ..");
   const wallpaper = raw.wallpaper ?? null;
@@ -245,6 +265,9 @@ export function parseKept(text: string, file: string): Parsed {
       name: raw.name,
       script: script.data,
       scale: raw.scale,
+      ...(typeof timeZone === "string" && typeof locale === "string"
+        ? { region: { timeZone, locale } }
+        : {}),
       logo: raw.logo,
       wallpaper,
       deliver,
@@ -283,6 +306,10 @@ export function serializeKept(k: KeptVideo): string {
     name: k.name,
     script: k.script,
     scale: k.scale,
+    // Only when there is one: a file kept before the pins reads the same.
+    ...(k.region === undefined
+      ? {}
+      : { timeZone: k.region.timeZone, locale: k.region.locale }),
     logo: k.logo,
     // Only when there is one: a file kept before wallpapers reads the same.
     ...(k.wallpaper === null ? {} : { wallpaper: k.wallpaper }),

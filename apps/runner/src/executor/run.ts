@@ -45,6 +45,7 @@ import {
 } from "./landing.js";
 import { type Library, LibraryError } from "./library.js";
 import { pageEndPage } from "./page-ops.js";
+import type { RegionPlan } from "./pins.js";
 import { playOnStage, prepareStage, stopDetail, walkedReason } from "./play.js";
 import type { SessionsLoaded } from "./session-loader.js";
 import {
@@ -101,6 +102,9 @@ export interface RunDeps {
   /** The instant the page's clock starts at, when refresh started the app
    *  with it; never an MCP argument. */
   pinnedNow?: string;
+  /** Whose time zone and locale the page is pinned to, decided at the door
+   *  (`flowRegionOf`); absent pins this machine's, as a first run does. */
+  region?: RegionPlan;
   /** Read the last screen for dates: refresh's run only, the one
    *  reader; never an MCP argument. */
   readDates?: boolean;
@@ -397,6 +401,7 @@ export async function runScript(
   if (!prepared.ok) return noTake(prepared.reason, prepared.detail);
   run.recording = prepared.recording;
   if (prepared.browser !== undefined) run.browser = prepared.browser;
+  run.region = prepared.region;
   const { stage: launched, sessions, size } = prepared;
   const { page } = launched;
 

@@ -245,6 +245,21 @@ describe("an authored run's browser", () => {
     expect(result.document?.meta.capture.browser).toBe("151.0.7922.34");
   });
 
+  it("writes the time zone and locale its caller pinned on the take", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(oneClick(), {
+      ...deps(cdp),
+      region: { timeZone: "Asia/Tokyo", locale: "de-DE" },
+    });
+    expect(result.completed, JSON.stringify(result.reason)).toBe(1);
+    expect(result.document?.meta.capture).toMatchObject({
+      timeZone: "Asia/Tokyo",
+      locale: "de-DE",
+    });
+    const unpinned = await runAuthored(oneClick(), deps(createCdpFake()));
+    expect(unpinned.document?.meta.capture.timeZone).toBeUndefined();
+  });
+
   it("writes none when the caller does not know it", async () => {
     const cdp = createCdpFake();
     const result = await runAuthored(oneClick(), deps(cdp));

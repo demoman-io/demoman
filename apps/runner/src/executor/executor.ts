@@ -45,7 +45,12 @@ import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus, skippedOf } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
-import { flowScaleOf, flowSizeOf, latestOf } from "./flow-size.js";
+import {
+  flowRegionOf,
+  flowScaleOf,
+  flowSizeOf,
+  latestOf,
+} from "./flow-size.js";
 import {
   type RecordingFrameRateSetting,
   resolveRecordingFrameRate,
@@ -1103,6 +1108,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             `flow "${into.name}": this run uses this screen's size instead: ${found.why}`,
           );
       }
+      // The time zone and locale this run pins, decided once here from the
+      // flow's record (`flowRegionOf`); a new flow pins this machine's.
+      const region =
+        into === null
+          ? undefined
+          : await flowRegionOf(videos, library, into, latest);
+      if (region?.pin === "thisMachine" && region.why !== undefined && into)
+        log(
+          `flow "${into.name}": this run records in this machine's time zone and locale instead: ${region.why}`,
+        );
       const film = async () => {
         if (!loaded.ok) throw new Error("sessions were not loaded");
         return runScript(
@@ -1116,6 +1131,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               ? { pinnedNow: args.pinnedNow }
               : {}),
             ...(args.readDates === true ? { readDates: true } : {}),
+            ...(region === undefined ? {} : { region }),
             ...(flowSize === undefined ? {} : { flowSize }),
             ...(flowSizeUnread === undefined ? {} : { flowSizeUnread }),
             ...(flowScale.scale === undefined

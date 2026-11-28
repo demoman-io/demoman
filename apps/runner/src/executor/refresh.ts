@@ -914,6 +914,19 @@ async function filmOne(
       failed: `the run did not confirm its page's clock was pinned to ${deps.pinnedNow}; nothing was replaced`,
       answer,
     };
+  // Likewise the time zone and locale the kept file names: a video recorded
+  // in this machine's would be compared with the flow's and read as changed.
+  const region = report.run.region;
+  if (
+    kept.region !== undefined &&
+    (region?.from !== "flow" ||
+      region.timeZone !== kept.region.timeZone ||
+      region.locale !== kept.region.locale)
+  )
+    return {
+      failed: `the run did not confirm its page was pinned to the time zone ${kept.region.timeZone} and the locale ${kept.region.locale} that ${job.file} names${region === undefined ? "" : ` (it recorded in ${region.timeZone}, ${region.locale}${region.why === undefined ? "" : `: ${region.why}`})`}; nothing was replaced`,
+      answer,
+    };
 
   /** One output's export, or with `screensOnly` the take's page screens. */
   const exportOf = async <S extends boolean>(o: KeptOutput, screensOnly: S) => {

@@ -165,13 +165,25 @@ function stagedOn(
   screenScale: number,
   filmScale: number | null,
   more: Partial<PlayDeps> = {},
+  /** Every CDP call the stage got; one named `refuse` throws. */
+  sent: { method: string; params?: unknown; refuse?: string } = { method: "" },
 ): PlayDeps {
   const context = {} as BrowserContext;
+  const cdp = {
+    send: async (method: string, params?: unknown) => {
+      if (method === sent.refuse) throw new Error("refused by the fake");
+      sent.method += `${method} `;
+      sent.params = params;
+      return method === "Runtime.evaluate"
+        ? { result: { value: { timeZone: "UTC", locale: "en-US" } } }
+        : {};
+    },
+  };
   return {
     session: {
       stage: async () => ({
         ok: true,
-        stage: { context, page: {}, cdp: {}, clock: {} },
+        stage: { context, page: {}, cdp, clock: {} },
       }),
       screen: async () => ({ width: 1440, height: 900, scale: screenScale }),
       screenUnknown: () => null,
@@ -239,6 +251,45 @@ describe("prepareStage's browser", () => {
     expect(none.ok, JSON.stringify(none)).toBe(true);
     expect(none.ok && "browser" in none).toBe(false);
     expect(said.join("\n")).toContain("build could not be read");
+  });
+});
+
+describe("prepareStage's pins", () => {
+  // Red when prepareStage stops handing the door's plan to the pins.
+  it("pins the time zone and locale the door decided, and says whose", async () => {
+    const out = await prepareStage(
+      sized,
+      stagedOn(1, 2, {
+        region: { pin: { timeZone: "Asia/Tokyo", locale: "de-DE" } },
+      }),
+    );
+    expect(out.ok && out.region).toEqual({
+      timeZone: "Asia/Tokyo",
+      locale: "de-DE",
+      from: "flow",
+    });
+    // No plan: a first run, this machine's.
+    const first = await prepareStage(sized, stagedOn(1, 2));
+    expect(first.ok && first.region).toEqual({
+      timeZone: "UTC",
+      locale: "en-US",
+      from: "thisMachine",
+    });
+  });
+
+  // Report before you forgive: a pin Chrome refuses stops the run in words.
+  it("stops the run, naming the pin, when Chrome refuses one", async () => {
+    const out = await prepareStage(
+      sized,
+      stagedOn(
+        1,
+        2,
+        {},
+        { method: "", refuse: "Emulation.setScrollbarsHidden" },
+      ),
+    );
+    expect(out.ok).toBe(false);
+    expect(!out.ok && out.detail).toContain("scrollbars could not be hidden");
   });
 });
 

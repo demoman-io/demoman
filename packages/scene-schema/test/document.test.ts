@@ -700,6 +700,36 @@ describe("meta.capture.browser", () => {
   });
 });
 
+describe("meta.capture.timeZone and locale", () => {
+  it("accepts both or neither, at the same schema version", () => {
+    expect(readonlyFixture.meta.capture.timeZone).toBeUndefined();
+    const doc = validDocument();
+    doc.meta.capture.timeZone = "Asia/Tokyo";
+    doc.meta.capture.locale = "de-DE";
+    expect(SceneDocumentSchema.parse(doc).meta.capture).toMatchObject({
+      timeZone: "Asia/Tokyo",
+      locale: "de-DE",
+    });
+    expect(CURRENT_SCHEMA_VERSION).toBe(17);
+  });
+
+  // Red when the both-or-neither check is removed: half a pin would
+  // replay the other half in each machine's own.
+  it("refuses one without the other", () => {
+    const zone = validDocument();
+    zone.meta.capture.timeZone = "Asia/Tokyo";
+    const locale = validDocument();
+    locale.meta.capture.locale = "de-DE";
+    for (const doc of [zone, locale]) {
+      const parsed = SceneDocumentSchema.safeParse(doc);
+      expect(parsed.success).toBe(false);
+      expect(JSON.stringify(parsed.error?.issues)).toContain(
+        "a time zone and a locale together",
+      );
+    }
+  });
+});
+
 describe("meta.capture.displayScale", () => {
   it("accepts a document with the display scale and one without, at the same schema version", () => {
     // Premise: the fixture carries no displayScale, as every take filmed
