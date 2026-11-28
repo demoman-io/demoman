@@ -293,12 +293,15 @@ describe("a text or path winner the fingerprint contradicts", () => {
     },
   };
 
-  it("reports drifted when its role and name both disagree", () => {
-    const doc = mount(`<main><span>Save</span></main>`);
-    const span = doc.querySelector("span") as Element;
-    // Premise: the span carries the text and neither the role nor the name.
-    expect(computeRole(span)).toBeNull();
-    expect(computeName(span)).not.toBe("Save");
+  it("reports drifted when it names itself as something else", () => {
+    const doc = mount(
+      `<main><div role="tab" aria-label="Settings">Save</div></main>`,
+    );
+    const tab = doc.querySelector("div") as Element;
+    // Premise: the tab carries the text, and a role and a name of its own
+    // that are not the recorded ones.
+    expect(computeRole(tab)).toBe("tab");
+    expect(computeName(tab)).toBe("Settings");
 
     const report = runLadder(anchor, doc, { root: doc });
     expect(report.strategy).toBe("broken");
@@ -312,6 +315,19 @@ describe("a text or path winner the fingerprint contradicts", () => {
         { signal: "text", agreed: true },
       ]),
     );
+  });
+
+  // A heading restyled as a div: the role went, and the name it took from
+  // its text went with it. The text is the find.
+  it("still resolves a winner that lost its role and has no name of its own", () => {
+    const doc = mount(`<main><span>Save</span></main>`);
+    const span = doc.querySelector("span") as Element;
+    expect(computeRole(span)).toBeNull();
+    expect(computeName(span)).toBeNull();
+
+    const report = runLadder(anchor, doc, { root: doc });
+    expect(report.strategy).toBe("text");
+    expect(report.element).toBe(span);
   });
 
   it("still resolves a winner that keeps one of the two", () => {

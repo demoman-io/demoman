@@ -34,21 +34,36 @@ type Tier = {
   find: () => Element[];
 };
 
-/** How far below the best pixel score a runner-up still counts as the same
- *  lookalike. The score is computed from computed style, not timing, so a
- *  page scores the same on every run and nothing jitters across this. */
+/**
+ * How far below the best pixel score a runner-up still counts as the same
+ * lookalike. Scores come from computed colours and the box's aspect, never
+ * timing, so one page scores alike on every run on one machine. Across
+ * machines they do not: font metrics move a box's aspect, the tile's bar
+ * moves a row (1/16 of the tile), and two controls one row apart can tie on
+ * the Mac and not on CI. That is the exposure the rect signal already has,
+ * and either way the answer is a refusal or a corroborated find, never a
+ * guess.
+ */
 const PATCH_TIE_EPSILON = 0.01;
 
 /**
- * A winner contradicted on both role and name, when the fingerprint recorded
- * both: found by its text or position, and by nothing else it was known by.
+ * A winner that names itself as something else: its role and its own name
+ * both differ from a fingerprint that recorded both. Found by its text or
+ * position, and contradicted by what it says it is.
+ *
+ * An element with no name of its own is not a contradiction. A heading
+ * restyled as a `<div>` loses its role and, with it, the name it took from
+ * its text; the text still matches, and that is a find, not a lookalike.
+ *
  * The text and path tiers alone are held to this. A stable id is the author's
  * own handle and outlives a rename; a role-name winner agrees by definition.
  */
-function contradicted(signals: CorroborationSignal[]): boolean {
+function contradicted(el: Element, signals: CorroborationSignal[]): boolean {
   const role = signals.find((s) => s.signal === "role");
   const name = signals.find((s) => s.signal === "name");
-  return role?.agreed === false && name?.agreed === false;
+  return (
+    role?.agreed === false && name?.agreed === false && computeName(el) !== null
+  );
 }
 
 /**
@@ -172,7 +187,7 @@ export function runLadder(
     }
     if (
       (tier.strategy === "text" || tier.strategy === "treePath") &&
-      contradicted(signals)
+      contradicted(winner, signals)
     ) {
       refused ??= {
         failureReason: "drifted",

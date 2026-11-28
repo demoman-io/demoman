@@ -138,6 +138,7 @@ const RECOVERABLE: Record<ReplayStopReason, boolean> = {
   redactedWithoutReplacement: false,
   unresolvedAnchor: false,
   ambiguousAnchor: false,
+  anchorDrifted: false,
   anchorFrameMismatch: false,
   pageWentElsewhere: false,
   // Launch C, CLI only: rerunning without signing in meets the same page.

@@ -124,7 +124,9 @@ function fieldValue(el: Element): string | null {
 /**
  * `SnapshotWalk.unlisted`. One pass in document order, so a parent is seen
  * before its children: an element inside a candidate is that candidate's,
- * and one inside a counted region is that region's.
+ * and one inside a counted region is that region's. A region that is not
+ * seen (no box, `display: contents`, transparent) is looked through, so a
+ * shown icon inside one still counts.
  */
 function countUnlisted(body: Element, candidates: Element[]): number {
   const listed = new Set(candidates);
@@ -137,6 +139,8 @@ function countUnlisted(body: Element, candidates: Element[]): number {
     }
   }
   const covered = new Set<Element>();
+  // Elements in a region already counted.
+  const inside = new Set<Element>();
   let count = 0;
   for (const el of Array.from(body.querySelectorAll("*"))) {
     const parent = el.parentElement;
@@ -149,13 +153,26 @@ function countUnlisted(body: Element, candidates: Element[]): number {
       continue;
     }
     if (holds.has(el)) continue;
-    // Inside a silent region already counted by its outermost element.
-    if (parent !== body && (parent === null || !holds.has(parent))) continue;
-    const box = el.getBoundingClientRect();
-    if (el.checkVisibility() && box.width > 0 && box.height > 0) count += 1;
+    if (parent !== null && inside.has(parent)) {
+      inside.add(el);
+      continue;
+    }
+    // The targets' own `shown` test: a box, not hidden, not a sliver.
+    if (seenNow(el)) {
+      count += 1;
+      inside.add(el);
+    }
   }
   return count;
 }
+
+/**
+ * Roles that are a table's structure, not something to act on. Every row
+ * and cell has one, so as candidates they would fill a long table's answer
+ * (each one a capture and a resolve) before its buttons are reached. A cell
+ * that is a text leaf is still listed, as it was before cells had a role.
+ */
+const STRUCTURE = new Set(["row", "cell", "gridcell"]);
 
 /** Elements whose text is not page text. */
 const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
@@ -357,13 +374,17 @@ export async function snapshotTargets(
   const wanted = request.contains?.toLowerCase() ?? null;
 
   const candidates = Array.from(doc.body?.querySelectorAll("*") ?? []).filter(
-    (el) =>
-      !SKIP.has(el.tagName) &&
-      el.closest("script,style,noscript,template") === null &&
-      (computeRole(el) !== null ||
+    (el) => {
+      if (SKIP.has(el.tagName) || el.closest("script,style,noscript,template"))
+        return false;
+      const role = computeRole(el);
+      return (
+        (role !== null && !STRUCTURE.has(role)) ||
         (isTextLeaf(el) && normalizeText(el.textContent) !== null) ||
         readStableId(el) !== null ||
-        isInteractive(el)),
+        isInteractive(el)
+      );
+    },
   );
 
   /** The `contains` test: name, text, stable id, kind and value. Cheap next

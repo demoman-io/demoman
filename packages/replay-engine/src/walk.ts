@@ -333,7 +333,6 @@ const waitSawOf = (found: ResolveReport): WaitSaw | undefined => {
     case null:
     case "notInTree":
     case "patchUnavailable":
-    case "drifted":
       return "absent";
     case "ambiguousTie":
       return "ambiguous";
@@ -777,6 +776,8 @@ export function stopForResolveFailure(
   switch (failureReason) {
     case "ambiguousTie":
       return "ambiguousAnchor";
+    case "drifted":
+      return "anchorDrifted";
     case "notInTree":
       return "anchorNotRendered";
     case "pageSilent":

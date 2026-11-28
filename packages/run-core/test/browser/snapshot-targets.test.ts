@@ -445,7 +445,9 @@ describe("what an agent needs listed (spec B)", () => {
       `<div data-fixture="empty" style="width:0;height:0"></div>` +
       `<div data-fixture="hidden" style="display:none;width:20px;height:20px"></div>` +
       `<button type="button"><svg width="10" height="10"></svg>Go</button>` +
-      `<button type="button"><span>Next</span><i data-fixture="chevron" style="display:inline-block;width:10px;height:10px"></i></button>`;
+      `<button type="button"><span>Next</span><i data-fixture="chevron" style="display:inline-block;width:10px;height:10px"></i></button>` +
+      `<div data-fixture="contents" style="display:contents"><div data-fixture="wrapped" style="width:20px;height:20px"></div></div>` +
+      `<div data-fixture="clear" style="opacity:0;width:20px;height:20px"><div style="width:10px;height:10px"></div></div>`;
     await walkHtml(html);
     // Premises: the icon is shown and nothing about it is a candidate. The
     // svg in Go and the chevron in Next belong to listed buttons, and the
@@ -457,6 +459,13 @@ describe("what an agent needs listed (spec B)", () => {
     expect(icon.querySelectorAll("*")).toHaveLength(2);
     const chevron = document.querySelector("[data-fixture=chevron]") as Element;
     expect(chevron.checkVisibility()).toBe(true);
+    // The wrapped icon is shown inside a wrapper with no box of its own, and
+    // the transparent panel is laid out but not seen.
+    const box = (selector: string) =>
+      (document.querySelector(selector) as Element).getBoundingClientRect();
+    expect(box("[data-fixture=contents]").width).toBe(0);
+    expect(box("[data-fixture=wrapped]").width).toBe(20);
+    expect(box("[data-fixture=clear]").width).toBe(20);
     const w = await walkHtml(html);
     expect(w.targets.map((t) => t.text)).toEqual([
       "Save",
@@ -464,7 +473,29 @@ describe("what an agent needs listed (spec B)", () => {
       "Next",
       "Next",
     ]);
-    expect(w.unlisted).toBe(1);
+    // The icon and the wrapped icon.
+    expect(w.unlisted).toBe(2);
+  });
+
+  // Red if every row and cell of a table is a candidate: a long table's
+  // answer filled with rows before it reached the buttons in them.
+  it("lists a table's text cells and buttons, not its rows", async () => {
+    const row = (name: string) =>
+      `<tr><td>${name}</td><td><button type="button">Edit ${name}</button></td></tr>`;
+    const html = `<table>${row("Alice")}${row("Bob")}</table>`;
+    await walkHtml(html);
+    // Premise: rows and cells have roles the walk could list.
+    expect(computeRole(document.querySelector("tr") as Element)).toBe("row");
+    expect(computeRole(document.querySelector("td") as Element)).toBe("cell");
+    const w = await walkHtml(html);
+    // The table itself has always been listed, by its role.
+    expect(w.targets.map((t) => t.kind)[0]).toBe("table");
+    expect(w.targets.slice(1).map((t) => [t.kind, t.text])).toEqual([
+      ["cell", "Alice"],
+      ["button", "Edit Alice"],
+      ["cell", "Bob"],
+      ["button", "Edit Bob"],
+    ]);
   });
 
   // Red if a select is not a credential field: its chosen option would be
