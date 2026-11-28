@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { type AppSpec, serializeApp } from "@demoman/run-core";
 import type { Verified } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import type { GithubFacts } from "../src/ci-github.js";
 import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
 import { type CiDeps, checkQuestion } from "../src/ci-setup.js";
@@ -24,6 +24,7 @@ import {
   ciSetup,
   expr,
   foundWorkflow,
+  HANDOFF_SCRIPT,
   ciWorkflow as workflow,
 } from "../src/ci-workflow.js";
 
@@ -92,6 +93,13 @@ const withApp = ciWorkflow({
   secrets,
 });
 const lines = (y: string) => y.split("\n");
+// The workflow as 0.9.8 wrote it, before the deliver job: `ciWorkflow` at
+// d11babcf (push on trunk, route main, --artifact, ci-setup.test.ts's app)
+// written to this file by a throwaway test, unedited.
+const BEFORE_SPLIT = readFileSync(
+  new URL("./workflow-before-split.yml", import.meta.url),
+  "utf8",
+);
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
 
 // An update keeps how the workflow on the default branch runs.
@@ -130,6 +138,27 @@ describe("foundWorkflow", () => {
       });
     },
   );
+  // Red if the route is read only from `refresh --deliver`, or only from
+  // `deliver`: setup's update path reads a workflow either release wrote.
+  it("reads the route from a workflow written before the deliver job", () => {
+    // Premise: the fixture is the old shape, delivering from refresh.
+    expect(BEFORE_SPLIT).toContain(" refresh --deliver main ");
+    expect(parse(BEFORE_SPLIT).jobs.deliver).toBeUndefined();
+    expect(foundWorkflow(BEFORE_SPLIT)).toEqual({
+      trigger: "push",
+      route: "main",
+      artifact: true,
+      release: "0.9.8",
+    });
+    const now = ciWorkflow({
+      version: "0.9.9",
+      trigger: "push",
+      route: "main",
+    });
+    // Premise: the new shape delivers only from its own job.
+    expect(now).not.toContain("--deliver");
+    expect(foundWorkflow(now)).toMatchObject({ route: "main" });
+  });
   it("says why a workflow is not one it can read", () => {
     expect(foundWorkflow("name: Mine\non:\n  push:\njobs: {}\n")).toEqual({
       unreadable: "it has no refresh step that delivers by pr or main",
@@ -150,7 +179,7 @@ describe("ciWorkflow artifact", () => {
     artifact: true,
   });
   it("artifact adds out-dir and the upload step, always unless guarded off", () => {
-    const refresh = lines(art).find((l) => l.includes(" refresh --deliver"));
+    const refresh = lines(art).find((l) => l.includes(" refresh --hand-off"));
     expect(refresh).toContain("--out-dir demoman-out");
     const at = lines(art).findIndex((l) =>
       l.includes("uses: actions/upload-artifact@v4"),
@@ -167,7 +196,7 @@ describe("ciWorkflow artifact", () => {
     expect(step).toContain("          path: demoman-out");
   });
   it("artifact downloads the last artifact into demoman-out and compares against it there", () => {
-    const refresh = lines(art).find((l) => l.includes(" refresh --deliver"));
+    const refresh = lines(art).find((l) => l.includes(" refresh --hand-off"));
     expect(refresh).toContain("--previous demoman-out");
     const at = lines(art).indexOf("      - name: Fetch the last run's videos");
     // Premise: the step exists and comes before the refresh step.
@@ -499,7 +528,7 @@ exit 0
   // --artifact, or the upload waits for a success that never comes.
   it("keeps a failed flow's report and still with or without the artifact", () => {
     for (const y of [push, art]) {
-      const refresh = lines(y).find((l) => l.includes(" refresh --deliver"));
+      const refresh = lines(y).find((l) => l.includes(" refresh --hand-off"));
       expect(refresh).toMatch(/ --failures demoman-failed$/);
       const at = lines(y).indexOf(
         "      - name: Keep what the failed flows showed",
@@ -522,7 +551,8 @@ exit 0
 
 describe("ciWorkflow", () => {
   it("pins the version in both npx lines", () => {
-    expect(npx(push)).toHaveLength(4); // two per job
+    // setup and refresh in each job that records, and deliver.
+    expect(npx(push)).toHaveLength(5);
     for (const l of npx(push)) expect(l).toContain("demoman@0.2.0");
     expect(push).toContain("setup --browser-only");
     expect(push).not.toContain("setup --yes");
@@ -556,7 +586,8 @@ describe("ciWorkflow", () => {
   it("no checkout leaves its token in .git/config, where the app's commands could read it", () => {
     for (const y of every) {
       const checkouts = y.split("uses: actions/checkout@v4\n").slice(1);
-      expect(checkouts.length).toBeGreaterThan(0);
+      // Premise: refresh's, deliver's and the check's.
+      expect(checkouts).toHaveLength(3);
       for (const c of checkouts)
         expect(c.split("\n      - ")[0]).toContain(
           "          persist-credentials: false",
@@ -644,7 +675,9 @@ describe("ciWorkflow", () => {
   it("says the deployment named no URL, rather than misusing --base-url", () => {
     const line = npx(deploy).find((l) => l.includes(" refresh "));
     const run = line?.trim().replace(/^run: /, "") ?? "";
-    expect(run, "premise: the refresh run line").toContain("refresh --deliver");
+    expect(run, "premise: the refresh run line").toContain(
+      "refresh --hand-off",
+    );
     const bin = mkdtempSync(join(tmpdir(), "npx-"));
     writeFileSync(join(bin, "npx"), '#!/bin/sh\necho "npx $*"\n', {
       mode: 0o755,
@@ -678,13 +711,12 @@ describe("ciWorkflow", () => {
     }
   });
 
-  it("passes the route to --deliver", () => {
-    expect(push).toContain("refresh --deliver pr");
-    expect(deploy).toContain("refresh --deliver pr");
+  it("passes the route to deliver", () => {
+    expect(push).toContain(" deliver pr demoman-handoff\n");
+    expect(deploy).toContain(" deliver pr demoman-handoff\n");
     expect(
       ciWorkflow({ version: "0.2.0", trigger: "push", route: "main" }),
-    ).toContain("refresh --deliver main");
-    expect(push).toContain(`GH_TOKEN: ${expr("github.token")}`);
+    ).toContain(" deliver main demoman-handoff\n");
   });
 
   it("installs exactly the named fonts", () => {
@@ -709,13 +741,28 @@ describe("ciWorkflow", () => {
   });
 });
 
+/** The condition a step after the guard runs on. Only the failure upload
+ *  waits for a failure, and the hand-off runs unless cancelled, each never
+ *  past the guard; the hand-off's upload and the ready that follows it run
+ *  only on the hand-off's own output. Every other step runs on the guard. */
+const ifOf = (step: string): string => {
+  const guard = "steps.guard.outputs.skip != 'true'";
+  if (step.startsWith("      - name: Keep what the failed flows showed"))
+    return `if: ${expr(`failure() && ${guard}`)}`;
+  if (step.startsWith("      - name: Hand off to the deliver job"))
+    return `if: ${expr(`!cancelled() && ${guard}`)}`;
+  if (step.includes("        id: upload\n"))
+    return `if: ${expr("!cancelled() && steps.handoff.outputs.present == 'true'")}`;
+  if (step.startsWith("      - name: Ready for the deliver job"))
+    return `if: ${expr("!cancelled() && steps.upload.outcome == 'success'")}`;
+  return `if: ${expr(guard)}`;
+};
+
 describe("the loop guard", () => {
-  const skipIf = expr("steps.guard.outputs.skip != 'true'");
-  const failedIf = expr("failure() && steps.guard.outputs.skip != 'true'");
   /** The steps of the job, each as its own block of lines. */
   const steps = (y: string) =>
     y
-      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
+      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  deliver:\n"))
       .split(/\n(?= {6}- )/)
       .filter((b) => b.startsWith("      - "));
 
@@ -734,15 +781,8 @@ describe("the loop guard", () => {
       expect(all[0]).toContain("actions/checkout@v4");
       expect(all[1]).toContain("id: guard");
       expect(all[1]).toContain(`SHA: ${expr(sha)}`);
-      for (const later of all.slice(2)) {
-        // Only the failure upload waits for a failure, and never past the
-        // guard; every other step runs on the guard alone.
-        expect(later, later).toContain(
-          later?.startsWith("      - name: Keep what the failed flows showed")
-            ? `if: ${failedIf}`
-            : `if: ${skipIf}`,
-        );
-      }
+      for (const later of all.slice(2))
+        expect(later, later).toContain(ifOf(later));
       // The sha reaches the script through env, never interpolated into it.
       expect(all[1]?.split("run: |")[1]).not.toContain("${{");
     });
@@ -809,11 +849,9 @@ describe("the default-branch guard", () => {
     trigger: "release",
     route: "pr",
   });
-  const skipIf = expr("steps.guard.outputs.skip != 'true'");
-  const failedIf = expr("failure() && steps.guard.outputs.skip != 'true'");
   const steps = (y: string) =>
     y
-      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
+      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  deliver:\n"))
       .split(/\n(?= {6}- )/)
       .filter((b) => b.startsWith("      - "));
   const scriptOf = (step: string) =>
@@ -836,23 +874,17 @@ describe("the default-branch guard", () => {
       expect(scriptOf(all[1] ?? "")).toContain(
         'git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH"',
       );
-      // refresh delivers to the branch this step checked, never asks again.
-      const refresh = all.find((b) =>
-        b.includes("name: Refresh the repo's flows"),
+      // deliver delivers to the branch this step checked, never asks again.
+      const deliver = y.slice(
+        y.indexOf("\n  deliver:\n"),
+        y.indexOf("\n  check:\n"),
       );
-      expect(refresh).toContain(
+      expect(deliver).toContain(
         `DEMOMAN_DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}`,
       );
       expect(all.length).toBeGreaterThan(4);
-      for (const later of all.slice(2)) {
-        // Only the failure upload waits for a failure, and never past the
-        // guard; every other step runs on the guard alone.
-        expect(later, later).toContain(
-          later?.startsWith("      - name: Keep what the failed flows showed")
-            ? `if: ${failedIf}`
-            : `if: ${skipIf}`,
-        );
-      }
+      for (const later of all.slice(2))
+        expect(later, later).toContain(ifOf(later));
     });
   }
 
@@ -922,17 +954,271 @@ describe("the default-branch guard", () => {
   });
 });
 
-describe("the workflow's shape", () => {
-  it("serialises runs", () => {
-    expect(push).toContain(
-      "    concurrency:\n      group: demoman-refresh\n      cancel-in-progress: false",
-    );
+// The write token never shares a job with the app: refresh runs the app
+// read-only and hands off an artifact; deliver, which can push and open
+// pull requests, runs nothing of the app's.
+describe("refresh hands off; a job that never runs the app delivers", () => {
+  type Step = {
+    name?: string;
+    id?: string;
+    uses?: string;
+    if?: string;
+    run?: string;
+    env?: Record<string, string>;
+    with?: Record<string, unknown>;
+  };
+  type Job = {
+    needs?: string;
+    if?: string;
+    permissions?: Record<string, string>;
+    concurrency?: unknown;
+    outputs?: Record<string, string>;
+    steps: Step[];
+  };
+  const jobs = (y: string) => parse(y).jobs as Record<string, Job>;
+  const byId = (j: Job | undefined, id: string) =>
+    j?.steps.find((s) => s.id === id);
+  const recordsAt = (y: string) =>
+    y.includes("  release:\n") || y.includes("  deployment_status:\n");
+  const routeMain = ciWorkflow({
+    version: "0.2.0",
+    trigger: "push",
+    route: "main",
+  });
+
+  it("covers every trigger, with and without app and artifact", () => {
+    expect(every).toHaveLength(5 * 2 * 2);
+  });
+
+  // Review Focus 4: red on `success()` (a failed flow would deliver none
+  // of the rest) or `always()` (a cancelled run would still deliver).
+  it("delivers after refresh unless cancelled, and only on a hand-off", () => {
     for (const y of every) {
-      expect(parse(y).jobs.refresh.concurrency).toEqual({
-        group: "demoman-refresh",
-        "cancel-in-progress": false,
+      const { refresh, deliver } = jobs(y);
+      expect(deliver?.needs).toBe("refresh");
+      expect(deliver?.if).toBe(
+        expr("!cancelled() && needs.refresh.outputs.handoff == 'true'"),
+      );
+      expect(refresh?.outputs).toEqual({
+        handoff: expr("steps.ready.outputs.ready"),
       });
-      expect(parse(y).concurrency).toBeUndefined();
+    }
+  });
+
+  it("gives write permission to the deliver job alone", () => {
+    for (const y of every) {
+      const { refresh, deliver } = jobs(y);
+      expect(Object.values(refresh?.permissions ?? {})).not.toContain("write");
+      expect(refresh?.permissions?.contents).toBe("read");
+      expect(deliver?.permissions).toEqual({
+        contents: "write",
+        "pull-requests": "write",
+      });
+    }
+  });
+
+  // Red when deliver restores a cache the refresh job could write, or runs
+  // any part of the app's setup.
+  it("the deliver job checks out, sets up node, downloads the hand-off and delivers: nothing else", () => {
+    const absent = [
+      "services",
+      "actions/cache",
+      "corepack",
+      "setup-bun",
+      "setup --browser-only",
+      "apt-get",
+      "DEMOMAN_SECRET_",
+    ];
+    // Premise: the refresh job of an app with bun, services and secrets has
+    // every one of them, so their absence below is the deliver job's own.
+    const bunApp = ciWorkflow({
+      version: "0.2.0",
+      trigger: "push",
+      route: "pr",
+      app: { ...app, start: "bun run dev" },
+      secrets,
+    });
+    for (const a of absent)
+      expect(stringify(jobs(bunApp).refresh), a).toContain(a);
+    for (const y of [...every, bunApp, routeMain]) {
+      const deliver = jobs(y).deliver;
+      expect(deliver?.steps.map((s) => s.uses).filter(Boolean)).toEqual([
+        "actions/checkout@v4",
+        "actions/setup-node@v4",
+        "actions/download-artifact@v4",
+      ]);
+      const text = stringify(deliver);
+      for (const a of absent) expect(text, a).not.toContain(a);
+      expect(
+        deliver?.steps.find((s) => s.uses === "actions/download-artifact@v4")
+          ?.with,
+      ).toEqual({ name: "demoman-handoff", path: "demoman-handoff" });
+      const step = deliver?.steps.find(
+        (s) => s.name === "Deliver what the refresh changed",
+      );
+      expect(step?.run).toBe(
+        `npx --prefix ~/ -y demoman@0.2.0 deliver ${y === routeMain ? "main" : "pr"} demoman-handoff`,
+      );
+    }
+  });
+
+  // Red when the app's refresh step keeps the token, or deliver loses it.
+  it("the token and the default branch are the deliver step's, not the refresh's", () => {
+    for (const y of [...every, routeMain]) {
+      const { refresh, deliver } = jobs(y);
+      const mine = byId(refresh, "refresh");
+      expect(mine?.name).toBe("Refresh the repo's flows");
+      expect(mine?.run).toContain(" refresh --hand-off demoman-handoff");
+      expect(mine?.run).not.toContain("--deliver");
+      expect(mine?.env?.GH_TOKEN).toBeUndefined();
+      expect(mine?.env?.DEMOMAN_DEFAULT_BRANCH).toBeUndefined();
+      const step = deliver?.steps.find(
+        (s) => s.name === "Deliver what the refresh changed",
+      );
+      expect(step?.env).toEqual({
+        GH_TOKEN: expr("github.token"),
+        ...(recordsAt(y)
+          ? {
+              DEMOMAN_DEFAULT_BRANCH: expr(
+                "github.event.repository.default_branch",
+              ),
+            }
+          : {}),
+      });
+      // Both check out the same commit: the deployed sha, the released tag.
+      const checkout = (j: Job | undefined) =>
+        j?.steps.find((s) => s.uses === "actions/checkout@v4")?.with;
+      expect(checkout(deliver)?.ref).toBe(checkout(refresh)?.ref);
+      expect(checkout(deliver)).toMatchObject({
+        "fetch-depth": 0,
+        lfs: true,
+        "persist-credentials": false,
+      });
+    }
+    // Premise: the triggers that record at a commit name it.
+    expect(
+      jobs(deploy).deliver?.steps[0]?.with?.ref,
+      "premise: a deployment checks out its sha",
+    ).toBe(expr("github.event.deployment.sha"));
+    expect(jobs(releaseY).deliver?.steps[0]?.with?.ref).toBe(
+      expr("github.event.release.tag_name"),
+    );
+  });
+
+  // Review Focus 3: red when an upload can leave out the dot-files, carry
+  // nothing and still pass, or outlive the run's re-run window.
+  it("hands off through an upload that cannot quietly carry less, then says ready", () => {
+    for (const y of every) {
+      const { refresh } = jobs(y);
+      const skip = y.includes("id: guard")
+        ? " && steps.guard.outputs.skip != 'true'"
+        : y.includes("id: fresh")
+          ? " && steps.fresh.outputs.skip != 'true'"
+          : "";
+      const handoff = byId(refresh, "handoff");
+      expect(handoff?.name).toBe("Hand off to the deliver job");
+      expect(handoff?.if).toBe(expr(`!cancelled()${skip}`));
+      // The outcome reaches the shell through env, never interpolated.
+      expect(handoff?.env).toEqual({
+        REFRESH_OUTCOME: expr("steps.refresh.outcome"),
+      });
+      expect(handoff?.run?.trim()).toBe(HANDOFF_SCRIPT);
+      const upload = byId(refresh, "upload");
+      expect(upload?.uses).toBe("actions/upload-artifact@v4");
+      // !cancelled(): a red refresh (a flow failed) still hands off the rest.
+      expect(upload?.if).toBe(
+        expr("!cancelled() && steps.handoff.outputs.present == 'true'"),
+      );
+      expect(upload?.with).toEqual({
+        name: "demoman-handoff",
+        path: "demoman-handoff",
+        "include-hidden-files": true,
+        "if-no-files-found": "error",
+        "retention-days": 3,
+      });
+      const ready = refresh?.steps.at(-1);
+      expect(ready?.id).toBe("ready");
+      expect(ready?.if).toBe(
+        expr("!cancelled() && steps.upload.outcome == 'success'"),
+      );
+      expect(ready?.run).toBe('echo "ready=true" >> "$GITHUB_OUTPUT"');
+      const ids = refresh?.steps.map((s) => s.id);
+      expect(ids?.indexOf("refresh")).toBeLessThan(
+        ids?.indexOf("handoff") ?? -1,
+      );
+      expect(ids?.indexOf("handoff")).toBeLessThan(
+        ids?.indexOf("upload") ?? -1,
+      );
+    }
+  });
+
+  // Review Focus 1: the three things the hand-off step can find.
+  describe("the hand-off step", () => {
+    const run = (o: { file: boolean; outcome: string }) => {
+      const dir = mkdtempSync(join(tmpdir(), "handoff-"));
+      if (o.file) {
+        mkdirSync(join(dir, "demoman-handoff"));
+        writeFileSync(join(dir, "demoman-handoff/handoff.json"), "{}");
+      }
+      const out = join(dir, "out");
+      writeFileSync(out, "");
+      const r = spawnSync("sh", ["-e", "-c", HANDOFF_SCRIPT], {
+        cwd: dir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_OUTPUT: out,
+          REFRESH_OUTCOME: o.outcome,
+        },
+      });
+      return {
+        ...r,
+        said: r.stdout + r.stderr,
+        out: readFileSync(out, "utf8"),
+      };
+    };
+    it("a hand-off there is present, whatever refresh's outcome", () => {
+      for (const outcome of ["success", "failure"]) {
+        const r = run({ file: true, outcome });
+        expect(r.status, r.said).toBe(0);
+        expect(r.out).toBe("present=true\n");
+      }
+    });
+    it("none after a green refresh is a defect, said as one", () => {
+      const r = run({ file: false, outcome: "success" });
+      expect(r.status).toBe(1);
+      expect(r.out).toBe("");
+      expect(r.said).toContain(
+        "::error::refresh exited 0 but wrote no hand-off, so nothing can be delivered",
+      );
+    });
+    it("none after a red refresh says nothing is delivered, and leaves the run red as it is", () => {
+      for (const outcome of ["failure", "skipped"]) {
+        const r = run({ file: false, outcome });
+        expect(r.status, r.said).toBe(0);
+        expect(r.out).toBe("");
+        expect(r.said).toMatch(/^::notice::.*stopped before handing off/m);
+        expect(r.said).toContain("nothing is delivered");
+      }
+    });
+  });
+});
+
+describe("the workflow's shape", () => {
+  // Review Focus 6: red when either job keeps a group of its own, where a
+  // newer run's refresh could land between an older run's two jobs.
+  it("serialises whole runs: one group for the workflow, none for a job", () => {
+    for (const y of every) {
+      expect(parse(y).concurrency).toEqual({
+        group: expr(
+          "github.event_name == 'pull_request' && format('demoman-check-{0}', github.ref) || 'demoman-refresh'",
+        ),
+        "cancel-in-progress": expr("github.event_name == 'pull_request'"),
+      });
+      for (const [name, job] of Object.entries(
+        parse(y).jobs as Record<string, { concurrency?: unknown }>,
+      ))
+        expect(job.concurrency, name).toBeUndefined();
     }
   });
   it("watches the branch it is given, main by default", () => {
@@ -1019,7 +1305,7 @@ describe("the manual trigger", () => {
   // Red when manual also runs on a schedule, a push or a release.
   it("runs only by hand, and on the setup pull request's self-check", () => {
     expect(manual).toContain(
-      'on:\n  workflow_dispatch:\n  pull_request:\n    paths: [".github/workflows/demoman.yml", ".demoman/**"]\njobs:\n',
+      'on:\n  workflow_dispatch:\n  pull_request:\n    paths: [".github/workflows/demoman.yml", ".demoman/**"]\n# One group',
     );
     expect(Object.keys(parse(manual).on)).toEqual([
       "workflow_dispatch",
@@ -1081,14 +1367,14 @@ describe("the manual trigger", () => {
       expect(y).not.toContain("id: fresh");
       expect(y).not.toContain("refresh --check");
       expect(y).not.toContain("id: guard");
-      expect(y).not.toContain("steps.");
+      expect(y).not.toMatch(/steps\.(guard|fresh)\b/);
     }
   });
 
   it("can commit on main", () => {
     expect(
       ciWorkflow({ version: "0.2.0", trigger: "manual", route: "main" }),
-    ).toContain("refresh --deliver main");
+    ).toContain(" deliver main demoman-handoff\n");
   });
 });
 
@@ -1163,7 +1449,7 @@ describe("the daily run stops early when nothing is new", () => {
 
   it("skips every step after the check when it says so", () => {
     const y = daily(true);
-    const refreshJob = lines(y.slice(0, y.indexOf("\n  check:\n")));
+    const refreshJob = lines(y.slice(0, y.indexOf("\n  deliver:\n")));
     // From the line after the check's own condition (a manual run skips the
     // check itself, so it never skips what follows).
     const after = refreshJob.slice(
@@ -1171,7 +1457,14 @@ describe("the daily run stops early when nothing is new", () => {
     );
     const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
     expect(conds.length).toBeGreaterThanOrEqual(5);
-    for (const c of conds)
+    // The hand-off's upload and ready run on its output: the hand-off
+    // itself is conditioned on the check, so neither runs without it.
+    const onHandoff = [
+      `        if: ${expr("!cancelled() && steps.handoff.outputs.present == 'true'")}`,
+      `        if: ${expr("!cancelled() && steps.upload.outcome == 'success'")}`,
+    ];
+    expect(conds.slice(-2)).toEqual(onHandoff);
+    for (const c of conds.slice(0, -2))
       expect(c).toContain("steps.fresh.outputs.skip != 'true'");
   });
 
@@ -2029,7 +2322,7 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
     j.steps.find(
       (s) =>
         s.name === "Refresh the repo's flows" &&
-        s.run?.includes(" --deliver") === deliver,
+        s.run?.includes(" --hand-off") === deliver,
     );
 
   it("passes each account's secret and origin and each app secret, in both jobs", () => {
@@ -2131,17 +2424,17 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
           ? { contents: "read", deployments: "read" }
           : { contents: "read" },
       );
-      expect(check.concurrency).toEqual({
-        group: `demoman-check-${expr("github.ref")}`,
-        "cancel-in-progress": true,
-      });
+      // Its group is the workflow's, one per ref (the shape's test).
+      expect(check.concurrency).toBeUndefined();
       const mine = refreshStep(check, false);
       expect(mine?.run).toMatch(
         / refresh( --base-url "[^"]+")? --out-dir demoman-check --failures demoman-check\/failed$/,
       );
       expect(JSON.stringify(check)).not.toContain("--deliver");
+      expect(JSON.stringify(check)).not.toContain("--hand-off");
       expect(JSON.stringify(check)).not.toContain("contents: write");
-      expect(refresh.permissions?.contents).toBe("write");
+      // Premise: the refresh job, unlike the check, hands off.
+      expect(JSON.stringify(refresh)).toContain("--hand-off");
     }
   });
 

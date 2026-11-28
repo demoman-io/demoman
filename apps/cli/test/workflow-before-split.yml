@@ -1,0 +1,183 @@
+name: Demoman
+on:
+  push:
+    branches: [trunk]
+  workflow_dispatch:
+  pull_request:
+    paths: [".github/workflows/demoman.yml", ".demoman/**"]
+jobs:
+  refresh:
+    if: ${{ github.event_name != 'pull_request' && (!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    concurrency:
+      group: demoman-refresh
+      cancel-in-progress: false
+    services:
+      "postgres":
+        image: "postgres:16"
+        ports:
+          - "5432:5432"
+    steps:
+      - name: A run by hand records trunk only
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'trunk' }}
+        run: |
+          echo "::error::This workflow records trunk only, and this run was started on $GITHUB_REF_NAME, so nothing was recorded. Run it again from trunk: Actions → Demoman → Run workflow, Use workflow from trunk."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # A committed video in LFS is compared, not replaced as a pointer.
+          lfs: true
+          # The app's install, start and reset run in this checkout: no token
+          # left in .git/config for them to read. Refresh pushes with GH_TOKEN.
+          persist-credentials: false
+      - name: Skip Demoman's own commits
+        id: guard
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          msg=$(git log -1 --format=%B "$SHA")
+          if printf '%s' "$msg" | grep -qE '\[skip demoman\]|/demoman/refresh|^Refresh demo videos \(#[0-9]+\)$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping: this commit is Demoman's own refresh, and refreshing on it would loop."
+          fi
+      - uses: actions/setup-node@v4
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        with:
+          node-version: 22
+      - name: Turn on pnpm and yarn
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        run: corepack enable
+      - uses: actions/cache@v4
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-0.9.8
+      - name: Install Chromium
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        run: npx --prefix ~/ -y demoman@0.9.8 setup --browser-only
+      - name: Install fonts
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
+      - name: Fetch the last run's videos
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: push
+          BRANCH: "trunk"
+          ENVIRONMENT: ""
+        run: |
+          wf=${GITHUB_WORKFLOW_REF%%@*}
+          export WF=${wf#"$GITHUB_REPOSITORY"/}
+          # Only this workflow's own runs on its own event or run by hand (and
+          # branch), from this repository, newest first: never a fork's or
+          # another workflow's artifact.
+          id=""
+          said=""
+          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/${WF##*/}/runs?status=completed&per_page=100${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and (.event == $ENV.EVENT or .event == "workflow_dispatch") and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.head_sha)"'); then
+            said="::warning::This workflow's earlier runs could not be listed"
+          else
+            while read -r r sha <&3; do
+              [ -n "$r" ] || continue
+              if [ -n "$ENVIRONMENT" ]; then
+                # A fork's preview deployment runs this workflow too: only a
+                # commit deployed to this environment counts.
+                if ! d=$(gh api -X GET "repos/$GITHUB_REPOSITORY/deployments" -f sha="$sha" -f environment="$ENVIRONMENT" --jq length); then
+                  said="::warning::The deployments of run $r's commit could not be listed"
+                  break
+                fi
+                [ "$d" -gt 0 ] || continue
+              else
+                # A tag named like the branch matches it too: the commit must be on it.
+                git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || continue
+              fi
+              if ! n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$r/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.name == "demoman-videos" and .expired == false)] | length'); then
+                said="::warning::Run $r's artifacts could not be listed"
+                break
+              fi
+              if [ "$n" -gt 0 ]; then
+                id=$r
+                break
+              fi
+            done 3<<< "$runs"
+          fi
+          if [ -n "$said" ]; then
+            echo "$said, so every files flow is compared with nothing."
+          elif [ -z "$id" ]; then
+            echo "None of this workflow's newest 50 runs here has a demoman-videos artifact, so every files flow is compared with nothing."
+          elif ! gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out; then
+            rm -rf demoman-out
+            echo "::warning::Run $id's demoman-videos artifact could not be downloaded, so every files flow is compared with nothing."
+          fi
+      - name: Refresh the repo's flows
+        if: ${{ steps.guard.outputs.skip != 'true' }}
+        run: npx --prefix ~/ -y demoman@0.9.8 refresh --deliver main --out-dir demoman-out --previous demoman-out --failures demoman-failed
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.guard.outputs.skip != 'true' }}
+        with:
+          name: demoman-videos
+          path: demoman-out
+      - name: Keep what the failed flows showed
+        if: ${{ failure() && steps.guard.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: demoman-failed
+          path: demoman-failed
+          if-no-files-found: ignore
+  check:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    concurrency:
+      group: demoman-check-${{ github.ref }}
+      cancel-in-progress: true
+    services:
+      "postgres":
+        image: "postgres:16"
+        ports:
+          - "5432:5432"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # A committed video in LFS is compared, not replaced as a pointer.
+          lfs: true
+          # The app's install, start and reset run in this checkout: no token
+          # left in .git/config for them to read. Refresh pushes with GH_TOKEN.
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Turn on pnpm and yarn
+        run: corepack enable
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-0.9.8
+      - name: Install Chromium
+        run: npx --prefix ~/ -y demoman@0.9.8 setup --browser-only
+      - name: Install fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
+      - name: Refresh the repo's flows
+        run: npx --prefix ~/ -y demoman@0.9.8 refresh --out-dir demoman-check --failures demoman-check/failed
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Gather the files a commit flow would write
+        if: always()
+        run: |
+          [ -f demoman-check/demoman-refresh.json ] || exit 0
+          mkdir -p demoman-check/repo
+          jq -r '.videos[] | select(.deliver == "commit") | .files[].path' demoman-check/demoman-refresh.json | xargs -r -I{} cp --parents {} demoman-check/repo/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demoman-check
+          path: demoman-check

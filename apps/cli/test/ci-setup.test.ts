@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -20,6 +21,7 @@ import {
 } from "@demoman/run-core";
 import type { GitRunner, Verified } from "@demoman/runner/package";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import type { GithubFacts } from "../src/ci-github.js";
 import type { NeededSecret } from "../src/ci-secrets.js";
 import {
@@ -524,6 +526,12 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
       app: o.app === false ? null : app(),
       secrets: { accounts: [], app: [] },
     });
+  // The same workflow as 0.9.8 wrote it, before the deliver job:
+  // `ciWorkflow` at d11babcf, saved by a throwaway test, unedited.
+  const beforeSplit = readFileSync(
+    new URL("./workflow-before-split.yml", import.meta.url),
+    "utf8",
+  );
   const setUp = (text: string | undefined) =>
     facts({
       workflowOnDefault: true,
@@ -557,6 +565,30 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     );
     await applyCiSetup(p, f.deps, new Map());
     expect(f.seen.pr?.title).toBe("Update Demoman's workflow");
+  });
+
+  // Review Focus 7: red if an old-shape workflow cannot be read, or is
+  // updated into anything but the split shape.
+  it("updates a workflow written before the deliver job into the split shape", async () => {
+    // Premise: the fixture delivers from the refresh job, with no deliver job.
+    expect(beforeSplit).toContain(" refresh --deliver main ");
+    expect(parse(beforeSplit).jobs.deliver).toBeUndefined();
+    const f = fakes({ github: setUp(beforeSplit) });
+    const p = await okPlan(await repo(), f);
+    expect(p).toMatchObject({
+      trigger: "push",
+      route: "main",
+      artifact: true,
+      update: { from: "0.9.8", to: "0.9.0" },
+    });
+    const workflow = String(
+      f.seen.verify?.[0].files.find(
+        (x) => x.path === ".github/workflows/demoman.yml",
+      )?.text,
+    );
+    expect(workflow).toBe(onDefault("0.9.0"));
+    expect(parse(workflow).jobs.deliver.needs).toBe("refresh");
+    expect(workflow).not.toContain("--deliver");
   });
 
   // Red if the found environment is not looked up by name, as a given one is.
@@ -1158,11 +1190,11 @@ describe("planCiSetup's plan", () => {
       )?.text,
     );
     // The premise: the check saw the workflow the plan wrote.
-    expect(workflow).toContain(" refresh --deliver pr");
+    expect(workflow).toContain(" deliver pr demoman-handoff\n");
     expect(p.artifact).toBe(true);
     expect(p.filesFlows).toEqual(["Checkout"]);
     expect(workflow).toContain(
-      "--deliver pr --out-dir demoman-out --previous demoman-out",
+      "--hand-off demoman-handoff --out-dir demoman-out --previous demoman-out",
     );
     expect(planLines(p)).toContain(
       "Uploads the files flows' videos as the demoman-videos artifact, which Checkout needs: a CI refresh writes files only there.",
