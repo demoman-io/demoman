@@ -199,35 +199,28 @@ export const CAPTURE_MAX_KEYFRAMES = 200;
 
 /**
  * Parked motion bytes per take, after which motion recording stops.
+ * Real time only: the held clock has no byte budget.
  *
- * Measured 2026-08-29 against real Chromium
- * (`packages/replay-engine/test/integration/capture-viewport.test.ts`, "records
- * screencast and keyframe dimensions and bytes across real page motion"),
- * `format: "jpeg", quality: 80, everyNthFrame: 1` — the harvester's exact
- * `Page.startScreencast` call — with no `Emulation.setDeviceMetricsOverride`,
- * against real 800ms-eased page motion at a 2x device pixel ratio:
+ * Measured 2026-11-27 through the runner's own encoder
+ * (`apps/runner/test/motion-budget.test.ts`, which logs the rate): a
+ * real-time headless take at `CAPTURE_SCALE.desktop` (2x) parks 2560x1600
+ * JPEGs (`quality: 80`) of about 130 KB each: about 6.2 MB per second
+ * through the fixture app's 800 ms panel slide (~49 fps), and about half
+ * that averaged with the typing after it, which paints less often.
  *
- * - Screencast frames arrived at 1280x800, the same CSS-pixel resolution as
- *   the coincident `Page.captureScreenshot` keyframes (also 1280x800), not
- *   the 2560x1600 physical surface resolution a Retina display's DPR would
- *   imply. See `servingMotionSpan` in `packages/compositor/src/bundle.ts`
- *   for what this means for the resolution rule it drives.
- * - Mean ~15.15 KB/frame at ~49 fps of observed paint rate, i.e. roughly
- *   740 KB/s of parked motion.
+ * At the slide's rate 1 GiB is about 2.8 minutes of motion that never
+ * stops, and a take is mostly still between its steps, so the three-minute
+ * take this constant is sized against keeps its motion. It was 256 MB, sized
+ * 2026-08-29 on 1x frames of about 15 KB (~740 KB/s, ~6 minutes); at 2x
+ * that is about 41 seconds. Nothing noticed, because until 2026-11-27 the
+ * runner charged every span 0 bytes and the budget never tripped.
  *
- * At that rate 256 MB is ~6.0 minutes of continuous motion — comfortably
- * past the three-minute target this constant is sized against, so no
- * retune was needed. Re-measure if the screencast's own regime changes
- * (format, quality, or a device-metrics override added to the harvester);
- * a screencast arriving at physical surface resolution instead of CSS
- * pixels would be roughly 4x the bytes and would cut this to well under
- * two minutes.
- *
- * On breach, motion stops for the remainder and the take says so. It is a
- * bound on the largest transient thing a take writes, in the same
- * spirit as CAPTURE_MAX_KEYFRAMES.
+ * On breach, motion stops for the remainder and the take says so
+ * (`keyframeOnly`, "motion budget spent"). It is a bound on the largest
+ * transient thing a take writes, in the same spirit as
+ * CAPTURE_MAX_KEYFRAMES.
  */
-export const CAPTURE_MOTION_BUDGET_BYTES = 256 * 1024 * 1024;
+export const CAPTURE_MOTION_BUDGET_BYTES = 1024 * 1024 * 1024;
 
 /**
  * How long a take or replay waits for the startup orphan-blob sweep before

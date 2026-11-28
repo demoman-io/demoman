@@ -1252,8 +1252,11 @@ function prClause(report: RunReport, clean: string): string {
 /** Each degradation kind in a sentence: the verdict line's words, which
  *  refresh repeats when it delivers or fails a degraded run. */
 export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
+  // Three causes write it, and its note names which: a real-time take's
+  // motion budget ("motion budget spent"), a held change too short to play
+  // as motion, and a heap high-water (an encoder that reports one).
   keyframeOnly:
-    "a stretch of motion was kept as stills because memory ran high",
+    "a stretch of motion was kept as stills: the video reached its motion limit, a change was too short to play as motion, or memory ran high",
   budgetBreach: "motion frames were skipped to stay inside the frame budget",
   occlusionPause: "capture paused while the replay window was covered",
   pageNeverSettled:
@@ -1261,6 +1264,8 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   surfaceMismatch:
     "a stretch of motion is missing — Chrome returned frames of the window rather than the page, and they were refused",
   encodeRefused: "a stretch of motion is missing — the encoder refused it",
+  screencastStopped:
+    "motion may be missing from partway through — a screencast frame could not be acknowledged, and the browser sends no more until one is",
   stillFailed:
     "a sharp still could not be taken after the page settled, so a stretch shows the last motion frame instead",
   scrollUnsettled:

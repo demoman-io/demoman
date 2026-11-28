@@ -89,6 +89,7 @@ export type PlayDeps = Pick<
   | "flowScale"
   | "flowScaleUnread"
   | "recordingFrameRate"
+  | "motionBudgetBytes"
 >;
 
 export type Prepared =
@@ -573,6 +574,9 @@ export async function playOnStage(
       landing,
       // Spec 2026-10-03: keep every frame the page paints, real time.
       recording: "continuous",
+      ...(deps.motionBudgetBytes === undefined
+        ? {}
+        : { motionBudgetBytes: deps.motionBudgetBytes }),
       onProgress: (progress) => {
         if (progress.state === "failed" && progress.note !== null) {
           failedNote = progress.note;
