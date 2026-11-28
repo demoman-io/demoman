@@ -268,6 +268,14 @@ export const SURFACE_CROP_WINDOW_MS = 1000;
 export const STILL_ECHO_WINDOW_MS = 1000;
 
 /**
+ * The most frames at a still's size one still was seen to echo: two, in
+ * every take traced (2026-11-28). More, late, after one still is not its
+ * echo: the screencast is drawing at that size now, and the walk takes it
+ * as the screencast's own.
+ */
+export const STILL_ECHO_FRAMES = 2;
+
+/**
  * The latest full still (`Page.captureScreenshot` at the still's scale):
  * whether it is being taken, when the latest to answer did, on the walk's
  * clock (null before one has), the screencast's own frame size before it,

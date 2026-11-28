@@ -42,6 +42,23 @@ export function jpegSize(bytes: Uint8Array): { width: number; height: number } {
   throw new Error("screenshot is not a JPEG this parser understands");
 }
 
+/**
+ * A base64 JPEG's size, read from its head where the start-of-frame sits in
+ * every screencast frame, and from the whole only when it is not there: a
+ * frame judged by its size is not decoded whole for it.
+ */
+export function jpegSizeOfBase64(data: string): {
+  width: number;
+  height: number;
+} {
+  try {
+    // A multiple of 4, so the head decodes on its own.
+    return jpegSize(decodeBase64(data.slice(0, 8192)));
+  } catch {
+    return jpegSize(decodeBase64(data));
+  }
+}
+
 /** A PNG's size, from its IHDR chunk (always the first). */
 export function pngSize(bytes: Uint8Array): { width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

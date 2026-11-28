@@ -111,7 +111,7 @@ import {
 } from "./geometry.js";
 import { HELD_EPS_MS, HELD_FRAME_MS, type HeldClock } from "./held-clock.js";
 import { createHeldFrames } from "./held-frames.js";
-import { decodeBase64, jpegSize, pngSize } from "./image.js";
+import { decodeBase64, jpegSize, jpegSizeOfBase64, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { holdModifiers, maskOf, pressCombo, releaseKeeping } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
@@ -133,6 +133,7 @@ import {
   capturedAway,
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
+  STILL_ECHO_FRAMES,
   type StepSettleReport,
   type StillWindow,
   SURFACE_CROP_WINDOW_MS,
@@ -1783,12 +1784,11 @@ export async function runWalk(
   const pageFrames = (() => {
     let capture: CaptureWindow | null = null;
     let still: StillWindow | null = null;
-    /** What the latest still's late frames were said as, and how many. */
-    let late: { entry: Degradation; frames: number; afterMs: number } | null =
-      null;
+    /** How many frames after the latest still were refused late. */
+    let lateFrames = 0;
     const sizeOf = (data: string): string | null => {
       try {
-        const { width, height } = jpegSize(decodeBase64(data));
+        const { width, height } = jpegSizeOfBase64(data);
         return `${width}x${height}`;
       } catch {
         // Not a frame anyone can measure; it is judged as a stray.
@@ -1822,11 +1822,19 @@ export async function runWalk(
           capture.inputMs = clock.now();
       },
       stillAsked(): void {
-        late = null;
+        const newest = latest === null ? null : sizeOf(latest);
+        const ownSize = (): string | null =>
+          newest !== null && newest === still?.still && still.own !== null
+            ? still.own
+            : newest;
+        lateFrames = 0;
         still = {
           taking: true,
           toMs: still?.toMs ?? null,
-          own: latest === null ? null : sizeOf(latest),
+          // A frame at the still's size kept before filming (the opening
+          // still's echo, seen before its size was known) is not the
+          // screencast's own: the one before stands.
+          own: ownSize(),
           still: still?.still ?? null,
         };
       },
@@ -1847,24 +1855,29 @@ export async function runWalk(
         if (capturedAway(paintedMs, measured, capture)) return true;
         const echo = stillEcho(paintedMs, measured, still);
         if (echo === "late" && still !== null) {
+          // More than a still echoes: the screencast draws at this size
+          // now, so it is its own from here, and this frame is filmed.
+          if (++lateFrames > STILL_ECHO_FRAMES) {
+            still.own = still.still;
+            return false;
+          }
           // Refused, as it is not the screencast's scale; said, because
           // this long after the still it may be the page moving, and that
-          // stretch is then not in the video. One entry per still, from the
-          // first such frame to the last.
+          // is then not in the video. One entry per frame, at its paint, as
+          // `refuseSurface` says its own: a stretch from one to the next
+          // would read as unkept motion between them.
           const ms = Math.round(paintedMs - started);
-          if (late === null) {
-            late = {
-              entry: degradation("surfaceMismatch", ms, ms, ""),
-              frames: 0,
-              afterMs: Math.round(paintedMs - (still.toMs ?? paintedMs)),
-            };
-            degradations.push(late.entry);
-          }
-          late.frames++;
-          late.entry.endMs = Math.max(late.entry.endMs, ms);
-          late.entry.note =
-            `refused ${late.frames} screencast frame(s) at ${still.still}, a full still's size and not the screencast's own ${still.own}, ` +
-            `painted ${late.entry.startMs} to ${late.entry.endMs} ms, from ${late.afterMs} ms after the still before them answered`;
+          counters.droppedMotionFrames++;
+          counters.surfaceMismatchFrames++;
+          degradations.push(
+            degradation(
+              "surfaceMismatch",
+              ms,
+              ms,
+              `refused a screencast frame at ${still.still}, a full still's size and not the screencast's own ${still.own}, ` +
+                `painted at ${ms} ms, ${Math.round(paintedMs - (still.toMs ?? paintedMs))} ms after the still before it answered`,
+            ),
+          );
         }
         return echo !== null;
       },

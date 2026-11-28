@@ -198,7 +198,8 @@ const DegradationSchema = z.object({
     // a reason the author can act on (memory pressure) — this one names a
     // Chrome behaviour, and telling the two apart is the difference between
     // "your machine was busy" and "the replay window disagreed with the
-    // page". See `coversViewport`.
+    // page". See `coversViewport`. Also a frame at a full still's size long
+    // after the still, past where its echo comes (`stillEcho`).
     "surfaceMismatch",
     // Motion the harvest saw and the encoder refused. Distinct from the two
     // above because it is neither the machine being busy nor Chrome handing
