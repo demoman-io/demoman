@@ -523,7 +523,8 @@ export async function runScript(
     });
     throw error;
   }
-  const { result, signedOutAfter, landingNote, datesOnScreen } = filmed;
+  const { result, signedOutAfter, landingNote, datesOnScreen, foundWeaker } =
+    filmed;
   // Read before anything else touches the page: where the steps left it.
   const endPage = await pageEndPage(page);
 
@@ -725,6 +726,7 @@ export async function runScript(
     endPage,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
     ...(datesOnScreen.length === 0 ? {} : { datesOnScreen }),
+    ...(foundWeaker.length === 0 ? {} : { foundWeaker }),
     // prepareStage stops the run when the pin cannot be installed, so a run
     // that got this far has it.
     ...(deps.pinnedNow === undefined ? {} : { pinnedNow: deps.pinnedNow }),

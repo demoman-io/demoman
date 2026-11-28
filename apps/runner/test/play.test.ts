@@ -29,6 +29,7 @@ function played(
     arrival: null,
     datesOnScreen: [],
     closedShadowRoot: false,
+    foundWeaker: [],
     ...over,
   };
 }

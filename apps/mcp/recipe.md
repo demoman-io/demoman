@@ -228,7 +228,7 @@ to change and run again.
 
 **Re-filming an edited video.** `run({ flow: { id } })` with no `script`
 re-films the flow's current video from its saved script and current
-`scene.json` (steps, name, look, pauses, added steps), as a new video and a run toward the three. Refused with `unfilledHoles` when the video kept no
+`scene.json` (steps, name, look, pauses, added steps), as a new video, counted as a run. Refused with `unfilledHoles` when the video kept no
 value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
@@ -314,7 +314,8 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    A finding that is Demoman's earns no run and is not passed on (the
    user can change it in the Studio). A step's `roomMs` is pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
-   than the target you named.
+   than the target you named. `foundWeaker` names each `steps[k].anchorId`
+   the page changed under mid-step: check the video shows it.
 
 **Stop after three runs**, done or not, then export: each drives the
 user's real app. A video zooms on every click and starts from `look.kit`, else the
@@ -346,18 +347,17 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`; `derive` then `run` if a verb changed).
    Re-record only on request. `untagged` and `taggedWithoutCommit` warnings: not the user's.
-   `links` holds the export's one-click actions, each present only where it works: `studio`, `file` (the file itself) and `copy` (the
+   `links` holds one-click actions, each only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user.
-3. `renderFailed` - export **once** more; never re-run the script for an
-   export failure. `saveFailed` - its `error` names the folder and the
-   system's reason (a folder that cannot be written): tell the user;
-   exporting again will not help until fixed. A stills export that
+3. `renderFailed` - export **once** more; never re-run the script for it.
+   `saveFailed` - its `error` names the folder and why it cannot be
+   written: tell the user; export again only once fixed. A stills export that
    stopped partway carries `partial: { folder, written, notWritten }`; the
    stills in `written` are whole PNGs.
 4. `pathUnknown`, `refusedBeforeExport` or `threw` - report it, quoting
    `detail` or `error`. Do not retry.
-5. The export does not count toward the three runs.
+5. An export is not one of the three runs.
 
 ### Pull requests
 
@@ -523,7 +523,7 @@ Studio exports go to the Export folder (Settings).
 | `dragEndOutOfView`, `dragNoDistance` | `run`² | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
 | `dialogNotOpened`, `dialogAnswerUnfit` | `run`² | The click's `dialog` opened none, or its answer did not fit (an alert has only OK, only a prompt gets text; for that one the run answered OK). Click what asks, or drop `dialog`. |
 | `clickNotDelivered` | `run`² | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
-| `signedOut` | `run`² | The app sent this browser to sign-in. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
+| `signedOut` | `run`² | The app sent this browser to sign-in. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run once they have. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
 | `windowClosed` | `run`² | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman: tell the user. |

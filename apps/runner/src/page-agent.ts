@@ -331,13 +331,23 @@ export function weakerThanRecorded(
  * can never match. (It would still park in the right realm; that half was
  * fixed in `resolveForReplay` on 2026-09-07, after the spike that found it.)
  */
-export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
+export function createHeadlessPageAgent(
+  page: Page,
+  report: Report,
+  /** Where the weaker-tier note goes: an MCP run's `report` is the server's
+   *  log, which the agent never reads, so its run report carries these. */
+  reportWeaker: Report = report,
+): PageAgent {
   const said = new Set<string>();
-  const reportOnce: ReportOnce = (key, line) => {
-    if (said.has(key)) return;
-    said.add(key);
-    report(line);
-  };
+  const once =
+    (to: Report): ReportOnce =>
+    (key, line) => {
+      if (said.has(key)) return;
+      said.add(key);
+      to(line);
+    };
+  const reportOnce = once(report);
+  const reportWeakerOnce = once(reportWeaker);
   return {
     async resolve(anchors: AnchorIntent[]): Promise<ResolveReport[]> {
       const routed = await Promise.all(
@@ -446,7 +456,7 @@ export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
                 ? null
                 : weakerThanRecorded(anchor, report);
             // Once per anchor: a wait polls its target many times.
-            if (weaker !== null) reportOnce(`${anchorId} weaker`, weaker);
+            if (weaker !== null) reportWeakerOnce(`${anchorId} weaker`, weaker);
           });
         }),
       );

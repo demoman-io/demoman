@@ -215,8 +215,13 @@ describe("the headless PageAgent", () => {
     async () => {
       await openFixture();
       const reported: string[] = [];
-      const agent = createHeadlessPageAgent(page, (line) =>
-        reported.push(line),
+      const logged: string[] = [];
+      // An MCP run's own log is the server's: the note goes to the reporter
+      // the run report reads, not to that log.
+      const agent = createHeadlessPageAgent(
+        page,
+        (line) => logged.push(line),
+        (line) => reported.push(line),
       );
       // Recorded by its stable id (anchorOf's resolution), found by its path.
       const anchor = anchorOf("moved", { treePath: "body:1/button:2" });
@@ -230,6 +235,7 @@ describe("the headless PageAgent", () => {
       expect(reported[0]).toContain('anchor "moved"');
       expect(reported[0]).toContain("its position in the page");
       expect(reported[0]).toContain("not by its stable id");
+      expect(logged).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );
