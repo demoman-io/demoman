@@ -207,3 +207,33 @@ sample, ten flows, two runs per build per flow.
 `held-sweep.json` runs against `held-sweep-fixture.html` (`{fixture}/held-sweep-fixture.html`): grey stripes sliding on every frame, three zoomed clicks, and a pure green box shown for 40 ms after the first. Record it with `pacing-pairs.mjs`, then `held-sweep-read.mjs <mp4>...` decodes each export and prints its `freezes` (each run of 200 ms or more with no change between frames, which on this page the video added) and `greenMs` (where the 40 ms box shows; empty means it was lost). Measured 2026-11-19 (lane A): real time froze 9 times (200–1383 ms) and lost the box; held froze only at the opening (617 ms, the unfilmed load and settle) and showed the box on its one frame, the same on two runs. On both fixtures every held 1.8x zoom was granted 1.35x at the default export, against 1.8x for real time's 3x stills. After the opening fix (a held take's time starts at its opening still) held froze nowhere and ran 8.7 s against 9.3 s, the same on two runs.
 
 `held-wait-pan.json` runs against `held-wait-pan-fixture.html`: a zoomed click on Load hides Next, and a timer shows it 3 s later in page time, which the walk's designed clock does not count (as it does not count a load). Then a zoomed click on Next, across the page. Record it with `pacing-pairs.mjs`, and read Next's `arrives` in its `zooms` beside the two clicks' `markers`. Measured 2026-11-20 (lane A): held, the clicks were 4971 ms apart in the video, the walk recorded `pan`, and the export stayed zoomed on Load through the wait.
+
+## Colour tags
+
+`node apps/runner/compare/colour-tags.mjs [--repo <root>] [--keep <dir>]` records one short
+held take headless (a page of six flat swatches and a spinner, so the run
+muxes a motion span), exports it, and prints for the export and each span
+mp4 the `colr` box in `moov`, ffprobe's `pix_fmt` and `color_*` fields, and
+the SPS VUI (`trace_headers`); then, decoded through WebCodecs in this
+Playwright's Chromium, the colour space of a `VideoFrame` made from a canvas
+(what the compositor encodes) and of the decoded frame, and per swatch the
+most common Y'CbCr code values (nearest of BT.709 and BT.601, limited and
+full range) and the RGB Chrome paints it as, against the page's own. It
+exits 1 when a swatch is not found or the run left no span. Without ffmpeg
+on the PATH its two sections say so. `pnpm -r build` first.
+
+The same file on Linux, from the main checkout (a worktree's `.git` is a
+file the container cannot follow), with Docker running. It clones the
+checkout's committed HEAD, which must hold this file (`main` once it is
+merged; add `-b <branch>` to the clone for another), so nothing of the Mac's `node_modules` or `dist` is used,
+and `linux/amd64` is CI's architecture (emulated on Apple silicon):
+
+```sh
+docker run --rm --platform linux/amd64 -v "$PWD":/src:ro node:22-bookworm bash -c 'git config --global --add safe.directory "*" && git clone -q /src /w && cd /w && apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null && corepack enable && pnpm install --frozen-lockfile >/dev/null && pnpm -r build >/dev/null && pnpm --filter @demoman/runner exec playwright install --with-deps chromium >/dev/null && node apps/runner/compare/colour-tags.mjs'
+```
+
+Measured on the Mac on 2026-11-28 (Chrome 151.0.7922.34, held, a 2560x1758
+export at the display's scale; a 1x take read the same): the export
+and the span both carry `colr` nclx 1/1/1 limited and the same VUI, ffprobe
+reads `bt709`/`tv`, the decoded frame is NV12 BT.709 limited, every swatch's
+code values are BT.709 limited within 1, and Chrome paints each within 2/255.
