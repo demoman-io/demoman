@@ -160,6 +160,25 @@ describe("a recorded return the gap has no room for", () => {
     expect(decided, keys).toBe("pan");
   });
 
+  // Premise: `SECOND_MS` is near enough that the clock pans and far enough
+  // that the squeezed return lands after the first zoom arrives, at the
+  // instant this file reads.
+  it("squeezes the return between the two zooms, landing where it is read", () => {
+    const [, firstIn, pullOut, secondIn] = JSON.parse(keys) as [
+      number,
+      number,
+      number,
+    ][];
+    expect(firstIn?.[1], keys).toBeGreaterThan(1);
+    expect(pullOut?.[1], keys).toBe(1);
+    expect(secondIn?.[1], keys).toBeGreaterThan(1);
+    expect(pullOut?.[0], keys).toBeGreaterThan(firstIn?.[0] as number);
+    expect(
+      atSec * 1000 - CAMERA_DEFAULTS.neutral.minPlateauMs / 2,
+      keys,
+    ).toBeCloseTo(pullOut?.[0] as number, 6);
+  });
+
   // Premise: the control is zoomed in at the instant read, so the corner
   // is the app's black. Without this a render that never zoomed would pass.
   it("pans in the control: the corner is the app, zoomed in", () => {

@@ -834,7 +834,8 @@ describe("an edit that moves the beats decides each arrival again, and records i
   );
 
   // With no frames there is no timeline to decide on, so no stale record is
-  // left for the renderer to draw. Red if `decideCameraAgain` keeps them.
+  // left for the renderer to draw; the clock draws what deciding would have
+  // recorded. Red if `decideCameraAgain` keeps them.
   it("with no bundle, leaves no zoom carrying arrives", () => {
     const after = applyCommand(
       planned(),
@@ -905,4 +906,56 @@ describe("an edit that moves the beats decides each arrival again, and records i
       expect(arrives(after)).toEqual(["pan", "pan", "return"]);
     },
   );
+
+  // A pair the edit stops lying across is decided again too: restoring a
+  // piece gives the pair its whole gap back, and the clock its say. Red if
+  // `decidePairsAgain` stops passing `before` to `decideCamera`: the pan
+  // decided across the removed piece would stand.
+  it("restorePiece decides the pair the piece lay across again", () => {
+    const removed = applyCommand(
+      planned(),
+      {
+        kind: "removePiece",
+        start: { actionId: "act-2", sourceOffsetMs: 100 },
+        end: { actionId: "act-2", sourceOffsetMs: 5300 },
+      },
+      () => "piece-1",
+      bundle,
+    );
+    // Premise: 600 ms is left between the two zooms, so the clock pans and
+    // the record stays a pan across the piece.
+    expect(returnsBetween(3200, 3800, timings)).toBe(false);
+    expect(arrives(removed)).toEqual(["pan", "pan", "pan"]);
+    const pieceId = removed.edits.removed?.[0]?.id;
+    expect(pieceId).toBeDefined();
+    const restored = applyCommand(
+      removed,
+      { kind: "restorePiece", id: pieceId as string },
+      () => "z-new",
+      bundle,
+    );
+    expect(restored.edits.removed ?? []).toEqual([]);
+    expect(arrives(restored)).toEqual(["pan", "pan", "return"]);
+  });
+
+  // Dropping the records with no frames to decide on would turn the walk's
+  // pans everywhere into the clock's answers, with nothing said. Red if
+  // `decidePairsAgain` stops refusing.
+  it("refuses a gap edit on a take with records and no frames, saying why", () => {
+    expect(() =>
+      applyCommand(
+        planned(),
+        { kind: "setGap", afterActionId: "act-2", durationMs: 900 },
+        () => "z-new",
+      ),
+    ).toThrow(/frames are not loaded/);
+    // A take with no record has nothing to go stale, and edits as before.
+    expect(
+      applyCommand(
+        readonlyScene(),
+        { kind: "setGap", afterActionId: "act-2", durationMs: 900 },
+        () => "z-new",
+      ).edits.gaps,
+    ).toHaveLength(1);
+  });
 });

@@ -90,6 +90,9 @@ export interface ResolvedPlan {
    *  timing decides it. What `decideCamera` records; the keys draw the
    *  record instead. */
   cameraDecided: Map<string, "pan" | "return">;
+  /** `solveCamera`'s `edited`: the zooms an authored gap or a removed piece
+   *  lies before, which `cameraDecided` asks the clock for. */
+  cameraEdited: Set<string>;
   /** Source-time cursor samples: replay's own, or synthesized for frozen frames. */
   cursor: CursorSample[];
   /**
@@ -1147,6 +1150,7 @@ export function resolvePlan(
     cameraFollow,
     cameraSegments: camera.segments,
     cameraDecided: camera.decided,
+    cameraEdited: camera.edited,
     cursor: bridged,
     clickOutputMs,
     ...keyMarks,
@@ -1179,12 +1183,29 @@ export { sampleCamera };
  * a removed piece, a zoom, a smoothness). A zoom the camera does not place
  * (no marker, no target, or the first, with no zoom before it) keeps what it
  * carried.
+ *
+ * `before` is the take before such an edit. A pair one of its gaps or
+ * removed pieces lay across is decided again from the clock too, so a gap
+ * cleared or a piece restored does not leave the choice made across it.
  */
 export function decideCamera(
   scene: SceneDocument,
   bundle: FrameBundle,
+  before?: SceneDocument,
 ): SceneDocument {
-  const { cameraDecided } = resolvePlan(planScene(scene), bundle, scene);
+  const touched =
+    before === undefined
+      ? new Set<string>()
+      : resolvePlan(planScene(before), bundle, before).cameraEdited;
+  const asked = {
+    ...scene,
+    camera: scene.camera.map(({ arrives, ...zoom }) =>
+      touched.has(zoom.id) || arrives === undefined
+        ? zoom
+        : { ...zoom, arrives },
+    ),
+  };
+  const { cameraDecided } = resolvePlan(planScene(asked), bundle, asked);
   return {
     ...scene,
     camera: scene.camera.map((c) => {

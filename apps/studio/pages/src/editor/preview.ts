@@ -822,7 +822,7 @@ export function previewScene(
   // draws exactly what the release records from it, so no bundle is needed
   // here, and the drag does not resolve the take twice a frame.
   return smoothnessChanged(stored, layered)
-    ? decideCameraAgain(layered, null, true)
+    ? decideCameraAgain(layered, null)
     : layered;
 }
 

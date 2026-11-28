@@ -1831,7 +1831,7 @@ describe("RunReport opening, trim and zoom notes", () => {
       walk: { ...built.walk, trimPlanFailed: "injected" },
     });
     expect(report.trimNotes).toEqual([
-      "Demoman could not place the steps on the planned video (injected), so any trim or held zoom the script asked for is not applied; the script is not at fault",
+      "Demoman could not place the steps on the planned video (injected), so any trim or held zoom the script asked for is not applied, and each zoom pans or returns as the walk planned it, unchecked against the video's timing; the script is not at fault",
     ]);
   });
 

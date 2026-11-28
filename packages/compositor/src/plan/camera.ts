@@ -394,6 +394,9 @@ export function solveCamera(
    * where the take records the choice and where the author moves the beats.
    */
   decided: Map<string, "pan" | "return">;
+  /** The zooms whose arrival an authored gap or a removed piece lies
+   *  across (`edited`), by id: the pairs `decided` asks the clock for. */
+  edited: Set<string>;
 } {
   const timings = motionTimings(motion.smoothness);
   const gaps = gapAfterActionIds.flatMap((id) => {
@@ -494,13 +497,16 @@ export function solveCamera(
   // it is asked here of the same seeds with the same `heldUntilOf`.
   seeds.sort((a, b) => a.outputTimeMs - b.outputTimeMs);
   const decided = new Map<string, "pan" | "return">();
+  const editedIds = new Set<string>();
   for (const [i, seed] of seeds.entries()) {
     const before = seeds[i - 1];
-    if (before !== undefined)
+    if (before !== undefined) {
       decided.set(
         seed.id,
         decidedArrives(seed, before, holds, edited, timings),
       );
+      if (edited(before, seed)) editedIds.add(seed.id);
+    }
     const pans =
       before !== undefined && arrivesOf(seed, before, holds, timings) === "pan";
     const notBeforeMs =
@@ -540,7 +546,7 @@ export function solveCamera(
     timings,
     holds,
   );
-  return { ...drawn, decided };
+  return { ...drawn, decided, edited: editedIds };
 }
 
 /**

@@ -550,17 +550,16 @@ export function applyCommand(
   scene: SceneDocument,
   command: EditCommand,
   newId: IdSource,
-  /** The take's frames, which pan or return is decided on. Null: none is
-   *  loaded, and an edit that moves the beats leaves no record. */
+  /** The take's frames, which pan or return is decided on. */
   bundle: FrameBundle | null = null,
 ): SceneDocument {
   const next = reduce(scene, command, newId);
-  const forget =
-    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next);
   return SceneDocumentSchema.parse(
-    forget || BEAT_EDITS.has(command.kind)
-      ? decideCameraAgain(next, bundle, forget)
-      : next,
+    ZOOM_SET_EDITS.has(command.kind) || smoothnessChanged(scene, next)
+      ? decideCameraAgain(next, bundle)
+      : BEAT_EDITS.has(command.kind)
+        ? decidePairsAgain(scene, next, bundle)
+        : next,
   );
 }
 
@@ -586,8 +585,9 @@ const ZOOM_SET_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
 ]);
 
 // These move the beats between two zooms (an authored gap, a removed
-// piece): the pairs they lie between are decided again from the clock, and
-// every other pair keeps its record (`solveCamera`'s `edited`).
+// piece): the pairs they lie between, before or after the edit, are decided
+// again from the clock, and every other pair keeps its record
+// (`decideCamera`'s `before`).
 const BEAT_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
   "setGap",
   "clearGap",
@@ -598,23 +598,37 @@ const BEAT_EDITS: ReadonlySet<EditCommand["kind"]> = new Set([
 
 /**
  * Pan or return decided again, once, and recorded (author's ruling
- * 2026-11-28: the record is final, and the renderer never decides over it).
- * `forget` drops every record first, so every pair asks the clock. With no
- * bundle there is no timeline to decide on: every record is dropped, and
- * the renderer's clock draws the take as it draws one recorded before
- * records existed, rather than a record the edit made stale.
+ * 2026-11-28: the record is final, and the renderer never decides over it):
+ * every record is dropped, and each zoom asks the clock. With no bundle
+ * there is no timeline to decide on, and the records are dropped alone: the
+ * renderer's clock then draws exactly what deciding would have recorded.
  */
 export function decideCameraAgain(
   scene: SceneDocument,
   bundle: FrameBundle | null,
-  forget: boolean,
 ): SceneDocument {
-  const kept =
-    forget || bundle === null
-      ? {
-          ...scene,
-          camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
-        }
-      : scene;
-  return bundle === null ? kept : decideCamera(kept, bundle);
+  const forgotten = {
+    ...scene,
+    camera: scene.camera.map(({ arrives: _stale, ...zoom }) => zoom),
+  };
+  return bundle === null ? forgotten : decideCamera(forgotten, bundle);
+}
+
+/**
+ * The pairs a gap or a removed piece moves, decided again and recorded. A
+ * take with no record has nothing to go stale: the renderer's clock draws
+ * it. With records and no frames the edit is refused, saying why: dropping
+ * them would turn the walk's pans elsewhere into the clock's returns.
+ */
+function decidePairsAgain(
+  before: SceneDocument,
+  next: SceneDocument,
+  bundle: FrameBundle | null,
+): SceneDocument {
+  if (!next.camera.some((c) => c.arrives !== undefined)) return next;
+  if (bundle === null)
+    throw new Error(
+      "this take's frames are not loaded, so the camera's pan or return across this edit cannot be decided again; nothing was changed",
+    );
+  return decideCamera(next, bundle, before);
 }
