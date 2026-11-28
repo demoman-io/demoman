@@ -146,7 +146,7 @@ targets. Each entry is
   are not Chrome's.
 - `landedElsewhere: true` - the app redirected, often to its sign-in page;
   `landedUrl` says where. A sign-in page: see `session`
-  below. Not one (a
+  below. If not a sign-in page (a
   trailing slash, `https`, a locale prefix), use `landedUrl` as the
   script's `target`; this snapshot stands.
   `landedElsewhere: null`: the address was unreadable; not an all-clear.
@@ -517,7 +517,7 @@ Studio exports go to the Export folder (Settings).
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
 | `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: pick a target outside it. |
-| `ambiguousAnchor`, `anchorDrifted` | `run`² | Several elements matched, or a lookalike: name the target more exactly. |
+| `ambiguousAnchor`, `anchorDrifted` | `run`² | Several matched, or a lookalike: name the target exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
 | `dragEndOutOfView`, `dragNoDistance` | `run`² | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
