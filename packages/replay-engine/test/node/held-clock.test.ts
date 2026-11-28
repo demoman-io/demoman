@@ -2310,6 +2310,11 @@ describe("PIN_ANIMATIONS", () => {
     expect(pin(100)).toEqual([]);
     // The pin's own pause is not the page's.
     expect(pin(150)).toEqual([]);
+    // Nor a pause the page took back in the same frame (pause, then play:
+    // a restart).
+    spin.pause();
+    spin.playState = "running";
+    expect(pin(150)).toEqual([]);
     // Premise: the pin holds it, paused, and the page's pause changes
     // nothing it can read.
     expect([spin.playState, spin.currentTime]).toEqual(["paused", 50]);
@@ -2591,7 +2596,7 @@ describe("HELD_FRAMES_SCRIPT", () => {
     for (const elements of [[host], [nest]]) {
       const p = page({ elements });
       expect(p.flushAt(F)).toEqual([
-        "a playing video in a shadow root runs on its own clock: it was not held, nor the take kept to real time for it",
+        "a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
       ]);
       expect(p.flushAt(2 * F)).toEqual([]);
     }
@@ -2607,7 +2612,38 @@ describe("HELD_FRAMES_SCRIPT", () => {
     // In a frame: its own videos are the ones nobody sees.
     const parent = { __demomanFlushFrames: () => [] };
     expect(page({ parent, elements: [playing] }).flushAt(F)).toEqual([
-      "a playing video in a frame runs on its own clock: it was not held, nor the take kept to real time for it",
+      "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+    ]);
+  });
+
+  // Review: an autoplay video still fetching waits on a clock ahead of real
+  // time, frozen, and the look counted only playing ones; and the walk ran
+  // on every frame. Red if it is unsaid, or looked at off the 15-frame
+  // stride.
+  it("says a waiting video, and looks every 15th frame", () => {
+    const waiting = {
+      tagName: "VIDEO",
+      paused: true,
+      ended: false,
+      autoplay: true,
+      played: { length: 0 },
+      readyState: 2,
+      networkState: 2,
+      error: null,
+    };
+    const shown: object[] = [];
+    const p = page({
+      elements: [
+        { tagName: "DIV", shadowRoot: { querySelectorAll: () => shown } },
+      ],
+    });
+    expect(p.flushAt(F)).toEqual([]);
+    shown.push(waiting);
+    const said = Array.from({ length: 20 }, (_, k) =>
+      p.flushAt((k + 2) * F).map((w) => `${k + 2}: ${w}`),
+    ).flat();
+    expect(said).toEqual([
+      "16: a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
     ]);
   });
 

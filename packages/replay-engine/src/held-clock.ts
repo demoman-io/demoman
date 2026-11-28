@@ -173,7 +173,9 @@ export const pinAnimationsScript = (frameMs: number): string => {
       else a.__v0 = v - (a.currentTime ?? 0);
       continue;
     }
-    if (scripted && a.__v0 !== undefined && !a.__done && !a.__pauseSaid) {
+    // Only a pause that stuck: one the page played again, or finished, is
+    // not one.
+    if (scripted && a.playState === "paused" && a.__v0 !== undefined && !a.__done && !a.__pauseSaid) {
       a.__pauseSaid = true;
       unpinned.push(nameOf(a) + ": the page paused it, and it played on: the held clock does not see a script's pause");
     }
@@ -355,15 +357,18 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
       this.__pausedByPage = true;
       return ownPause.apply(this, arguments);
     };
-  // A playing video the pin does not see: in this frame, or in an open
-  // shadow root of the page.
+  // A video the pin does not see, playing or waiting to start (as the pin
+  // counts one): in a frame, or in an open shadow root of the page. A frame
+  // says its own: Chrome runs this script in an iframe with no src that the
+  // page fills, too (measured 2026-11-28).
   // shortcut: said, not held, nor the take paced to it as the pin's videos
   // are; a closed shadow root is not looked in. Upgrade if an app's embed
   // shows frozen.
   const framed = window !== window.parent;
-  const UNSEEN = "a playing video in " + (framed ? "a frame" : "a shadow root") +
-    " runs on its own clock: it was not held, nor the take kept to real time for it";
-  const plays = (el) => el.tagName === "VIDEO" && !el.paused && !el.ended;
+  const UNSEEN = "a video in " + (framed ? "a frame" : "a shadow root") +
+    " plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it";
+  const plays = (el) => el.tagName === "VIDEO" && !el.ended && (!el.paused ||
+    (el.autoplay && el.played.length === 0 && el.readyState < 4 && !el.error && el.networkState === 2));
   const unseenPlays = () => {
     const roots = [];
     for (const el of query("*")) {
@@ -377,6 +382,9 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
       }
     return false;
   };
+  // The look walks the whole document, so it is taken every 15th frame
+  // (half a second at 30 fps), the first frame first.
+  let looks = 0;
   const named = (el) => {
     let o = "null";
     try { o = new URL(el.getAttribute("src") || "about:srcdoc", location.href).origin; } catch (e) {} // an address it never named: said as sandboxed
@@ -423,7 +431,8 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
     try { if (asked.some((a) => where(a.el) !== a.before)) jumped = true; } catch (e) {}
     asked = [];
     if (jumped && !said.has(SMOOTH)) { said.add(SMOOTH); out.push(SMOOTH); }
-    if (!said.has(UNSEEN)) {
+    const look = looks++ % 15 === 0;
+    if (look && !said.has(UNSEEN)) {
       let what = null;
       try { if (unseenPlays()) what = UNSEEN; } catch (e) {
         what = "the held clock could not look for a video in " + (framed ? "a frame" : "the page's shadow roots") +

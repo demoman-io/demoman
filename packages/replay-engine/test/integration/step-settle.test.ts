@@ -449,14 +449,18 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
-  /** The fixture with the held frames script in every document, as a held
-   *  recording has it (play.ts). */
+  /** The fixture with the held frames script in every document, put there
+   *  as a held recording puts it (play.ts), over CDP with Page enabled. */
   async function withHeldPage(fn: (page: Page) => Promise<void>) {
     const page = await browser.newPage({
       viewport: { width: 800, height: 600 },
     });
     try {
-      await page.addInitScript(HELD_FRAMES_SCRIPT);
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Page.enable");
+      await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: HELD_FRAMES_SCRIPT,
+      });
       await page.goto(FIXTURE, { waitUntil: "load" });
       await fn(page);
     } finally {
@@ -565,12 +569,50 @@ describe("the step-settle probe in a real page", () => {
       // Not paced either (`video` is the pin's own), which the words say.
       expect(await saidAt(page, 1000)).toEqual({
         said: [
-          "a playing video in a shadow root runs on its own clock: it was not held, nor the take kept to real time for it",
-          "a playing video in a frame runs on its own clock: it was not held, nor the take kept to real time for it",
+          "a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+          "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
         ],
         video: false,
       });
       expect((await saidAt(page, 1033)).said).toEqual([]);
+    });
+  });
+
+  // Review: an iframe with no src, filled by the page, was thought to miss
+  // the held frames script, leaving its video unsaid. Chrome runs it there
+  // (measured 2026-11-28), and the frame says its own video. Red if the
+  // frame's look is lost.
+  it("the held clock says a playing video in a frame the page filled itself", async () => {
+    await withHeldPage(async (page) => {
+      const held = await page.evaluate(async () => {
+        const f = document.createElement("iframe");
+        f.id = "blank";
+        document.body.append(f);
+        const doc = f.contentDocument;
+        if (!doc) throw new Error("the frame is not same-origin");
+        const canvas = doc.createElement("canvas");
+        canvas.getContext("2d")?.fillRect(0, 0, 10, 10);
+        const v = doc.createElement("video");
+        v.muted = true;
+        v.srcObject = canvas.captureStream();
+        doc.body.append(v);
+        await v.play();
+        return {
+          playing: !v.paused,
+          frameHeld:
+            typeof (f.contentWindow as unknown as Record<string, unknown>)
+              .__demomanFlushFrames === "function",
+        };
+      });
+      // Premise: it plays, and the frame ran the held frames script, as
+      // production installs it.
+      expect(held).toEqual({ playing: true, frameHeld: true });
+      expect(await saidAt(page, 1000)).toEqual({
+        said: [
+          "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+        ],
+        video: false,
+      });
     });
   });
 

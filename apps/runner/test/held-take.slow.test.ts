@@ -632,8 +632,8 @@ describe("a held recording", () => {
         .sort(),
       evidence,
     ).toEqual([
-      "a playing video in a frame runs on its own clock: it was not held, nor the take kept to real time for it",
-      "a playing video in a shadow root runs on its own clock: it was not held, nor the take kept to real time for it",
+      "a video in a frame plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
+      "a video in a shadow root plays, or waits to start, on its own clock: it was not held, nor the take kept to real time for it",
       "s on div: the page paused it, and it played on: the held clock does not see a script's pause",
     ]);
     // It played on, as said: the spinner moves after the click as it did
