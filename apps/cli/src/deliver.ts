@@ -63,7 +63,7 @@ const said = (r: { stderr: string; stdout: string; code: number }) =>
 /** A video whose files a refresh wrote and the repo should take: a `commit`
  *  flow whose film changed, added an output, or was delivered as new. A
  *  failure that wrote some files partway is not one. */
-const toCommit = (v: RefreshResult["videos"][number]): boolean =>
+export const toCommit = (v: RefreshResult["videos"][number]): boolean =>
   v.deliver === "commit" &&
   (v.outcome === "changed" ||
     v.outcome === "added" ||
