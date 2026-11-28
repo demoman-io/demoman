@@ -64,7 +64,15 @@ afterAll(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-/** Two paint runs: the panel's 800 ms slide, then typing. */
+/**
+ * Two paint runs, both typing: each key paints, for two seconds or more.
+ * Not the panel's 800 ms slide, which was the first run until 2026-11-28:
+ * its ease-out lands 1 to 4 screencast frames on a loaded machine, either
+ * side of `SPAN_MIN_FRAMES`, so it was kept on some runs and not on others
+ * (lost in 5 of 6 takes under CI-like load here, and on a CI runner). A
+ * typing run held a span of 5 frames or more in every one of those takes,
+ * and two typing runs kept two spans or more in 16 of 16.
+ */
 const script = () => ({
   scriptVersion: 1,
   name: "two paint runs",
@@ -72,12 +80,16 @@ const script = () => ({
   viewport: { width: 1280, height: 800 },
   steps: [
     { do: "waitForLoad" as const },
-    { do: "click" as const, on: { text: "Place order" } },
+    {
+      do: "type" as const,
+      into: { stableId: "search" },
+      text: "Northwind invoices for the third quarter",
+    },
     { do: "pause" as const, ms: 1500 },
     {
       do: "type" as const,
       into: { stableId: "search" },
-      text: "Northwind invoices",
+      text: "Overdue invoices, oldest first",
     },
   ],
 });
@@ -92,13 +104,18 @@ type Seen = {
   width: number;
 }[];
 
+/** Every span the encoder opened, kept or not: why a premise below failed. */
+type Opened = { kept: boolean; frames: number; startMs: number; ms: number }[];
+
 async function take(motionBudgetBytes?: number): Promise<{
   report: RunReport;
   seen: Seen;
+  opened: Opened;
   bundle: FrameBundle | null;
 }> {
   const library = createLibrary(home);
   const seen: Seen = [];
+  const opened: Opened = [];
   const report = await runScript(
     script() as never,
     {
@@ -114,6 +131,14 @@ async function take(motionBudgetBytes?: number): Promise<{
       sessionsContext: {} as BrowserContext,
       ...(motionBudgetBytes === undefined ? {} : { motionBudgetBytes }),
       muxSpans: async (input) => {
+        for (const s of input.spans) {
+          opened.push({
+            kept: s.kept,
+            frames: s.frames,
+            startMs: s.startMs,
+            ms: s.endMs - s.startMs,
+          });
+        }
         const kept = input.spans.filter((s) => s.kept);
         for (const [i, span] of kept.entries()) {
           const parked = await input.store.readParked(
@@ -137,19 +162,23 @@ async function take(motionBudgetBytes?: number): Promise<{
   const takeId = report.provenance.takeId;
   const bundle =
     takeId === null ? null : await library.frameStore(takeId).getBundle(takeId);
-  return { report, seen, bundle };
+  return { report, seen, opened, bundle };
 }
 
 describe("a real-time take's motion budget", () => {
   it(
     "charges each span the bytes it parked, and under the default budget keeps every span",
     async () => {
-      const { report, seen } = await take();
-      const evidence = JSON.stringify({ seen, report, lines });
+      const { report, seen, opened } = await take();
+      const evidence = JSON.stringify({ seen, opened, report, lines });
       expect(report.outcome, evidence).toBe("complete");
       // The premise the budget test below rests on: two paint runs, each
-      // kept, with nothing spent.
-      expect(seen.length, evidence).toBeGreaterThanOrEqual(2);
+      // kept, with nothing spent. `opened` says which spans fell under
+      // `SPAN_MIN_FRAMES` when it fails.
+      expect(
+        seen.length,
+        `fewer than two spans kept, so "keeps every span" is not tested: ${evidence}`,
+      ).toBeGreaterThanOrEqual(2);
       expect(report.frames.degradations, evidence).not.toContain(
         "keyframeOnly",
       );
@@ -159,16 +188,21 @@ describe("a real-time take's motion budget", () => {
         expect(span.parked, evidence).toBeGreaterThan(0);
         expect(span.charged, evidence).toBe(span.parked);
       }
-      // The scale the budget is sized at (`CAPTURE_SCALE.desktop`).
+      // The scale the budget is sized at (`CAPTURE_SCALE.desktop`), not
+      // Chrome's 1x: the typing's spans. A loaded machine can also keep a
+      // span of a still's echo, at the still's 3x (seen under burners here,
+      // after the last step); any other width is red.
+      const typed = seen.filter((s) => s.width === 1280 * 2);
+      expect(typed.length, evidence).toBeGreaterThanOrEqual(2);
       expect(
-        seen.map((s) => s.width),
+        seen.filter((s) => s.width !== 1280 * 2 && s.width !== 1280 * 3),
         evidence,
-      ).toEqual(seen.map(() => 1280 * 2));
-      const bytes = seen.reduce((sum, s) => sum + s.parked, 0);
-      const frames = seen.reduce((sum, s) => sum + s.frames, 0);
-      const seconds = seen.reduce((sum, s) => sum + s.ms, 0) / 1000;
+      ).toEqual([]);
+      const bytes = typed.reduce((sum, s) => sum + s.parked, 0);
+      const frames = typed.reduce((sum, s) => sum + s.frames, 0);
+      const seconds = typed.reduce((sum, s) => sum + s.ms, 0) / 1000;
       console.log(
-        `[motion-budget] ${frames} frames at ${seen[0]?.width} px wide, ` +
+        `[motion-budget] ${frames} frames at ${typed[0]?.width} px wide, ` +
           `mean ${(bytes / frames / 1024).toFixed(1)} KB/frame, ` +
           `${(bytes / seconds / 1024).toFixed(0)} KB per second of motion: ` +
           `${(CAPTURE_MOTION_BUDGET_BYTES / (bytes / seconds) / 60).toFixed(1)} min ` +
@@ -183,8 +217,8 @@ describe("a real-time take's motion budget", () => {
     "keeps the rest of the run as stills once the budget is spent, and says so",
     async () => {
       // One byte: the first kept span spends it.
-      const { report, seen, bundle } = await take(1);
-      const evidence = JSON.stringify({ seen, report, bundle, lines });
+      const { report, seen, opened, bundle } = await take(1);
+      const evidence = JSON.stringify({ seen, opened, report, bundle, lines });
       expect(report.outcome, evidence).toBe("complete");
       expect(seen, evidence).toHaveLength(1);
       expect(bundle?.motionSpans, evidence).toHaveLength(1);
@@ -193,7 +227,7 @@ describe("a real-time take's motion budget", () => {
       );
       expect(spent, evidence).toHaveLength(1);
       expect(spent?.[0]?.note).toContain("motion budget spent");
-      // From the first span's end to the run's: the typing after it is in
+      // From the first span's end to the run's: the second typing run is in
       // the stretch said to be stills.
       const first = bundle?.motionSpans[0];
       expect(spent?.[0]?.startMs, evidence).toBe(first?.endMs);
