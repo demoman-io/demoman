@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { authorSteps, bump, newestSiteEntry, preflight, shippedEntries, strays } from "./release.mjs";
+import { bump, newestSiteEntry, preflight, publishLine, releaseSteps, shippedEntries, strays } from "./release.mjs";
 
 // The real files, so a reworded version line fails here, not mid-release.
 // The site lives in internal/, which CI has no copy of: its version lines and
@@ -95,30 +95,41 @@ test("strays are paths outside what the package ships", () => {
   assert.deepEqual(strays(["src/main.ts", "dist/x.js", ".env"]), ["src/main.ts", ".env"]);
 });
 
-test("npm comes before the plugin, with the right dist-tags", () => {
-  const order = (v) => authorSteps(v).findIndex((s) => s.includes("npm publish")) < authorSteps(v).findIndex((s) => s.includes("plugin-out"));
-  assert.ok(order("0.8.0") && order("0.8.0-rc.1"));
-  // No clone lives on disk: the step makes one, over SSH, and stages new files too.
-  const plugin = authorSteps("0.8.0").find((s) => s.includes("plugin-out"));
-  assert.match(plugin, /git clone git@github\.com:demoman-io\/plugins\.git "\$p"/);
-  assert.match(plugin, /add -A && git -C "\$p" commit -m "demoman 0\.8\.0" && git -C "\$p" push/);
-  assert.match(authorSteps("0.8.0-rc.1").join("\n"), /\(cd apps\/cli\/pkg && npm publish --tag next\)\n\s+npm dist-tag add demoman@0\.8\.0-rc\.1 latest/);
-  assert.match(authorSteps("0.8.0").join("\n"), /\(cd apps\/cli\/pkg && npm publish\)\n\s+npm dist-tag add demoman@0\.8\.0 next/);
+test("the author's one step is the publish, as one line, with the right dist-tags", () => {
+  // DEM-224: only the publish needs the author (their security key).
+  for (const v of ["0.8.0", "0.8.0-rc.1"]) {
+    const theirs = releaseSteps(v).filter((s) => s.startsWith("The author"));
+    assert.equal(theirs.length, 1, releaseSteps(v).join("\n---\n"));
+    assert.match(theirs[0], new RegExp(`\\n\\s+! ${publishLine(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  }
+  assert.equal(publishLine("0.8.0-rc.1"), "(cd apps/cli/pkg && npm publish --tag next) && npm dist-tag add demoman@0.8.0-rc.1 latest");
+  assert.equal(publishLine("0.8.0"), "(cd apps/cli/pkg && npm publish) && npm dist-tag add demoman@0.8.0 next");
   // Every step runs from the repo root: none leaves the shell somewhere else.
-  for (const s of authorSteps("0.8.0")) assert.doesNotMatch(s, /^\s+cd /m, s);
+  for (const s of releaseSteps("0.8.0")) assert.doesNotMatch(s, /^\s+cd /m, s);
+});
+
+test("the plugin and the pushes run only after the publish, in release:finish", () => {
+  // release-finish.mjs refuses to start before npm serves the version
+  // (release-finish.test.mjs); here, that it is the step after the author's.
+  const steps = releaseSteps("0.8.0");
+  const publish = steps.findIndex((s) => s.startsWith("The author"));
+  const finish = steps.findIndex((s) => s.includes("pnpm release:finish 0.8.0"));
+  assert.ok(publish >= 0 && finish === publish + 1, steps.join("\n---\n"));
+  assert.ok(!steps.some((s) => s.includes("plugin-out") || s.includes("git push")), "a push is left outside release:finish");
 });
 
 test("the docs' Studio stills are redrawn before main is pushed", () => {
-  const steps = authorSteps("0.8.0");
+  const steps = releaseSteps("0.8.0");
   const stills = steps.findIndex((s) => s.includes("node scripts/docs-studio-stills.mjs"));
-  const push = steps.findIndex((s) => s.includes("git push origin main"));
+  // release:finish is what pushes main.
+  const push = steps.findIndex((s) => s.includes("pnpm release:finish"));
   assert.ok(stills >= 0, "no step redraws the stills");
   assert.ok(stills < push, "the stills are redrawn after main is pushed");
   assert.match(steps[stills], /studio-shots\.test\.ts/);
 });
 
 test("the stills step commits only the stills, and only after the lane passed", () => {
-  const step = authorSteps("0.8.0").find((s) => s.includes("docs-studio-stills"));
+  const step = releaseSteps("0.8.0").find((s) => s.includes("docs-studio-stills"));
   const [run, commit] = step.split(/Look at the stills/);
   assert.ok(commit, "the step has no look before its commit");
   // The lane, the copy and nothing else run as one chain: a failed lane stops it.

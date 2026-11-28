@@ -76,24 +76,27 @@ export function bump(version, texts) {
 /** Published paths outside what the package may ship. */
 export const strays = (paths) => paths.filter((p) => !SHIPPED.test(p));
 
-/** The author's steps after the gate, in the order internal/RELEASING.md requires. */
-export function authorSteps(version) {
-  const rc = version.includes("-rc.");
+/** The author's one line: the publish, which signs with their security key
+ *  (never an OTP), and the dist-tag beside it. A subshell, so it ends at the
+ *  repo root. */
+export function publishLine(version) {
+  return version.includes("-rc.")
+    ? `(cd apps/cli/pkg && npm publish --tag next) && npm dist-tag add demoman@${version} latest`
+    : `(cd apps/cli/pkg && npm publish) && npm dist-tag add demoman@${version} next`;
+}
+
+/** The steps after the gate, in the order internal/RELEASING.md requires.
+ *  Only the publish is the author's (DEM-224); the agent runs and checks the
+ *  rest, the plugin and the pushes in `pnpm release:finish`, which refuses to
+ *  start before npm serves the version. */
+export function releaseSteps(version) {
   return [
     // The docs show the Studio as the lane draws it; a CI refresh cannot open the Studio (its entry is single-use).
-    "On macOS, redraw the docs' Studio stills (the lane must pass for the copy to run):\n    pnpm --filter @demoman/studio exec vitest run test/browser/studio-shots.test.ts &&\n    node scripts/docs-studio-stills.mjs\n    Look at the stills in apps/docs/media/studio, then commit any that changed:\n    git add apps/docs/media/studio\n    git diff --cached --quiet -- apps/docs/media/studio || git commit -m \"docs: Studio stills for this release\" -- apps/docs/media/studio",
+    "The agent, on macOS: redraw the docs' Studio stills (the lane must pass for the copy to run):\n    pnpm --filter @demoman/studio exec vitest run test/browser/studio-shots.test.ts &&\n    node scripts/docs-studio-stills.mjs\n    Look at the stills in apps/docs/media/studio (open them for the author), then commit any that changed:\n    git add apps/docs/media/studio\n    git diff --cached --quiet -- apps/docs/media/studio || git commit -m \"docs: Studio stills for this release\" -- apps/docs/media/studio",
 
-    `Deploy the site, then open https://demoman.io/changelog and check it lists ${version}:\n    (cd internal/site && npx wrangler deploy)`,
-    // A subshell: step 3's paths are the repo root's.
-    `Publish npm (your security key's browser prompt):\n    ${
-      rc
-        ? `(cd apps/cli/pkg && npm publish --tag next)\n    npm dist-tag add demoman@${version} latest`
-        : `(cd apps/cli/pkg && npm publish)\n    npm dist-tag add demoman@${version} next`
-    }\n    npm dist-tag ls demoman`,
-    // plugin-out is the whole of demoman-io/plugins; a fresh clone each time, so nothing stale rides along.
-    `Only after npm answers: the plugin, from a fresh clone of demoman-io/plugins:\n    p=$(mktemp -d) && git clone git@github.com:demoman-io/plugins.git "$p"\n    rsync -a --delete --exclude .git apps/cli/plugin-out/ "$p"/\n    git -C "$p" add -A && git -C "$p" commit -m "demoman ${version}" && git -C "$p" push`,
-    "Push main (Mintlify deploys the docs from it), and the site's commit:\n    git push origin main\n    git -C internal push",
-    `Check:\n    npm view demoman@${version} version\n    npx demoman@${version} setup`,
+    `The agent: deploy the site (release:finish checks /changelog lists ${version}):\n    (cd internal/site && npx wrangler deploy)`,
+    `The author, with their security key, as one line:\n    ! ${publishLine(version)}`,
+    `The agent, once the author's line has run: push the plugin, main and the site's commit, and check npm, the plugin, the site and npx:\n    pnpm release:finish ${version}`,
   ];
 }
 
@@ -178,8 +181,8 @@ function main(version) {
   if (extra.length > 0) stop("the dry run", extra.map((p) => `would ship ${p}`));
   console.log(`${pack.files.length} files, ${(pack.size / 1e6).toFixed(1)} MB packed, ${(pack.unpackedSize / 1e6).toFixed(1)} MB unpacked`);
 
-  console.log("\nYour steps, in this order (a plugin pushed before npm breaks every user):");
-  authorSteps(version).forEach((s, i) => console.log(`\n${i + 1}. ${s}`));
+  console.log("\nThe rest, in this order; only the publish is the author's (a plugin pushed before npm breaks every user):");
+  releaseSteps(version).forEach((s, i) => console.log(`\n${i + 1}. ${s}`));
   for (const u of unchecked) console.log(`\nNOT CHECKED: ${u}`);
   console.log(`\nrelease: ${version} ready to publish${unchecked.length ? ` (${unchecked.length} check not run, above)` : ""}`);
 }
