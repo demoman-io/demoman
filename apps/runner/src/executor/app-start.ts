@@ -211,19 +211,25 @@ export async function startApp(
     for (const v of secretValues) out = out.replaceAll(v, "<redacted>");
     return out;
   };
-  // The last poll's status, null when it got no answer: a refusal names an
-  // app that answered 500 or 404, not "nothing answered".
-  let lastStatus: number | null = null;
+  // What the polls saw, so a refusal names an app that answered 500 or 404,
+  // or was too slow to answer, instead of "nothing answered": the last
+  // status any poll got, and how the final poll ended.
+  let answeredStatus: number | null = null;
+  let lastPoll: "answered" | "refused" | "timedOut" = "refused";
   const ready = async () => {
     try {
       const r = await d.fetch(app.url, {
         redirect: "manual",
         signal: AbortSignal.timeout(PROBE_MS),
       });
-      lastStatus = r.status;
+      answeredStatus = r.status;
+      lastPoll = "answered";
       return r.status >= 200 && r.status <= 403;
-    } catch {
-      lastStatus = null;
+    } catch (error) {
+      lastPoll =
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timedOut"
+          : "refused";
       return false;
     }
   };
@@ -415,21 +421,15 @@ export async function startApp(
       await Promise.race([started.drained, delay(DRAIN_MS)]);
       return refuse(
         "appStartExited",
-        `\`${app.start}\` ${ex.code === null ? `was stopped by ${ex.signal}` : `exited with code ${ex.code}`} before ${app.url} answered; fix the start command in ${APP_FILE}, then run again`,
+        `\`${app.start}\` ${ex.code === null ? `was stopped by ${ex.signal}` : `exited with code ${ex.code}`} ${answeredStatus === null ? `before ${app.url} answered` : `after ${app.url} answered ${answeredStatus}`}; fix the start command in ${APP_FILE}, then run again`,
         started.output(),
       );
     }
     if (await ready()) break;
     if (d.now() >= deadline) {
-      const of = `of \`${app.start}\`${ex ? " (it exited with code 0)" : ""}`;
-      const after = `${app.url} still answered ${lastStatus} after ${app.timeoutSeconds} s ${of}`;
       return refuse(
         "appNeverAnswered",
-        lastStatus === null
-          ? `nothing answered at ${app.url} within ${app.timeoutSeconds} s ${of}; check the URL and timeoutSeconds in ${APP_FILE}, then run again`
-          : lastStatus === 404
-            ? `${after}: is the dev server on another port, or is the URL's path wrong? Check the app's output and the url in ${APP_FILE}, then run again`
-            : `${after}, never 2xx, 3xx or 400-403: the app started but fails; its output says why; fix it, then run again`,
+        neverReady(app, o.mode, answeredStatus, lastPoll, ex !== undefined),
         started.output(),
       );
     }
@@ -445,6 +445,40 @@ export async function startApp(
     reset,
     pinnedNow: app.now ?? null,
   };
+}
+
+/** Why the URL was never ready, from what the polls saw: each case has its
+ *  own remedy. Only the final poll and the last status are known, so the
+ *  words claim nothing about the polls in between. */
+export function neverReady(
+  app: Pick<AppSpec, "url" | "start" | "timeoutSeconds">,
+  mode: "reuse" | "own",
+  answeredStatus: number | null,
+  lastPoll: "answered" | "refused" | "timedOut",
+  exitedZero: boolean,
+): string {
+  const of = `${app.timeoutSeconds} s of \`${app.start}\`${exitedZero ? " (it exited with code 0)" : ""}`;
+  const slow = `did not respond within ${PROBE_MS / 1000} s`;
+  if (answeredStatus === null)
+    return lastPoll === "timedOut"
+      ? `${app.url} ${slow} to its last poll, ${of}: the app may still be starting (a first compile, say); raise timeoutSeconds in ${APP_FILE}, or read its output, then run again`
+      : `nothing answered at ${app.url} within ${of}; check the URL and timeoutSeconds in ${APP_FILE}, then run again`;
+  const then =
+    lastPoll === "answered"
+      ? ""
+      : lastPoll === "timedOut"
+        ? `, then ${slow}`
+        : ", then stopped answering";
+  const said = `${app.url} answered ${answeredStatus}${then} within ${of}`;
+  if (answeredStatus === 404)
+    // "own" refused anything at the URL before the start, so this 404 is
+    // the app's own: only its path can be wrong.
+    return mode === "own"
+      ? `${said}: is the URL's path right? Check the url in ${APP_FILE} and the app's output, then run again`
+      : `${said}: is the dev server on another port, or is the URL's path wrong? Check the url in ${APP_FILE} and the app's output, then run again`;
+  if (answeredStatus >= 502 && answeredStatus <= 504)
+    return `${said}, never ready: the app or a proxy in front of it may still be starting; raise timeoutSeconds in ${APP_FILE}, or read its output, then run again`;
+  return `${said}, never ready: the app started but fails; its output says why; fix it, then run again`;
 }
 
 type Exit = { code: number | null; signal: NodeJS.Signals | null };
