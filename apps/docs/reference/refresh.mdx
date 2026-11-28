@@ -37,7 +37,7 @@ uses an app already answering at `url`, otherwise it runs `start`.
 
 ## Delivering
 
-Refresh does not commit. `demoman deliver <pr|main> <folder>` takes the
+Refresh does not commit. `demoman deliver <pr|main> <folder>` reads the
 folder `--hand-off` wrote and commits it, in a job of its own with write
 access that never runs your app. It checks the folder against the repo's flows
 first and refuses, committing nothing, when it holds a path no flow declares.

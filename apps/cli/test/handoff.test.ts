@@ -332,7 +332,7 @@ describe("readHandOff", () => {
       h.demoman = "0.0.0";
     });
     await refused(
-      "the hand-off was written by demoman 0.0.0, delivered by 1.2.3; the workflow must pin one version",
+      "the hand-off was written by demoman 0.0.0, delivered by 1.2.3; the workflow must install one release",
     );
   });
 

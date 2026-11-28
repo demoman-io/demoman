@@ -32,7 +32,7 @@ export async function deliverCommand(
     dir === undefined ||
     extra.length > 0
   ) {
-    deps.err("demoman: deliver takes pr or main, then the hand-off folder\n");
+    deps.err("demoman: deliver wants pr or main, then the hand-off folder\n");
     return 2;
   }
   const refuse = (why: string): number => {
@@ -113,9 +113,10 @@ export async function afterRefresh(
     stderr: said(e),
   }));
   const commit = head.stdout.trim();
+  const why = head.stderr.trim() || `exit ${head.code}`;
   if (head.code !== 0 || commit === "")
     return fail(
-      `the commit refreshed could not be read (git rev-parse HEAD: ${head.stderr.trim() || `exit ${head.code}`})`,
+      `the commit refreshed could not be read (git rev-parse HEAD: ${why})`,
     );
   const handed = await writeHandOff(a.handOff, {
     repoRoot: a.repoRoot,

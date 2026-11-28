@@ -222,7 +222,7 @@ export async function readHandOff(
       );
     if (raw.demoman !== a.version)
       return no(
-        `the hand-off was written by demoman ${String(raw.demoman)}, delivered by ${a.version}; the workflow must pin one version`,
+        `the hand-off was written by demoman ${String(raw.demoman)}, delivered by ${a.version}; the workflow must install one release`,
       );
     const head = await a.git(["rev-parse", "HEAD"], a.repoRoot);
     if (head.code !== 0)

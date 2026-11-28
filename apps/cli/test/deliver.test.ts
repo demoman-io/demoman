@@ -1008,7 +1008,7 @@ describe("deliverCommand", () => {
     });
     expect(code).toBe(1);
     expect(err.join("")).toBe(
-      "demoman deliver: nothing delivered: the hand-off was written by demoman 9.9.9, delivered by 1.0.0; the workflow must pin one version\n",
+      "demoman deliver: nothing delivered: the hand-off was written by demoman 9.9.9, delivered by 1.0.0; the workflow must install one release\n",
     );
     expect(git(remote, "rev-list", "--count", "main")).toBe("2");
   });
