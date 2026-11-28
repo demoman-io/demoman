@@ -336,6 +336,9 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
   /** The display scale the caller's browser films motion at, which only it
    *  decided (`meta.capture.displayScale`). Absent when it does not know. */
   displayScale?: number;
+  /** The caller's browser version (`meta.capture.browser`); absent when it
+   *  does not know. */
+  browser?: string;
   /**
    * The take's branding when the script names none (`look.branding` wins).
    * The caller's, because only the caller can read the author's brand kit:
@@ -1386,6 +1389,8 @@ export function assembleAuthored(
     device?: CaptureDevice;
     /** The caller's display scale; absent when it does not know. */
     displayScale?: number;
+    /** The caller's browser version; absent when it does not know. */
+    browser?: string;
     /** What the walk measured per step, which the script's trim is cut from.
      *  On a planned take each performed step is given its `outputTiming`. */
     steps: AuthoredStep[];
@@ -1434,6 +1439,7 @@ export function assembleAuthored(
         ...(args.displayScale === undefined
           ? {}
           : { displayScale: args.displayScale }),
+        ...(args.browser === undefined ? {} : { browser: args.browser }),
       },
       // The frames this take has are its own, which is what `screen` means.
       // Nothing sets `demo` today (`renderMode` in `@demoman/scene-schema`).
@@ -2013,6 +2019,7 @@ export async function runAuthored(
     ...(deps.displayScale === undefined
       ? {}
       : { displayScale: deps.displayScale }),
+    ...(deps.browser === undefined ? {} : { browser: deps.browser }),
     steps: run.steps,
     ...(room === undefined ? {} : { settledAfterMs: room.settledAfterMs }),
   });

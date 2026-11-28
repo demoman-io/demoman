@@ -105,6 +105,9 @@ export type Prepared =
       /** Whether the page's clock is held and at which frame rate, or why
        *  not, and a 60 it could not apply (`RunReport.run.recording`). */
       recording: RunRecording;
+      /** The recording browser's version (`meta.capture.browser`); absent
+       *  when no browser was connected to ask. */
+      browser?: string;
       /** The held clock, already holding the page, and what feeds it. */
       held?: { clock: HeldClock; network: NetworkWatch };
     }
@@ -317,6 +320,9 @@ export async function prepareStage(
       };
     }
   }
+  // Read once the stage is up, after any relaunch above: the browser that
+  // records the take. The run report and the take both carry this one read.
+  const browser = deps.session.version();
   return {
     ok: true,
     stage: launched,
@@ -325,6 +331,7 @@ export async function prepareStage(
     viewport,
     ...(recordedAt === undefined ? {} : { recordedAt }),
     recording,
+    ...(browser === null ? {} : { browser }),
     ...(held === undefined ? {} : { held }),
   };
 }
@@ -596,6 +603,9 @@ export async function playOnStage(
       // left out, the next run inferred it from the widest motion span to the
       // nearest quarter and told a 1.3125x screen it had changed scale.
       ...(recordedScale === undefined ? {} : { displayScale: recordedScale }),
+      // The browser that recorded it, so a video that changed can be traced
+      // to a browser update (the run report's `run.browser` says the same).
+      ...(prepared.browser === undefined ? {} : { browser: prepared.browser }),
       // Spec 2026-10-01 §1: the take starts as a recorded one does — the
       // author's kit and a zoom on every click.
       startingBranding,

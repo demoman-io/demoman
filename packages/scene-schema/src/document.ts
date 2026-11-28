@@ -626,6 +626,13 @@ const Meta = z.object({
      * `mode`'s was: `CURRENT_SCHEMA_VERSION` stays and no migration is owed.
      */
     displayScale: z.number().positive().optional(),
+    /**
+     * The version of the browser that recorded this take, as it names
+     * itself (`151.0.7922.34`), so a video that changed can be traced to a
+     * browser update. Absent on takes recorded before it was written.
+     * Optional, as `displayScale` is: no schema bump, no migration.
+     */
+    browser: z.string().min(1).optional(),
   }),
   /**
    * Which render this scene wants: `screen` serves the frames the take

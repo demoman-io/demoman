@@ -126,4 +126,17 @@ describe("a held take at 2x", () => {
     },
     RUN_MS,
   );
+
+  it(
+    "names the browser that recorded it, in the take and the run report alike",
+    async () => {
+      const scene = (await createLibrary(home).getScene(
+        takeId,
+      )) as SceneDocument;
+      const run = (report as { run?: { browser?: unknown } }).run;
+      expect(run?.browser, JSON.stringify(run)).toMatch(/^\d+\.\d+\.\d+/);
+      expect(scene.meta.capture.browser).toBe(run?.browser);
+    },
+    RUN_MS,
+  );
 });

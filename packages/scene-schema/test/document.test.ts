@@ -678,6 +678,28 @@ describe("schema v7 — authored capture mode", () => {
   });
 });
 
+describe("meta.capture.browser", () => {
+  it("accepts a document with the browser's version and one without, at the same schema version", () => {
+    // Premise: the fixture carries no browser, as every take recorded
+    // before the field existed does.
+    expect(readonlyFixture.meta.capture.browser).toBeUndefined();
+    expect(SceneDocumentSchema.safeParse(validDocument()).success).toBe(true);
+
+    const doc = validDocument();
+    doc.meta.capture.browser = "151.0.7922.34";
+    expect(SceneDocumentSchema.parse(doc).meta.capture.browser).toBe(
+      "151.0.7922.34",
+    );
+    expect(CURRENT_SCHEMA_VERSION).toBe(17);
+  });
+
+  it("refuses an empty browser version", () => {
+    const doc = validDocument();
+    doc.meta.capture.browser = "";
+    expect(SceneDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+});
+
 describe("meta.capture.displayScale", () => {
   it("accepts a document with the display scale and one without, at the same schema version", () => {
     // Premise: the fixture carries no displayScale, as every take filmed

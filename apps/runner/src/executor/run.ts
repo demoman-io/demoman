@@ -396,6 +396,7 @@ export async function runScript(
   const prepared = await prepareStage(script, deps);
   if (!prepared.ok) return noTake(prepared.reason, prepared.detail);
   run.recording = prepared.recording;
+  if (prepared.browser !== undefined) run.browser = prepared.browser;
   const { stage: launched, sessions, size } = prepared;
   const { page } = launched;
 
