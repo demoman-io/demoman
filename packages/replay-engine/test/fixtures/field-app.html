@@ -17,10 +17,12 @@
   <input id="frozen" type="text">
   <!-- Navigates on its first key: the document the key went into is gone. -->
   <input id="leave" type="text">
-  <!-- Its second frame after a key comes 600 ms late (that frame busy-waits
-       first): the type verb waits two frames after its last key.
-       Measured 2026-11-24 at 300 ms: the act lasted 297 ms longer than the
-       same key on a plain field with the wait, and no longer without it. -->
+  <!-- Its animation frames after a key come no sooner than 700 ms after it:
+       the type verb waits two frames after its last key. They are held, not
+       busy-waited for: a busy page would hold the verb's read of the field
+       too, and end even a verb that does not wait after the frame. The page
+       writes `pressedAt`, `keyAt` and `drawnAt` (the first held frame) on
+       `window.slowPaint`, in Date.now(), the clock the walk's test runs on. -->
   <input id="slowpaint" type="text">
   <script>
     document.getElementById("fmt").addEventListener("input", (e) => {
@@ -41,13 +43,25 @@
         if (performance.now() >= frozenUntil) window.requestAnimationFrame = raf;
       }, 1500);
     });
-    document.getElementById("slowpaint").addEventListener("input", () => {
-      raf(() =>
-        raf(() => {
-          const t = performance.now();
-          while (performance.now() - t < 600) {}
-        }),
-      );
+    window.slowPaint = {};
+    const slow = document.getElementById("slowpaint");
+    slow.addEventListener("pointerdown", () => {
+      window.slowPaint.pressedAt = Date.now();
+    });
+    slow.addEventListener("input", () => {
+      const keyAt = Date.now();
+      window.slowPaint.keyAt = keyAt;
+      window.requestAnimationFrame = (cb) => {
+        setTimeout(
+          () =>
+            raf((t) => {
+              window.slowPaint.drawnAt ??= Date.now();
+              cb(t);
+            }),
+          keyAt + 700 - Date.now(),
+        );
+        return 0;
+      };
     });
     document.getElementById("leave").addEventListener("input", () => {
       location.replace(location.href.split("?")[0] + "?left=1");
