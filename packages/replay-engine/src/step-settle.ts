@@ -197,7 +197,9 @@ export const PAGE_CAPTURE_HOLD = `(() => {
     const run = a.playState === "running";
     if ((!run && (a.__v0 === undefined || a.__pagePaused)) || !t || t.iterations !== Infinity) continue;
     held.push({ a, t: a.currentTime, run });
-    a.pause();
+    // Not the page's pause, which the held clock's pin would say.
+    if (window.__demomanPause) window.__demomanPause.call(a);
+    else a.pause();
     a.currentTime = 0;
   }
   return {

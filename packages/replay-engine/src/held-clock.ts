@@ -103,8 +103,10 @@ const VIDEO_WAIT_MS = 3000;
  *  animation whose element says `animation-play-state: paused`, for as long as
  *  it does (a progress ring scrubbed by a negative delay swept from 0 to full
  *  under the pin; review of 2026-11-16). It goes on from where it stood.
- *  shortcut: a script's `pause()` of an animation the pin already holds is
- *  not seen, so it plays on; upgrade if an app shows it.
+ *  A script's `pause()` of an animation the pin already holds cannot be told
+ *  from the pin's own, so it plays on; `heldFramesScript` marks the page's
+ *  call, and the animation is answered by name, once.
+ *  shortcut: said, not held; upgrade if an app shows it.
  *  An animation at a playbackRate other than 1 is not pinned (played at
  *  rate 1, a reversed one ran forward and snapped back): it is answered by
  *  name and runs on Chrome's clock.
@@ -120,9 +122,9 @@ const VIDEO_WAIT_MS = 3000;
  *  `VIDEO_WAIT_MS` of frames.
  *  Answers `{ said, video }`: what it could not pin, and whether a video
  *  plays or waits to, which the clock paces to real time.
- *  shortcut: a video in a frame (an embedded player) or a shadow root is
- *  neither paced nor said here (a frame of another origin is said as one on
- *  its own clock, play.ts); upgrade if an app's embed shows frozen.
+ *  A video in a same-origin frame (an embedded player) or a shadow root is
+ *  not seen here: `heldFramesScript` says it (a frame of another origin is
+ *  said as one on its own clock, play.ts).
  *  Its picture is Chrome's real-time playback, not `currentTime`, which
  *  follows the page's clock: it starts ahead, and gains on every frame the
  *  machine falls behind, until it stands on the clip's last frame while
@@ -151,6 +153,7 @@ export const pinAnimationsScript = (frameMs: number): string => {
   const nameOf = (a) =>
     (a.animationName || a.transitionProperty || a.id || "an animation") + " on " +
     (a.effect?.target?.tagName?.toLowerCase() ?? "no element");
+  const ownPause = window.__demomanPause;
   for (const a of document.getAnimations()) {
     if (a.__unpinned) continue;
     if (a.timeline && !(a.timeline instanceof DocumentTimeline)) continue;
@@ -160,12 +163,19 @@ export const pinAnimationsScript = (frameMs: number): string => {
       unpinned.push(nameOf(a) + ": plays at rate " + a.playbackRate + ", which the held clock does not play");
       continue;
     }
+    // A script's pause() since the last frame (heldFramesScript marks it).
+    const scripted = a.__pausedByPage === true;
+    a.__pausedByPage = false;
     // The page's own pause: left where it is, and it goes on from there.
     a.__pagePaused = a.__v0 === undefined ? a.playState === "paused" || cssPaused(a) : cssPaused(a);
     if (a.__pagePaused) {
       if (a.__v0 === undefined) a.__waited = true;
       else a.__v0 = v - (a.currentTime ?? 0);
       continue;
+    }
+    if (scripted && a.__v0 !== undefined && !a.__done && !a.__pauseSaid) {
+      a.__pauseSaid = true;
+      unpinned.push(nameOf(a) + ": the page paused it, and it played on: the held clock does not see a script's pause");
     }
     if (a.__waited) {
       a.__waited = false;
@@ -184,7 +194,8 @@ export const pinAnimationsScript = (frameMs: number): string => {
         a.finish();
         a.__done = true;
       } else {
-        a.pause();
+        if (ownPause) ownPause.call(a);
+        else a.pause();
         a.currentTime = t;
       }
     } catch (e) {
@@ -303,6 +314,11 @@ export const PIN_ANIMATIONS = pinAnimationsScript(HELD_FRAME_MS);
  *  a link to an anchor on a smooth-scrolling page is not seen. Upgrade if an
  *  app shows it.
  *
+ *  Two things the pin cannot see are said from here, once each: an
+ *  animation the page's script paused (`Animation.prototype.pause` marks
+ *  it; the pin names it), and a playing video in this frame or in an open
+ *  shadow root of the page, which no one holds or paces.
+ *
  *  Built for the clock's frame length, so the page's grid is the clock's. */
 export const heldFramesScript = (frameMs: number): string => `(() => {
   if (window.__demomanFlushFrames) return;
@@ -329,6 +345,37 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
   };
   window.cancelAnimationFrame = function cancelAnimationFrame(id) {
     queue.delete(id);
+  };
+  // The page's pause() of an animation is marked for the pin, which cannot
+  // tell it from its own; Demoman's own pauses call __demomanPause.
+  const proto = window.Animation && window.Animation.prototype;
+  const ownPause = proto && proto.pause;
+  if (typeof ownPause === "function")
+    proto.pause = function pause() {
+      this.__pausedByPage = true;
+      return ownPause.apply(this, arguments);
+    };
+  // A playing video the pin does not see: in this frame, or in an open
+  // shadow root of the page.
+  // shortcut: said, not held, nor the take paced to it as the pin's videos
+  // are; a closed shadow root is not looked in. Upgrade if an app's embed
+  // shows frozen.
+  const framed = window !== window.parent;
+  const UNSEEN = "a playing video in " + (framed ? "a frame" : "a shadow root") +
+    " runs on its own clock: it was not held, nor the take kept to real time for it";
+  const plays = (el) => el.tagName === "VIDEO" && !el.paused && !el.ended;
+  const unseenPlays = () => {
+    const roots = [];
+    for (const el of query("*")) {
+      if (framed && plays(el)) return true;
+      if (el.shadowRoot) roots.push(el.shadowRoot);
+    }
+    for (let i = 0; i < roots.length; i++)
+      for (const el of roots[i].querySelectorAll("*")) {
+        if (plays(el)) return true;
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    return false;
   };
   const named = (el) => {
     let o = "null";
@@ -376,6 +423,14 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
     try { if (asked.some((a) => where(a.el) !== a.before)) jumped = true; } catch (e) {}
     asked = [];
     if (jumped && !said.has(SMOOTH)) { said.add(SMOOTH); out.push(SMOOTH); }
+    if (!said.has(UNSEEN)) {
+      let what = null;
+      try { if (unseenPlays()) what = UNSEEN; } catch (e) {
+        what = "the held clock could not look for a video in " + (framed ? "a frame" : "the page's shadow roots") +
+          " (" + (e && e.message ? e.message : String(e)) + "): one playing there would not be said";
+      }
+      if (what !== null) { said.add(UNSEEN); out.push(what); }
+    }
     for (let i = 0; i < window.frames.length; i++) {
       const w = window.frames[i];
       let run;
@@ -392,6 +447,7 @@ export const heldFramesScript = (frameMs: number): string => `(() => {
   Object.defineProperty(window, "__demomanRaf", { value: request });
   Object.defineProperty(window, "__demomanFlushFrames", { value: flush });
   Object.defineProperty(window, "__demomanQuery", { value: query });
+  if (typeof ownPause === "function") Object.defineProperty(window, "__demomanPause", { value: ownPause });
 })()`;
 
 /** `heldFramesScript` at 30 fps. */

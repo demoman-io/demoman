@@ -2,6 +2,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type Browser, chromium, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  HELD_FRAMES_SCRIPT,
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   PIN_ANIMATIONS,
@@ -445,6 +446,131 @@ describe("the step-settle probe in a real page", () => {
         video: true,
       });
       expect(await pin(66)).toEqual({ said: [], video: true });
+    });
+  });
+
+  /** The fixture with the held frames script in every document, as a held
+   *  recording has it (play.ts). */
+  async function withHeldPage(fn: (page: Page) => Promise<void>) {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    try {
+      await page.addInitScript(HELD_FRAMES_SCRIPT);
+      await page.goto(FIXTURE, { waitUntil: "load" });
+      await fn(page);
+    } finally {
+      await page.close();
+    }
+  }
+  const saidAt = async (page: Page, v: number) =>
+    (await page.evaluate(`(${PIN_ANIMATIONS})(${v})`)) as {
+      said: string[];
+      video: boolean;
+    };
+
+  // A script's pause() of a spinner the pin holds read as the pin's own,
+  // so it played on and the take said nothing. Red if the page's call is
+  // unsaid, or if the screen's own hold (PAGE_CAPTURE_HOLD) is said as it.
+  it("the held clock's pin says an animation the page's script paused, which played on", async () => {
+    await withHeldPage(async (page) => {
+      await page.click("#spinbtn");
+      expect(await saidAt(page, 1000)).toEqual({ said: [], video: false });
+      await saidAt(page, 1033);
+      const spin = () =>
+        page.evaluate(() => {
+          const a = document.getElementById("spin")?.getAnimations()[0];
+          return { at: a?.currentTime, state: a?.playState };
+        });
+      // Premise: the pin holds it, paused already, so the page's pause
+      // changes nothing the pin can read.
+      expect(await spin(), "premise: pinned 33 ms in").toEqual({
+        at: 33,
+        state: "paused",
+      });
+      await page.evaluate(PAGE_CAPTURE_HOLD);
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(await saidAt(page, 1066)).toEqual({ said: [], video: false });
+      // The page's own pause, by its script.
+      const paused = await page.evaluate(() => {
+        const a = document.getElementById("spin")?.getAnimations()[0];
+        a?.pause();
+        return a?.playState;
+      });
+      expect(paused, "premise: the page paused it").toBe("paused");
+      expect(await saidAt(page, 1100)).toEqual({
+        said: [
+          "spin on div: the page paused it, and it played on: the held clock does not see a script's pause",
+        ],
+        video: false,
+      });
+      // It played on, as said.
+      expect(await spin()).toEqual({ at: 100, state: "paused" });
+      expect((await saidAt(page, 1133)).said).toEqual([]);
+    });
+  });
+
+  // The pin reads this document's own videos: one in a shadow root or in a
+  // same-origin frame was neither held nor said, and the take read as held.
+  it("the held clock says a playing video in a shadow root and in a same-origin frame", async () => {
+    await withHeldPage(async (page) => {
+      await page.evaluate(async () => {
+        const stream = () => {
+          const canvas = document.createElement("canvas");
+          canvas.getContext("2d")?.fillRect(0, 0, 10, 10);
+          return canvas.captureStream();
+        };
+        const host = document.createElement("div");
+        host.id = "host";
+        document.body.append(host);
+        const shadowed = document.createElement("video");
+        shadowed.muted = true;
+        shadowed.srcObject = stream();
+        host.attachShadow({ mode: "open" }).append(shadowed);
+        const f = document.createElement("iframe");
+        f.id = "embed";
+        f.srcdoc = "<!doctype html><body></body>";
+        const loaded = new Promise((r) => f.addEventListener("load", r));
+        document.body.append(f);
+        await loaded;
+        const doc = f.contentDocument;
+        if (!doc) throw new Error("the frame is not same-origin");
+        const framed = doc.createElement("video");
+        framed.muted = true;
+        framed.srcObject = stream();
+        doc.body.append(framed);
+        await Promise.all([shadowed.play(), framed.play()]);
+      });
+      const where = await page.evaluate(() => {
+        const f = document.getElementById("embed") as HTMLIFrameElement;
+        const w = f.contentWindow as unknown as Record<string, unknown>;
+        return {
+          ownVideos: document.querySelectorAll("video").length,
+          shadowPlaying:
+            document.getElementById("host")?.shadowRoot?.querySelector("video")
+              ?.paused === false,
+          framePlaying:
+            f.contentDocument?.querySelector("video")?.paused === false,
+          frameHeld: typeof w.__demomanFlushFrames === "function",
+        };
+      });
+      // Premise: neither is the document's own, both play, and the frame
+      // has the held frames script, so its parent runs it.
+      expect(where).toEqual({
+        ownVideos: 0,
+        shadowPlaying: true,
+        framePlaying: true,
+        frameHeld: true,
+      });
+      // Not paced either (`video` is the pin's own), which the words say.
+      expect(await saidAt(page, 1000)).toEqual({
+        said: [
+          "a playing video in a shadow root runs on its own clock: it was not held, nor the take kept to real time for it",
+          "a playing video in a frame runs on its own clock: it was not held, nor the take kept to real time for it",
+        ],
+        video: false,
+      });
+      expect((await saidAt(page, 1033)).said).toEqual([]);
     });
   });
 
