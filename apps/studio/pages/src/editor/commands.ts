@@ -628,7 +628,7 @@ function decidePairsAgain(
   if (!next.camera.some((c) => c.arrives !== undefined)) return next;
   if (bundle === null)
     throw new Error(
-      "this take's frames are not loaded, so the camera's pan or return across this edit cannot be decided again; nothing was changed",
+      "this video's frames are not loaded, so the camera's pan or return across this edit cannot be decided again; nothing was changed",
     );
   return decideCamera(next, bundle, before);
 }
