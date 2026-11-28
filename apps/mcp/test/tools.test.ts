@@ -337,7 +337,9 @@ describe("demoman-mcp's tools", () => {
       { outcome: "pathUnknown", name: "a.mp4", detail: "not found" },
       { outcome: "threw", error: "disk full" },
     ];
-    const answers: Array<["export" | "attach", unknown, boolean]> = [
+    const answers: ReadonlyArray<
+      readonly ["export" | "attach", unknown, boolean]
+    > = [
       ...unsaved.map((v) => ["export", v, true] as const),
       ["export", { outcome: "saved", file: { path: "/D/a.mp4" } }, false],
       // An attach answers an unsaved export as itself.
