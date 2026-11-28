@@ -60,6 +60,11 @@ const PROBE_MS = 2_000;
 const KILL_WAIT_MS = 5_000;
 const DRAIN_MS = 500;
 const TAIL_LINES = 40;
+/** The workflow's GitHub token: on Actions it can write to the repo. Off
+ *  Actions a shell's token is the person's own, as their app already sees. */
+const isWorkflowToken = (name: string, env: NodeJS.ProcessEnv): boolean =>
+  env.GITHUB_ACTIONS === "true" &&
+  (name === "GH_TOKEN" || name === "GITHUB_TOKEN");
 
 /** A `docker info` that hangs (a stuck daemon) is Docker not answering. */
 export const DOCKER_INFO_MS = 20_000;
@@ -177,9 +182,25 @@ export async function startApp(
     o.log(
       `DEMOMAN_NOW from the environment was not passed to the app: Demoman sets it from now in ${APP_FILE}`,
     );
-  const { DEMOMAN_NOW: _stray, ...inherited } = { ...o.env, ...app.env };
+  const { DEMOMAN_NOW: _stray, ...inherited } = o.env;
+  // Demoman's own secrets are never the app's: in CI this env holds every
+  // demo account's secret and a token that can write to the repo, and the
+  // install and reset run third-party code. One app.json names under secrets
+  // is passed on purpose (parseApp refuses the tokens there).
+  // shortcut: this keeps them out of what the app inherits, not out of its
+  // reach: on a runner it can read refresh's own environment (/proc, sudo).
+  // Out of reach needs the push in a job that never runs the app.
+  const withheld = Object.keys(inherited).filter(
+    (k) =>
+      (k.startsWith("DEMOMAN_SECRET_") && !app.secrets.includes(k)) ||
+      isWorkflowToken(k, o.env),
+  );
+  for (const k of withheld) delete inherited[k];
+  if (withheld.length > 0)
+    o.log(`not passed to the app: ${withheld.join(", ")} (Demoman's own)`);
   const env: NodeJS.ProcessEnv = {
     ...inherited,
+    ...app.env,
     ...(app.now === undefined ? {} : { DEMOMAN_NOW: app.now }),
   };
   const secretValues = app.secrets

@@ -428,6 +428,61 @@ describe("startApp", () => {
     );
   });
 
+  for (const [where, actions, seen, line] of [
+    [
+      "on Actions",
+      "true",
+      "|||app-wants-this|hello\n",
+      "not passed to the app: DEMOMAN_SECRET_1, GH_TOKEN, GITHUB_TOKEN (Demoman's own)",
+    ],
+    [
+      "off Actions, where the shell's token is the person's",
+      undefined,
+      "|ghs_write|ghs_write2|app-wants-this|hello\n",
+      "not passed to the app: DEMOMAN_SECRET_1 (Demoman's own)",
+    ],
+  ] as const)
+    it(`${where}: Demoman's own secrets never reach install, start or reset; one app.json lists does`, async () => {
+      const said: string[] = [];
+      const dump =
+        'echo "$DEMOMAN_SECRET_1|$GH_TOKEN|$GITHUB_TOKEN|$DEMOMAN_SECRET_2|$GREETING"';
+      const r = started(
+        await startApp(
+          app({
+            install: [`${dump} > install.txt`],
+            start: `${dump} > start.txt; exec ${START}`,
+            reset: `${dump} > reset.txt`,
+            secrets: ["DEMOMAN_SECRET_2"],
+          }),
+          opts({
+            env: {
+              // This machine's own, if any, would join the line said.
+              ...Object.fromEntries(
+                Object.entries(opts().env).filter(
+                  ([k]) =>
+                    !/^(DEMOMAN_SECRET_|GH_TOKEN$|GITHUB_TOKEN$|GITHUB_ACTIONS$)/.test(
+                      k,
+                    ),
+                ),
+              ),
+              ...(actions === undefined ? {} : { GITHUB_ACTIONS: actions }),
+              DEMOMAN_SECRET_1: "account-pass",
+              DEMOMAN_SECRET_2: "app-wants-this",
+              GH_TOKEN: "ghs_write",
+              GITHUB_TOKEN: "ghs_write2",
+              GREETING: "hello",
+            },
+            log: (l) => said.push(l),
+          }),
+          { spawn: spawnSpy.fn },
+        ),
+      );
+      expect(await r.reset()).toEqual({ ok: true });
+      for (const f of ["install.txt", "start.txt", "reset.txt"])
+        expect(await readFile(join(root, f), "utf8"), f).toBe(seen);
+      expect(said).toContain(line);
+    });
+
   it("the tail never carries a value app.json lists under secrets", async () => {
     const r = await startApp(
       app({
