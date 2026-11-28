@@ -201,33 +201,40 @@ describe("a field whose last key paints late", () => {
   // key; this field's second one comes 600 ms late. Read off the act's own end,
   // not the film, so a starved screencast cannot fake it (unhurried-beats skips
   // on that). Red if the walk stops waiting for the frames (`lastKeyPainted`):
-  // the act then ends at the key.
+  // the act then ends at the key, before the late frame finished.
   it("ends the type's act after the page drew the frames after the last key", async () => {
     await runTypes(
-      [
-        { do: "type", into: { stableId: "plain" }, text: "a" },
-        { do: "type", into: { stableId: "slowpaint" }, text: "a" },
-      ],
+      [{ do: "type", into: { stableId: "slowpaint" }, text: "a" }],
       async (result, page) => {
-        // The premise: both keys went in.
-        expect(await page.inputValue("#plain")).toBe("a");
         expect(await page.inputValue("#slowpaint")).toBe("a");
-        const acted = [0, 1].map((i) => {
-          const id = result.steps[i]?.actionId;
-          const m = result.bundle?.markers.find((x) => x.actionId === id);
-          return (m?.actEndSourceTimeMs ?? Number.NaN) - (m?.sourceTimeMs ?? 0);
-        });
-        const said = JSON.stringify({ acted, markers: result.bundle?.markers });
-        // The same one-key type, on a plain field and on the slow one: the
-        // focus, the key and the read are alike, so the difference is the
-        // wait for the slow field's frames: about its 600 ms with the wait,
-        // and none without it (at a 300 ms delay, 2026-11-24: 297 ms with,
-        // -50 without). 450 sits clear of both on a slow machine.
-        expect(acted.every(Number.isFinite), said).toBe(true);
-        expect((acted[1] ?? 0) - (acted[0] ?? 0), said).toBeGreaterThanOrEqual(
-          450,
+        const marker = result.bundle?.markers.find(
+          (x) => x.actionId === result.steps[0]?.actionId,
         );
-        expect(result.steps[1]?.lastKeyPaint, said).toBeUndefined();
+        const acted =
+          (marker?.actEndSourceTimeMs ?? Number.NaN) -
+          (marker?.sourceTimeMs ?? Number.NaN);
+        // Wall-clock ms, as the walk's clock here: pressed, keyed, and the
+        // late frame's end.
+        const times = await page.evaluate(
+          () =>
+            (window as { slowPaint?: Record<string, number> }).slowPaint ?? {},
+        );
+        const {
+          pressedAt = Number.NaN,
+          keyAt = Number.NaN,
+          drawnAt = Number.NaN,
+        } = times;
+        const said = JSON.stringify({ acted, marker, times });
+        // The premises: the field was pressed, then keyed, and its frame
+        // came at least the 600 ms late it busy-waits for.
+        expect(Number.isFinite(acted), said).toBe(true);
+        expect(keyAt - pressedAt, said).toBeGreaterThanOrEqual(0);
+        expect(drawnAt - keyAt, said).toBeGreaterThanOrEqual(600);
+        // The marker is stamped before the press, so an act that ends after
+        // the late frame lasts at least from the press to that frame, however
+        // slow the machine; without the wait it ends at the key, ~600 short.
+        expect(acted, said).toBeGreaterThanOrEqual(drawnAt - pressedAt);
+        expect(result.steps[0]?.lastKeyPaint, said).toBeUndefined();
       },
       true,
     );

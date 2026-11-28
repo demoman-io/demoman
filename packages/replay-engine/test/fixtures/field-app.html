@@ -18,9 +18,9 @@
   <!-- Navigates on its first key: the document the key went into is gone. -->
   <input id="leave" type="text">
   <!-- Its second frame after a key comes 600 ms late (that frame busy-waits
-       first): the type verb waits two frames after its last key.
-       Measured 2026-11-24 at 300 ms: the act lasted 297 ms longer than the
-       same key on a plain field with the wait, and no longer without it. -->
+       first): the type verb waits two frames after its last key. The page
+       writes when it was pressed and when that frame finished on
+       `window.slowPaint`, in Date.now(), the clock the walk's test runs on. -->
   <input id="slowpaint" type="text">
   <script>
     document.getElementById("fmt").addEventListener("input", (e) => {
@@ -41,11 +41,18 @@
         if (performance.now() >= frozenUntil) window.requestAnimationFrame = raf;
       }, 1500);
     });
-    document.getElementById("slowpaint").addEventListener("input", () => {
+    window.slowPaint = {};
+    const slow = document.getElementById("slowpaint");
+    slow.addEventListener("pointerdown", () => {
+      window.slowPaint.pressedAt = Date.now();
+    });
+    slow.addEventListener("input", () => {
+      window.slowPaint.keyAt = Date.now();
       raf(() =>
         raf(() => {
           const t = performance.now();
           while (performance.now() - t < 600) {}
+          window.slowPaint.drawnAt = Date.now();
         }),
       );
     });
